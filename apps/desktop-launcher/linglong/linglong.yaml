@@ -18,7 +18,7 @@ base: org.deepin.base/25.2.2
 # build 脚本直接从当前工作树构建，不拉取远程源码。
 build: |
   cd /project
-  corepack enable pnpm
+  npm install -g pnpm@11.7.0
   pnpm install --frozen-lockfile
   pnpm run build
   pnpm --filter @deepseek-ai/dsh deploy --legacy --prod --config.auto-install-peers=false --config.node-linker=hoisted ${PREFIX}/harness
@@ -33,6 +33,7 @@ buildext:
     build_depends:
       - golang
       - nodejs
+      - npm
       - libwebkit2gtk-4.1-dev
     depends:
       - libwebkit2gtk-4.1-0
