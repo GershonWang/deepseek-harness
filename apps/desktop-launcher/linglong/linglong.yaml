@@ -11,12 +11,12 @@ package:
 command:
   - /opt/apps/org.deepseek.dsh-desktop/files/bin/dsh-desktop-launcher
 
-base: org.deepin.base/25.1.0
+base: org.deepin.base/25.2.2.6
 
 sources:
   - kind: git
     url: https://github.com/GershonWang/deepseek-harness.git
-    commit: d359eaa9acb81a3edf6ed392a8d3c4c215466f2c
+    commit: 707aad933cb6a9a97d43b1a2f6db0ffcf9ce0e36
     name: deepseek-harness.git
 
 build: |
