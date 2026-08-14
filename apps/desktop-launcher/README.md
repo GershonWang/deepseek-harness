@@ -67,9 +67,11 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 pnpm run build
 pnpm run build:web
 
-# 2. 构建启动器
+# 2. 构建启动器（webkit2gtk-4.0 shim：webview_go 编译期硬编码 4.0，
+#    deepin 25 只有 4.1，需先用 linglong/prepare-pkgconfig.sh 生成 shim）
 cd apps/desktop-launcher
-go build -o dsh-desktop-launcher .
+sh linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
+PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go build -o dsh-desktop-launcher .
 
 # 3. 运行（命中环境解析优先级 3）
 ./dsh-desktop-launcher
