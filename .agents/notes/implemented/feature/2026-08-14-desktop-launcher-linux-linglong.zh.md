@@ -2,7 +2,7 @@
 
 Status: implemented
 
-English | [中文](2026-08-14-desktop-launcher-linux-linglong.md)
+English | [中文](2026-08-14-desktop-launcher-linux-linglong.zh.md)
 
 ## Problem
 
