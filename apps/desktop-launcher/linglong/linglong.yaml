@@ -33,7 +33,6 @@ buildext:
     build_depends:
       - golang
       - nodejs
-      - pnpm
       - libwebkit2gtk-4.1-dev
     depends:
       - libwebkit2gtk-4.1-0
