@@ -40,6 +40,7 @@ type Supervisor struct {
 	options  SupervisorOptions
 	ready    chan string
 	logFile  *os.File
+	cancel   context.CancelFunc // 取消当前子进程上下文，在 Stop() 和重新 spawn 时调用
 	mu       sync.Mutex
 	cmd      *exec.Cmd
 	stopping bool
@@ -69,9 +70,13 @@ func (s *Supervisor) Stop() {
 	s.mu.Lock()
 	s.stopping = true
 	cmd := s.cmd
+	cancel := s.cancel
 	s.mu.Unlock()
 
 	if cmd == nil || cmd.Process == nil {
+		if cancel != nil {
+			cancel()
+		}
 		return
 	}
 
@@ -90,6 +95,11 @@ func (s *Supervisor) Stop() {
 	case <-time.After(time.Duration(s.options.KillTimeoutMs) * time.Millisecond):
 		killProcessGroup(cmd, syscall.SIGKILL)
 		<-done
+	}
+
+	// 释放 context 资源
+	if cancel != nil {
+		cancel()
 	}
 }
 
@@ -150,14 +160,34 @@ func (s *Supervisor) run() {
 }
 
 func (s *Supervisor) spawn() {
+	// 关闭之前的日志文件，避免文件描述符泄漏
+	s.mu.Lock()
+	if s.logFile != nil {
+		s.logFile.Close()
+		s.logFile = nil
+	}
+	// 释放上一次 context 的 cancel 函数
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
+	}
+	// 清空就绪通道中残留的旧 URL，防止重启时读到上一次的值
+	for {
+		select {
+		case <-s.ready:
+		default:
+			goto drained
+		}
+	}
+drained:
+	s.mu.Unlock()
+
 	logPath := filepath.Join(s.env.LogDir, "harness.log")
 	os.MkdirAll(s.env.LogDir, 0o755)
 	logFile, _ := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	s.logFile = logFile
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, s.env.Command, s.env.Args...)
-	_ = cancel // 由 Stop/killProcessGroup 显式终止；保留 cancel 以抑制 vet 告警
 
 	// 创建独立进程组，确保 Stop 能终止整个进程树
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -166,6 +196,8 @@ func (s *Supervisor) spawn() {
 	cmd.Stderr = logFile
 
 	s.mu.Lock()
+	s.logFile = logFile
+	s.cancel = cancel
 	s.cmd = cmd
 	s.mu.Unlock()
 
