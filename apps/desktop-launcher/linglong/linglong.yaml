@@ -11,7 +11,7 @@ package:
 command:
   - /opt/apps/org.deepseek.dsh-desktop/files/bin/dsh-desktop-launcher
 
-base: org.deepin.base/25.2.2.6
+base: org.deepin.base/25.2.2
 
 # 无 sources 块：在仓库根运行 ll-builder 时 /project 即整个仓库
 # （ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml），

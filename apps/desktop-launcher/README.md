@@ -101,7 +101,7 @@ ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.0/x86_64
 
 打包要点：
 
-- `base: org.deepin.base/25.2.2.6`（stable 仓库当前可用版本），Node 用 beige 的 nodejs 20.15.1（需仓库 `engines.node` 放宽到 `>=20.15.1`）
+- `base: org.deepin.base/25.2.2`（3 段式模糊匹配，匹配 stable 仓库的 25.2.2.6；base 版本不支持写 4 段完整号），Node 用 beige 的 nodejs 20.15.1（需仓库 `engines.node` 放宽到 `>=20.15.1`）
 - webkit2gtk-4.1 + gtk3 由 `buildext.apt.depends` 从 beige 拉入（系统 webview，不捆绑 Chromium）
 - `pnpm deploy` 后运行 `node scripts/fix-deploy-closure.mjs` 修复闭包（peer deps、符号链接、legacy hoists）
 - `prepare-pkgconfig.sh` 生成 `webkit2gtk-4.0.pc` shim 指向 4.1（webview_go 编译期硬编码 4.0，deepin 25 只有 4.1）
