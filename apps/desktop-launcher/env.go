@@ -56,17 +56,16 @@ func resolveDesktopEnv() DesktopEnv {
 	}
 
 	// 优先级 3：开发态 —— repo 内 apps/cli/lib/bin.js
-	if exeDir != "" {
-		repoRoot := filepath.Join(exeDir, "..", "..", "..")
-		devBin := filepath.Join(repoRoot, "apps", "cli", "lib", "bin.js")
-		if _, err := os.Stat(devBin); err == nil {
-			node := resolveNode()
-			return DesktopEnv{
-				Command: node,
-				Args:    []string{devBin, "web", "--port", port},
-				LogDir:  logDir,
-				Port:    port,
-			}
+	// go run . 时可执行文件在 /tmp/go-build...，用 CWD 推算 repo 根
+	cwd, _ := os.Getwd()
+	devBin := filepath.Join(cwd, "..", "cli", "lib", "bin.js")
+	if _, err := os.Stat(devBin); err == nil {
+		node := resolveNode()
+		return DesktopEnv{
+			Command: node,
+			Args:    []string{devBin, "web", "--port", port},
+			LogDir:  logDir,
+			Port:    port,
 		}
 	}
 
