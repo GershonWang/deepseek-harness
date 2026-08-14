@@ -16,7 +16,7 @@ base: org.deepin.base/25.2.2.6
 sources:
   - kind: git
     url: https://github.com/GershonWang/deepseek-harness.git
-    commit: 707aad933cb6a9a97d43b1a2f6db0ffcf9ce0e36
+    commit: ddf3190c39eacd4913758bd5d72ee567d59c54a5
     name: deepseek-harness.git
 
 build: |
