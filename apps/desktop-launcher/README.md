@@ -23,7 +23,7 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
    └── Cordis web 服务器 + React Web GUI
 ```
 
-渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。API key / workspace 等配置继承 Electron 进程环境，由 harness 自己的配置解析。
+渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。API key / workspace 等配置继承启动器子进程环境，由 harness 自己的配置解析。
 
 ## 文件结构
 
@@ -35,6 +35,8 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 | `window.go` | `webview/webview_go` 封装：Navigate、标题、尺寸、关闭回调 |
 | `linglong/linglong.yaml` | 玲珑构建清单 |
 | `linglong/config.d/10-mounts.json` | 文件系统挂载配置模板（用户参考） |
+| `linglong/prepare-pkgconfig.sh` | 生成 webkit2gtk-4.0.pc shim（指向 4.1） |
+| `icons/dsh-desktop.png` | 应用图标 |
 | `testdata/mock-dsh-web.sh` | 集成测试用的 mock 子进程 |
 
 ## 环境解析（三级回退）
