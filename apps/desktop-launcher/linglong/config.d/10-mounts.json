@@ -1,0 +1,10 @@
+{
+  "mounts": [
+    {
+      "type": "bind",
+      "source": "/home/<USER>/projects",
+      "destination": "/home/<USER>/projects",
+      "options": ["rw", "bind"]
+    }
+  ]
+}

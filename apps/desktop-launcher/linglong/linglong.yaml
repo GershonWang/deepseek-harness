@@ -1,0 +1,45 @@
+version: "1"
+package:
+  id: org.deepseek.dsh-desktop
+  name: deepseek-harness-desktop
+  version: 0.1.0.0
+  kind: app
+  description: |
+    DeepSeek Harness 桌面客户端。
+    以受监护子进程方式运行 harness，通过系统 webkit2gtk 窗口加载其 Web GUI。
+
+command:
+  - /opt/apps/org.deepseek.dsh-desktop/files/bin/dsh-desktop-launcher
+
+base: org.deepin.base/25.1.0
+
+sources:
+  - kind: git
+    url: https://github.com/deepseek-ai/deepseek-harness.git
+    commit: <commit-hash>
+    name: deepseek-harness.git
+
+build: |
+  cd deepseek-harness.git
+  corepack enable pnpm
+  pnpm install --frozen-lockfile
+  pnpm run build
+  pnpm --filter @deepseek-ai/dsh deploy --legacy --prod --config.auto-install-peers=false --config.node-linker=hoisted ${PREFIX}/harness
+  node scripts/fix-deploy-closure.mjs ${PREFIX}/harness
+  cd apps/desktop-launcher
+  CGO_ENABLED=1 go build -o ${PREFIX}/bin/dsh-desktop-launcher .
+  install -Dm644 icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
+
+buildext:
+  apt:
+    build_depends:
+      - golang
+      - nodejs
+      - pnpm
+      - libwebkit2gtk-4.1-dev
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libjavascriptcoregtk-4.1-0
+      - libgtk-3-0
+      - libglib2.0-0
+      - nodejs
