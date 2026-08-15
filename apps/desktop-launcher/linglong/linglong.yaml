@@ -20,6 +20,11 @@ build: |
   cd /project
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
   export npm_config_registry=https://registry.npmmirror.com
+  # pnpm 11 需要 Node >=22.13（node:sqlite），beige nodejs 只有 20；
+  # 构建期临时使用 npmmirror 镜像的 Node 22，运行时仍是 apt nodejs 20.15.1
+  wget -q -O /tmp/node22.tar.gz https://registry.npmmirror.com/-/binary/node/v22.14.0/node-v22.14.0-linux-x64.tar.gz
+  tar -xzf /tmp/node22.tar.gz -C /opt
+  export PATH=/opt/node-v22.14.0-linux-x64/bin:$PATH
   npm install -g pnpm@11.7.0 --registry=https://registry.npmmirror.com
   pnpm install --frozen-lockfile
   pnpm run build
@@ -36,6 +41,7 @@ buildext:
       - golang
       - nodejs
       - npm
+      - wget
       - libwebkit2gtk-4.1-dev
     depends:
       - libwebkit2gtk-4.1-0
