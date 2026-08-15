@@ -42,10 +42,21 @@ build: |
   # /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1（WEBKIT_EXEC_PATH 需 DEVELOPER_MODE
   # 才有效，运行时 /usr 只读、layer 不导出 /usr）。替换为 /tmp/dsh-webkit-4.1，
   # launcher 启动时建符号链接指向 ${PREFIX} 下的真实 helper。
-  sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
+  #
+  # 关键：buildext.apt.depends 的 webkit 在构建后（preCommit）才合并进
+  # $PREFIX，若等那时再补丁为时已晚。因此这里直接从 build 容器 /usr
+  # （build_depends 已装 libwebkit2gtk-4.1-0）复制并打补丁；preCommit 的
+  # mergeOutput 用 skip_existing 不会覆盖我们预置的补丁版。
+  mkdir -p ${PREFIX}/lib/x86_64-linux-gnu
+  cp -a /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7 ${PREFIX}/lib/x86_64-linux-gnu/
+  sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7
+  ln -sf libwebkit2gtk-4.1.so.0.19.7 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
+  ln -sf libwebkit2gtk-4.1.so.0 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so
 
 buildext:
   apt:
+    build_depends:
+      - libwebkit2gtk-4.1-0
     depends:
       - libwebkit2gtk-4.1-0
       - libjavascriptcoregtk-4.1-0
