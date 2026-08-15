@@ -23,8 +23,19 @@ build: |
     echo "stage 缺失：先在仓库根运行 sh apps/desktop-launcher/linglong/prepare-offline.sh" >&2
     exit 1
   fi
-  mkdir -p ${PREFIX}/bin ${PREFIX}/harness
+  # harness 运行时需要 Node >=24（node:zlib.createZstdDecompress、
+  # Promise.withResolvers、node:module.stripTypeScriptTypes），
+  # beige 的 nodejs 只有 20.15.1，必须捆绑 Node 24。
+  # 复用宿主机 prepare 阶段下载的 Node 24 二进制（npmmirror 镜像）。
+  if [ ! -d "$STAGE/node" ]; then
+    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+    wget -q -O /tmp/node24.tar.gz https://registry.npmmirror.com/-/binary/node/v24.9.0/node-v24.9.0-linux-x64.tar.gz
+    mkdir -p "$STAGE/node"
+    tar -xzf /tmp/node24.tar.gz -C "$STAGE/node" --strip-components=1
+  fi
+  mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
+  cp -a "$STAGE/node/." ${PREFIX}/node/
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
 
@@ -35,4 +46,3 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
-      - nodejs

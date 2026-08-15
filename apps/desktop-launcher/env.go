@@ -46,7 +46,13 @@ func resolveDesktopEnv() DesktopEnv {
 	prefix := filepath.Dir(exeDir) // .../files/bin -> .../files
 	packagedBin := filepath.Join(prefix, "harness", "lib", "bin.js")
 	if _, err := os.Stat(packagedBin); err == nil {
-		node := resolveNode()
+		// 打包态优先用捆绑的 Node 24（harness 运行时需要 Node >=24：
+		// node:zlib.createZstdDecompress、Promise.withResolvers 等），
+		// 避免依赖宿主/容器的 PATH node（beige 只有 20.15.1，跑不起来）。
+		node := filepath.Join(prefix, "node", "bin", "node")
+		if _, statErr := os.Stat(node); statErr != nil {
+			node = resolveNode()
+		}
 		return DesktopEnv{
 			Command: node,
 			Args:    []string{packagedBin, "web", "--port", port},
