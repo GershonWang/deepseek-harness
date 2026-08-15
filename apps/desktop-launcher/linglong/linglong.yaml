@@ -18,14 +18,16 @@ base: org.deepin.base/25.2.2
 # build 脚本直接从当前工作树构建，不拉取远程源码。
 build: |
   cd /project
-  npm install -g pnpm@11.7.0
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+  export npm_config_registry=https://registry.npmmirror.com
+  npm install -g pnpm@11.7.0 --registry=https://registry.npmmirror.com
   pnpm install --frozen-lockfile
   pnpm run build
   pnpm --filter @deepseek-ai/dsh deploy --legacy --prod --config.auto-install-peers=false --config.node-linker=hoisted ${PREFIX}/harness
   node scripts/fix-deploy-closure.mjs ${PREFIX}/harness
   cd apps/desktop-launcher
   sh linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
-  PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 go build -o ${PREFIX}/bin/dsh-desktop-launcher .
+  GOPROXY=https://goproxy.cn,direct PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 go build -o ${PREFIX}/bin/dsh-desktop-launcher .
   install -Dm644 icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
 
 buildext:
