@@ -38,6 +38,9 @@ build: |
   cp -a "$STAGE/node/." ${PREFIX}/node/
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
+  # 桌面集成：.desktop 文件（generateEntries 会复制到 entries/share/applications，
+  # 玲珑启动器/应用菜单据此显示程序与图标）
+  install -Dm644 /project/apps/desktop-launcher/linglong/org.deepseek.dsh-desktop.desktop ${PREFIX}/share/applications/org.deepseek.dsh-desktop.desktop
   # 字节补丁 webkit helper 路径：Debian 正式构建把 helper 目录硬编码为
   # /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1（WEBKIT_EXEC_PATH 需 DEVELOPER_MODE
   # 才有效，运行时 /usr 只读、layer 不导出 /usr）。替换为 /tmp/dsh-webkit-4.1，
@@ -62,3 +65,4 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
+      - zenity
