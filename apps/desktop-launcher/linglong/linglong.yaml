@@ -66,3 +66,5 @@ buildext:
       - libgtk-3-0
       - libglib2.0-0
       - zenity
+      - libgtk-4-1
+      - gsettings-desktop-schemas

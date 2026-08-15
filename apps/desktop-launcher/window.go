@@ -1,5 +1,26 @@
 package main
 
+/*
+#cgo pkg-config: gtk+-3.0
+#include <gtk/gtk.h>
+
+// dshDeleteEvent 处理窗口关闭按钮（WM_DELETE_WINDOW）。返回 FALSE 让 GTK
+// 默认处理器运行（gtk_widget_destroy），从而触发 webkit 已连接的 destroy ->
+// terminate -> gtk_main_quit 链；否则（如 webview_go 默认）delete-event 只
+// 隐藏窗口不销毁，w.Run() 永不返回，进程无法退出。
+gboolean dshDeleteEvent(GtkWidget *widget, GdkEvent *event, gpointer data) {
+  (void)event; (void)data;
+  // 明确销毁窗口：webview_go 未处理 delete-event，GTK 默认行为在此
+  // 环境下不销毁窗口。主动调用 gtk_widget_destroy 触发 webkit 的
+  // destroy -> terminate -> gtk_main_quit 关闭链。
+  if (widget != NULL) {
+    gtk_widget_destroy(widget);
+  }
+  return TRUE; // 已处理，阻止 GTK 默认
+}
+*/
+import "C"
+
 import (
 	"os"
 	"path/filepath"
@@ -17,6 +38,11 @@ func openWindow(url string, sup *Supervisor) {
 	w.SetTitle("DeepSeek Harness")
 	w.SetSize(1280, 800, webview.HintNone)
 
+	// webview_go 未处理窗口 delete-event（点关闭按钮/Alt+F4），窗口只隐藏
+	// 不销毁，w.Run() 不会返回。手动连接 delete-event 并在处理器里主动
+	// gtk_widget_destroy，触发 webkit 的 destroy -> terminate 关闭链。
+	connectDeleteEvent(w)
+
 	w.Navigate(url)
 
 	// w.Run() 阻塞直到用户关闭窗口
@@ -24,6 +50,24 @@ func openWindow(url string, sup *Supervisor) {
 
 	// 窗口已关闭，停止子进程
 	sup.Stop()
+}
+
+// connectDeleteEvent 给 GTK 窗口连接 delete-event 处理器。
+// w.Window() 返回 GtkWidget*；空指针时静默跳过（不影响后续）。
+func connectDeleteEvent(w webview.WebView) {
+	win := w.Window()
+	if win == nil {
+		return
+	}
+	// g_signal_connect 是宏，cgo 用其展开后的实际函数 g_signal_connect_data
+	C.g_signal_connect_data(
+		C.gpointer(win),
+		C.CString("delete-event"),
+		C.GCallback(C.dshDeleteEvent),
+		nil,
+		nil,
+		0,
+	)
 }
 
 // configureWebKitHelperPath 让 webkit2gtk 找到其辅助进程
