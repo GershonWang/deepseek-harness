@@ -38,6 +38,11 @@ build: |
   cp -a "$STAGE/node/." ${PREFIX}/node/
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
+  # 字节补丁 webkit helper 路径：Debian 正式构建把 helper 目录硬编码为
+  # /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1（WEBKIT_EXEC_PATH 需 DEVELOPER_MODE
+  # 才有效，运行时 /usr 只读、layer 不导出 /usr）。替换为 /tmp/dsh-webkit-4.1，
+  # launcher 启动时建符号链接指向 ${PREFIX} 下的真实 helper。
+  sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
 
 buildext:
   apt:
