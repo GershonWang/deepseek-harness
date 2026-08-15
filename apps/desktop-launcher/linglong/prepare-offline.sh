@@ -8,6 +8,7 @@
 # 用法：在仓库根运行
 #   sh apps/desktop-launcher/linglong/prepare-offline.sh
 set -eu
+ROOT=$(pwd)
 cd "$(dirname "$0")/../../.."   # 仓库根
 
 STAGE=apps/desktop-launcher/linglong/stage
@@ -25,9 +26,11 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
 # 3. Go 启动器（webkit2gtk-4.0 pkg-config shim 指向 4.1）
+#    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
+#    "cannot find main module"
 sh apps/desktop-launcher/linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
-PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 \
-  go build -o "$STAGE/bin/dsh-desktop-launcher" ./apps/desktop-launcher
+( cd apps/desktop-launcher && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 \
+  go build -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
 echo "prepare-offline: 产物已暂存到 $STAGE"
 echo "  下一步：ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml"
