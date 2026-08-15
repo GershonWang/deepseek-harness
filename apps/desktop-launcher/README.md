@@ -89,22 +89,24 @@ go test -v ./...        # 单元 + mock 子进程集成测试
 
 ## 玲珑打包
 
-直接引用本地源码构建，不从远程拉取（`/project` 即运行 `ll-builder` 的当前目录）。**在仓库根目录运行**：
+**组装式两步构建**：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，容器只复制组装。规避了构建容器的环境问题（Debian npm 代理 bug、无 HOME、beige 无 Node 22、tsdown 在 Node 22 下加载配置失败），且容器不再碰仓库的 node_modules。
 
 ```sh
-cd <repo-root>
+# 1. 宿主机构建全部产物（lib + web + dsh 闭包 + Go 启动器 -> stage/）
+#    源码改动后需重新运行
+sh apps/desktop-launcher/linglong/prepare-offline.sh
+
+# 2. 玲珑组装打包（仓库根运行，秒级）
 ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml
 ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.0/x86_64
 ```
 
-`linglong.yaml` 无 `sources` 块：构建容器把仓库根挂载为 `/project`，`build` 脚本直接从当前工作树构建（含未提交改动，适合迭代）。仓库根的 `linglong/` 工作目录（cache/sources/output）已加入 `.gitignore`。
-
 打包要点：
 
-- `base: org.deepin.base/25.2.2`（3 段式模糊匹配，匹配 stable 仓库的 25.2.2.6；base 版本不支持写 4 段完整号），Node 用 beige 的 nodejs 20.15.1（需仓库 `engines.node` 放宽到 `>=20.15.1`）
-- webkit2gtk-4.1 + gtk3 由 `buildext.apt.depends` 从 beige 拉入（系统 webview，不捆绑 Chromium）
-- `pnpm deploy` 后运行 `node scripts/fix-deploy-closure.mjs` 修复闭包（peer deps、符号链接、legacy hoists）
-- `prepare-pkgconfig.sh` 生成 `webkit2gtk-4.0.pc` shim 指向 4.1（webview_go 编译期硬编码 4.0，deepin 25 只有 4.1）
+- `base: org.deepin.base/25.2.2`（3 段式模糊匹配 stable 仓库的 25.2.2.6；base 不接受 4 段完整版本号）
+- 运行时依赖（webkit2gtk-4.1/gtk3/nodejs 20.15.1）由 `buildext.apt.depends` 从 beige 拉入；Node 20 足够运行 harness（已验证无 Node 22+ API）
+- 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
+- 宿主机构建 Go 启动器需先运行 `linglong/prepare-pkgconfig.sh` 生成 webkit2gtk-4.0 shim（webview_go 编译期硬编码 4.0，deepin 25 只有 4.1）
 - 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/org.deepseek.dsh-desktop/config.d/` 并改路径
 
 ## 已知 webkit2gtk 兼容性

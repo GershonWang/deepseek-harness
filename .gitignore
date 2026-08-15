@@ -33,6 +33,7 @@ python/**/.pytest_cache/
 apps/web/dist/
 apps/desktop-launcher/dsh-desktop-launcher
 apps/desktop-launcher/linglong/linglong/
+apps/desktop-launcher/linglong/stage/
 /linglong/
 .artifacts/
 .playwright-mcp/

@@ -13,40 +13,23 @@ command:
 
 base: org.deepin.base/25.2.2
 
-# 无 sources 块：在仓库根运行 ll-builder 时 /project 即整个仓库
-# （ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml），
-# build 脚本直接从当前工作树构建，不拉取远程源码。
+# 组装式构建：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，
+# 先在仓库根运行 sh apps/desktop-launcher/linglong/prepare-offline.sh
+# 生成 stage/ 产物，本脚本只在容器内复制组装。
+# 源码改动后需重新运行 prepare-offline.sh。
 build: |
-  cd /project
-  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
-  # 构建容器无 HOME，koffi 等原生依赖的 install 脚本会崩（Missing HOME）
-  export HOME=/root
-  export npm_config_registry=https://registry.npmmirror.com
-  # pnpm 11 需要 Node >=22.13（node:sqlite），beige nodejs 只有 20；
-  # 构建期临时使用 npmmirror 镜像的 Node 22，运行时仍是 apt nodejs 20.15.1
-  wget -q -O /tmp/node22.tar.gz https://registry.npmmirror.com/-/binary/node/v22.14.0/node-v22.14.0-linux-x64.tar.gz
-  tar -xzf /tmp/node22.tar.gz -C /opt
-  export PATH=/opt/node-v22.14.0-linux-x64/bin:$PATH
-  npm install -g pnpm@11.7.0 --registry=https://registry.npmmirror.com
-  # store 放在 linglong 工作目录（宿主机持久），重试构建免重复下载 900+ 包
-  mkdir -p /project/linglong/cache
-  pnpm install --frozen-lockfile --store-dir /project/linglong/cache/pnpm-store
-  pnpm run build
-  pnpm --filter @deepseek-ai/dsh deploy --legacy --prod --config.auto-install-peers=false --config.node-linker=hoisted ${PREFIX}/harness
-  node scripts/fix-deploy-closure.mjs ${PREFIX}/harness
-  cd apps/desktop-launcher
-  sh linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
-  GOPROXY=https://goproxy.cn,direct PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 go build -o ${PREFIX}/bin/dsh-desktop-launcher .
-  install -Dm644 icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
+  STAGE=/project/apps/desktop-launcher/linglong/stage
+  if [ ! -x "$STAGE/bin/dsh-desktop-launcher" ]; then
+    echo "stage 缺失：先在仓库根运行 sh apps/desktop-launcher/linglong/prepare-offline.sh" >&2
+    exit 1
+  fi
+  mkdir -p ${PREFIX}/bin ${PREFIX}/harness
+  cp -a "$STAGE/harness/." ${PREFIX}/harness/
+  install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
+  install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
 
 buildext:
   apt:
-    build_depends:
-      - golang
-      - nodejs
-      - npm
-      - wget
-      - libwebkit2gtk-4.1-dev
     depends:
       - libwebkit2gtk-4.1-0
       - libjavascriptcoregtk-4.1-0
