@@ -19,6 +19,8 @@ base: org.deepin.base/25.2.2
 build: |
   cd /project
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+  # 构建容器无 HOME，koffi 等原生依赖的 install 脚本会崩（Missing HOME）
+  export HOME=/root
   export npm_config_registry=https://registry.npmmirror.com
   # pnpm 11 需要 Node >=22.13（node:sqlite），beige nodejs 只有 20；
   # 构建期临时使用 npmmirror 镜像的 Node 22，运行时仍是 apt nodejs 20.15.1
@@ -26,7 +28,9 @@ build: |
   tar -xzf /tmp/node22.tar.gz -C /opt
   export PATH=/opt/node-v22.14.0-linux-x64/bin:$PATH
   npm install -g pnpm@11.7.0 --registry=https://registry.npmmirror.com
-  pnpm install --frozen-lockfile
+  # store 放在 linglong 工作目录（宿主机持久），重试构建免重复下载 900+ 包
+  mkdir -p /project/linglong/cache
+  pnpm install --frozen-lockfile --store-dir /project/linglong/cache/pnpm-store
   pnpm run build
   pnpm --filter @deepseek-ai/dsh deploy --legacy --prod --config.auto-install-peers=false --config.node-linker=hoisted ${PREFIX}/harness
   node scripts/fix-deploy-closure.mjs ${PREFIX}/harness
