@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-desktop-launcher-external-harness.md
+2026-08-16-desktop-launcher-external-harness.md: 9109e2dddb4eeca73ffd2b462b6765feb1d2e7d2
+2026-08-16-desktop-launcher-external-harness.zh.md: 0e39dedc6f25374fd35adf7a05d7f5bb87bfc206
