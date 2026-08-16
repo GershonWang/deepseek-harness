@@ -29,8 +29,10 @@ node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 #    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
 #    "cannot find main module"
 sh apps/desktop-launcher/linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
+# 注入玲珑包版本到关于弹框(从 linglong.yaml 的 package.version 提取)
+LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' apps/desktop-launcher/linglong/linglong.yaml | head -1)
 ( cd apps/desktop-launcher && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig CGO_ENABLED=1 \
-  go build -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
+  go build -ldflags "-X main.packageVersion=$LL_VERSION" -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
 # 4. 捆绑 Node 24（harness 运行时需要 >=24：node:zlib.createZstdDecompress、
 #    Promise.withResolvers、node:module.stripTypeScriptTypes；beige 只有 20 跑不起来）

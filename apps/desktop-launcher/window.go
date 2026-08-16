@@ -43,6 +43,9 @@ func openWindow(url string, sup *Supervisor) {
 	// gtk_widget_destroy，触发 webkit 的 destroy -> terminate 关闭链。
 	connectDeleteEvent(w)
 
+	// 底部状态栏、服务器/关于按钮、状态轮询与窗口居中
+	installDesktopUI(w.Window(), sup)
+
 	w.Navigate(url)
 
 	// w.Run() 阻塞直到用户关闭窗口
