@@ -542,12 +542,13 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_widget_set_margin_end(vbox, 18);
   gtk_widget_set_margin_top(vbox, 18);
 
-  // 模式选择行:容器内 / 本机或远端服务
+  // 模式选择行:容器内 / 本机或远端服务(单选按钮组,互斥由 GTK 保证)
   GtkWidget *mode_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   GtkWidget *mode_label = gtk_label_new("连接模式");
   gtk_widget_set_halign(mode_label, GTK_ALIGN_START);
-  dsh_dlg_mode_container = gtk_toggle_button_new_with_label("容器内");
-  dsh_dlg_mode_external = gtk_toggle_button_new_with_label("本机/远端服务");
+  dsh_dlg_mode_container = gtk_radio_button_new_with_label(NULL, "容器内");
+  dsh_dlg_mode_external = gtk_radio_button_new_with_label_from_widget(
+      GTK_RADIO_BUTTON(dsh_dlg_mode_container), "本机/远端服务");
   gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dsh_dlg_mode_container), TRUE);
   g_signal_connect(dsh_dlg_mode_container, "toggled", G_CALLBACK(dsh_mode_toggled), NULL);
   g_signal_connect(dsh_dlg_mode_external, "toggled", G_CALLBACK(dsh_mode_toggled), NULL);
@@ -694,7 +695,7 @@ func externalConfigFilePath() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return filepath.Join(home, ".config", "dsh-desktop", "config.json")
 	}
-	return filepath.Join(logDirPath(), "config.json")
+	return filepath.Join(".cache", "dsh-desktop", "config.json")
 }
 ```
 
