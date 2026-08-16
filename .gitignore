@@ -35,6 +35,8 @@ apps/desktop-launcher/dsh-desktop-launcher
 apps/desktop-launcher/linglong/linglong/
 apps/desktop-launcher/linglong/stage/
 /linglong/
+# 玲珑打包导出产物（ll-builder export）
+org.deepseek.dsh-desktop_*.uab
 .artifacts/
 .playwright-mcp/
 .orig
