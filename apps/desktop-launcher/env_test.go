@@ -21,8 +21,19 @@ func TestResolveDesktopEnv_DefaultPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	os.Unsetenv("DSH_DESKTOP_PORT")
 	env := resolveDesktopEnv()
-	if env.Port != "0" {
-		t.Errorf("expected default port 0, got %s", env.Port)
+	// 默认不再用 "0"（随机）：改为预留一个空闲 loopback 端口，
+	// 保证 harness 重启时复用同一端口、GUI 可重连。
+	if env.Port == "" || env.Port == "0" {
+		t.Errorf("expected a reserved port, got %s", env.Port)
+	}
+}
+
+func TestResolveDesktopEnv_ExplicitPort(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_PORT", "18080")
+	env := resolveDesktopEnv()
+	if env.Port != "18080" {
+		t.Errorf("expected explicit port 18080, got %s", env.Port)
 	}
 }
 

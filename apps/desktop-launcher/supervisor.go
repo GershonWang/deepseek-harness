@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -122,27 +123,32 @@ func (s *Supervisor) run() {
 
 		s.spawn()
 
-		// 等待就绪或超时
-		select {
-		case <-s.ready:
-			attempt = 0 // 就绪后重置退避计数
-		case <-time.After(time.Duration(s.options.StartupTimeoutMs) * time.Millisecond):
-			// 启动超时，杀死子进程走退避
-			s.mu.Lock()
-			cmd := s.cmd
-			s.mu.Unlock()
-			if cmd != nil && cmd.Process != nil {
-				killProcessGroup(cmd, syscall.SIGKILL)
-				cmd.Wait()
-			}
-		}
+		// 注意：不要在这里消费 s.ready——main() 的 <-sup.Ready() 负责
+		// 接收就绪 URL 并打开窗口。本循环只负责监护：直接等子进程退出。
+		// （此前这里 select s.ready 会与 main 竞争消费唯一的就绪消息，
+		// main 赢了则本 goroutine 永久卡在 select，harness 死后不再重启。）
 
 		// 等待子进程退出
 		s.mu.Lock()
 		cmd := s.cmd
 		s.mu.Unlock()
 		if cmd != nil {
-			cmd.Wait()
+			err := cmd.Wait()
+			// 记录退出原因：静默死亡（SIGKILL/信号）是诊断关键，
+			// 否则看起来像"莫名卡住"。
+			if cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() != -1 {
+				fmt.Fprintf(s.logFile, "[supervisor] harness exited code=%d\n", cmd.ProcessState.ExitCode())
+			} else if cmd.ProcessState != nil {
+				// ExitCode()==-1 且已结束：被信号终止（信号名从 wait status 取）
+				if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+					fmt.Fprintf(s.logFile, "[supervisor] harness killed by signal=%s\n", ws.Signal())
+				} else {
+					fmt.Fprintf(s.logFile, "[supervisor] harness ended (no exit code)\n")
+				}
+			}
+			if err != nil {
+				fmt.Fprintf(s.logFile, "[supervisor] harness wait error: %v\n", err)
+			}
 		}
 
 		if s.stopping {
@@ -155,6 +161,7 @@ func (s *Supervisor) run() {
 		if delay > s.options.MaxRestartDelayMs {
 			delay = s.options.MaxRestartDelayMs
 		}
+		fmt.Fprintf(s.logFile, "[supervisor] restarting harness in %dms (attempt %d)\n", delay, attempt)
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 	}
 }
@@ -191,6 +198,17 @@ drained:
 
 	// 创建独立进程组，确保 Stop 能终止整个进程树
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// WaitDelay：harness 退出但孙进程（如 zenity、bash 工具链）仍持有
+	// stdout/stderr 管道时，cmd.Wait() 会永久卡在 EOF 上导致 supervisor
+	// 不再重启（症状：GUI 永久 load failed）。WaitDelay 在子进程退出后
+	// 等待该时长便强制关闭管道，让 Wait 返回、supervisor 继续重启。
+	// Cancel 在 WaitDelay 触发时向进程组发 Kill，清理残留孙进程。
+	cmd.WaitDelay = 5 * time.Second
+	cmd.Cancel = func() error {
+		killProcessGroup(cmd, syscall.SIGKILL)
+		return nil
+	}
 
 	cmd.Stdout = io.MultiWriter(logFile, &readyScanner{sup: s})
 	cmd.Stderr = logFile

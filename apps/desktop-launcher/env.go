@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,8 +22,11 @@ type DesktopEnv struct {
 // 3. repo 内 apps/cli/lib/bin.js 存在（开发态）
 func resolveDesktopEnv() DesktopEnv {
 	port := os.Getenv("DSH_DESKTOP_PORT")
-	if port == "" {
-		port = "0"
+	if port == "" || port == "0" {
+		// 稳定端口：harness 重启时复用同一端口，GUI 的 WebSocket/HTTP
+		// 才能重连。若每次随机（--port 0），重启后 GUI 指着死端口，
+		// 表现为永久 load failed。DSH_DESKTOP_PORT 显式指定时尊重之。
+		port = reservePort()
 	}
 
 	logDir := os.Getenv("DSH_DESKTOP_LOG_DIR")
@@ -114,4 +119,17 @@ func configurePackagedEnv() {
 		_ = os.Setenv("GSETTINGS_SCHEMA_DIR", schemaDir)
 	}
 	_ = os.Setenv("GTK_A11Y", "none")
+}
+
+// reservePort 选一个空闲的 loopback 端口并返回其字符串。
+// 用 net.Listen(":0") 拿到系统分配的端口后立即关闭监听，端口随即释放；
+// 之后子进程用该端口 bind 存在极小竞态（他人抢用），但对本地 harness 足够稳。
+func reservePort() string {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "0"
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return fmt.Sprintf("%d", port)
 }
