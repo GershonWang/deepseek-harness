@@ -189,20 +189,20 @@ static GtkWidget *dsh_dlg_btn_start = NULL;
 static GtkWidget *dsh_dlg_btn_restart = NULL;
 static GtkWidget *dsh_dlg_btn_stop = NULL;
 
-// 状态字符串 -> 圆点 CSS 类;未知状态一律按"已停止"灰色处理。
-// 状态文案来自 ui_state.go(运行中/启动中/已停止),文案调整需同步此处。
-static const char *dsh_state_class(const char *state) {
-  if (state != NULL && strcmp(state, "运行中") == 0) {
+// 状态枚举 -> 圆点 CSS 类;与 Go 侧 HarnessState 对齐(0=启动中,1=运行中,其余=已停止)。
+// 展示文案与着色分离:文案来自 ui_state.go,着色只依赖状态枚举,文案调整无需同步此处。
+static const char *dsh_state_class(int state) {
+  if (state == 1) {
     return "dsh-state-running";
   }
-  if (state != NULL && strcmp(state, "启动中") == 0) {
+  if (state == 0) {
     return "dsh-state-starting";
   }
   return "dsh-state-stopped";
 }
 
 // 圆点样式类只保留当前状态,避免多个着色类叠加。
-static void dsh_set_state_class(GtkWidget *dot, const char *state) {
+static void dsh_set_state_class(GtkWidget *dot, int state) {
   GtkStyleContext *ctx = gtk_widget_get_style_context(dot);
   gtk_style_context_remove_class(ctx, "dsh-state-running");
   gtk_style_context_remove_class(ctx, "dsh-state-starting");
@@ -342,10 +342,12 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
 }
 
 // ---- 刷新服务器弹框内容与按钮可用性(tick 调用) ----
-static void dsh_update_server_dialog(GtkWidget *dlg, const char *state, const char *detail,
+// state_text 用于展示(来自 ui_state.go),state 是状态枚举,仅用于圆点着色。
+static void dsh_update_server_dialog(GtkWidget *dlg, const char *state_text, int state,
+                                     const char *detail,
                                      gboolean can_start, gboolean can_restart, gboolean can_stop) {
   (void)dlg;
-  gtk_label_set_text(GTK_LABEL(dsh_dlg_state), state);
+  gtk_label_set_text(GTK_LABEL(dsh_dlg_state), state_text);
   dsh_set_state_class(dsh_dlg_dot, state);
   dsh_update_detail(detail);
   gtk_widget_set_sensitive(dsh_dlg_btn_start, can_start);
@@ -446,7 +448,7 @@ func dshRefreshStatus() {
 		d := serverDialogState(st)
 		state := C.CString(d.State)
 		detail := C.CString(d.Detail)
-		C.dsh_update_server_dialog(serverDialog, state, detail,
+		C.dsh_update_server_dialog(serverDialog, state, C.int(st.State), detail,
 			boolToGboolean(d.CanStart), boolToGboolean(d.CanRestart), boolToGboolean(d.CanStop))
 		C.free(unsafe.Pointer(state))
 		C.free(unsafe.Pointer(detail))
