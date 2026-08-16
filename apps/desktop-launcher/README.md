@@ -98,7 +98,7 @@ sh apps/desktop-launcher/linglong/prepare-offline.sh
 
 # 2. 玲珑组装打包（仓库根运行，秒级）
 ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml
-ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.7/x86_64
+ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.8/x86_64
 ```
 
 打包要点：
