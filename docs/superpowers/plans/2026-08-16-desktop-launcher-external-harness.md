@@ -741,7 +741,7 @@ func dshOnModeChanged() {
 ```go
 //export dshOnExternalConnect
 func dshOnExternalConnect() {
-	if connector == nil || navigateFn == nil {
+	if connector == nil || navigateFn == nil || activeSupervisor == nil {
 		return
 	}
 	raw := C.GoString(C.gtk_entry_get_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry))))
@@ -756,11 +756,14 @@ func dshOnExternalConnect() {
 		}
 		connector.ConfirmHost(u)
 	}
-	// 异步探测:不阻塞 GTK 主线程
+	// 连接前先停容器 harness(释放端口、暂停自动重启),避免端口冲突;
+	// BeginExternal 在 goroutine 执行(内含 ≤3s 探测,经 g_idle_add 回主线程),
+	// 不阻塞 GTK 主线程,也不重复探测。
+	activeSupervisor.StopHarness()
 	externalBusy = true
 	dshRefreshStatus()
 	go func() {
-		err := probe(u, probeTimeout)
+		err := connector.BeginExternal(u)
 		probeResultURL = u
 		probeResultErr = err
 		C.g_idle_add(C.GSourceFunc(C.dsh_probe_idle), nil)
@@ -773,17 +776,13 @@ func dshOnProbeResult() {
 	err := probeResultErr
 	externalBusy = false
 	if err != nil {
+		// 探测失败:恢复容器模式(重启容器 harness),弹框内错误提示
 		setDialogError("连接失败: " + err.Error())
+		activeSupervisor.Restart()
 		dshRefreshStatus()
 		return
 	}
-	// 停容器 harness(释放端口、暂停自动重启),再切外部并导航
-	activeSupervisor.StopHarness()
-	if cerr := connector.BeginExternal(u); cerr != nil {
-		setDialogError("连接失败: " + cerr.Error())
-		dshRefreshStatus()
-		return
-	}
+	// 探测成功:记忆 URL、清错误、导航到外部服务
 	_ = saveExternalURL(configPath, u)
 	setDialogError("")
 	cu := C.CString(u)
