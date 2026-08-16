@@ -8,6 +8,7 @@ import (
 
 func main() {
 	env := resolveDesktopEnv()
+	configurePackagedEnv()
 	sup := NewSupervisor(env, DefaultSupervisorOptions())
 
 	// 启动子进程监护
