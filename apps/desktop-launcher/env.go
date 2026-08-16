@@ -102,25 +102,12 @@ func resolveNode() string {
 	return "node"
 }
 
-// configurePackagedEnv 为打包态设置子进程（harness 及其 spawn 的 zenity 等）
-// 需要的环境变量。玲珑 layer 只含 $PREFIX，usr/share 的 GSettings schema
-// 不会随 apt depends 进容器，zenity (GTK4) 会因缺
-// org.gtk.gtk4.Settings.FileChooser schema 而崩溃；构建期已把编译好的
-// schema 放在 $PREFIX/share/glib-2.0/schemas，这里设 GSETTINGS_SCHEMA_DIR
-// 让 GSettings 找到。GTK_A11Y=none 规避沙箱内无 a11y 总线的警告。
+// configurePackagedEnv 为打包态设置子进程（harness 及其子进程）需要的
+// 环境变量。目录选择固定用 browse 内嵌列表（GUI 内渲染目录树，不弹 zenity
+// 系统对话框，无 GTK4/schema 依赖，任何沙箱都可用）；GTK_A11Y=none 规避
+// 沙箱内无 a11y 总线的警告。
 func configurePackagedEnv() {
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	prefix := filepath.Dir(filepath.Dir(exe)) // .../files/bin -> .../files
-	schemaDir := filepath.Join(prefix, "share", "glib-2.0", "schemas")
-	if _, statErr := os.Stat(filepath.Join(schemaDir, "gschemas.compiled")); statErr == nil {
-		_ = os.Setenv("GSETTINGS_SCHEMA_DIR", schemaDir)
-	}
 	_ = os.Setenv("GTK_A11Y", "none")
-	// 目录选择固定用 browse 内嵌列表（GUI 内渲染目录树），不弹 zenity 系统
-	// 对话框：browse 在任意沙箱都可用，且无需额外 GUI 依赖。
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
 }
 

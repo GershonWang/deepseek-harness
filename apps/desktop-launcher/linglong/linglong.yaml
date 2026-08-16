@@ -55,27 +55,13 @@ build: |
   sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7
   ln -sf libwebkit2gtk-4.1.so.0.19.7 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
   ln -sf libwebkit2gtk-4.1.so.0 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so
-  # GSettings schemas：zenity (GTK4) 的文件选择器需要
-  # org.gtk.gtk4.Settings.FileChooser schema。玲珑的 mergeOutput 只合并
-  # usr/{bin,sbin,lib}，usr/share 的 schema 不会进 layer，因此构建期显式
-  # 复制到 $PREFIX 并编译（launcher 运行时设 GSETTINGS_SCHEMA_DIR 指向）。
-  mkdir -p ${PREFIX}/share/glib-2.0/schemas
-  cp -a /usr/share/glib-2.0/schemas/*.gschema.xml ${PREFIX}/share/glib-2.0/schemas/ 2>/dev/null || true
-  glib-compile-schemas ${PREFIX}/share/glib-2.0/schemas/
 
 buildext:
   apt:
     build_depends:
       - libwebkit2gtk-4.1-0
-      - libglib2.0-bin
-      - libgtk-4-common
-      - libgtk-3-common
-      - gsettings-desktop-schemas
     depends:
       - libwebkit2gtk-4.1-0
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
-      - zenity
-      - libgtk-4-1
-      - gsettings-desktop-schemas
