@@ -12,7 +12,7 @@
    ▼
 dsh-desktop-launcher (Go 二进制)
    │  1. resolveDesktopEnv() 解析子进程命令
-   │  2. HarnessSupervisor.Start() —— spawn `dsh web` 子进程
+   │  2. NewSupervisor 起监护循环并 spawn `dsh web`(Start() 仅手动停止后恢复)
    │     ├── 逐行扫 stdout，等就绪行: "dsh web: http://127.0.0.1:<port>"
    │     ├── 崩溃后指数退避重启 (500ms→10s)
    │     └── 优雅停止 (SIGTERM → 5s → SIGKILL，按进程组广播)

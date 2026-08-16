@@ -91,6 +91,19 @@ func TestSupervisor_RestartRespawns(t *testing.T) {
 	sup.Wait()
 }
 
+func TestSupervisor_FailedSpawnMarksStopped(t *testing.T) {
+	// 持久启动失败(如二进制缺失)必须落在 StateStopped 并记录原因,
+	// 否则状态卡在 StateStarting 会死锁手动停止路径、Start() 无法恢复。
+	env := DesktopEnv{Command: "nonexistent-binary-xyz", LogDir: t.TempDir(), Port: "0"}
+	sup := NewSupervisor(env, DefaultSupervisorOptions())
+	st := waitState(t, sup, StateStopped)
+	if !strings.Contains(st.LastExit, "start failed") {
+		t.Fatalf("LastExit 应含 start failed,got %q", st.LastExit)
+	}
+	sup.Stop()
+	sup.Wait()
+}
+
 func TestSupervisor_StartWhileRunningIsNoop(t *testing.T) {
 	env := DesktopEnv{Command: "sh", Args: []string{"testdata/mock-dsh-web.sh"}, LogDir: t.TempDir(), Port: "0"}
 	sup := NewSupervisor(env, DefaultSupervisorOptions())

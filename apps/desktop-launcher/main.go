@@ -11,8 +11,7 @@ func main() {
 	configurePackagedEnv()
 	sup := NewSupervisor(env, DefaultSupervisorOptions())
 
-	// 启动子进程监护
-	sup.Start()
+	// 监护循环在 NewSupervisor 构造时自动启动;Start() 仅手动停止后恢复
 
 	// 等待就绪
 	select {

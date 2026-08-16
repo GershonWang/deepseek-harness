@@ -353,7 +353,13 @@ drained:
 	s.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
-		// 启动失败(如 node 二进制缺失):记录并立即放行等待方,由 run() 退避重启。
+		// 启动失败(如 node 二进制缺失):置为停止态并记录原因,立即放行等待方,
+		// 由 run() 退避重启。若保持 StateStarting,手动停止路径会被卡死,
+		// Start() 也会因状态守卫(仅停止态生效)永远无法恢复。
+		s.mu.Lock()
+		s.state = StateStopped
+		s.lastExit = fmt.Sprintf("start failed: %v", err)
+		s.mu.Unlock()
 		s.logf("[supervisor] harness start failed: %v", err)
 		close(exited)
 		return
