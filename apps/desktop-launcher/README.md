@@ -34,6 +34,7 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 | `supervisor.go` | `HarnessSupervisor`：spawn、就绪检测、退避重启、优雅停止 |
 | `window.go` | `webview/webview_go` 封装：Navigate、标题、尺寸、关闭回调 |
 | `ui.go` | 底部状态栏、服务器状态/关于弹框、窗口居中(GTK cgo) |
+| `connection.go` | 外部服务连接:探测、URL 校验、持久化、连接状态(纯 Go) |
 | `version.go` | harness/玲珑版本解析(`packageVersion` 由 prepare-offline 注入) |
 | `linglong/linglong.yaml` | 玲珑构建清单 |
 | `linglong/config.d/10-mounts.json` | 文件系统挂载配置模板（用户参考） |
@@ -61,6 +62,15 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 | `DSH_DESKTOP_PORT` | 未设 | 默认保留一个空闲 loopback 端口（harness 重启复用，GUI 可重连）；显式指定则尊重，`0` 让系统选空闲端口 |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
+
+## 连接外部服务
+
+服务器状态弹框支持两种连接模式:
+
+- **容器内**(默认):启动并监护玲珑容器内捆绑的 harness。
+- **本机/远端服务**:连接外部 harness 服务(本机 `npx @deepseek-ai/dsh web` 或网络可达的其他机器)。切到外部模式会先停止容器内 harness;断开后自动重启容器 harness 并导航回。
+
+连接外部服务的前提:目标 harness 需绑定可访问的接口(`dsh web --host <LAN-IP>`;`--host 0.0.0.0` 被上游有意拒绝,原因见其 CLI 提示),局域网可达或经端口转发/隧道。外部地址(非 127.0.0.1/localhost)首次连接会弹安全确认;上次地址记忆在 `~/.config/dsh-desktop/config.json`,打开弹框自动填充、不自动重连。
 
 ## 构建与运行
 
