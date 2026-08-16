@@ -18,8 +18,8 @@ extern void dshOnServerDialogDestroyed(void);
 extern void dshOnModeChanged(void);
 extern void dshOnExternalConnect(void);
 extern void dshOnExternalDisconnect(void);
-extern void dshOnProbeResult(void);
-extern void dshOnNavIdle(void);
+extern void dshOnProbeResult(gpointer data);
+extern void dshOnNavIdle(gpointer data);
 
 // ---- 窗口居中:按屏幕尺寸移动窗口到中心 ----
 static void dsh_center_window(GtkWindow *win, gint ww, gint wh) {
@@ -227,13 +227,23 @@ static GtkWidget *dsh_dlg_actions_sep = NULL;    // 外部连接区与容器按�
 static void dsh_mode_toggled(GtkToggleButton *b, gpointer d) { (void)b; (void)d; dshOnModeChanged(); }
 static void dsh_external_connect_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnExternalConnect(); }
 static void dsh_external_disconnect_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnExternalDisconnect(); }
-static gboolean dsh_probe_idle(gpointer d) { (void)d; dshOnProbeResult(); return G_SOURCE_REMOVE; }
-static gboolean dsh_nav_idle(gpointer d) { (void)d; dshOnNavIdle(); return G_SOURCE_REMOVE; }
 
 // 异步结果经 idle 回主线程。idle 回调必须保持 static(与 dsh_status_tick 同理),
 // 而 static 函数不能被 Go 侧取地址,故由这两个 C 壳函数在 C 内注册 idle。
-static void dsh_schedule_probe_result(void) { g_idle_add(dsh_probe_idle, NULL); }
-static void dsh_schedule_nav_idle(void) { g_idle_add(dsh_nav_idle, NULL); }
+// 探测结果与待导航 URL 由 Go goroutine 以 C.CBytes 写入 C 内存,经 gpointer
+// 交给 idle 回调;回调先调 Go 处理再 free,避免包级变量跨线程数据竞争。
+static gboolean dsh_probe_idle(gpointer d) {
+  dshOnProbeResult(d);
+  free(d);
+  return G_SOURCE_REMOVE;
+}
+static gboolean dsh_nav_idle(gpointer d) {
+  dshOnNavIdle(d);
+  free(d);
+  return G_SOURCE_REMOVE;
+}
+static void dsh_schedule_probe_result(gpointer data) { g_idle_add(dsh_probe_idle, data); }
+static void dsh_schedule_nav_idle(gpointer data) { g_idle_add(dsh_nav_idle, data); }
 
 // Go 侧无法直接引用 C static 变量;弹框构建完成后把 Go 回调需要的子控件指针拷出。
 static void dsh_get_dialog_ptrs(GtkWidget **mode_container, GtkWidget **mode_external,
@@ -496,14 +506,17 @@ static void dsh_update_external_dialog(const char *state_text,
 // ---- 外部连接安全确认弹框 ----
 // GtkMessageDialog 的正文/按钮都是变参调用,cgo 对非空变参支持有限
 // (实测空变参可编译,带参即报 "unexpected type: ..."),故整体放 C 侧。
+// URL 只作变参实参传入(经 %s 格式化),不能拼进格式串:URL 里的 % 会被
+// 当作格式符解析而破坏文案。url 指向 Go 侧 C.CString,调用期间保持有效,
+// 由 Go 侧 confirmExternal 在调用返回后释放,此处不重复分配。
 static gboolean dsh_confirm_external(GtkWindow *parent, const char *url) {
-  (void)url;
   GtkWidget *dlg = gtk_message_dialog_new(
       parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
       GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, NULL);
   gtk_message_dialog_format_secondary_text(
       GTK_MESSAGE_DIALOG(dlg),
-      "将连接远端 harness 服务,其命令在远端机器上执行,API key 等配置将发往该机器。确认连接?");
+      "将连接远端 harness 服务 %s,其命令在远端机器上执行,API key 等配置将发往该机器。确认连接?",
+      url);
   gtk_dialog_add_buttons(GTK_DIALOG(dlg), "_连接", GTK_RESPONSE_YES, "_取消", GTK_RESPONSE_NO, NULL);
   gint resp = gtk_dialog_run(GTK_DIALOG(dlg));
   gtk_widget_destroy(dlg);
@@ -586,11 +599,9 @@ var (
 	connector  *Connector
 	navigateFn func(string)
 	configPath string
-	// 异步探测结果与待导航 URL(经 g_idle_add 回主线程)
-	probeResultErr error
-	probeResultURL string
-	pendingNavURL  string
-	externalBusy   bool
+	// 异步探测结果与待导航 URL 不落包级变量:goroutine 用 C.CBytes 写入
+	// C 内存,经 gpointer 交给 idle 回调,回调内处理并释放,避免跨线程数据竞争。
+	externalBusy bool
 )
 
 // externalConfigFilePath 返回外部 URL 配置文件路径;HOME 不可用时回退
@@ -745,7 +756,17 @@ func dshOnModeChanged() {
 	if dsh_dlg_mode_external == nil || dsh_dlg_mode_container == nil {
 		return
 	}
-	// 单选按钮组互斥由 GTK 保证,这里做防御性同步并刷新弹框
+	// 单选按钮必须始终镜像 connector.Mode()(唯一模式依据):外部服务已连接时
+	// 忽略用户切回容器内的操作,强制回外部,防止弹框显示容器模式而 webview
+	// 仍指向外部服务(容器按钮会因此错误可用)。
+	if connector != nil && connector.Mode() == ModeExternal {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external)), 1)
+		if serverDialog != nil {
+			dshRefreshStatus()
+		}
+		return
+	}
+	// 容器模式:单选按钮组互斥由 GTK 保证,这里做防御性同步并刷新弹框
 	external := C.gtk_toggle_button_get_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external))) != 0
 	if external {
 		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_container)), 0)
@@ -786,20 +807,29 @@ func dshOnExternalConnect() {
 	dshRefreshStatus()
 	go func() {
 		err := connector.BeginExternal(u)
-		probeResultURL = u
-		probeResultErr = err
-		C.dsh_schedule_probe_result()
+		// 探测结果打包进 C 内存(url + NUL + errmsg + NUL)经 gpointer 交给
+		// idle 回调:不写包级变量,避免 goroutine 与 GTK 主线程的数据竞争
+		errMsg := ""
+		if err != nil {
+			errMsg = err.Error()
+		}
+		buf := C.CBytes([]byte(u + "\x00" + errMsg + "\x00"))
+		C.dsh_schedule_probe_result(C.gpointer(buf))
 	}()
 }
 
 //export dshOnProbeResult
-func dshOnProbeResult() {
-	u := probeResultURL
-	err := probeResultErr
+func dshOnProbeResult(data unsafe.Pointer) {
+	// 载荷布局:url\0errmsg\0 两个连续 C 字符串;errmsg 为空表示探测成功。
+	// 内存由 C 侧 idle 回调在处理后 free,此处只读。
+	u := C.GoString((*C.char)(data))
+	urlLen := C.strlen((*C.char)(data)) + 1
+	errMsg := C.GoString((*C.char)(unsafe.Add(data, uintptr(urlLen))))
 	externalBusy = false
-	if err != nil {
-		// 探测失败:恢复容器模式(重启容器 harness),弹框内错误提示
-		setDialogError("连接失败: " + err.Error())
+	if errMsg != "" {
+		// 探测失败:恢复容器模式(重启容器 harness),弹框内错误提示;
+		// 单选按钮回容器内,与 connector.Mode()(ModeContainer)保持一致
+		setDialogError("连接失败: " + errMsg)
 		if serverDialog != nil && dsh_dlg_mode_container != nil {
 			C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_container)), 1)
 		}
@@ -810,6 +840,11 @@ func dshOnProbeResult() {
 	// 探测成功:记忆 URL、清错误、导航到外部服务
 	_ = saveExternalURL(configPath, u)
 	setDialogError("")
+	// 单选按钮强制回外部:探测期间用户可能已切回容器内,而连接已建立;
+	// 单选必须始终镜像 connector.Mode()(唯一模式依据),禁止显示容器模式
+	if serverDialog != nil && dsh_dlg_mode_external != nil {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external)), 1)
+	}
 	if dsh_dlg_url_entry != nil {
 		cu := C.CString(u)
 		C.gtk_entry_set_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry)), cu)
@@ -831,24 +866,27 @@ func dshOnExternalDisconnect() {
 	}
 	externalBusy = true
 	dshRefreshStatus()
-	// 重启容器 harness,等就绪后导航回(异步,有界 30s)
+	// 重启容器 harness,等就绪后导航回(异步,有界 30s);
+	// 待导航 URL 复制进 C 内存经 gpointer 交回 idle 回调,不落包级变量
 	go func() {
 		activeSupervisor.Restart()
+		navURL := ""
 		select {
 		case u := <-activeSupervisor.Ready():
-			pendingNavURL = u
+			navURL = u
 		case <-time.After(30 * time.Second):
-			pendingNavURL = ""
+			navURL = ""
 		}
-		C.dsh_schedule_nav_idle()
+		buf := C.CBytes([]byte(navURL + "\x00"))
+		C.dsh_schedule_nav_idle(C.gpointer(buf))
 	}()
 }
 
 //export dshOnNavIdle
-func dshOnNavIdle() {
+func dshOnNavIdle(data unsafe.Pointer) {
+	// 载荷为单个 NUL 结尾 C 字符串(可能为空串);内存由 C 侧 idle 回调释放。
+	u := C.GoString((*C.char)(data))
 	externalBusy = false
-	u := pendingNavURL
-	pendingNavURL = ""
 	if u != "" {
 		navigateFn(u)
 	}
