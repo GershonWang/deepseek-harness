@@ -21,7 +21,7 @@ import { resolveDirectoryPickerBackend } from './resolve.ts'
 
 export { canExecute, hasLinuxChooserBinary } from './probe.ts'
 export type { DirectoryPickerBackendKind, DirectoryPickerEnv, DirectoryPickerHostFacts } from './resolve.ts'
-export { resolveDirectoryPickerBackend } from './resolve.ts'
+export { resolveDirectoryPickerBackend, overrideDirectoryPickerBackend } from './resolve.ts'
 
 /** Cordis plugin name. */
 export const name = 'directory-picker-auto'

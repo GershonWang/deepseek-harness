@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { canExecute, hasLinuxChooserBinary } from '../src/probe.ts'
-import { resolveDirectoryPickerBackend } from '../src/resolve.ts'
+import { resolveDirectoryPickerBackend, overrideDirectoryPickerBackend } from '../src/resolve.ts'
 import type { DirectoryPickerHostFacts } from '../src/resolve.ts'
 
 /** Baseline facts that resolve to `native`; each case overrides one signal (darwin never consults `linuxChooser`). */
@@ -47,6 +47,35 @@ describe('resolveDirectoryPickerBackend', () => {
     expect(resolveDirectoryPickerBackend({
       ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: '', WAYLAND_DISPLAY: '' },
     })).toBe('browse')
+  })
+
+  it('pins browse via DSH_DIRECTORY_PICKER even on an attended display session', () => {
+    const linuxNative: DirectoryPickerHostFacts = {
+      ...attended, platform: 'linux', linuxChooser: true, env: { DISPLAY: ':0' },
+    }
+    expect(resolveDirectoryPickerBackend(linuxNative)).toBe('native')
+    expect(resolveDirectoryPickerBackend({ ...linuxNative, env: { DISPLAY: ':0', DSH_DIRECTORY_PICKER: 'browse' } })).toBe('browse')
+  })
+
+  it('pins native via DSH_DIRECTORY_PICKER even without a display session', () => {
+    const linuxBrowse: DirectoryPickerHostFacts = {
+      ...attended, platform: 'linux', linuxChooser: true, env: {},
+    }
+    expect(resolveDirectoryPickerBackend(linuxBrowse)).toBe('browse')
+    expect(resolveDirectoryPickerBackend({ ...linuxBrowse, env: { DSH_DIRECTORY_PICKER: 'native' } })).toBe('native')
+  })
+
+  it('ignores a blank or unknown DSH_DIRECTORY_PICKER value', () => {
+    expect(resolveDirectoryPickerBackend({ ...attended, env: { DSH_DIRECTORY_PICKER: '' } })).toBe('native')
+    expect(resolveDirectoryPickerBackend({ ...attended, env: { DSH_DIRECTORY_PICKER: 'bogus' } })).toBe('native')
+  })
+
+  it('overrideDirectoryPickerBackend returns only the two valid kinds', () => {
+    expect(overrideDirectoryPickerBackend({})).toBeUndefined()
+    expect(overrideDirectoryPickerBackend({ DSH_DIRECTORY_PICKER: 'browse' })).toBe('browse')
+    expect(overrideDirectoryPickerBackend({ DSH_DIRECTORY_PICKER: 'native' })).toBe('native')
+    expect(overrideDirectoryPickerBackend({ DSH_DIRECTORY_PICKER: 'bogus' })).toBeUndefined()
+    expect(overrideDirectoryPickerBackend({ DSH_DIRECTORY_PICKER: '' })).toBeUndefined()
   })
 })
 

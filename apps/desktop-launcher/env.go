@@ -119,6 +119,9 @@ func configurePackagedEnv() {
 		_ = os.Setenv("GSETTINGS_SCHEMA_DIR", schemaDir)
 	}
 	_ = os.Setenv("GTK_A11Y", "none")
+	// 目录选择固定用 browse 内嵌列表（GUI 内渲染目录树），不弹 zenity 系统
+	// 对话框：browse 在任意沙箱都可用，且无需额外 GUI 依赖。
+	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
 }
 
 // reservePort 选一个空闲的 loopback 端口并返回其字符串。

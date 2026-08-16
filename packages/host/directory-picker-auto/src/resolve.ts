@@ -13,8 +13,23 @@ export type DirectoryPickerBackendKind = 'native' | 'browse'
 
 /** Environment keys the resolution reads (a `process.env` subset). */
 export type DirectoryPickerEnv = Readonly<
-  Partial<Record<'SSH_CONNECTION' | 'SSH_TTY' | 'DISPLAY' | 'WAYLAND_DISPLAY', string>>
+  Partial<Record<'SSH_CONNECTION' | 'SSH_TTY' | 'DISPLAY' | 'WAYLAND_DISPLAY' | 'DSH_DIRECTORY_PICKER', string>>
 >
+
+/**
+ * Env-var override for the backend choice. Lets a deployment (e.g. the desktop
+ * shell) pin `browse` even when an attended display session and a chooser
+ * binary would resolve to `native` — the in-GUI directory list needs no host
+ * dialog and is the only interaction that works in every sandbox. Absent or
+ * blank falls through to the automatic decision.
+ * @param env - the sampled environment.
+ * @returns the pinned backend, or undefined to resolve automatically.
+ */
+export function overrideDirectoryPickerBackend(env: DirectoryPickerEnv): DirectoryPickerBackendKind | undefined {
+  const value = env.DSH_DIRECTORY_PICKER
+  if (value === 'browse' || value === 'native') return value
+  return undefined
+}
 
 /** Host facts the backend choice is a pure function of, sampled once at boot. */
 export interface DirectoryPickerHostFacts {
@@ -45,6 +60,9 @@ const present = (value: string | undefined): boolean => value !== undefined && v
  * @returns the backend kind to mount.
  */
 export function resolveDirectoryPickerBackend(facts: DirectoryPickerHostFacts): DirectoryPickerBackendKind {
+  // 显式部署覆盖（如桌面壳固定用 browse 内嵌列表）优先于一切自动判定。
+  const override = overrideDirectoryPickerBackend(facts.env)
+  if (override !== undefined) return override
   if (facts.bindHost !== '127.0.0.1') return 'browse'
   if (present(facts.env.SSH_CONNECTION) || present(facts.env.SSH_TTY)) return 'browse'
   if (facts.platform === 'darwin' || facts.platform === 'win32') return 'native'
