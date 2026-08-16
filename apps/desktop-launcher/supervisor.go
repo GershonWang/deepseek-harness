@@ -44,6 +44,7 @@ type Supervisor struct {
 	cancel   context.CancelFunc // 取消当前子进程上下文，在 Stop() 和重新 spawn 时调用
 	mu       sync.Mutex
 	cmd      *exec.Cmd
+	exited   chan struct{} // 唯一的 cmd.Wait() 完成后关闭；run()/Stop()/Wait() 都等它
 	stopping bool
 }
 
@@ -67,11 +68,17 @@ func (s *Supervisor) Start() {
 }
 
 // Stop 优雅停止子进程：SIGTERM → 等待 → SIGKILL。
+// 两段等待都有界：孙进程逃逸出进程组并持有 stdout 管道时，cmd.Wait()
+// 可能被 WaitDelay 的清理路径拖住，无界等待会让 launcher 在窗口关闭后
+// 无法退出。cmd.Wait() 由 spawn() 里的唯一 goroutine 调用，这里只等
+// s.exited 通道，避免与 run() 并发 Wait 导致 exec 内部 ctxResult 只发
+// 一次、第二个调用者永久阻塞。
 func (s *Supervisor) Stop() {
 	s.mu.Lock()
 	s.stopping = true
 	cmd := s.cmd
 	cancel := s.cancel
+	exited := s.exited
 	s.mu.Unlock()
 
 	if cmd == nil || cmd.Process == nil {
@@ -85,17 +92,17 @@ func (s *Supervisor) Stop() {
 	killProcessGroup(cmd, syscall.SIGTERM)
 
 	// 等待退出或超时后 SIGKILL
-	done := make(chan struct{})
-	go func() {
-		cmd.Wait()
-		close(done)
-	}()
-
 	select {
-	case <-done:
+	case <-exited:
 	case <-time.After(time.Duration(s.options.KillTimeoutMs) * time.Millisecond):
 		killProcessGroup(cmd, syscall.SIGKILL)
-		<-done
+		// SIGKILL 后仍可能被卡住的 Wait 拖住，给等待加上限，
+		// 超时即放弃（等待 goroutine 泄漏由进程退出兜底）。
+		select {
+		case <-exited:
+		case <-time.After(time.Duration(s.options.KillTimeoutMs) * time.Millisecond):
+			s.logf("[supervisor] stop: harness wait stuck after SIGKILL; giving up")
+		}
 	}
 
 	// 释放 context 资源
@@ -104,14 +111,31 @@ func (s *Supervisor) Stop() {
 	}
 }
 
-// Wait 等待子进程结束。
+// Wait 等待子进程结束；与 Stop() 同理，只等 s.exited，避免被卡住的
+// cmd.Wait() 拖死退出。
 func (s *Supervisor) Wait() {
 	s.mu.Lock()
-	cmd := s.cmd
+	exited := s.exited
 	s.mu.Unlock()
-	if cmd != nil {
-		cmd.Wait()
+	if exited == nil {
+		return
 	}
+	select {
+	case <-exited:
+	case <-time.After(time.Duration(s.options.KillTimeoutMs) * time.Millisecond):
+		s.logf("[supervisor] wait: harness wait stuck; giving up")
+	}
+}
+
+// logf 向 harness.log 追加一行；日志文件未打开（如 spawn 失败）时静默丢弃。
+func (s *Supervisor) logf(format string, args ...any) {
+	s.mu.Lock()
+	f := s.logFile
+	s.mu.Unlock()
+	if f == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(f, format+"\n", args...)
 }
 
 func (s *Supervisor) run() {
@@ -128,27 +152,14 @@ func (s *Supervisor) run() {
 		// （此前这里 select s.ready 会与 main 竞争消费唯一的就绪消息，
 		// main 赢了则本 goroutine 永久卡在 select，harness 死后不再重启。）
 
-		// 等待子进程退出
+		// 等待子进程退出。cmd.Wait() 由 spawn() 里的唯一 goroutine 调用
+		// （负责记录退出原因并关闭 s.exited），这里只等通道，避免与
+		// Stop()/Wait() 并发调用 cmd.Wait() 造成 exec 内部永久阻塞。
 		s.mu.Lock()
-		cmd := s.cmd
+		exited := s.exited
 		s.mu.Unlock()
-		if cmd != nil {
-			err := cmd.Wait()
-			// 记录退出原因：静默死亡（SIGKILL/信号）是诊断关键，
-			// 否则看起来像"莫名卡住"。
-			if cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() != -1 {
-				fmt.Fprintf(s.logFile, "[supervisor] harness exited code=%d\n", cmd.ProcessState.ExitCode())
-			} else if cmd.ProcessState != nil {
-				// ExitCode()==-1 且已结束：被信号终止（信号名从 wait status 取）
-				if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-					fmt.Fprintf(s.logFile, "[supervisor] harness killed by signal=%s\n", ws.Signal())
-				} else {
-					fmt.Fprintf(s.logFile, "[supervisor] harness ended (no exit code)\n")
-				}
-			}
-			if err != nil {
-				fmt.Fprintf(s.logFile, "[supervisor] harness wait error: %v\n", err)
-			}
+		if exited != nil {
+			<-exited
 		}
 
 		if s.stopping {
@@ -161,7 +172,7 @@ func (s *Supervisor) run() {
 		if delay > s.options.MaxRestartDelayMs {
 			delay = s.options.MaxRestartDelayMs
 		}
-		fmt.Fprintf(s.logFile, "[supervisor] restarting harness in %dms (attempt %d)\n", delay, attempt)
+		s.logf("[supervisor] restarting harness in %dms (attempt %d)", delay, attempt)
 		time.Sleep(time.Duration(delay) * time.Millisecond)
 	}
 }
@@ -213,13 +224,43 @@ drained:
 	cmd.Stdout = io.MultiWriter(logFile, &readyScanner{sup: s})
 	cmd.Stderr = logFile
 
+	exited := make(chan struct{})
 	s.mu.Lock()
 	s.logFile = logFile
 	s.cancel = cancel
 	s.cmd = cmd
+	s.exited = exited
 	s.mu.Unlock()
 
-	cmd.Start()
+	if err := cmd.Start(); err != nil {
+		// 启动失败（如 node 二进制缺失）：记录并立即放行等待方，由 run() 退避重启。
+		s.logf("[supervisor] harness start failed: %v", err)
+		close(exited)
+		return
+	}
+
+	// 唯一调用 cmd.Wait() 的 goroutine：记录退出原因并关闭 exited。
+	// 其余等待方（run/Stop/Wait）只等通道，避免 exec.CommandContext 的
+	// ctxResult 只发一次、并发 Wait 的第二个调用者永久阻塞。
+	go func() {
+		err := cmd.Wait()
+		// 记录退出原因：静默死亡（SIGKILL/信号）是诊断关键，
+		// 否则看起来像"莫名卡住"。
+		if cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() != -1 {
+			s.logf("[supervisor] harness exited code=%d", cmd.ProcessState.ExitCode())
+		} else if cmd.ProcessState != nil {
+			// ExitCode()==-1 且已结束：被信号终止（信号名从 wait status 取）
+			if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+				s.logf("[supervisor] harness killed by signal=%s", ws.Signal())
+			} else {
+				s.logf("[supervisor] harness ended (no exit code)")
+			}
+		}
+		if err != nil {
+			s.logf("[supervisor] harness wait error: %v", err)
+		}
+		close(exited)
+	}()
 }
 
 // killProcessGroup 向进程组发送信号。
