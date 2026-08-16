@@ -15,6 +15,11 @@ extern void dshOnServerStart(void);
 extern void dshOnServerRestart(void);
 extern void dshOnServerStop(void);
 extern void dshOnServerDialogDestroyed(void);
+extern void dshOnModeChanged(void);
+extern void dshOnExternalConnect(void);
+extern void dshOnExternalDisconnect(void);
+extern void dshOnProbeResult(void);
+extern void dshOnNavIdle(void);
 
 // ---- 窗口居中:按屏幕尺寸移动窗口到中心 ----
 static void dsh_center_window(GtkWindow *win, gint ww, gint wh) {
@@ -79,6 +84,23 @@ static const char *dsh_css =
     ".dsh-dialog-actions button {\n"
     "  min-width: 72px;\n"
     "  padding: 5px 16px;\n"
+    "}\n"
+    // 外部连接区:错误标签红色,外部状态弱化;着色复用圆点同色系
+    ".dsh-dialog-error {\n"
+    "  color: #e5534b;\n"
+    "  font-size: 12px;\n"
+    "}\n"
+    ".dsh-dialog-ext-state {\n"
+    "  color: alpha(@theme_fg_color, 0.8);\n"
+    "  font-size: 12px;\n"
+    "}\n"
+    // 复合选择器提高优先级,让状态色覆盖弱化基色
+    ".dsh-dialog-ext-state.dsh-state-running { color: #2ea043; }\n"
+    ".dsh-dialog-ext-state.dsh-state-stopped { color: #8b949e; }\n"
+    // 服务地址行按钮:与容器按钮一致的最小宽度与内边距
+    ".dsh-dialog-ext-row button {\n"
+    "  min-width: 64px;\n"
+    "  padding: 4px 14px;\n"
     "}\n";
 
 // 以应用级优先级把样式挂到整个屏幕,状态栏与弹框共享同一套样式。
@@ -182,12 +204,45 @@ static void dsh_start_status_tick(void) {
 // 错误控件。销毁时清空指针,防止刷新访问已销毁控件。
 static GtkWidget *dsh_dlg_state = NULL;  // 状态值 label(粗体强调)
 static GtkWidget *dsh_dlg_dot = NULL;    // 状态圆点(按状态着色)
-static GtkWidget *dsh_dlg_detail = NULL; // 详情区 GtkGrid(两行 key/value)
 static GtkWidget *dsh_dlg_key1 = NULL, *dsh_dlg_val1 = NULL; // 详情第一行
 static GtkWidget *dsh_dlg_key2 = NULL, *dsh_dlg_val2 = NULL; // 详情第二行
 static GtkWidget *dsh_dlg_btn_start = NULL;
 static GtkWidget *dsh_dlg_btn_restart = NULL;
 static GtkWidget *dsh_dlg_btn_stop = NULL;
+
+// ---- 外部连接:模式切换、URL 输入、连接/断开 ----
+static GtkWidget *dsh_dlg_mode_container = NULL; // 模式单选:容器内
+static GtkWidget *dsh_dlg_mode_external = NULL;  // 模式单选:本机/远端服务
+static GtkWidget *dsh_dlg_url_entry = NULL;      // 外部服务地址输入
+static GtkWidget *dsh_dlg_btn_connect = NULL;    // 连接按钮
+static GtkWidget *dsh_dlg_btn_disconnect = NULL; // 断开按钮
+static GtkWidget *dsh_dlg_error_label = NULL;    // 错误提示(红色)
+static GtkWidget *dsh_dlg_ext_state = NULL;      // 外部状态区
+static GtkWidget *dsh_dlg_container_buttons = NULL; // 启动/重启/停止 行
+static GtkWidget *dsh_dlg_state_grid = NULL;     // 容器模式状态区(状态行)
+static GtkWidget *dsh_dlg_detail_row1 = NULL;    // 详情第一行(地址/上次退出)
+static GtkWidget *dsh_dlg_detail_row2 = NULL;    // 详情第二行(PID)
+static GtkWidget *dsh_dlg_actions_sep = NULL;    // 外部连接区与容器按钮之间分隔线
+
+static void dsh_mode_toggled(GtkToggleButton *b, gpointer d) { (void)b; (void)d; dshOnModeChanged(); }
+static void dsh_external_connect_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnExternalConnect(); }
+static void dsh_external_disconnect_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnExternalDisconnect(); }
+static gboolean dsh_probe_idle(gpointer d) { (void)d; dshOnProbeResult(); return G_SOURCE_REMOVE; }
+static gboolean dsh_nav_idle(gpointer d) { (void)d; dshOnNavIdle(); return G_SOURCE_REMOVE; }
+
+// 异步结果经 idle 回主线程。idle 回调必须保持 static(与 dsh_status_tick 同理),
+// 而 static 函数不能被 Go 侧取地址,故由这两个 C 壳函数在 C 内注册 idle。
+static void dsh_schedule_probe_result(void) { g_idle_add(dsh_probe_idle, NULL); }
+static void dsh_schedule_nav_idle(void) { g_idle_add(dsh_nav_idle, NULL); }
+
+// Go 侧无法直接引用 C static 变量;弹框构建完成后把 Go 回调需要的子控件指针拷出。
+static void dsh_get_dialog_ptrs(GtkWidget **mode_container, GtkWidget **mode_external,
+                                GtkWidget **url_entry, GtkWidget **error_label) {
+  *mode_container = dsh_dlg_mode_container;
+  *mode_external = dsh_dlg_mode_external;
+  *url_entry = dsh_dlg_url_entry;
+  *error_label = dsh_dlg_error_label;
+}
 
 // 状态枚举 -> 圆点 CSS 类;与 Go 侧 HarnessState 对齐(0=启动中,1=运行中,其余=已停止)。
 // 展示文案与着色分离:文案来自 ui_state.go,着色只依赖状态枚举,文案调整无需同步此处。
@@ -250,9 +305,14 @@ static void dsh_server_restart_clicked(GtkButton *b, gpointer d) { (void)b; (voi
 static void dsh_server_stop_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnServerStop(); }
 static void dsh_server_dialog_destroyed(GtkWidget *w, gpointer d) {
   (void)w; (void)d;
-  dsh_dlg_state = dsh_dlg_dot = dsh_dlg_detail = NULL;
+  dsh_dlg_state = dsh_dlg_dot = NULL;
   dsh_dlg_key1 = dsh_dlg_val1 = dsh_dlg_key2 = dsh_dlg_val2 = NULL;
   dsh_dlg_btn_start = dsh_dlg_btn_restart = dsh_dlg_btn_stop = NULL;
+  dsh_dlg_mode_container = dsh_dlg_mode_external = NULL;
+  dsh_dlg_url_entry = dsh_dlg_btn_connect = dsh_dlg_btn_disconnect = NULL;
+  dsh_dlg_error_label = dsh_dlg_ext_state = dsh_dlg_container_buttons = NULL;
+  dsh_dlg_state_grid = dsh_dlg_detail_row1 = dsh_dlg_detail_row2 = NULL;
+  dsh_dlg_actions_sep = NULL;
   dshOnServerDialogDestroyed();
 }
 static void dsh_dialog_response(GtkDialog *dlg, gint resp, gpointer d) {
@@ -268,23 +328,38 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
       "_关闭", GTK_RESPONSE_CLOSE, NULL);
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_server_dialog_destroyed), NULL);
-  gtk_widget_set_size_request(dlg, 420, -1);
+  gtk_widget_set_size_request(dlg, 440, -1);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
-  GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 14);
+  GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  gtk_widget_set_margin_start(vbox, 18);
+  gtk_widget_set_margin_end(vbox, 18);
+  gtk_widget_set_margin_top(vbox, 18);
+  gtk_widget_set_margin_bottom(vbox, 12);
 
-  // 键/值两列网格:键右对齐且弱化,值左对齐;状态行带彩色圆点。
-  GtkWidget *grid = gtk_grid_new();
-  gtk_grid_set_row_spacing(GTK_GRID(grid), 10);
-  gtk_grid_set_column_spacing(GTK_GRID(grid), 14);
-  gtk_widget_set_margin_start(grid, 18);
-  gtk_widget_set_margin_end(grid, 18);
-  gtk_widget_set_margin_top(grid, 18);
+  // 模式选择行:容器内 / 本机或远端服务(单选按钮组,互斥由 GTK 保证)。
+  // 两种模式都显示,便于随时切换。
+  GtkWidget *mode_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 10);
+  GtkWidget *mode_label = gtk_label_new("连接模式");
+  gtk_style_context_add_class(gtk_widget_get_style_context(mode_label), "dsh-dialog-key");
+  dsh_dlg_mode_container = gtk_radio_button_new_with_label(NULL, "容器内");
+  dsh_dlg_mode_external = gtk_radio_button_new_with_label_from_widget(
+      GTK_RADIO_BUTTON(dsh_dlg_mode_container), "本机/远端服务");
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(dsh_dlg_mode_container), TRUE);
+  g_signal_connect(dsh_dlg_mode_container, "toggled", G_CALLBACK(dsh_mode_toggled), NULL);
+  g_signal_connect(dsh_dlg_mode_external, "toggled", G_CALLBACK(dsh_mode_toggled), NULL);
+  gtk_box_pack_start(GTK_BOX(mode_row), mode_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(mode_row), dsh_dlg_mode_container, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(mode_row), dsh_dlg_mode_external, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), mode_row, FALSE, FALSE, 0);
 
+  // 状态区(容器模式):状态行 + 详情键值行,逐行 pack 进 vbox。
+  // 注意:不用 GtkGrid 也不用中间容器——本环境实测 grid 首行会与上一行
+  // 重叠错位(状态行丢失),平铺 hbox 最稳定。
   GtkWidget *key_state = gtk_label_new("状态");
+  gtk_widget_set_size_request(key_state, 48, -1); // 固定键列宽,右对齐成列
   gtk_widget_set_halign(key_state, GTK_ALIGN_END);
   gtk_style_context_add_class(gtk_widget_get_style_context(key_state), "dsh-dialog-key");
-
   dsh_dlg_dot = gtk_label_new("●");
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_dot), "dsh-state-dot");
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_dot), "dsh-state-stopped");
@@ -292,10 +367,13 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_state), "dsh-dialog-state");
   gtk_widget_set_halign(dsh_dlg_state, GTK_ALIGN_START);
   GtkWidget *state_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+  gtk_box_pack_start(GTK_BOX(state_row), key_state, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(state_row), dsh_dlg_dot, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(state_row), dsh_dlg_state, FALSE, FALSE, 0);
+  dsh_dlg_state_grid = state_row; // 状态区容器即状态行本身(供显隐切换)
+  gtk_box_pack_start(GTK_BOX(vbox), state_row, FALSE, FALSE, 0);
 
-  // 详情两行(地址/PID 或 上次退出),值可选中便于复制
+  // 详情两行:地址/PID 或 上次退出,值可选中便于复制
   dsh_dlg_key1 = gtk_label_new("");
   dsh_dlg_val1 = gtk_label_new("");
   dsh_dlg_key2 = gtk_label_new("");
@@ -303,22 +381,61 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   GtkWidget *detail_keys[] = {dsh_dlg_key1, dsh_dlg_key2};
   GtkWidget *detail_vals[] = {dsh_dlg_val1, dsh_dlg_val2};
   for (int i = 0; i < 2; i++) {
-    gtk_style_context_add_class(gtk_widget_get_style_context(detail_keys[i]), "dsh-dialog-key");
+    gtk_widget_set_size_request(detail_keys[i], 48, -1); // 与状态键同宽对齐
     gtk_widget_set_halign(detail_keys[i], GTK_ALIGN_END);
+    gtk_style_context_add_class(gtk_widget_get_style_context(detail_keys[i]), "dsh-dialog-key");
     gtk_widget_set_halign(detail_vals[i], GTK_ALIGN_START);
     gtk_label_set_selectable(GTK_LABEL(detail_vals[i]), TRUE);
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 14);
+    gtk_box_pack_start(GTK_BOX(row), detail_keys[i], FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), detail_vals[i], FALSE, FALSE, 0);
+    if (i == 0) {
+      dsh_dlg_detail_row1 = row;
+    } else {
+      dsh_dlg_detail_row2 = row;
+    }
+    gtk_box_pack_start(GTK_BOX(vbox), row, FALSE, FALSE, 0);
   }
 
-  gtk_grid_attach(GTK_GRID(grid), key_state, 0, 0, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), state_row, 1, 0, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), dsh_dlg_key1, 0, 1, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), dsh_dlg_val1, 1, 1, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), dsh_dlg_key2, 0, 2, 1, 1);
-  gtk_grid_attach(GTK_GRID(grid), dsh_dlg_val2, 1, 2, 1, 1);
-  gtk_box_pack_start(GTK_BOX(vbox), grid, FALSE, FALSE, 0);
+  // 分隔线:容器状态区与外部连接区之间(两种模式都保留)
+  GtkWidget *ext_sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_pack_start(GTK_BOX(vbox), ext_sep, FALSE, FALSE, 0);
 
-  // 控制按钮行:启动(主题强调)/重启(中性)/停止(危险),整行右对齐。
-  // 三个按钮的启用/禁用仍由 dsh_update_server_dialog 的状态驱动逻辑决定。
+  // 外部模式:URL 输入 + 连接/断开 + 外部状态 + 错误标签
+  GtkWidget *ext_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_style_context_add_class(gtk_widget_get_style_context(ext_row), "dsh-dialog-ext-row");
+  GtkWidget *ext_label = gtk_label_new("服务地址");
+  gtk_style_context_add_class(gtk_widget_get_style_context(ext_label), "dsh-dialog-key");
+  dsh_dlg_url_entry = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(dsh_dlg_url_entry), "http://127.0.0.1:3456");
+  gtk_widget_set_hexpand(dsh_dlg_url_entry, TRUE);
+  dsh_dlg_btn_connect = gtk_button_new_with_label("连接");
+  dsh_dlg_btn_disconnect = gtk_button_new_with_label("断开");
+  gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_btn_connect), "suggested-action");
+  g_signal_connect(dsh_dlg_btn_connect, "clicked", G_CALLBACK(dsh_external_connect_clicked), NULL);
+  g_signal_connect(dsh_dlg_btn_disconnect, "clicked", G_CALLBACK(dsh_external_disconnect_clicked), NULL);
+  gtk_box_pack_start(GTK_BOX(ext_row), ext_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_url_entry, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_btn_connect, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_btn_disconnect, FALSE, FALSE, 0);
+  dsh_dlg_ext_state = gtk_label_new("");
+  gtk_widget_set_halign(dsh_dlg_ext_state, GTK_ALIGN_START);
+  gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_ext_state), "dsh-dialog-ext-state");
+  dsh_dlg_error_label = gtk_label_new("");
+  gtk_widget_set_halign(dsh_dlg_error_label, GTK_ALIGN_START);
+  gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_error_label), "dsh-dialog-error");
+  // fill=TRUE 让外部队扩展满整行,URL 输入框(hexpand)随之撑开
+  gtk_box_pack_start(GTK_BOX(vbox), ext_row, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_ext_state, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_error_label, FALSE, FALSE, 0);
+
+  // 分隔线:外部连接区与容器按钮之间(仅容器模式显示)
+  dsh_dlg_actions_sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_actions_sep, FALSE, FALSE, 0);
+
+  // 容器模式按钮行
+  dsh_dlg_container_buttons = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_halign(dsh_dlg_container_buttons, GTK_ALIGN_END);
   dsh_dlg_btn_start = gtk_button_new_with_label("启动");
   dsh_dlg_btn_restart = gtk_button_new_with_label("重启");
   dsh_dlg_btn_stop = gtk_button_new_with_label("停止");
@@ -327,32 +444,70 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   g_signal_connect(dsh_dlg_btn_start, "clicked", G_CALLBACK(dsh_server_start_clicked), NULL);
   g_signal_connect(dsh_dlg_btn_restart, "clicked", G_CALLBACK(dsh_server_restart_clicked), NULL);
   g_signal_connect(dsh_dlg_btn_stop, "clicked", G_CALLBACK(dsh_server_stop_clicked), NULL);
-  GtkWidget *actions = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  gtk_widget_set_halign(actions, GTK_ALIGN_END);
-  gtk_widget_set_margin_bottom(actions, 12);
-  gtk_style_context_add_class(gtk_widget_get_style_context(actions), "dsh-dialog-actions");
-  gtk_box_pack_start(GTK_BOX(actions), dsh_dlg_btn_start, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(actions), dsh_dlg_btn_restart, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(actions), dsh_dlg_btn_stop, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(vbox), actions, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_container_buttons), dsh_dlg_btn_start, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_container_buttons), dsh_dlg_btn_restart, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_container_buttons), dsh_dlg_btn_stop, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_container_buttons, FALSE, FALSE, 0);
 
   gtk_container_add(GTK_CONTAINER(content), vbox);
   gtk_widget_show_all(dlg);
   return dlg;
 }
 
-// ---- 刷新服务器弹框内容与按钮可用性(tick 调用) ----
-// state_text 用于展示(来自 ui_state.go),state 是状态枚举,仅用于圆点着色。
+// ---- 刷新服务器弹框(按模式分支) ----
+// 容器模式:显示容器状态区与按钮;外部模式:隐藏两者,外部状态由
+// dsh_update_external_dialog 呈现。模式判断以弹框单选按钮为准。
 static void dsh_update_server_dialog(GtkWidget *dlg, const char *state_text, int state,
                                      const char *detail,
                                      gboolean can_start, gboolean can_restart, gboolean can_stop) {
   (void)dlg;
-  gtk_label_set_text(GTK_LABEL(dsh_dlg_state), state_text);
-  dsh_set_state_class(dsh_dlg_dot, state);
-  dsh_update_detail(detail);
-  gtk_widget_set_sensitive(dsh_dlg_btn_start, can_start);
-  gtk_widget_set_sensitive(dsh_dlg_btn_restart, can_restart);
-  gtk_widget_set_sensitive(dsh_dlg_btn_stop, can_stop);
+  gboolean external = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dsh_dlg_mode_external));
+  gtk_widget_set_visible(dsh_dlg_container_buttons, !external);
+  gtk_widget_set_visible(dsh_dlg_actions_sep, !external);
+  gtk_widget_set_visible(dsh_dlg_state_grid, !external);
+  gtk_widget_set_visible(dsh_dlg_detail_row1, !external);
+  gtk_widget_set_visible(dsh_dlg_detail_row2, !external);
+  if (!external) {
+    gtk_label_set_text(GTK_LABEL(dsh_dlg_state), state_text);
+    dsh_set_state_class(dsh_dlg_dot, state);
+    dsh_update_detail(detail);
+    gtk_widget_set_sensitive(dsh_dlg_btn_start, can_start);
+    gtk_widget_set_sensitive(dsh_dlg_btn_restart, can_restart);
+    gtk_widget_set_sensitive(dsh_dlg_btn_stop, can_stop);
+  }
+}
+
+// ---- 刷新外部模式状态区与连接按钮(tick 调用) ----
+// state_text 为空时隐藏外部状态区(容器模式下不占位);
+// connected 用于状态文本着色(已连接绿/未连接灰,与状态栏圆点同色系)。
+static void dsh_update_external_dialog(const char *state_text,
+                                       gboolean can_connect, gboolean can_disconnect,
+                                       gboolean connected) {
+  gtk_widget_set_visible(dsh_dlg_ext_state, state_text != NULL && state_text[0] != '\0');
+  gtk_label_set_text(GTK_LABEL(dsh_dlg_ext_state), state_text != NULL ? state_text : "");
+  gtk_widget_set_sensitive(dsh_dlg_btn_connect, can_connect);
+  gtk_widget_set_sensitive(dsh_dlg_btn_disconnect, can_disconnect);
+  GtkStyleContext *ctx = gtk_widget_get_style_context(dsh_dlg_ext_state);
+  gtk_style_context_remove_class(ctx, "dsh-state-running");
+  gtk_style_context_remove_class(ctx, "dsh-state-stopped");
+  gtk_style_context_add_class(ctx, connected ? "dsh-state-running" : "dsh-state-stopped");
+}
+
+// ---- 外部连接安全确认弹框 ----
+// GtkMessageDialog 的正文/按钮都是变参调用,cgo 对非空变参支持有限
+// (实测空变参可编译,带参即报 "unexpected type: ..."),故整体放 C 侧。
+static gboolean dsh_confirm_external(GtkWindow *parent, const char *url) {
+  (void)url;
+  GtkWidget *dlg = gtk_message_dialog_new(
+      parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+      GTK_MESSAGE_QUESTION, GTK_BUTTONS_NONE, NULL);
+  gtk_message_dialog_format_secondary_text(
+      GTK_MESSAGE_DIALOG(dlg),
+      "将连接远端 harness 服务,其命令在远端机器上执行,API key 等配置将发往该机器。确认连接?");
+  gtk_dialog_add_buttons(GTK_DIALOG(dlg), "_连接", GTK_RESPONSE_YES, "_取消", GTK_RESPONSE_NO, NULL);
+  gint resp = gtk_dialog_run(GTK_DIALOG(dlg));
+  gtk_widget_destroy(dlg);
+  return resp == GTK_RESPONSE_YES;
 }
 
 // ---- 关于弹框(GtkAboutDialog,run 阻塞式) ----
@@ -405,6 +560,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 	"unsafe"
 )
 
@@ -416,13 +572,46 @@ var (
 	serverDialog     *C.GtkWidget
 )
 
-// installDesktopUI 挂载底部状态栏、应用自定义样式、注册 1s 状态轮询并居中窗口。
-// 必须在 w.Run() 之前调用;win 来自 webview.WebView.Window()。
-func installDesktopUI(win unsafe.Pointer, sup *Supervisor) {
+// 弹框子控件指针:Go 侧经 dsh_get_dialog_ptrs 从 C 取回
+// (C static 变量无法被 Go 直接引用),弹框销毁时置空。
+var (
+	dsh_dlg_mode_container *C.GtkWidget
+	dsh_dlg_mode_external  *C.GtkWidget
+	dsh_dlg_url_entry      *C.GtkWidget
+	dsh_dlg_error_label    *C.GtkWidget
+)
+
+// 外部连接状态与导航
+var (
+	connector  *Connector
+	navigateFn func(string)
+	configPath string
+	// 异步探测结果与待导航 URL(经 g_idle_add 回主线程)
+	probeResultErr error
+	probeResultURL string
+	pendingNavURL  string
+	externalBusy   bool
+)
+
+// externalConfigFilePath 返回外部 URL 配置文件路径;HOME 不可用时回退
+// 当前目录 .cache/dsh-desktop/config.json(随工作目录)。
+func externalConfigFilePath() string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".config", "dsh-desktop", "config.json")
+	}
+	return filepath.Join(".cache", "dsh-desktop", "config.json")
+}
+
+// installDesktopUI 挂载底部状态栏、应用自定义样式、注册 1s 状态轮询、居中窗口
+// 并初始化外部连接导航。必须在 w.Run() 之前调用;win 来自 webview.WebView.Window()。
+func installDesktopUI(win unsafe.Pointer, sup *Supervisor, navigate func(string)) {
 	if win == nil {
 		return
 	}
 	activeSupervisor = sup
+	navigateFn = navigate
+	connector = NewConnector()
+	configPath = externalConfigFilePath()
 	mainWindow = (*C.GtkWindow)(win)
 	C.dsh_apply_style(mainWindow)
 	statusLabel = C.dsh_install_status_bar(mainWindow)
@@ -439,20 +628,50 @@ func dshRefreshStatus() {
 	}
 	st := sup.Status()
 
-	// 状态文本仍来自 statusBarText,渲染交给 C 侧(给前导 ● 按状态着色)
-	bar := C.CString(statusBarText(st))
+	// 状态栏:外部模式显示外部服务地址,容器模式显示容器状态。
+	// 模式判断以 connector.Mode() 为准(唯一模式权威),与弹框单选按钮无关。
+	var barText string
+	if connector != nil && connector.Mode() == ModeExternal {
+		barText = externalStatusBarText(connector)
+	} else {
+		barText = statusBarText(st)
+	}
+	bar := C.CString(barText)
 	C.dsh_set_status_label((*C.GtkLabel)(unsafe.Pointer(statusLabel)), bar, C.int(st.State))
 	C.free(unsafe.Pointer(bar))
 
-	if serverDialog != nil {
-		d := serverDialogState(st)
-		state := C.CString(d.State)
-		detail := C.CString(d.Detail)
-		C.dsh_update_server_dialog(serverDialog, state, C.int(st.State), detail,
-			boolToGboolean(d.CanStart), boolToGboolean(d.CanRestart), boolToGboolean(d.CanStop))
-		C.free(unsafe.Pointer(state))
-		C.free(unsafe.Pointer(detail))
+	if serverDialog == nil {
+		return
 	}
+	// 容器状态区:可见性与内容由弹框单选按钮决定(C 侧处理)
+	d := serverDialogState(st)
+	state := C.CString(d.State)
+	detail := C.CString(d.Detail)
+	C.dsh_update_server_dialog(serverDialog, state, C.int(st.State), detail,
+		boolToGboolean(d.CanStart), boolToGboolean(d.CanRestart), boolToGboolean(d.CanStop))
+	C.free(unsafe.Pointer(state))
+	C.free(unsafe.Pointer(detail))
+
+	// 外部状态区与连接/断开按钮:按模式与 busy 更新
+	var extText string
+	var canConnect, canDisconnect, connected bool
+	if connector != nil && connector.Mode() == ModeExternal {
+		ext := externalDialogState(connector, externalBusy)
+		extText = ext.State + "\n" + ext.Detail
+		canConnect, canDisconnect = ext.CanConnect, ext.CanDisconnect
+		connected = true
+	} else {
+		// 容器模式:连接按钮随时可用(点击后自动切外部),busy 期间禁用;
+		// 连接探测中(外部单选已选中)显示占位状态
+		canConnect = !externalBusy
+		if externalBusy && C.gtk_toggle_button_get_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external))) != 0 {
+			extText = "连接中…"
+		}
+	}
+	cExt := C.CString(extText)
+	C.dsh_update_external_dialog(cExt, boolToGboolean(canConnect), boolToGboolean(canDisconnect),
+		boolToGboolean(connected))
+	C.free(unsafe.Pointer(cExt))
 }
 
 //export dshOnServerStatusClicked
@@ -465,12 +684,39 @@ func dshOnServerStatusClicked() {
 		return
 	}
 	serverDialog = C.dsh_make_server_dialog(mainWindow)
+	// 取回 Go 回调需要的子控件指针
+	var modeContainer, modeExternal, urlEntry, errorLabel *C.GtkWidget
+	C.dsh_get_dialog_ptrs(&modeContainer, &modeExternal, &urlEntry, &errorLabel)
+	dsh_dlg_mode_container = modeContainer
+	dsh_dlg_mode_external = modeExternal
+	dsh_dlg_url_entry = urlEntry
+	dsh_dlg_error_label = errorLabel
+	// 外部模式已连接时,重开弹框把单选按钮同步到外部(connector.Mode() 是唯一权威)
+	if connector != nil && connector.Mode() == ModeExternal {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external)), 1)
+	}
+	// 填充上次连接的 URL:优先运行期记忆,其次配置文件(不自动重连)
+	if connector != nil {
+		u := connector.ExternalURL()
+		if u == "" {
+			u = loadExternalURL(configPath)
+		}
+		if u != "" {
+			c := C.CString(u)
+			C.gtk_entry_set_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry)), c)
+			C.free(unsafe.Pointer(c))
+		}
+	}
 	dshRefreshStatus()
 }
 
 //export dshOnServerDialogDestroyed
 func dshOnServerDialogDestroyed() {
 	serverDialog = nil
+	dsh_dlg_mode_container = nil
+	dsh_dlg_mode_external = nil
+	dsh_dlg_url_entry = nil
+	dsh_dlg_error_label = nil
 }
 
 //export dshOnServerStart
@@ -492,6 +738,139 @@ func dshOnServerStop() {
 	if activeSupervisor != nil {
 		activeSupervisor.StopHarness()
 	}
+}
+
+//export dshOnModeChanged
+func dshOnModeChanged() {
+	if dsh_dlg_mode_external == nil || dsh_dlg_mode_container == nil {
+		return
+	}
+	// 单选按钮组互斥由 GTK 保证,这里做防御性同步并刷新弹框
+	external := C.gtk_toggle_button_get_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external))) != 0
+	if external {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_container)), 0)
+	} else {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external)), 0)
+	}
+	if serverDialog != nil {
+		dshRefreshStatus()
+	}
+}
+
+//export dshOnExternalConnect
+func dshOnExternalConnect() {
+	if connector == nil || navigateFn == nil || activeSupervisor == nil {
+		return
+	}
+	raw := C.GoString(C.gtk_entry_get_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry))))
+	u, err := connector.ValidateURL(raw)
+	if err != nil {
+		setDialogError("地址无效: " + err.Error())
+		return
+	}
+	if connector.NeedConfirmation(u) {
+		if !confirmExternal(u) { // GtkMessageDialog 是/否
+			return
+		}
+		connector.ConfirmHost(u)
+	}
+	// 连接前先把单选按钮切到外部模式,保证弹框 UI 与连接状态一致
+	if dsh_dlg_mode_external != nil {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external)), 1)
+	}
+	// 连接前先停容器 harness(释放端口、暂停自动重启),避免端口冲突;
+	// BeginExternal 在 goroutine 执行(内含 ≤3s 探测,经 g_idle_add 回主线程),
+	// 不阻塞 GTK 主线程,也不重复探测。
+	activeSupervisor.StopHarness()
+	externalBusy = true
+	dshRefreshStatus()
+	go func() {
+		err := connector.BeginExternal(u)
+		probeResultURL = u
+		probeResultErr = err
+		C.dsh_schedule_probe_result()
+	}()
+}
+
+//export dshOnProbeResult
+func dshOnProbeResult() {
+	u := probeResultURL
+	err := probeResultErr
+	externalBusy = false
+	if err != nil {
+		// 探测失败:恢复容器模式(重启容器 harness),弹框内错误提示
+		setDialogError("连接失败: " + err.Error())
+		if serverDialog != nil && dsh_dlg_mode_container != nil {
+			C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_container)), 1)
+		}
+		activeSupervisor.Restart()
+		dshRefreshStatus()
+		return
+	}
+	// 探测成功:记忆 URL、清错误、导航到外部服务
+	_ = saveExternalURL(configPath, u)
+	setDialogError("")
+	if dsh_dlg_url_entry != nil {
+		cu := C.CString(u)
+		C.gtk_entry_set_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry)), cu)
+		C.free(unsafe.Pointer(cu))
+	}
+	navigateFn(u)
+	dshRefreshStatus()
+}
+
+//export dshOnExternalDisconnect
+func dshOnExternalDisconnect() {
+	if connector == nil || activeSupervisor == nil || navigateFn == nil {
+		return
+	}
+	connector.EndExternal()
+	// 单选按钮回容器内,弹框 UI 立即回到容器模式
+	if serverDialog != nil && dsh_dlg_mode_container != nil {
+		C.gtk_toggle_button_set_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_container)), 1)
+	}
+	externalBusy = true
+	dshRefreshStatus()
+	// 重启容器 harness,等就绪后导航回(异步,有界 30s)
+	go func() {
+		activeSupervisor.Restart()
+		select {
+		case u := <-activeSupervisor.Ready():
+			pendingNavURL = u
+		case <-time.After(30 * time.Second):
+			pendingNavURL = ""
+		}
+		C.dsh_schedule_nav_idle()
+	}()
+}
+
+//export dshOnNavIdle
+func dshOnNavIdle() {
+	externalBusy = false
+	u := pendingNavURL
+	pendingNavURL = ""
+	if u != "" {
+		navigateFn(u)
+	}
+	dshRefreshStatus()
+}
+
+// confirmExternal 弹确认框;返回用户是否确认。
+// 变参 GTK 调用在 C 侧实现(见 dsh_confirm_external),Go 只传 URL 并判断结果。
+func confirmExternal(u string) bool {
+	cu := C.CString(u)
+	defer C.free(unsafe.Pointer(cu))
+	return C.dsh_confirm_external(mainWindow, cu) != 0
+}
+
+// setDialogError 设置弹框错误标签文本。
+func setDialogError(text string) {
+	if serverDialog == nil || dsh_dlg_error_label == nil {
+		return
+	}
+	c := C.CString(text)
+	defer C.free(unsafe.Pointer(c))
+	C.gtk_label_set_text((*C.GtkLabel)(unsafe.Pointer(dsh_dlg_error_label)), c)
 }
 
 //export dshOnAboutClicked

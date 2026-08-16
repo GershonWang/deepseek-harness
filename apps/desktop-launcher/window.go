@@ -43,8 +43,11 @@ func openWindow(url string, sup *Supervisor) {
 	// gtk_widget_destroy，触发 webkit 的 destroy -> terminate 关闭链。
 	connectDeleteEvent(w)
 
-	// 底部状态栏、服务器/关于按钮、状态轮询与窗口居中
-	installDesktopUI(w.Window(), sup)
+	// 底部状态栏、服务器/关于按钮、状态轮询、窗口居中与外部连接导航
+	// Navigate 闭包只在 GTK 主线程被触发(弹框回调与 idle 回调),线程安全。
+	installDesktopUI(w.Window(), sup, func(u string) {
+		w.Navigate(u)
+	})
 
 	w.Navigate(url)
 

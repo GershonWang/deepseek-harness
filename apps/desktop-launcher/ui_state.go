@@ -53,3 +53,29 @@ func serverDialogState(st HarnessStatus) ServerDialogState {
 		}
 	}
 }
+
+// externalStatusBarText 生成外部模式的状态栏文本。
+func externalStatusBarText(connector *Connector) string {
+	if u := connector.ExternalURL(); u != "" {
+		return "● 外部服务 " + u
+	}
+	return "● 外部模式"
+}
+
+// ExternalDialogState 是外部模式弹框状态区的文本与按钮可用性。
+type ExternalDialogState struct {
+	State, Detail string
+	CanConnect    bool
+	CanDisconnect bool
+}
+
+// externalDialogState 由连接器状态推导弹框文本与按钮可用性。
+func externalDialogState(connector *Connector, busy bool) ExternalDialogState {
+	connected := connector.Mode() == ModeExternal
+	return ExternalDialogState{
+		State:         map[bool]string{true: "已连接", false: "未连接"}[connected],
+		Detail:        "外部地址: " + connector.ExternalURL(),
+		CanConnect:    !connected && !busy,
+		CanDisconnect: connected && !busy,
+	}
+}

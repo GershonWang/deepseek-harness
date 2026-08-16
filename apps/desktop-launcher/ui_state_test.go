@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -36,5 +38,35 @@ func TestServerDialogState(t *testing.T) {
 	}
 	if stopped.Detail != "上次退出: killed by signal=terminated" {
 		t.Errorf("stopped Detail 错误:%q", stopped.Detail)
+	}
+}
+
+func TestExternalStatusBarText(t *testing.T) {
+	c := NewConnector()
+	if got := externalStatusBarText(c); got != "● 外部模式" {
+		t.Errorf("未连接文本错误:%q", got)
+	}
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ok.Close()
+	if err := c.BeginExternal(ok.URL); err != nil {
+		t.Fatal(err)
+	}
+	if got := externalStatusBarText(c); got != "● 外部服务 "+ok.URL {
+		t.Errorf("已连接文本错误:%q", got)
+	}
+}
+
+func TestExternalDialogState(t *testing.T) {
+	c := NewConnector()
+	s := externalDialogState(c, false)
+	if s.State != "未连接" || !s.CanConnect || s.CanDisconnect {
+		t.Errorf("未连接态错误:%+v", s)
+	}
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer ok.Close()
+	_ = c.BeginExternal(ok.URL)
+	s = externalDialogState(c, true)
+	if s.State != "已连接" || s.CanConnect || s.CanDisconnect {
+		t.Errorf("连接中 busy 态错误:%+v", s)
 	}
 }
