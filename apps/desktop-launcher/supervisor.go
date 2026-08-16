@@ -17,6 +17,23 @@ import (
 // readyPattern 匹配 dsh web 的就绪行。
 var readyPattern = regexp.MustCompile(`^dsh web:\s+(https?://127\.0\.0\.1:\d+)`)
 
+// HarnessState 描述 harness 生命周期状态。
+type HarnessState int
+
+const (
+	StateStarting HarnessState = iota // 已 spawn、未就绪
+	StateRunning                      // 就绪行已匹配,存活
+	StateStopped                      // 未运行(记录上次退出原因)
+)
+
+// HarnessStatus 是 UI 轮询用的 harness 快照。
+type HarnessStatus struct {
+	State    HarnessState
+	URL      string // StateRunning 时的就绪地址
+	PID      int    // 当前子进程 PID;停止时为 0
+	LastExit string // 上次退出原因,如 "exited code=3" / "killed by signal=terminated";从未退出时为空
+}
+
 // SupervisorOptions 进程监护参数。
 type SupervisorOptions struct {
 	RestartDelayMs    int
@@ -37,34 +54,41 @@ func DefaultSupervisorOptions() SupervisorOptions {
 
 // Supervisor 管理 harness 子进程的生命周期。
 type Supervisor struct {
-	env      DesktopEnv
-	options  SupervisorOptions
-	ready    chan string
-	logFile  *os.File
-	cancel   context.CancelFunc // 取消当前子进程上下文，在 Stop() 和重新 spawn 时调用
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	exited   chan struct{} // 唯一的 cmd.Wait() 完成后关闭；run()/Stop()/Wait() 都等它
-	stopping bool
+	env             DesktopEnv
+	options         SupervisorOptions
+	ready           chan string
+	logFile         *os.File
+	cancel          context.CancelFunc // 取消当前子进程上下文，在 Stop() 和重新 spawn 时调用
+	mu              sync.Mutex
+	cmd             *exec.Cmd
+	exited          chan struct{} // 唯一的 cmd.Wait() 完成后关闭;run()/Stop()/Wait() 都等它
+	stopping        bool
+	state           HarnessState
+	url             string
+	pid             int
+	lastExit        string
+	manuallyStopped bool          // 手动停止后暂停自动重启,直到 Start()/Restart()
+	startCh         chan struct{} // 唤醒 run():Start/Restart/Stop 解除阻塞
 }
 
 // NewSupervisor 创建监护器。
+// 构造时启动唯一的 run() 监护循环(初始 state 为 StateStarting,
+// 首次 Start() 因此必然被"仅停止态生效"守卫拦下、不留多余 startCh
+// 令牌;run() 也恰好只有一个实例,重复 Start() 不会双 spawn)。
 func NewSupervisor(env DesktopEnv, options SupervisorOptions) *Supervisor {
-	return &Supervisor{
+	s := &Supervisor{
 		env:     env,
 		options: options,
 		ready:   make(chan string, 1),
+		startCh: make(chan struct{}, 1),
 	}
+	go s.run()
+	return s
 }
 
 // Ready 返回就绪通道，收到 URL 后关闭。
 func (s *Supervisor) Ready() <-chan string {
 	return s.ready
-}
-
-// Start 开始监护（在 goroutine 中调用）。
-func (s *Supervisor) Start() {
-	go s.run()
 }
 
 // Stop 优雅停止子进程：SIGTERM → 等待 → SIGKILL。
@@ -80,6 +104,12 @@ func (s *Supervisor) Stop() {
 	cancel := s.cancel
 	exited := s.exited
 	s.mu.Unlock()
+
+	// 唤醒 run()(可能阻塞在手动停止等待),让其检查 stopping 后退出
+	select {
+	case s.startCh <- struct{}{}:
+	default:
+	}
 
 	if cmd == nil || cmd.Process == nil {
 		if cancel != nil {
@@ -109,6 +139,70 @@ func (s *Supervisor) Stop() {
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// Start 手动启动:仅停止态生效,恢复崩溃自动重启。
+func (s *Supervisor) Start() {
+	s.mu.Lock()
+	if s.stopping || s.state != StateStopped {
+		s.mu.Unlock()
+		return
+	}
+	s.manuallyStopped = false
+	s.mu.Unlock()
+	select {
+	case s.startCh <- struct{}{}:
+	default:
+	}
+}
+
+// Restart 手动重启:停止态直接唤醒 spawn,运行态先 SIGTERM 再唤醒。
+func (s *Supervisor) Restart() {
+	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		return
+	}
+	s.manuallyStopped = false
+	cmd := s.cmd
+	s.mu.Unlock()
+	if cmd != nil && cmd.Process != nil {
+		killProcessGroup(cmd, syscall.SIGTERM)
+	}
+	select {
+	case s.startCh <- struct{}{}:
+	default:
+	}
+}
+
+// StopHarness 手动停止:杀当前 harness 并暂停自动重启,直到 Start()。
+func (s *Supervisor) StopHarness() {
+	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		return
+	}
+	s.manuallyStopped = true
+	cmd := s.cmd
+	s.mu.Unlock()
+	if cmd != nil && cmd.Process != nil {
+		killProcessGroup(cmd, syscall.SIGTERM)
+	}
+}
+
+// Status 返回当前 harness 状态快照。
+func (s *Supervisor) Status() HarnessStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return HarnessStatus{State: s.state, URL: s.url, PID: s.pid, LastExit: s.lastExit}
+}
+
+// markReady 记录就绪地址并进入运行态。
+func (s *Supervisor) markReady(url string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state = StateRunning
+	s.url = url
 }
 
 // Wait 等待子进程结束；与 Stop() 同理，只等 s.exited，避免被卡住的
@@ -141,20 +235,31 @@ func (s *Supervisor) logf(format string, args ...any) {
 func (s *Supervisor) run() {
 	attempt := 0
 	for {
+		s.mu.Lock()
 		if s.stopping {
+			s.mu.Unlock()
 			return
+		}
+		manuallyStopped := s.manuallyStopped
+		s.mu.Unlock()
+
+		// 手动停止态:暂停自动重启,等 Start()/Restart() 唤醒
+		if manuallyStopped {
+			<-s.startCh
+			s.mu.Lock()
+			s.manuallyStopped = false
+			attempt = 0
+			stop := s.stopping
+			s.mu.Unlock()
+			if stop {
+				return // Stop() 在手动停止等待期间被调用:直接退出,不再 spawn
+			}
 		}
 
 		s.spawn()
 
-		// 注意：不要在这里消费 s.ready——main() 的 <-sup.Ready() 负责
-		// 接收就绪 URL 并打开窗口。本循环只负责监护：直接等子进程退出。
-		// （此前这里 select s.ready 会与 main 竞争消费唯一的就绪消息，
-		// main 赢了则本 goroutine 永久卡在 select，harness 死后不再重启。）
-
-		// 等待子进程退出。cmd.Wait() 由 spawn() 里的唯一 goroutine 调用
-		// （负责记录退出原因并关闭 s.exited），这里只等通道，避免与
-		// Stop()/Wait() 并发调用 cmd.Wait() 造成 exec 内部永久阻塞。
+		// 注意:不要在这里消费 s.ready——main() 的 <-sup.Ready() 负责
+		// 接收就绪 URL 并打开窗口。本循环只负责监护:直接等子进程退出。
 		s.mu.Lock()
 		exited := s.exited
 		s.mu.Unlock()
@@ -162,18 +267,29 @@ func (s *Supervisor) run() {
 			<-exited
 		}
 
+		s.mu.Lock()
 		if s.stopping {
+			s.mu.Unlock()
 			return
 		}
+		manuallyStopped = s.manuallyStopped
+		s.mu.Unlock()
+		if manuallyStopped {
+			continue // 回到顶部,进入手动停止等待
+		}
 
-		// 退避重启
+		// 退避重启;startCh 可打断(Start/Restart 手动唤醒)
 		attempt++
 		delay := s.options.RestartDelayMs * (1 << (attempt - 1))
 		if delay > s.options.MaxRestartDelayMs {
 			delay = s.options.MaxRestartDelayMs
 		}
 		s.logf("[supervisor] restarting harness in %dms (attempt %d)", delay, attempt)
-		time.Sleep(time.Duration(delay) * time.Millisecond)
+		select {
+		case <-time.After(time.Duration(delay) * time.Millisecond):
+		case <-s.startCh:
+			attempt = 0
+		}
 	}
 }
 
@@ -230,37 +346,56 @@ drained:
 	s.cancel = cancel
 	s.cmd = cmd
 	s.exited = exited
+	s.state = StateStarting
+	s.url = ""
+	s.pid = 0
+	s.lastExit = ""
 	s.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
-		// 启动失败（如 node 二进制缺失）：记录并立即放行等待方，由 run() 退避重启。
+		// 启动失败(如 node 二进制缺失):记录并立即放行等待方,由 run() 退避重启。
 		s.logf("[supervisor] harness start failed: %v", err)
 		close(exited)
 		return
 	}
 
-	// 唯一调用 cmd.Wait() 的 goroutine：记录退出原因并关闭 exited。
-	// 其余等待方（run/Stop/Wait）只等通道，避免 exec.CommandContext 的
+	s.mu.Lock()
+	s.pid = cmd.Process.Pid
+	s.mu.Unlock()
+
+	// 唯一调用 cmd.Wait() 的 goroutine:记录退出原因并关闭 exited。
+	// 其余等待方(run/Stop/Wait)只等通道,避免 exec.CommandContext 的
 	// ctxResult 只发一次、并发 Wait 的第二个调用者永久阻塞。
 	go func() {
 		err := cmd.Wait()
-		// 记录退出原因：静默死亡（SIGKILL/信号）是诊断关键，
-		// 否则看起来像"莫名卡住"。
-		if cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() != -1 {
-			s.logf("[supervisor] harness exited code=%d", cmd.ProcessState.ExitCode())
-		} else if cmd.ProcessState != nil {
-			// ExitCode()==-1 且已结束：被信号终止（信号名从 wait status 取）
-			if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-				s.logf("[supervisor] harness killed by signal=%s", ws.Signal())
-			} else {
-				s.logf("[supervisor] harness ended (no exit code)")
-			}
+		reason := exitReason(cmd, err)
+		if reason != "" {
+			s.logf("[supervisor] harness %s", reason)
 		}
 		if err != nil {
 			s.logf("[supervisor] harness wait error: %v", err)
 		}
+		s.mu.Lock()
+		s.state = StateStopped
+		s.pid = 0
+		s.lastExit = reason
+		s.mu.Unlock()
 		close(exited)
 	}()
+}
+
+// exitReason 把进程退出状态转成诊断字符串;空表示无退出状态。
+func exitReason(cmd *exec.Cmd, err error) string {
+	if cmd.ProcessState != nil && cmd.ProcessState.Exited() && cmd.ProcessState.ExitCode() != -1 {
+		return fmt.Sprintf("exited code=%d", cmd.ProcessState.ExitCode())
+	}
+	if cmd.ProcessState != nil {
+		if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+			return fmt.Sprintf("killed by signal=%s", ws.Signal())
+		}
+		return "ended (no exit code)"
+	}
+	return ""
 }
 
 // killProcessGroup 向进程组发送信号。
@@ -289,6 +424,7 @@ func (r *readyScanner) Write(p []byte) (n int, err error) {
 		line := string(r.buf[:idx])
 		r.buf = r.buf[idx+1:]
 		if match := readyPattern.FindStringSubmatch(line); match != nil {
+			r.sup.markReady(match[1])
 			select {
 			case r.sup.ready <- match[1]:
 			default:
