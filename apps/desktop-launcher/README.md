@@ -33,6 +33,8 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 | `env.go` | `resolveDesktopEnv()`：三级解析子进程命令/参数 |
 | `supervisor.go` | `HarnessSupervisor`：spawn、就绪检测、退避重启、优雅停止 |
 | `window.go` | `webview/webview_go` 封装：Navigate、标题、尺寸、关闭回调 |
+| `ui.go` | 底部状态栏、服务器状态/关于弹框、窗口居中(GTK cgo) |
+| `version.go` | harness/玲珑版本解析(`packageVersion` 由 prepare-offline 注入) |
 | `linglong/linglong.yaml` | 玲珑构建清单 |
 | `linglong/config.d/10-mounts.json` | 文件系统挂载配置模板（用户参考） |
 | `linglong/prepare-pkgconfig.sh` | 生成 webkit2gtk-4.0.pc shim（指向 4.1） |
@@ -108,6 +110,7 @@ ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
 - 宿主机构建 Go 启动器需先运行 `linglong/prepare-pkgconfig.sh` 生成 webkit2gtk-4.0 shim（webview_go 编译期硬编码 4.0，deepin 25 只有 4.1）
 - 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/org.deepseek.dsh-desktop/config.d/` 并改路径
+- 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher(`-ldflags -X main.packageVersion=...`),关于弹框展示
 
 ## 已知 webkit2gtk 兼容性
 
