@@ -19,9 +19,9 @@ func statusBarText(st HarnessStatus) string {
 
 // ServerDialogState 是服务器状态弹框的一次刷新内容。
 type ServerDialogState struct {
-	State                         string
-	Detail                        string
-	CanStart, CanRestart, CanStop bool
+	State             string
+	Detail            string
+	CanStart, CanStop bool
 }
 
 // serverDialogState 由当前状态推导弹框文本与按钮可用性。
@@ -29,27 +29,24 @@ func serverDialogState(st HarnessStatus) ServerDialogState {
 	switch st.State {
 	case StateRunning:
 		return ServerDialogState{
-			State:      "运行中",
-			Detail:     fmt.Sprintf("地址: %s\nPID: %d", st.URL, st.PID),
-			CanStart:   false,
-			CanRestart: true,
-			CanStop:    true,
+			State:    "运行中",
+			Detail:   fmt.Sprintf("地址: %s\nPID: %d", st.URL, st.PID),
+			CanStart: false,
+			CanStop:  true,
 		}
 	case StateStarting:
 		return ServerDialogState{
-			State:      "启动中",
-			Detail:     "harness 正在启动…",
-			CanStart:   false,
-			CanRestart: true,
-			CanStop:    true,
+			State:    "启动中",
+			Detail:   "harness 正在启动…",
+			CanStart: false,
+			CanStop:  true,
 		}
 	default:
 		return ServerDialogState{
-			State:      "已停止",
-			Detail:     "上次退出: " + st.LastExit,
-			CanStart:   true,
-			CanRestart: false,
-			CanStop:    false,
+			State:    "已停止",
+			Detail:   "上次退出: " + st.LastExit,
+			CanStart: true,
+			CanStop:  false,
 		}
 	}
 }

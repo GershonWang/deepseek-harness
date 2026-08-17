@@ -26,14 +26,14 @@ func TestStatusBarText(t *testing.T) {
 
 func TestServerDialogState(t *testing.T) {
 	running := serverDialogState(HarnessStatus{State: StateRunning, URL: "http://127.0.0.1:40275", PID: 123})
-	if running.State != "运行中" || !running.CanRestart || !running.CanStop || running.CanStart {
+	if running.State != "运行中" || !running.CanStop || running.CanStart {
 		t.Errorf("running 态错误:%+v", running)
 	}
 	if running.Detail != "地址: http://127.0.0.1:40275\nPID: 123" {
 		t.Errorf("running Detail 错误:%q", running.Detail)
 	}
 	stopped := serverDialogState(HarnessStatus{State: StateStopped, LastExit: "killed by signal=terminated"})
-	if stopped.State != "已停止" || !stopped.CanStart || stopped.CanRestart || stopped.CanStop {
+	if stopped.State != "已停止" || !stopped.CanStart || stopped.CanStop {
 		t.Errorf("stopped 态错误:%+v", stopped)
 	}
 	if stopped.Detail != "上次退出: killed by signal=terminated" {
