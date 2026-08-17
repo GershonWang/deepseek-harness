@@ -22,6 +22,7 @@ gboolean dshDeleteEvent(GtkWidget *widget, GdkEvent *event, gpointer data) {
 import "C"
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -101,11 +102,31 @@ func configureWebKitHelperPath() {
 	if _, statErr := os.Stat(network); statErr != nil {
 		return // 开发态：helper 在系统路径，无需处理
 	}
-	// 打包态：/tmp 可写，建符号链接 /tmp/dsh-webkit-4.1 -> 真实 helper 目录
+	// 打包态：/tmp 可写，建符号链接 /tmp/dsh-webkit-4.1 -> 真实 helper 目录。
+	// 链接可残留自旧包运行（包 id 变更或旧包卸载后成悬空），复用前必须验证
+	// 目标仍是当前包目录；悬空链接会让 webkit 按补丁路径 spawn 失败并崩溃。
 	const shortPath = "/tmp/dsh-webkit-4.1"
-	if _, statErr := os.Lstat(shortPath); statErr != nil {
-		_ = os.Symlink(helperDir, shortPath)
+	if !webkitHelperLinkUsable(shortPath, helperDir) {
+		_ = os.Remove(shortPath)
+		if err := os.Symlink(helperDir, shortPath); err != nil {
+			fmt.Fprintf(os.Stderr, "dsh-desktop: 创建 webkit helper 符号链接失败: %v\n", err)
+			return
+		}
 	}
 	// injected-bundle 路径正式构建支持环境变量覆盖
 	_ = os.Setenv("WEBKIT_INJECTED_BUNDLE_PATH", filepath.Join(helperDir, "injected-bundle"))
+}
+
+// webkitHelperLinkUsable 判断短路径符号链接能否直接复用：存在、指向
+// expected 目录、且该目录里的 WebKitNetworkProcess 可访问（未卸载）。
+func webkitHelperLinkUsable(shortPath, expected string) bool {
+	target, err := os.Readlink(shortPath)
+	if err != nil {
+		return false
+	}
+	if target != expected {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(expected, "WebKitNetworkProcess"))
+	return err == nil
 }
