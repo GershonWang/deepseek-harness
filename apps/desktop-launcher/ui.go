@@ -223,6 +223,8 @@ static GtkWidget *dsh_dlg_state_grid = NULL;     // 容器模式状态区(状态
 static GtkWidget *dsh_dlg_detail_row1 = NULL;    // 详情第一行(地址/上次退出)
 static GtkWidget *dsh_dlg_detail_row2 = NULL;    // 详情第二行(PID)
 static GtkWidget *dsh_dlg_actions_sep = NULL;    // 外部连接区与容器按钮之间分隔线
+static GtkWidget *dsh_dlg_ext_row = NULL;        // 外部模式:URL 输入行(地址+连接/断开)
+static GtkWidget *dsh_dlg_ext_sep = NULL;        // 分隔线:容器状态区与外部连接区之间
 
 static void dsh_mode_toggled(GtkToggleButton *b, gpointer d) { (void)b; (void)d; dshOnModeChanged(); }
 static void dsh_external_connect_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnExternalConnect(); }
@@ -323,6 +325,7 @@ static void dsh_server_dialog_destroyed(GtkWidget *w, gpointer d) {
   dsh_dlg_error_label = dsh_dlg_ext_state = dsh_dlg_container_buttons = NULL;
   dsh_dlg_state_grid = dsh_dlg_detail_row1 = dsh_dlg_detail_row2 = NULL;
   dsh_dlg_actions_sep = NULL;
+  dsh_dlg_ext_row = dsh_dlg_ext_sep = NULL;
   dshOnServerDialogDestroyed();
 }
 static void dsh_dialog_response(GtkDialog *dlg, gint resp, gpointer d) {
@@ -407,13 +410,13 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
     gtk_box_pack_start(GTK_BOX(vbox), row, FALSE, FALSE, 0);
   }
 
-  // 分隔线:容器状态区与外部连接区之间(两种模式都保留)
-  GtkWidget *ext_sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
-  gtk_box_pack_start(GTK_BOX(vbox), ext_sep, FALSE, FALSE, 0);
+  // 分隔线:容器状态区与外部连接区之间(仅外部模式显示)
+  dsh_dlg_ext_sep = gtk_separator_new(GTK_ORIENTATION_HORIZONTAL);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_ext_sep, FALSE, FALSE, 0);
 
-  // 外部模式:URL 输入 + 连接/断开 + 外部状态 + 错误标签
-  GtkWidget *ext_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  gtk_style_context_add_class(gtk_widget_get_style_context(ext_row), "dsh-dialog-ext-row");
+  // 外部模式:URL 输入 + 连接/断开 + 外部状态 + 错误标签(仅外部模式显示)
+  dsh_dlg_ext_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_ext_row), "dsh-dialog-ext-row");
   GtkWidget *ext_label = gtk_label_new("服务地址");
   gtk_style_context_add_class(gtk_widget_get_style_context(ext_label), "dsh-dialog-key");
   dsh_dlg_url_entry = gtk_entry_new();
@@ -424,10 +427,10 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_btn_connect), "suggested-action");
   g_signal_connect(dsh_dlg_btn_connect, "clicked", G_CALLBACK(dsh_external_connect_clicked), NULL);
   g_signal_connect(dsh_dlg_btn_disconnect, "clicked", G_CALLBACK(dsh_external_disconnect_clicked), NULL);
-  gtk_box_pack_start(GTK_BOX(ext_row), ext_label, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_url_entry, TRUE, TRUE, 0);
-  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_btn_connect, FALSE, FALSE, 0);
-  gtk_box_pack_start(GTK_BOX(ext_row), dsh_dlg_btn_disconnect, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_ext_row), ext_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_ext_row), dsh_dlg_url_entry, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_ext_row), dsh_dlg_btn_connect, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_ext_row), dsh_dlg_btn_disconnect, FALSE, FALSE, 0);
   dsh_dlg_ext_state = gtk_label_new("");
   gtk_widget_set_halign(dsh_dlg_ext_state, GTK_ALIGN_START);
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_ext_state), "dsh-dialog-ext-state");
@@ -435,7 +438,7 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_widget_set_halign(dsh_dlg_error_label, GTK_ALIGN_START);
   gtk_style_context_add_class(gtk_widget_get_style_context(dsh_dlg_error_label), "dsh-dialog-error");
   // fill=TRUE 让外部队扩展满整行,URL 输入框(hexpand)随之撑开
-  gtk_box_pack_start(GTK_BOX(vbox), ext_row, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_ext_row, FALSE, TRUE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_ext_state, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_error_label, FALSE, FALSE, 0);
 
@@ -465,13 +468,16 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
 }
 
 // ---- 刷新服务器弹框(按模式分支) ----
-// 容器模式:显示容器状态区与按钮;外部模式:隐藏两者,外部状态由
-// dsh_update_external_dialog 呈现。模式判断以弹框单选按钮为准。
+// 容器模式:显示容器状态区与按钮,隐藏外部连接控件(地址行/连接/断开);
+// 外部模式:反之,容器区隐藏,外部状态由 dsh_update_external_dialog 呈现。
+// 模式判断以弹框单选按钮为准。
 static void dsh_update_server_dialog(GtkWidget *dlg, const char *state_text, int state,
                                      const char *detail,
                                      gboolean can_start, gboolean can_restart, gboolean can_stop) {
   (void)dlg;
   gboolean external = gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(dsh_dlg_mode_external));
+  gtk_widget_set_visible(dsh_dlg_ext_row, external);
+  gtk_widget_set_visible(dsh_dlg_ext_sep, external);
   gtk_widget_set_visible(dsh_dlg_container_buttons, !external);
   gtk_widget_set_visible(dsh_dlg_actions_sep, !external);
   gtk_widget_set_visible(dsh_dlg_state_grid, !external);
@@ -672,8 +678,8 @@ func dshRefreshStatus() {
 		canConnect, canDisconnect = ext.CanConnect, ext.CanDisconnect
 		connected = true
 	} else {
-		// 容器模式:连接按钮随时可用(点击后自动切外部),busy 期间禁用;
-		// 连接探测中(外部单选已选中)显示占位状态
+		// 容器模式:外部连接控件整行隐藏(C 侧按模式显隐);busy 只在
+		// 外部单选已选中(探测进行中)时才有可见效果
 		canConnect = !externalBusy
 		if externalBusy && C.gtk_toggle_button_get_active((*C.GtkToggleButton)(unsafe.Pointer(dsh_dlg_mode_external))) != 0 {
 			extText = "连接中…"
