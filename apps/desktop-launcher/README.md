@@ -102,6 +102,10 @@ go test -v ./...        # 单元 + mock 子进程集成测试
 
 ## 玲珑打包
 
+## 玲珑打包
+
+**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）与 `build-deb.sh`（linux .deb，安装到 `/opt/apps/<id>/files`、webkit 用系统版）都在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。
+
 **组装式两步构建**：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，容器只复制组装。规避了构建容器的环境问题（Debian npm 代理 bug、无 HOME、beige 无 Node 22、tsdown 在 Node 22 下加载配置失败），且容器不再碰仓库的 node_modules。
 
 ```sh
