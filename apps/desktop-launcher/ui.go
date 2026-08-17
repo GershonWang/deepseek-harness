@@ -569,6 +569,9 @@ var (
 	mainWindow       *C.GtkWindow
 	statusLabel      *C.GtkWidget
 	serverDialog     *C.GtkWidget
+	// webviewTarget 记录当前已加载的目标(容器 URL / 外部 URL / 引导页),
+	// 供状态 tick 检测目标变化后一次性导航;只在 GTK 主线程读写。
+	webviewTarget string
 )
 
 // 弹框子控件指针:Go 侧经 dsh_get_dialog_ptrs 从 C 取回
@@ -669,6 +672,18 @@ func dshRefreshStatus() {
 	C.dsh_update_external_dialog(cExt, boolToGboolean(canConnect), boolToGboolean(canDisconnect),
 		boolToGboolean(connected))
 	C.free(unsafe.Pointer(cExt))
+
+	// webview 目标:外部已连接->外部 URL;容器运行中->容器 URL;其余->引导页。
+	// 只在目标变化时导航,避免每秒重复加载同一页面;目标为空串时不动。
+	// 本函数在 GTK 主线程执行(tick 与 UI 回调),navigateFn 线程安全。
+	if navigateFn != nil && connector != nil {
+		t := resolveTarget(connector.Mode(), connector.ExternalURL(), st.URL,
+			st.State == StateRunning, guidanceURL())
+		if t != "" && t != webviewTarget {
+			webviewTarget = t
+			navigateFn(t)
+		}
+	}
 }
 
 //export dshOnServerStatusClicked
@@ -721,6 +736,7 @@ func dshOnServerStart() {
 	if activeSupervisor != nil {
 		activeSupervisor.Start()
 	}
+	dshRefreshStatus()
 }
 
 //export dshOnServerStop
@@ -728,6 +744,7 @@ func dshOnServerStop() {
 	if activeSupervisor != nil {
 		activeSupervisor.StopHarness()
 	}
+	dshRefreshStatus()
 }
 
 //export dshOnModeChanged
@@ -829,6 +846,7 @@ func dshOnProbeResult(data unsafe.Pointer) {
 		C.gtk_entry_set_text((*C.GtkEntry)(unsafe.Pointer(dsh_dlg_url_entry)), cu)
 		C.free(unsafe.Pointer(cu))
 	}
+	webviewTarget = u
 	navigateFn(u)
 	dshRefreshStatus()
 }
@@ -867,6 +885,7 @@ func dshOnNavIdle(data unsafe.Pointer) {
 	u := C.GoString((*C.char)(data))
 	externalBusy = false
 	if u != "" {
+		webviewTarget = u
 		navigateFn(u)
 	}
 	dshRefreshStatus()

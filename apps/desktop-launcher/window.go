@@ -45,6 +45,9 @@ func openWindow(url string, sup *Supervisor) {
 
 	// 底部状态栏、服务器/关于按钮、状态轮询、窗口居中与外部连接导航
 	// Navigate 闭包只在 GTK 主线程被触发(弹框回调与 idle 回调),线程安全。
+	// webviewTarget 先记为就绪 URL:installDesktopUI 内部的首次 dshRefreshStatus
+	// 据此认定目标未变,后续 w.Navigate 只加载一次。
+	webviewTarget = url
 	installDesktopUI(w.Window(), sup, func(u string) {
 		w.Navigate(u)
 	})
