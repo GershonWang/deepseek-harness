@@ -334,7 +334,7 @@ static void dsh_dialog_response(GtkDialog *dlg, gint resp, gpointer d) {
 
 static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   GtkWidget *dlg = gtk_dialog_new_with_buttons(
-      "服务器状态", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
+      "服务器", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
       "_关闭", GTK_RESPONSE_CLOSE, NULL);
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_server_dialog_destroyed), NULL);
@@ -449,6 +449,13 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_external_panel, FALSE, FALSE, 0);
 
   gtk_container_add(GTK_CONTAINER(content), vbox);
+  // 标题栏只保留关闭:gdk_window_set_functions 写 _MOTIF_WM_HINTS 的
+  // functions 位(仅 MOVE|CLOSE,去掉最小化/最大化/缩放),窗口管理器据此
+  // 隐藏对应按钮。须先 realize 取得 GDK 窗口,再在 show 前设置,保证
+  // 窗口映射时提示已生效。
+  gtk_widget_realize(dlg);
+  gdk_window_set_functions(gtk_widget_get_window(GTK_WIDGET(dlg)),
+                           GDK_FUNC_MOVE | GDK_FUNC_CLOSE);
   gtk_widget_show_all(dlg);
   return dlg;
 }
