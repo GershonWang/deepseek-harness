@@ -333,9 +333,10 @@ static void dsh_dialog_response(GtkDialog *dlg, gint resp, gpointer d) {
 }
 
 static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
+  // 底部不设操作按钮:标题栏已有关闭(X),close 事件走 DELETE_EVENT,
+  // 由 dsh_dialog_response 统一销毁。
   GtkWidget *dlg = gtk_dialog_new_with_buttons(
-      "服务器", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT,
-      "_关闭", GTK_RESPONSE_CLOSE, NULL);
+      "服务器", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_server_dialog_destroyed), NULL);
   gtk_widget_set_size_request(dlg, 440, -1);
@@ -415,6 +416,7 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   g_signal_connect(dsh_dlg_btn_stop, "clicked", G_CALLBACK(dsh_server_stop_clicked), NULL);
   gtk_box_pack_start(GTK_BOX(container_buttons), dsh_dlg_btn_start, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(container_buttons), dsh_dlg_btn_stop, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(dsh_dlg_container_panel), container_buttons, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), dsh_dlg_container_panel, FALSE, FALSE, 0);
 
   // 外部模式面板:URL 输入 + 连接/断开 + 外部状态 + 错误标签
