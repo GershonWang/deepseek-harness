@@ -110,7 +110,7 @@ sh apps/desktop-launcher/linglong/prepare-offline.sh
 
 # 2. 玲珑组装打包（仓库根运行，秒级）
 ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml
-ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.9/x86_64
+ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 ```
 
 打包要点：
@@ -119,7 +119,7 @@ ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 运行时依赖（webkit2gtk-4.1/gtk3）由 `buildext.apt.depends` 从 beige 拉入；Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`（容器内缺失时同源下载）。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
 - 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
 - 宿主机构建 Go 启动器需先运行 `linglong/prepare-pkgconfig.sh` 生成 webkit2gtk-4.0 shim（webview_go 编译期硬编码 4.0，deepin 25 只有 4.1）
-- 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/org.deepseek.dsh-desktop/config.d/` 并改路径
+- 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher(`-ldflags -X main.packageVersion=...`),关于弹框展示
 
 ## 已知 webkit2gtk 兼容性
