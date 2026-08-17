@@ -161,7 +161,7 @@ static GtkWidget *dsh_install_status_bar(GtkWindow *win) {
   gtk_style_context_add_class(gtk_widget_get_style_context(label), "dsh-status-label");
   gtk_widget_set_halign(label, GTK_ALIGN_START);
   dsh_set_status_label(GTK_LABEL(label), "● 启动中", 0); // 首帧即按启动中着色
-  GtkWidget *btn_server = gtk_button_new_with_label("服务器状态");
+  GtkWidget *btn_server = gtk_button_new_with_label("服务器");
   GtkWidget *btn_about = gtk_button_new_with_label("关于");
   // 视觉层级:服务器状态是主操作(主题强调色),关于是安静的文字按钮
   gtk_style_context_add_class(gtk_widget_get_style_context(btn_server), "suggested-action");
