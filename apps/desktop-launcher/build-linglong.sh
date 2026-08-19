@@ -21,6 +21,8 @@ else
 fi
 
 ll-builder build -f "$YAML"
+echo "==> 校验合并产物树工具清单"
+sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
 ART="${LL_ID}_${LL_VERSION}_x86_64_main.uab"

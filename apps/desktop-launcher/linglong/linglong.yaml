@@ -70,3 +70,13 @@ buildext:
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
       # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
       - git
+      # 层1 工具链自包含:随包工具与其运行时依赖
+      - python3
+      - python3-pip
+      - curl
+      - wget
+      - unzip
+      - zip
+      - jq
+      - vim-common   # xxd
+      - ca-certificates   # git/https/python 校验
