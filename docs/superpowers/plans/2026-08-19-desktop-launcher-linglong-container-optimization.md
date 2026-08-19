@@ -199,7 +199,11 @@ while IFS='|' read -r name binary verify shim; do
     fi
     continue
   fi
-  if [ -n "$binary" ] && [ -x "$PREFIX/$binary" ]; then
+  if [ -z "$binary" ]; then
+    echo "FAIL $name: 缺少 binary 且非 shim" >&2; fail=1
+    continue
+  fi
+  if [ -x "$PREFIX/$binary" ]; then
     if [ -n "$verify" ]; then
       if PATH="$PREFIX/bin:$PATH" sh -c "$verify" >/dev/null 2>&1; then
         echo "OK   $name ($verify)"
