@@ -1,0 +1,41 @@
+# 容器内工具清单:verify-tools.sh 逐项校验;installable 为按需安装白名单
+# 格式契约(解析器基于本文件,勿引入 YAML 全特性):
+#   tools 下每项: 2 空格缩进的 name: 段,其下 binary:/verify:/shim: 均 4 空格缩进
+tools:
+  git:
+    binary: bin/git
+    verify: git --version
+  python3:
+    binary: bin/python3
+    verify: python3 --version
+  curl:
+    binary: bin/curl
+    verify: curl --version
+  wget:
+    binary: bin/wget
+    verify: wget --version
+  jq:
+    binary: bin/jq
+    verify: jq --version
+  unzip:
+    binary: bin/unzip
+  xxd:
+    binary: bin/xxd
+  pnpm:
+    shim: true
+    verify: pnpm --version
+# 按需安装白名单:url/sha256 在执行 Task 4 时从官方页面取最新值填入
+installable:
+  go:
+    version: "1.23.2"
+    url: "https://go.dev/dl/go1.23.2.linux-amd64.tar.gz"
+    sha256: "<Task4 填入官方 sha256>"
+  ripgrep:
+    version: "14.1.0"
+    url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
+    sha256: "<Task4 填入官方 sha256>"
+# 有意不包含(包体控制):编译器链不进包体、不进按需白名单
+excluded:
+  - gcc
+  - clang
+  - rustc
