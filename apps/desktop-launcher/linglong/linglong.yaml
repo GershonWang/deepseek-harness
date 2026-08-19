@@ -2,7 +2,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop
   name: deepseek-harness-desktop
-  version: 0.1.0.15
+  version: 0.1.0.16
   kind: app
   description: |
     DeepSeek Harness 桌面客户端。
@@ -65,3 +65,8 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
+      # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
+      # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
+      # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
+      # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
+      - git
