@@ -252,7 +252,7 @@ git commit -m "feat(desktop-launcher): verify linglong tool manifest post-build"
       - unzip
       - zip
       - jq
-      - vim-common   # xxd
+      - xxd   # 独立二进制包;beige/noble 的 vim-common 已不含 xxd
       - ca-certificates   # git/https/python 校验
 ```
 
