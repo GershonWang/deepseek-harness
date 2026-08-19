@@ -30,6 +30,7 @@ func InstallTool(dir, name, version, url, sha256Hex string) error {
 	if sum := sha256.Sum256(downloaded); hex.EncodeToString(sum[:]) != strings.ToLower(sha256Hex) {
 		return fmt.Errorf("sha256 mismatch for %s", name)
 	}
+	// 安装根目录可能尚不存在(如全新 HOME),先创建再建临时解包目录。
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
