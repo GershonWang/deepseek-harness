@@ -37,6 +37,7 @@ dsh web 子进程（node + apps/cli/lib/bin.js web）
 | `connection.go` | 外部服务连接:探测、URL 校验、持久化、连接状态(纯 Go) |
 | `version.go` | harness/玲珑版本解析(`packageVersion` 由 prepare-offline 注入) |
 | `linglong/linglong.yaml` | 玲珑构建清单 |
+| `linglong/tools.yaml` | 容器内工具清单(binary/verify/按需白名单) |
 | `linglong/config.d/10-mounts.json` | 文件系统挂载配置模板（用户参考） |
 | `linglong/prepare-pkgconfig.sh` | 生成 webkit2gtk-4.0.pc shim（指向 4.1） |
 | `icons/dsh-desktop.png` | 应用图标 |

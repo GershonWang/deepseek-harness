@@ -24,16 +24,18 @@ tools:
   pnpm:
     shim: true
     verify: pnpm --version
-# 按需安装白名单:url/sha256 在执行 Task 4 时从官方页面取最新值填入
+# 按需安装白名单:url/sha256 启用时从官方发布页取最新值填入
 installable:
   go:
     version: "1.23.2"
     url: "https://go.dev/dl/go1.23.2.linux-amd64.tar.gz"
-    sha256: "<Task4 填入官方 sha256>"
+    # 启用该工具前从官方发布页取得并替换为真实 sha256
+    sha256: "<启用前从官方发布页填入>"
   ripgrep:
     version: "14.1.0"
     url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
-    sha256: "<Task4 填入官方 sha256>"
+    # 启用该工具前从官方发布页取得并替换为真实 sha256
+    sha256: "<启用前从官方发布页填入>"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
 excluded:
   - gcc
