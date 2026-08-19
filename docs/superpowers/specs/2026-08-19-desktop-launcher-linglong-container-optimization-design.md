@@ -78,9 +78,11 @@ excluded:
   - rustc
 ```
 
-**`linglong/verify-tools.sh`**(新):在 `build:` 阶段末尾执行,逐项检查 `$PREFIX/<binary>` 存在且可执行;shim 类工具(corepack)实测版本。任一项失败 → 构建退出非零,并打印"该工具依赖什么 apt 包、如何补"提示。工具范围演进只改 `tools.yaml`;`buildext.apt.depends` 与校验脚本以它为准。
+**`linglong/verify-tools.sh`**(新):在 `ll-builder build` 完成后于**宿主机**执行,校验合并产物树(`linglong/output/binary/files`)——`buildext.apt.depends` 的合并发生在 preCommit,`build:` 容器阶段看不到合并结果,不能在容器内校验。逐项检查 `$PREFIX/<binary>` 存在且可执行;shim 类工具(corepack)实测版本。任一项失败 → 退出非零,并打印"该工具依赖什么 apt 包、如何补"提示。工具范围演进只改 `tools.yaml`;`buildext.apt.depends` 与校验脚本以它为准。
 
-**`linglong.yaml`**:`buildext.apt.depends` 新增 `python3`、`python3-pip`、`curl`、`wget`、`unzip`、`zip`、`jq`、`vim-common`(xxd)、`ca-certificates`(git 已加;tar 由基础运行时提供);`build:` 末尾调用 `verify-tools.sh`。
+**`linglong.yaml`**:`buildext.apt.depends` 新增 `python3`、`python3-pip`、`curl`、`wget`、`unzip`、`zip`、`jq`、`vim-common`(xxd)、`ca-certificates`(git 已加;tar 由基础运行时提供)。
+
+**`build-linglong.sh`**:`ll-builder build` 之后、`export` 之前调用 `verify-tools.sh linglong/output/binary/files`,校验失败即中止,不出包。
 
 ## 第二层:运行时自检与模型可见工具清单
 
@@ -112,7 +114,8 @@ excluded:
 |---|---|
 | `linglong/tools.yaml`(新) | 工具清单单一事实来源(含 installable 白名单与 excluded) |
 | `linglong/verify-tools.sh`(新) | 构建期逐项校验,缺失即失败 |
-| `linglong/linglong.yaml` | `buildext.apt.depends` 增补;`build:` 末尾调 verify-tools.sh |
+| `linglong/linglong.yaml` | `buildext.apt.depends` 增补(python3/curl/wget/unzip/zip/jq/vim-common/ca-certificates) |
+| `build-linglong.sh` | export 前调用 verify-tools.sh 校验合并产物树 |
 | `env.go` | `configurePackagedEnv()` 汇入 `$HOME/.dsh-tools/bin`(PATH)/`lib`(LD_LIBRARY_PATH) |
 | `ui.go` + 新组件 | 工具链健康度面板、工具管理页、Git 凭据区、首次挂载引导 |
 | harness 清单注入(bundle/预设,新) | 可用工具清单注入系统提示 + 新 SessionEventMap 事件 |
@@ -128,7 +131,7 @@ excluded:
 
 ## 验证
 
-- 构建期:故意从 `tools.yaml` 删一项 → `ll-builder build` 失败;全量清单 → 构建通过。
+- 构建期:故意从 `tools.yaml` 删一项 → `verify-tools.sh` 对同一产物树退出非零;全量清单 → 通过。
 - 运行期:`ll-builder run --exec bash` 容器内逐项 `git/python3/pnpm/jq --version`。
 - 按需安装:安装 go → 重启 harness → 容器内 `go version` 可用;断网场景给明确错误。
 - harness 清单注入:按仓库 REAL-composition 测试 + keyless 快照(若为产品可见行为)。
