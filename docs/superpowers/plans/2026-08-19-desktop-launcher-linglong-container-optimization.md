@@ -162,17 +162,25 @@ YAML=$(dirname "$0")/tools.yaml
 LIST=$(mktemp)
 trap 'rm -f "$LIST"' EXIT
 
-# 解析受约束的 YAML 子集,输出 "name|binary|verify|shim"
+# 解析受约束的 YAML 子集,仅在 tools: 段内识别工具,输出 "name|binary|verify|shim"
+# (installable:/excluded: 内的 2 空格 name 不算工具)
 awk '
-  /^  [a-zA-Z0-9_-]+:$/ {
+  /^[a-zA-Z0-9_-]+:$/ {
+    if (name != "") emit();
+    name = "";
+    sec = $1; sub(/:$/, "", sec);
+    in_tools = (sec == "tools") ? 1 : 0;
+    next;
+  }
+  in_tools && /^  [a-zA-Z0-9_-]+:$/ {
     if (name != "") emit();
     name = $1; sub(/:$/, "", name);
     binary=""; verify=""; shim=0;
     next;
   }
-  /^    binary: / { binary=$2; next; }
-  /^    verify: / { sub(/^    verify: /, ""); verify=$0; next; }
-  /^    shim: true$/ { shim=1; next; }
+  in_tools && /^    binary: / { binary=$2; next; }
+  in_tools && /^    verify: / { sub(/^    verify: /, ""); verify=$0; next; }
+  in_tools && /^    shim: true$/ { shim=1; next; }
   END { if (name != "") emit(); }
   function emit() {
     printf "%s|%s|%s|%d\n", name, binary, verify, shim;
