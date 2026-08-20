@@ -96,6 +96,7 @@ excluded:
 - [ ] **Step 2:格式 sanity(本地可跑)**
 
 Run: `grep -c '^  [a-z0-9_-]*:$' apps/desktop-launcher/linglong/tools.yaml`
+
 Expected: `8`(tools 6 项 + installable 2 项段名不匹配该正则除外——输出 ≥6 即可,解析器以 Task 2 测试为准)
 
 - [ ] **Step 3:提交**
@@ -146,6 +147,7 @@ echo "PASS: git 缺失时退出非零"
 - [ ] **Step 2:运行,确认失败(脚本未实现)**
 
 Run: `sh apps/desktop-launcher/linglong/test-verify-tools.sh`
+
 Expected: FAIL(`verify-tools.sh` 不存在或退出 127)
 
 - [ ] **Step 3:实现 verify-tools.sh**
@@ -224,6 +226,7 @@ exit $fail
 - [ ] **Step 4:运行测试,确认通过**
 
 Run: `sh apps/desktop-launcher/linglong/test-verify-tools.sh`
+
 Expected: 两行 `PASS`
 
 - [ ] **Step 5:提交**
@@ -268,6 +271,7 @@ sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files
 - [ ] **Step 3:验证(用户机器)**
 
 Run: `sh apps/desktop-launcher/build-linglong.sh`
+
 Expected: `ll-builder build` 成功 → `校验合并产物树工具清单` 逐项 OK → `ll-builder export` 成功 → 输出 .uab 路径
 
 - [ ] **Step 4:提交**
@@ -386,6 +390,7 @@ func TestRemoveTool(t *testing.T) {
 - [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestInstallTool|TestRemoveTool'`
+
 Expected: FAIL(undefined: InstallTool / ToolInstallDir / ListTools / RemoveTool)
 
 - [ ] **Step 3:实现 toolinstall.go**
@@ -543,6 +548,7 @@ func extractTarGz(data []byte, dest string) error {
 - [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestInstallTool|TestRemoveTool' -v`
+
 Expected: PASS ×3
 
 - [ ] **Step 5:更新 tools.yaml 的 url/sha256(数据录入)**
@@ -617,6 +623,7 @@ func TestConfigurePackagedEnv_SkipsWhenAbsent(t *testing.T) {
 - [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestDshToolsEnv|TestConfigurePackagedEnv'`
+
 Expected: FAIL(undefined: dshToolsEnv / configurePackagedEnvForHome)
 
 - [ ] **Step 3:实现**
@@ -661,6 +668,7 @@ func configurePackagedEnvForHome(home string) {
 - [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestDshToolsEnv|TestConfigurePackagedEnv' -v`
+
 Expected: PASS ×3
 
 - [ ] **Step 5:提交**
@@ -736,6 +744,7 @@ func TestCheckTools_Missing(t *testing.T) {
 - [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run TestCheckTools`
+
 Expected: FAIL(undefined: CheckTools / DefaultToolSpecs / ToolCheck)
 
 - [ ] **Step 3:实现 toolcheck.go**
@@ -811,6 +820,7 @@ func firstLine(s string) string {
 - [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run TestCheckTools -v`
+
 Expected: PASS ×2
 
 - [ ] **Step 5:提交**
@@ -880,6 +890,7 @@ func TestGitCredentials_OverwriteAndClear(t *testing.T) {
 - [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run TestGitCredentials`
+
 Expected: FAIL(undefined: WriteGitCredentials / ReadGitCredentials / ClearGitCredentials)
 
 - [ ] **Step 3:实现 gitcred.go**
@@ -981,6 +992,7 @@ func ClearGitCredentials(home string) error {
 - [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run TestGitCredentials -v`
+
 Expected: PASS ×2
 
 - [ ] **Step 5:提交**
@@ -1035,6 +1047,7 @@ func TestCredentialPanelState_HasToken(t *testing.T) {
 - [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestToolPanelState|TestCredentialPanelState'`
+
 Expected: FAIL(undefined: toolPanelState / credentialPanelState)
 
 - [ ] **Step 3:实现 ui_state.go 追加**
@@ -1069,6 +1082,7 @@ func credentialPanelState(home, storagePath string) CredentialPanelState {
 - [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestToolPanelState|TestCredentialPanelState' -v`
+
 Expected: PASS ×2
 
 - [ ] **Step 5:GUI 薄层(ui.go,遵循既有 dshOnServerStart 模式)**
@@ -1110,6 +1124,7 @@ GTK 布局与回调注册参照现有服务器状态分区(`ui.go` 内 `dshOnSer
 - [ ] **Step 6:编译检查**
 
 Run: `go build ./...`
+
 Expected: 成功(无 cgo 错误)
 
 - [ ] **Step 7:提交**
@@ -1243,6 +1258,7 @@ git commit -m "feat(desktop-launcher): overlay desktop tools preset into harness
 - [ ] **Step 2:仓库门禁**
 
 Run: `pnpm run lint && go test ./... -C apps/desktop-launcher`(apps/desktop-launcher 模块内)
+
 Expected: 通过
 
 - [ ] **Step 3:提交**
