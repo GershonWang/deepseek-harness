@@ -47,6 +47,11 @@ build: |
   ln -sf ../node/bin/corepack ${PREFIX}/bin/corepack
   ln -sf ../node/bin/npm ${PREFIX}/bin/npm
   ln -sf ../node/bin/npx ${PREFIX}/bin/npx
+  # corepack 默认不生成 pnpm 命令(需 enable 才有 shim),提供薄包装上 PATH:
+  # pnpm -> corepack pnpm,首次调用按需下载 pnpm 并缓存于 $HOME/.cache/node/corepack。
+  printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
+    'exec "$DIR/../node/bin/corepack" pnpm "$@"' > ${PREFIX}/bin/pnpm
+  chmod +x ${PREFIX}/bin/pnpm
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
   # 桌面集成：.desktop 文件（generateEntries 会复制到 entries/share/applications，
