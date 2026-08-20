@@ -1,6 +1,9 @@
 # 容器内工具清单:verify-tools.sh 逐项校验;installable 为按需安装白名单
 # 格式契约(解析器基于本文件,勿引入 YAML 全特性):
-#   tools 下每项: 2 空格缩进的 name: 段,其下 binary:/verify:/shim: 均 4 空格缩进
+#   tools 下每项: 2 空格缩进的 name: 段,其下 binary:/verify:/shim:/base: 均 4 空格缩进
+#   base: true 表示该工具由基础运行时 org.deepin.base 提供(运行时实测 /bin/python3、
+#   /bin/curl、/bin/unzip);buildext.apt.depends 只合并"新装差异"包,基础镜像已有的
+#   不会进 $PREFIX,故 verify-tools.sh 对 base 项不做 $PREFIX 存在性校验,只在运行时确认。
 tools:
   git:
     binary: bin/git
@@ -8,9 +11,11 @@ tools:
   python3:
     binary: bin/python3
     verify: python3 --version
+    base: true
   curl:
     binary: bin/curl
     verify: curl --version
+    base: true
   wget:
     binary: bin/wget
     verify: wget --version
@@ -19,8 +24,12 @@ tools:
     verify: jq --version
   unzip:
     binary: bin/unzip
+    base: true
   xxd:
     binary: bin/xxd
+  node:
+    binary: bin/node
+    verify: node --version
   pnpm:
     shim: true
     verify: pnpm --version

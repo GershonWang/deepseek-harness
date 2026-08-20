@@ -40,6 +40,13 @@ build: |
   cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
         ${PREFIX}/harness/config/agent-presets/
   cp -a "$STAGE/node/." ${PREFIX}/node/
+  # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
+  # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的
+  # node/corepack(pnpm);软链进 $PREFIX/bin 后容器内任何进程都能直接调用。
+  ln -sf ../node/bin/node ${PREFIX}/bin/node
+  ln -sf ../node/bin/corepack ${PREFIX}/bin/corepack
+  ln -sf ../node/bin/npm ${PREFIX}/bin/npm
+  ln -sf ../node/bin/npx ${PREFIX}/bin/npx
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
   # 桌面集成：.desktop 文件（generateEntries 会复制到 entries/share/applications，

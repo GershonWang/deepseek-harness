@@ -9,7 +9,7 @@ YAML=$(dirname "$0")/tools.yaml
 LIST=$(mktemp)
 trap 'rm -f "$LIST"' EXIT
 
-# 解析受约束的 YAML 子集,仅在 tools: 段内识别工具,输出 "name|binary|verify|shim"
+# 解析受约束的 YAML 子集,仅在 tools: 段内识别工具,输出 "name|binary|verify|shim|base"
 # (installable:/excluded: 内的 2 空格 name 不算工具)
 awk '
   /^[a-zA-Z0-9_-]+:$/ {
@@ -22,21 +22,22 @@ awk '
   in_tools && /^  [a-zA-Z0-9_-]+:$/ {
     if (name != "") emit();
     name = $1; sub(/:$/, "", name);
-    binary=""; verify=""; shim=0;
+    binary=""; verify=""; shim=0; base=0;
     next;
   }
   in_tools && /^    binary: / { binary=$2; next; }
   in_tools && /^    verify: / { sub(/^    verify: /, ""); verify=$0; next; }
   in_tools && /^    shim: true$/ { shim=1; next; }
+  in_tools && /^    base: true$/ { base=1; next; }
   END { if (name != "") emit(); }
   function emit() {
-    printf "%s|%s|%s|%d\n", name, binary, verify, shim;
+    printf "%s|%s|%s|%d|%d\n", name, binary, verify, shim, base;
     name="";
   }
 ' "$YAML" > "$LIST"
 
 fail=0
-while IFS='|' read -r name binary verify shim; do
+while IFS='|' read -r name binary verify shim base; do
   if [ "$shim" = "1" ]; then
     if [ -x "$PREFIX/node/bin/corepack" ] \
        && "$PREFIX/node/bin/corepack" pnpm --version >/dev/null 2>&1; then
@@ -60,6 +61,10 @@ while IFS='|' read -r name binary verify shim; do
     else
       echo "OK   $name"
     fi
+  elif [ "$base" = "1" ]; then
+    # 基础运行时提供(org.deepin.base /usr/bin),不进 $PREFIX;运行时以
+    # ll-builder run --exec 逐项确认,此处只记录来源含义。
+    echo "OK   $name (base-provided)"
   else
     echo "FAIL $name: $PREFIX/$binary 缺失或不可执行" >&2; fail=1
   fi
