@@ -61,3 +61,46 @@ func TestResolveNode_Default(t *testing.T) {
 		t.Errorf("expected node or node.exe, got %s", n)
 	}
 }
+
+func TestDshToolsEnv(t *testing.T) {
+	bin, ld := dshToolsEnv("/home/u")
+	if bin != "/home/u/.dsh-tools/bin" || ld != "/home/u/.dsh-tools/lib" {
+		t.Fatalf("dshToolsEnv: bin=%q ld=%q", bin, ld)
+	}
+}
+
+func TestConfigurePackagedEnv_PrependsToolsWhenPresent(t *testing.T) {
+	home := t.TempDir()
+	bin := home + "/.dsh-tools/bin"
+	lib := home + "/.dsh-tools/lib"
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(lib, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := os.Getenv("PATH")
+	oldLd := os.Getenv("LD_LIBRARY_PATH")
+	os.Unsetenv("LD_LIBRARY_PATH")
+	defer func() {
+		_ = os.Setenv("PATH", oldPath)
+		_ = os.Setenv("LD_LIBRARY_PATH", oldLd)
+	}()
+	configurePackagedEnvForHome(home)
+	if got := os.Getenv("PATH"); got != bin+string(os.PathListSeparator)+oldPath {
+		t.Fatalf("PATH not prepended: %q", got)
+	}
+	if got := os.Getenv("LD_LIBRARY_PATH"); got != lib {
+		t.Fatalf("LD_LIBRARY_PATH not set: %q", got)
+	}
+}
+
+func TestConfigurePackagedEnv_SkipsWhenAbsent(t *testing.T) {
+	home := t.TempDir() // 无 .dsh-tools
+	oldPath := os.Getenv("PATH")
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
+	configurePackagedEnvForHome(home)
+	if got := os.Getenv("PATH"); got != oldPath {
+		t.Fatalf("PATH changed when tools dir absent: %q", got)
+	}
+}

@@ -102,13 +102,38 @@ func resolveNode() string {
 	return "node"
 }
 
+// dshToolsEnv 返回按需工具目录的 PATH 与 LD_LIBRARY_PATH 段（home/.dsh-tools）。
+func dshToolsEnv(home string) (pathSeg, ldSeg string) {
+	return filepath.Join(home, ".dsh-tools", "bin"), filepath.Join(home, ".dsh-tools", "lib")
+}
+
 // configurePackagedEnv 为打包态设置子进程（harness 及其子进程）需要的
 // 环境变量。目录选择固定用 browse 内嵌列表（GUI 内渲染目录树，不弹 zenity
 // 系统对话框，无 GTK4/schema 依赖，任何沙箱都可用）；GTK_A11Y=none 规避
-// 沙箱内无 a11y 总线的警告。
+// 沙箱内无 a11y 总线的警告；按需工具目录存在时前置进 PATH/LD_LIBRARY_PATH。
 func configurePackagedEnv() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	configurePackagedEnvForHome(home)
+}
+
+// configurePackagedEnvForHome 以显式 HOME 调用，便于测试。
+func configurePackagedEnvForHome(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
+	bin, lib := dshToolsEnv(home)
+	if info, err := os.Stat(bin); err == nil && info.IsDir() {
+		_ = os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	if info, err := os.Stat(lib); err == nil && info.IsDir() {
+		if old := os.Getenv("LD_LIBRARY_PATH"); old != "" {
+			_ = os.Setenv("LD_LIBRARY_PATH", lib+string(os.PathListSeparator)+old)
+		} else {
+			_ = os.Setenv("LD_LIBRARY_PATH", lib)
+		}
+	}
 }
 
 // reservePort 选一个空闲的 loopback 端口并返回其字符串。
