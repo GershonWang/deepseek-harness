@@ -39,6 +39,31 @@ static void dsh_center_window(GtkWindow *win, gint ww, gint wh) {
   gtk_window_move(win, x > 0 ? x : 0, y > 0 ? y : 0);
 }
 
+// ---- 弹框基于父窗口重新居中 ----
+// GTK_WIN_POS_CENTER_ON_PARENT 只在 map 时生效一次;弹框内容异步加载后尺寸从短变
+// 高/宽再往右下展开,需每次尺寸变化后重算。move 只改位置不改尺寸,不诱发新一轮
+// size-allocate,故可在分配回调里安全调用。
+static void dsh_recenter_on_parent(GtkWindow *dlg, GtkWindow *parent) {
+  if (dlg == NULL || parent == NULL) return;
+  GdkWindow *pw = gtk_widget_get_window(GTK_WIDGET(parent));
+  GdkWindow *dw = gtk_widget_get_window(GTK_WIDGET(dlg));
+  if (pw == NULL || dw == NULL) return;
+  gint px = 0, py = 0, pww = 0, pwh = 0, dww = 0, dwh = 0;
+  gdk_window_get_root_origin(pw, &px, &py);
+  gdk_window_get_geometry(pw, NULL, NULL, &pww, &pwh);
+  gdk_window_get_geometry(dw, NULL, NULL, &dww, &dwh);
+  gint x = px + (pww - dww) / 2;
+  gint y = py + (pwh - dwh) / 2;
+  gtk_window_move(dlg, x > 0 ? x : 0, y > 0 ? y : 0);
+}
+
+// 尺寸分配变化即重新居中(覆盖"先按短尺寸居中、加载后长高再展开"的时序)。
+static void dsh_dialog_recenter_allocate(GtkWidget *w, GdkRectangle *alloc, gpointer d) {
+  (void)alloc; (void)d;
+  GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(w));
+  dsh_recenter_on_parent(GTK_WINDOW(w), parent);
+}
+
 // ---- 自定义样式(GtkCssProvider)----
 // 全部样式内联在此,不依赖外部 css 文件,便于随二进制分发。颜色尽量取自
 // GTK 主题变量(@theme_bg_color / @borders 等),亮暗主题下自动适配。
@@ -353,6 +378,8 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   gtk_widget_set_size_request(dlg, 440, -1);
   // 显式基于父窗口居中:gtk 默认 GTK_WIN_POS_NONE 交给 WM,WM 不自动居中时弹框乱位。
   gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
+  // 内容尺寸变化后重新居中(自检/详情异步加载会让弹框由短变高再展开)。
+  g_signal_connect(dlg, "size-allocate", G_CALLBACK(dsh_dialog_recenter_allocate), NULL);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
@@ -622,6 +649,8 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
   gtk_widget_set_size_request(dlg, 480, -1);
   // 同服务器弹框:显式基于父窗口居中,避免 WM 不自动居中时弹框乱位。
   gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
+  // 工具链自检/凭据状态异步加载后弹框尺寸变大,size-allocate 时重新居中。
+  g_signal_connect(dlg, "size-allocate", G_CALLBACK(dsh_dialog_recenter_allocate), NULL);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
