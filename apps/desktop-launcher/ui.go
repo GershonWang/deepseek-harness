@@ -646,13 +646,20 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
       "设置", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_settings_dlg_destroyed), NULL);
-  gtk_widget_set_size_request(dlg, 480, -1);
-  // 同服务器弹框:显式基于父窗口居中,避免 WM 不自动居中时弹框乱位。
+  // 固定宽高:内容(工具自检结果/凭据状态)随加载变长,弹框不随内容伸缩(避免
+  // "先按短尺寸居中、加载后往右下展开"的错位),超出的部分在弹框内垂直滚动。
+  gtk_widget_set_size_request(dlg, 560, 560);
+  gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
+  // 显式基于父窗口居中:gtk 默认 GTK_WIN_POS_NONE 交给 WM,WM 不自动居中时弹框乱位;
+  // 固定尺寸下不再伸缩,size-allocate 只需在初显时兜底居中一次。
   gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
-  // 工具链自检/凭据状态异步加载后弹框尺寸变大,size-allocate 时重新居中。
   g_signal_connect(dlg, "size-allocate", G_CALLBACK(dsh_dialog_recenter_allocate), NULL);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+  // 内容区滚动:横向禁止,纵向自动(内容超高时出现滚动条,弹框尺寸不变)。
+  GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_NONE);
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
   gtk_widget_set_margin_start(vbox, 18);
   gtk_widget_set_margin_end(vbox, 18);
@@ -720,7 +727,8 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
   gtk_box_pack_start(GTK_BOX(cred_panel), cred_btns, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), cred_panel, FALSE, FALSE, 0);
 
-  gtk_container_add(GTK_CONTAINER(content), vbox);
+  gtk_container_add(GTK_CONTAINER(scroll), vbox);
+  gtk_container_add(GTK_CONTAINER(content), scroll);
   gtk_widget_realize(dlg);
   gdk_window_set_functions(gtk_widget_get_window(GTK_WIDGET(dlg)), GDK_FUNC_MOVE | GDK_FUNC_CLOSE);
   gtk_widget_show_all(dlg);
