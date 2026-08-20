@@ -576,7 +576,7 @@ static void dsh_show_about_dialog(GtkWindow *parent, const char *program,
 // ---- 工具/凭据设置弹框 ----
 // 单实例弹框:构建时保存子控件指针供 Go 侧刷新使用(与服务器弹框同约定,
 // 不依赖 gtk_container_get_children 索引);销毁时置空,防止刷新访问已销毁控件。
-static GtkWidget *dsh_settings_dlg = NULL;
+// 弹框单实例由 Go 侧 settingsDialog 保证,cgo 无法引用 C static,故不在此保存弹框指针。
 static GtkWidget *dsh_tools_checks = NULL;     // 工具链自检文本(可选中复制)
 static GtkWidget *dsh_cred_status = NULL;      // 凭据状态行(含存储位置,无明文令牌)
 static GtkWidget *dsh_cred_user_entry = NULL;  // 凭据用户名输入
@@ -588,7 +588,6 @@ static void dsh_cred_clear_clicked(GtkButton *b, gpointer d) { (void)b; (void)d;
 
 static void dsh_settings_dlg_destroyed(GtkWidget *w, gpointer d) {
   (void)w; (void)d;
-  dsh_settings_dlg = NULL;
   dsh_tools_checks = NULL;
   dsh_cred_status = NULL;
   dsh_cred_user_entry = NULL;
