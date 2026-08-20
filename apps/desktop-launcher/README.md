@@ -128,6 +128,13 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher(`-ldflags -X main.packageVersion=...`),关于弹框展示
 
+## 容器可用性(工具链/凭据/挂载)
+
+- 工具链自包含:`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates;清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`(宿主侧在 export 前校验合并产物树)。
+- 按需安装:重/罕见工具(go、ripgrep)装到 `$HOME/.dsh-tools`(容器内,宿主磁盘,卸载默认保留),launcher 自动注入 PATH/LD_LIBRARY_PATH;自检面板展示可安装清单与安装目录,白名单见 `linglong/tools.yaml` 的 `installable`(url/sha256 填实后才可安装)。
+- git 凭据:GUI"设置 → Git 凭据"区写入 `~/.git-credentials`(容器 HOME = 宿主主目录;ll-cli uninstall 不清理用户数据);可选只读挂载宿主同名文件(模板见 `linglong/config.d/20-host-credentials.json`,复制到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改 `<USER>`)。
+- 代理:linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`;公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
+
 ## 已知 webkit2gtk 兼容性
 
 - **`location.origin` 可能返回 `"null"`**（opaque origin）。harness 的 `resolveBase()` 已修复：origin 为 `"null"` 时从 `location.href` 提取真实 origin（`packages/client/connection/src/client/rpc.ts` 和 `packages/host/apiproxy/src/fetch/client.ts`）。修改后需重建 `pnpm run build:lib:host`、`pnpm run build:lib:client`、`pnpm run build:web`。
