@@ -351,6 +351,8 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_server_dialog_destroyed), NULL);
   gtk_widget_set_size_request(dlg, 440, -1);
+  // 显式基于父窗口居中:gtk 默认 GTK_WIN_POS_NONE 交给 WM,WM 不自动居中时弹框乱位。
+  gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
@@ -618,6 +620,8 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_settings_dlg_destroyed), NULL);
   gtk_widget_set_size_request(dlg, 480, -1);
+  // 同服务器弹框:显式基于父窗口居中,避免 WM 不自动居中时弹框乱位。
+  gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
