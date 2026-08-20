@@ -35,6 +35,10 @@ build: |
   fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
+  # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
+  # 段),使打包会话的模型可见输入带上可用工具清单。cp 只覆盖同名文件,其余预设保留。
+  cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
+        ${PREFIX}/harness/config/agent-presets/
   cp -a "$STAGE/node/." ${PREFIX}/node/
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
   install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
