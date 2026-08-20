@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +69,46 @@ func TestExternalDialogState(t *testing.T) {
 	s = externalDialogState(c, true)
 	if s.State != "已连接" || s.CanConnect || s.CanDisconnect {
 		t.Errorf("连接中 busy 态错误:%+v", s)
+	}
+}
+
+func TestToolPanelState_Lines(t *testing.T) {
+	checks := []ToolCheck{
+		{Name: "git", OK: true, Version: "git version 2.40.0"},
+		{Name: "python3", OK: false, Err: "exec: not found"},
+	}
+	state := toolPanelState(checks, []string{"go"})
+	joined := strings.Join(state.Installable, "\n")
+	if !strings.Contains(joined, "go") {
+		t.Fatalf("installable missing go: %q", joined)
+	}
+	if len(state.Installed) != 1 || state.Installed[0] != "go" {
+		t.Fatalf("installed: %v", state.Installed)
+	}
+}
+
+func TestToolPanelText_RendersCheckOkAndMissing(t *testing.T) {
+	state := toolPanelState([]ToolCheck{
+		{Name: "git", OK: true, Version: "git version 2.40.0"},
+		{Name: "jq", OK: false, Err: "exec: not found"},
+	}, nil)
+	text := toolPanelText(state)
+	if !strings.Contains(text, "git") || !strings.Contains(text, "2.40.0") {
+		t.Fatalf("ok 行缺 git 版本: %q", text)
+	}
+	if !strings.Contains(text, "缺失") {
+		t.Fatalf("缺 jq 应有缺失标注: %q", text)
+	}
+}
+
+func TestCredentialPanelState_HasToken(t *testing.T) {
+	home := t.TempDir()
+	_ = WriteGitCredentials(home, "u", "tok")
+	state := credentialPanelState(home, gitCredentialsPath(home))
+	if !state.HasToken || state.User != "u" || state.StoragePath == "" {
+		t.Fatalf("state: %+v", state)
+	}
+	if text := credentialStatusText(state); !strings.Contains(text, "u") || strings.Contains(text, "tok") {
+		t.Fatalf("状态行不应泄露明文令牌且应含用户名: %q", text)
 	}
 }

@@ -19,6 +19,12 @@ extern void dshOnExternalConnect(void);
 extern void dshOnExternalDisconnect(void);
 extern void dshOnProbeResult(gpointer data);
 extern void dshOnNavIdle(gpointer data);
+extern void dshOnSettingsClicked(void);
+extern void dshOnSettingsDialogDestroyed(void);
+extern void dshOnToolRefresh(void);
+extern void dshOnToolCheckResult(gpointer data);
+extern void dshOnCredentialSave(void);
+extern void dshOnCredentialClear(void);
 
 // ---- 窗口居中:按屏幕尺寸移动窗口到中心 ----
 static void dsh_center_window(GtkWindow *win, gint ww, gint wh) {
@@ -152,6 +158,7 @@ static void dsh_set_status_label(GtkLabel *label, const char *text, int state) {
 // ---- 状态栏按钮回调 ----
 static void dsh_server_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnServerStatusClicked(); }
 static void dsh_about_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnAboutClicked(); }
+static void dsh_settings_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnSettingsClicked(); }
 
 // ---- 把 webview 摘进 vbox,底部插状态栏;返回状态指示 label ----
 // GTK3 浮动引用:webkit_web_view_new() 返回浮动引用,gtk_container_add 时被
@@ -169,13 +176,17 @@ static GtkWidget *dsh_install_status_bar(GtkWindow *win) {
   dsh_set_status_label(GTK_LABEL(label), "● 启动中", 0); // 首帧即按启动中着色
   GtkWidget *btn_server = gtk_button_new_with_label("服务器");
   GtkWidget *btn_about = gtk_button_new_with_label("关于");
-  // 视觉层级:服务器状态是主操作(主题强调色),关于是安静的文字按钮
+  GtkWidget *btn_settings = gtk_button_new_with_label("设置");
+  // 视觉层级:服务器状态是主操作(主题强调色),关于/设置是安静的文字按钮
   gtk_style_context_add_class(gtk_widget_get_style_context(btn_server), "suggested-action");
   gtk_style_context_add_class(gtk_widget_get_style_context(btn_about), "dsh-btn-quiet");
+  gtk_style_context_add_class(gtk_widget_get_style_context(btn_settings), "dsh-btn-quiet");
   g_signal_connect(btn_server, "clicked", G_CALLBACK(dsh_server_clicked), NULL);
   g_signal_connect(btn_about, "clicked", G_CALLBACK(dsh_about_clicked), NULL);
+  g_signal_connect(btn_settings, "clicked", G_CALLBACK(dsh_settings_clicked), NULL);
   gtk_box_pack_start(GTK_BOX(bar), label, TRUE, TRUE, 0);
   gtk_box_pack_end(GTK_BOX(bar), btn_about, FALSE, FALSE, 0);
+  gtk_box_pack_end(GTK_BOX(bar), btn_settings, FALSE, FALSE, 0);
   gtk_box_pack_end(GTK_BOX(bar), btn_server, FALSE, FALSE, 0);
   g_object_ref(webview);
   gtk_container_remove(GTK_CONTAINER(win), webview);
@@ -560,6 +571,139 @@ static void dsh_show_about_dialog(GtkWindow *parent, const char *program,
   gtk_window_set_transient_for(GTK_WINDOW(dlg), parent);
   gtk_dialog_run(GTK_DIALOG(dlg));
   gtk_widget_destroy(dlg);
+}
+
+// ---- 工具/凭据设置弹框 ----
+// 单实例弹框:构建时保存子控件指针供 Go 侧刷新使用(与服务器弹框同约定,
+// 不依赖 gtk_container_get_children 索引);销毁时置空,防止刷新访问已销毁控件。
+static GtkWidget *dsh_settings_dlg = NULL;
+static GtkWidget *dsh_tools_checks = NULL;     // 工具链自检文本(可选中复制)
+static GtkWidget *dsh_cred_status = NULL;      // 凭据状态行(含存储位置,无明文令牌)
+static GtkWidget *dsh_cred_user_entry = NULL;  // 凭据用户名输入
+static GtkWidget *dsh_cred_token_entry = NULL; // 凭据令牌输入(掩码)
+
+static void dsh_tools_refresh_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnToolRefresh(); }
+static void dsh_cred_save_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnCredentialSave(); }
+static void dsh_cred_clear_clicked(GtkButton *b, gpointer d) { (void)b; (void)d; dshOnCredentialClear(); }
+
+static void dsh_settings_dlg_destroyed(GtkWidget *w, gpointer d) {
+  (void)w; (void)d;
+  dsh_settings_dlg = NULL;
+  dsh_tools_checks = NULL;
+  dsh_cred_status = NULL;
+  dsh_cred_user_entry = NULL;
+  dsh_cred_token_entry = NULL;
+  dshOnSettingsDialogDestroyed();
+}
+
+// 异步自检结果经 idle 回主线程(与 dsh_probe_idle 同约定:Go goroutine 以
+// C.CBytes 写两段 NUL 结尾文本,idle 回调 Go 处理后 free)。
+static gboolean dsh_tools_result_idle(gpointer d) {
+  dshOnToolCheckResult(d);
+  free(d);
+  return G_SOURCE_REMOVE;
+}
+static void dsh_schedule_tools_result(gpointer data) { g_idle_add(dsh_tools_result_idle, data); }
+
+// Go 侧无法直接引用 C static 变量(与服务器弹框同理),取凭据输入框指针供读写。
+static void dsh_get_settings_ptrs(GtkWidget **user_entry, GtkWidget **token_entry) {
+  *user_entry = dsh_cred_user_entry;
+  *token_entry = dsh_cred_token_entry;
+}
+
+static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
+  // 底部不设操作按钮:标题栏已有关闭(X),close 事件走 DELETE_EVENT,
+  // 由 dsh_dialog_response 统一销毁(与服务器弹框同)。
+  GtkWidget *dlg = gtk_dialog_new_with_buttons(
+      "设置", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
+  g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
+  g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_settings_dlg_destroyed), NULL);
+  gtk_widget_set_size_request(dlg, 480, -1);
+
+  GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+  GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
+  gtk_widget_set_margin_start(vbox, 18);
+  gtk_widget_set_margin_end(vbox, 18);
+  gtk_widget_set_margin_top(vbox, 18);
+  gtk_widget_set_margin_bottom(vbox, 12);
+
+  // 工具链自检分区:自检文本(多行,可选中) + 重新检查按钮
+  GtkWidget *tool_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_style_context_add_class(gtk_widget_get_style_context(tool_panel), "dsh-dialog-section");
+  GtkWidget *tool_title = gtk_label_new("工具链自检");
+  gtk_style_context_add_class(gtk_widget_get_style_context(tool_title), "dsh-dialog-key");
+  gtk_widget_set_halign(tool_title, GTK_ALIGN_START);
+  dsh_tools_checks = gtk_label_new("检查中…");
+  gtk_widget_set_halign(dsh_tools_checks, GTK_ALIGN_START);
+  gtk_widget_set_valign(dsh_tools_checks, GTK_ALIGN_START);
+  gtk_label_set_selectable(GTK_LABEL(dsh_tools_checks), TRUE);
+  gtk_box_pack_start(GTK_BOX(tool_panel), tool_title, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(tool_panel), dsh_tools_checks, FALSE, FALSE, 0);
+  GtkWidget *btn_refresh = gtk_button_new_with_label("重新检查");
+  gtk_style_context_add_class(gtk_widget_get_style_context(btn_refresh), "dsh-btn-quiet");
+  g_signal_connect(btn_refresh, "clicked", G_CALLBACK(dsh_tools_refresh_clicked), NULL);
+  GtkWidget *tool_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_halign(tool_btns, GTK_ALIGN_END);
+  gtk_style_context_add_class(gtk_widget_get_style_context(tool_btns), "dsh-dialog-actions");
+  gtk_box_pack_start(GTK_BOX(tool_btns), btn_refresh, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(tool_panel), tool_btns, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), tool_panel, FALSE, FALSE, 0);
+
+  // Git 凭据分区:状态行(含存储位置) + 用户名/令牌输入 + 保存/清除
+  GtkWidget *cred_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_style_context_add_class(gtk_widget_get_style_context(cred_panel), "dsh-dialog-section");
+  GtkWidget *cred_title = gtk_label_new("Git 凭据");
+  gtk_style_context_add_class(gtk_widget_get_style_context(cred_title), "dsh-dialog-key");
+  gtk_widget_set_halign(cred_title, GTK_ALIGN_START);
+  dsh_cred_status = gtk_label_new("");
+  gtk_widget_set_halign(dsh_cred_status, GTK_ALIGN_START);
+  gtk_label_set_selectable(GTK_LABEL(dsh_cred_status), TRUE);
+  GtkWidget *cred_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  GtkWidget *cred_user_label = gtk_label_new("用户名");
+  gtk_style_context_add_class(gtk_widget_get_style_context(cred_user_label), "dsh-dialog-key");
+  dsh_cred_user_entry = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(dsh_cred_user_entry), "GitHub 用户名");
+  gtk_widget_set_hexpand(dsh_cred_user_entry, TRUE);
+  dsh_cred_token_entry = gtk_entry_new();
+  gtk_entry_set_placeholder_text(GTK_ENTRY(dsh_cred_token_entry), "个人访问令牌 (PAT)");
+  gtk_entry_set_visibility(GTK_ENTRY(dsh_cred_token_entry), FALSE);
+  gtk_widget_set_hexpand(dsh_cred_token_entry, TRUE);
+  gtk_box_pack_start(GTK_BOX(cred_row), cred_user_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_row), dsh_cred_user_entry, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_row), dsh_cred_token_entry, TRUE, TRUE, 0);
+  GtkWidget *btn_save = gtk_button_new_with_label("保存");
+  GtkWidget *btn_clear = gtk_button_new_with_label("清除");
+  gtk_style_context_add_class(gtk_widget_get_style_context(btn_save), "suggested-action");
+  gtk_style_context_add_class(gtk_widget_get_style_context(btn_clear), "destructive-action");
+  g_signal_connect(btn_save, "clicked", G_CALLBACK(dsh_cred_save_clicked), NULL);
+  g_signal_connect(btn_clear, "clicked", G_CALLBACK(dsh_cred_clear_clicked), NULL);
+  GtkWidget *cred_btns = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_widget_set_halign(cred_btns, GTK_ALIGN_END);
+  gtk_style_context_add_class(gtk_widget_get_style_context(cred_btns), "dsh-dialog-actions");
+  gtk_box_pack_start(GTK_BOX(cred_btns), btn_save, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_btns), btn_clear, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_panel), cred_title, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_panel), dsh_cred_status, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_panel), cred_row, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(cred_panel), cred_btns, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(vbox), cred_panel, FALSE, FALSE, 0);
+
+  gtk_container_add(GTK_CONTAINER(content), vbox);
+  gtk_widget_realize(dlg);
+  gdk_window_set_functions(gtk_widget_get_window(GTK_WIDGET(dlg)), GDK_FUNC_MOVE | GDK_FUNC_CLOSE);
+  gtk_widget_show_all(dlg);
+  return dlg;
+}
+
+// 刷新设置弹框文本;对应子控件指针已销毁时静默跳过。
+static void dsh_update_settings_dialog(GtkWidget *dlg, const char *tools_text, const char *cred_text) {
+  (void)dlg;
+  if (dsh_tools_checks != NULL && tools_text != NULL) {
+    gtk_label_set_text(GTK_LABEL(dsh_tools_checks), tools_text);
+  }
+  if (dsh_cred_status != NULL && cred_text != NULL) {
+    gtk_label_set_text(GTK_LABEL(dsh_cred_status), cred_text);
+  }
 }
 */
 import "C"
@@ -971,4 +1115,88 @@ func boolToGboolean(b bool) C.gboolean {
 		return 1
 	}
 	return 0
+}
+
+// 设置弹框(工具/凭据)状态:cgo 的 C static 变量无法被 Go 直接引用,
+// 子控件指针经 dsh_get_settings_ptrs 拷出;弹框销毁时经
+// dshOnSettingsDialogDestroyed 重置,防止刷新访问已销毁控件。
+var (
+	settingsDialog         *C.GtkWidget
+	settingsCredUserEntry  *C.GtkWidget
+	settingsCredTokenEntry *C.GtkWidget
+)
+
+//export dshOnSettingsClicked
+func dshOnSettingsClicked() {
+	if settingsDialog != nil {
+		return // 单实例弹框
+	}
+	settingsDialog = C.dsh_make_settings_dialog(mainWindow)
+	C.dsh_get_settings_ptrs(&settingsCredUserEntry, &settingsCredTokenEntry)
+	dshOnToolRefresh() // 打开即触发一次自检
+}
+
+//export dshOnSettingsDialogDestroyed
+func dshOnSettingsDialogDestroyed() {
+	settingsDialog = nil
+	settingsCredUserEntry = nil
+	settingsCredTokenEntry = nil
+}
+
+//export dshOnToolRefresh
+func dshOnToolRefresh() {
+	// 自检含子进程探测(每工具最多 5s),放 goroutine 不阻塞 GTK 主线程;
+	// 结果打包成两段 NUL 结尾文本经 gpointer 交 idle 回调(GTK 主线程),不写包级变量。
+	home := mustHome()
+	go func() {
+		state := toolPanelState(CheckTools(DefaultToolSpecs()), ListTools(ToolInstallDir(home)))
+		cred := credentialPanelState(home, gitCredentialsPath(home))
+		payload := toolPanelText(state) + "\x00" + credentialStatusText(cred) + "\x00"
+		C.dsh_schedule_tools_result(C.gpointer(C.CBytes([]byte(payload))))
+	}()
+}
+
+//export dshOnToolCheckResult
+func dshOnToolCheckResult(data unsafe.Pointer) {
+	// 载荷布局:tools\0cred\0 两段 C 字符串;内存由 C 侧 idle 回调处理后 free。
+	if settingsDialog == nil {
+		return // 弹框已销毁,丢弃本次结果
+	}
+	tools := C.GoString((*C.char)(data))
+	toolsLen := C.strlen((*C.char)(data)) + 1
+	cred := C.GoString((*C.char)(unsafe.Add(data, uintptr(toolsLen))))
+	ct := C.CString(tools)
+	cc := C.CString(cred)
+	C.dsh_update_settings_dialog(settingsDialog, ct, cc)
+	C.free(unsafe.Pointer(ct))
+	C.free(unsafe.Pointer(cc))
+}
+
+//export dshOnCredentialSave
+func dshOnCredentialSave() {
+	if settingsCredUserEntry == nil || settingsCredTokenEntry == nil {
+		return
+	}
+	user := C.GoString(C.gtk_entry_get_text((*C.GtkEntry)(unsafe.Pointer(settingsCredUserEntry))))
+	token := C.GoString(C.gtk_entry_get_text((*C.GtkEntry)(unsafe.Pointer(settingsCredTokenEntry))))
+	if user == "" || token == "" {
+		return // 空输入不落盘;无错误提示的有意静默,避免 UI 噪音
+	}
+	_ = WriteGitCredentials(mustHome(), user, token)
+	dshOnToolRefresh() // 刷新凭据状态行(仅显示用户名,绝不回显令牌)
+}
+
+//export dshOnCredentialClear
+func dshOnCredentialClear() {
+	_ = ClearGitCredentials(mustHome())
+	dshOnToolRefresh()
+}
+
+// mustHome 返回当前用户主目录;不可得时返回空串(调用方各自降级)。
+func mustHome() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return home
 }
