@@ -92,28 +92,46 @@ func toolPanelState(checks []ToolCheck, installed []string) ToolPanelState {
 	return ToolPanelState{Checks: checks, Installed: installed, Installable: []string{"go", "ripgrep"}}
 }
 
-// toolPanelText 把工具分区渲染成多行文本(label 直接显示,可选中复制)。
-// 每工具一行:命中显示版本,缺失标注原因;已安装/可安装各一行。
+// toolPanelText 把工具分区渲染成结构化文本,供 C 侧 dsh_populate_tool_list
+// 组装成表格:每工具一行 "名称\tok\t值"(ok=1 时值为版本号,0 时值为缺失原因);
+// 末行 "INSTALL\t已安装\t可安装" 描述启动器按需安装的工具。版本号从探测输出
+// 提取纯数字段(如 "git version 2.34.1" -> "2.34.1"),与工具名分列,不再混排。
 func toolPanelText(s ToolPanelState) string {
 	var b strings.Builder
+	san := func(s string) string {
+		return strings.NewReplacer("\t", " ", "\n", " ", "\r", " ").Replace(s)
+	}
 	for _, c := range s.Checks {
-		b.WriteString("• ")
 		b.WriteString(c.Name)
-		b.WriteString("  ")
+		b.WriteString("\t")
 		if c.OK {
-			b.WriteString(c.Version)
+			b.WriteString("1\t")
+			b.WriteString(san(versionNumber(c.Version)))
 		} else {
-			b.WriteString("缺失 (" + c.Err + ")")
+			b.WriteString("0\t")
+			b.WriteString(san(c.Err))
 		}
 		b.WriteString("\n")
 	}
 	installed := "无"
 	if len(s.Installed) > 0 {
-		installed = strings.Join(s.Installed, ", ")
+		installed = strings.Join(s.Installed, ",")
 	}
-	b.WriteString("已安装: " + installed + "\n")
-	b.WriteString("可安装: " + strings.Join(s.Installable, ", "))
+	b.WriteString("INSTALL\t" + installed + "\t" + strings.Join(s.Installable, ","))
 	return b.String()
+}
+
+// versionNumber 从探测输出里提取首个数字段并去掉前导非数字字符,把
+// "git version 2.34.1" / "Python 3.10.12" / "v18.19.0" / "jq-1.6"
+// 归一为 "2.34.1" / "3.10.12" / "18.19.0" / "1.6"。
+func versionNumber(v string) string {
+	v = strings.TrimSpace(v)
+	for i := 0; i < len(v); i++ {
+		if v[i] >= '0' && v[i] <= '9' {
+			return v[i:]
+		}
+	}
+	return v
 }
 
 // CredentialPanelState 是设置弹框"Git 凭据"分区的渲染数据。

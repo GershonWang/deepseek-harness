@@ -93,11 +93,28 @@ func TestToolPanelText_RendersCheckOkAndMissing(t *testing.T) {
 		{Name: "jq", OK: false, Err: "exec: not found"},
 	}, nil)
 	text := toolPanelText(state)
-	if !strings.Contains(text, "git") || !strings.Contains(text, "2.40.0") {
-		t.Fatalf("ok 行缺 git 版本: %q", text)
+	want := "git\t1\t2.40.0\njq\t0\texec: not found\nINSTALL\t无\tgo,ripgrep"
+	if text != want {
+		t.Fatalf("toolPanelText = %q, want %q", text, want)
 	}
-	if !strings.Contains(text, "缺失") {
-		t.Fatalf("缺 jq 应有缺失标注: %q", text)
+}
+
+func TestVersionNumber(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"git", "git version 2.34.1", "2.34.1"},
+		{"python", "Python 3.10.12", "3.10.12"},
+		{"leading v", "v18.19.0", "18.19.0"},
+		{"dash prefix", "jq-1.6", "1.6"},
+		{"no digit", "unknown", "unknown"},
+	}
+	for _, c := range cases {
+		if got := versionNumber(c.in); got != c.want {
+			t.Errorf("versionNumber(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 

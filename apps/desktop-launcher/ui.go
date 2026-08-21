@@ -606,7 +606,7 @@ static void dsh_show_about_dialog(GtkWindow *parent, const char *program,
 // 单实例弹框:构建时保存子控件指针供 Go 侧刷新使用(与服务器弹框同约定,
 // 不依赖 gtk_container_get_children 索引);销毁时置空,防止刷新访问已销毁控件。
 // 弹框单实例由 Go 侧 settingsDialog 保证,cgo 无法引用 C static,故不在此保存弹框指针。
-static GtkWidget *dsh_tools_checks = NULL;     // 工具链自检文本(可选中复制)
+static GtkWidget *dsh_tools_checks = NULL;     // 工具链自检表格容器(结果回来后逐行重填)
 static GtkWidget *dsh_cred_status = NULL;      // 凭据状态行(含存储位置,无明文令牌)
 static GtkWidget *dsh_cred_user_entry = NULL;  // 凭据用户名输入
 static GtkWidget *dsh_cred_token_entry = NULL; // 凭据令牌输入(掩码)
@@ -646,20 +646,19 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
       "设置", parent, GTK_DIALOG_MODAL | GTK_DIALOG_DESTROY_WITH_PARENT, NULL);
   g_signal_connect(dlg, "response", G_CALLBACK(dsh_dialog_response), NULL);
   g_signal_connect(dlg, "destroy", G_CALLBACK(dsh_settings_dlg_destroyed), NULL);
-  // 固定宽高:内容(工具自检结果/凭据状态)随加载变长,弹框不随内容伸缩(避免
-  // "先按短尺寸居中、加载后往右下展开"的错位),超出的部分在弹框内垂直滚动。
-  gtk_widget_set_size_request(dlg, 560, 560);
-  gtk_window_set_resizable(GTK_WINDOW(dlg), FALSE);
-  // 显式基于父窗口居中:gtk 默认 GTK_WIN_POS_NONE 交给 WM,WM 不自动居中时弹框乱位;
-  // 固定尺寸下不再伸缩,size-allocate 只需在初显时兜底居中一次。
+  // 高度随内容自适应(与服务器弹框同约定,GTK 默认 GTK_WIN_POS_NONE 交给 WM,
+  // 不自动居中时弹框乱位,故显式基于父窗口居中;内容异步加载变长时由
+  // size-allocate 重新居中,不会"先短后长往右下展开")。固定高度会让内容偏高
+  // 时被窗口边缘直接裁掉(信息被遮挡)、偏矮时又留大片空白,故此处交给内容决定。
+  gtk_widget_set_size_request(dlg, 560, -1);
   gtk_window_set_position(GTK_WINDOW(dlg), GTK_WIN_POS_CENTER_ON_PARENT);
   g_signal_connect(dlg, "size-allocate", G_CALLBACK(dsh_dialog_recenter_allocate), NULL);
 
   GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
-  // 内容区滚动:横向禁止,纵向自动(内容超高时出现滚动条,弹框尺寸不变)。
-  GtkWidget *scroll = gtk_scrolled_window_new(NULL, NULL);
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
-  gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_NONE);
+  // 不做内部滚动窗:带 AUTOMATIC 滚动策略的 GtkScrolledWindow 只上报滚动视口
+  // 自身的极小自然高度(它本就为滚动设计,不会把子内容高度传给父容器)。一旦弹框
+  // 高度交内容自适应,滚动窗会把弹框撑塌成只剩标题栏,内容全丢。故与服务器弹框
+  // 同约定:内容(vbox)直接进内容区,弹框随内容自然伸缩。
   GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
   gtk_widget_set_margin_start(vbox, 18);
   gtk_widget_set_margin_end(vbox, 18);
@@ -672,10 +671,15 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
   GtkWidget *tool_title = gtk_label_new("工具链自检");
   gtk_style_context_add_class(gtk_widget_get_style_context(tool_title), "dsh-dialog-key");
   gtk_widget_set_halign(tool_title, GTK_ALIGN_START);
-  dsh_tools_checks = gtk_label_new("检查中…");
-  gtk_widget_set_halign(dsh_tools_checks, GTK_ALIGN_START);
-  gtk_widget_set_valign(dsh_tools_checks, GTK_ALIGN_START);
-  gtk_label_set_selectable(GTK_LABEL(dsh_tools_checks), TRUE);
+  // dsh_tools_checks 改为表格容器:打开时占位"检查中…",自检结果回来后由
+  // dsh_populate_tool_list 清空并逐行重填(名称|版本|状态)。不用 GtkGrid
+  // (本环境实测 grid 首行会与上一行重叠错位),逐行 GtkBox 与服务器弹框同约定。
+  dsh_tools_checks = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
+  {
+    GtkWidget *pending = gtk_label_new("检查中…");
+    gtk_widget_set_halign(pending, GTK_ALIGN_START);
+    gtk_box_pack_start(GTK_BOX(dsh_tools_checks), pending, FALSE, FALSE, 0);
+  }
   gtk_box_pack_start(GTK_BOX(tool_panel), tool_title, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(tool_panel), dsh_tools_checks, FALSE, FALSE, 0);
   GtkWidget *btn_refresh = gtk_button_new_with_label("重新检查");
@@ -727,19 +731,91 @@ static GtkWidget *dsh_make_settings_dialog(GtkWindow *parent) {
   gtk_box_pack_start(GTK_BOX(cred_panel), cred_btns, FALSE, FALSE, 0);
   gtk_box_pack_start(GTK_BOX(vbox), cred_panel, FALSE, FALSE, 0);
 
-  gtk_container_add(GTK_CONTAINER(scroll), vbox);
-  gtk_container_add(GTK_CONTAINER(content), scroll);
+  gtk_container_add(GTK_CONTAINER(content), vbox);
   gtk_widget_realize(dlg);
   gdk_window_set_functions(gtk_widget_get_window(GTK_WIDGET(dlg)), GDK_FUNC_MOVE | GDK_FUNC_CLOSE);
   gtk_widget_show_all(dlg);
   return dlg;
 }
 
+// 把结构化工具文本(Go 侧 toolPanelText)组装成表格,逐行重填 box:
+// 表头(工具|版本|状态) + 每工具一行(名称|版本|状态,✓ 绿 / ✗ 红) +
+// 末行 INSTALL 的安装说明。先清空旧子控件,避免结果多次刷新时叠加。
+static void dsh_populate_tool_list(GtkWidget *box, const char *text) {
+  GList *children = gtk_container_get_children(GTK_CONTAINER(box));
+  for (GList *l = children; l != NULL; l = l->next) {
+    gtk_widget_destroy(GTK_WIDGET(l->data));
+  }
+  g_list_free(children);
+
+  // 表头
+  GtkWidget *head = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  GtkWidget *hname = gtk_label_new("工具");
+  GtkWidget *hver = gtk_label_new("版本");
+  GtkWidget *hstat = gtk_label_new("状态");
+  gtk_widget_set_size_request(hname, 92, -1);
+  gtk_widget_set_size_request(hver, 120, -1);
+  gtk_style_context_add_class(gtk_widget_get_style_context(hname), "dsh-dialog-key");
+  gtk_style_context_add_class(gtk_widget_get_style_context(hver), "dsh-dialog-key");
+  gtk_style_context_add_class(gtk_widget_get_style_context(hstat), "dsh-dialog-key");
+  gtk_box_pack_start(GTK_BOX(head), hname, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(head), hver, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(head), hstat, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(box), head, FALSE, FALSE, 0);
+
+  gchar **lines = g_strsplit(text, "\n", -1);
+  for (gint i = 0; lines[i] != NULL; i++) {
+    const char *line = lines[i];
+    if (line[0] == '\0') continue;
+    if (g_str_has_prefix(line, "INSTALL")) {
+      gchar **f = g_strsplit(line, "\t", -1);
+      const char *installed = (f[1] != NULL && f[1][0] != '\0') ? f[1] : "无";
+      const char *installable = (f[2] != NULL) ? f[2] : "";
+      gchar *msg = g_strdup_printf("启动器已安装: %s\n可安装(启动器): %s", installed, installable);
+      GtkWidget *note = gtk_label_new(msg);
+      gtk_widget_set_halign(note, GTK_ALIGN_START);
+      gtk_label_set_selectable(GTK_LABEL(note), TRUE);
+      gtk_style_context_add_class(gtk_widget_get_style_context(note), "dsh-dialog-key");
+      gtk_box_pack_start(GTK_BOX(box), note, FALSE, FALSE, 0);
+      g_free(msg);
+      g_strfreev(f);
+      continue;
+    }
+    gchar **f = g_strsplit(line, "\t", -1);
+    if (f[0] == NULL) { g_strfreev(f); continue; }
+    const char *name = f[0];
+    const char *ok = (f[1] != NULL) ? f[1] : "0";
+    const char *val = (f[2] != NULL) ? f[2] : "";
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+    GtkWidget *lname = gtk_label_new(name);
+    GtkWidget *lver = gtk_label_new(val);
+    GtkWidget *lstat = gtk_label_new(NULL);
+    gtk_label_set_text(GTK_LABEL(lstat), g_strcmp0(ok, "1") == 0 ? "✓" : "✗ 缺失");
+    gtk_widget_set_size_request(lname, 92, -1);
+    gtk_widget_set_size_request(lver, 120, -1);
+    gtk_widget_set_halign(lname, GTK_ALIGN_START);
+    gtk_widget_set_halign(lver, GTK_ALIGN_START);
+    gtk_widget_set_halign(lstat, GTK_ALIGN_START);
+    gtk_style_context_add_class(gtk_widget_get_style_context(lname), "dsh-dialog-key");
+    if (g_strcmp0(ok, "1") == 0) {
+      gtk_style_context_add_class(gtk_widget_get_style_context(lstat), "dsh-state-running");
+    } else {
+      gtk_style_context_add_class(gtk_widget_get_style_context(lstat), "dsh-dialog-error");
+    }
+    gtk_box_pack_start(GTK_BOX(row), lname, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), lver, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), lstat, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(box), row, FALSE, FALSE, 0);
+    g_strfreev(f);
+  }
+  g_strfreev(lines);
+}
+
 // 刷新设置弹框文本;对应子控件指针已销毁时静默跳过。
 static void dsh_update_settings_dialog(GtkWidget *dlg, const char *tools_text, const char *cred_text) {
   (void)dlg;
   if (dsh_tools_checks != NULL && tools_text != NULL) {
-    gtk_label_set_text(GTK_LABEL(dsh_tools_checks), tools_text);
+    dsh_populate_tool_list(dsh_tools_checks, tools_text);
   }
   if (dsh_cred_status != NULL && cred_text != NULL) {
     gtk_label_set_text(GTK_LABEL(dsh_cred_status), cred_text);
