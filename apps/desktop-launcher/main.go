@@ -1,30 +1,58 @@
+// 主入口：组装 Wails 应用（内嵌前端 + 绑定 App 控制器），并在进程被外部
+// 信号终止时停掉 harness 子进程。
 package main
 
 import (
-	"fmt"
+	"embed"
+	"log"
 	"os"
-	"time"
+	"os/signal"
+	"syscall"
+
+	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/options"
+	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/app"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 )
 
+//go:embed all:frontend
+var assets embed.FS
+
 func main() {
-	env := resolveDesktopEnv()
-	configurePackagedEnv()
-	sup := NewSupervisor(env, DefaultSupervisorOptions())
+	home, _ := os.UserHomeDir()
+	appenv.ConfigureChildEnv(home)
+	packaging.ConfigureWebKitHelperPath()
 
-	// 监护循环在 NewSupervisor 构造时自动启动;Start() 仅手动停止后恢复
+	resolved := appenv.Resolve()
+	controller := app.New(resolved.Config, home, app.ExternalConfigFilePath())
 
-	// 等待就绪
-	select {
-	case url := <-sup.Ready():
-		fmt.Fprintf(os.Stderr, "dsh-desktop: harness ready at %s\n", url)
-		// 打开窗口（阻塞主线程）
-		openWindow(url, sup)
-	case <-time.After(30 * time.Second):
-		fmt.Fprintln(os.Stderr, "dsh-desktop: harness startup timeout")
-		sup.Stop()
-		os.Exit(1)
+	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		controller.Shutdown()
+		os.Exit(0)
+	}()
+
+	err := wails.Run(&options.App{
+		Title:     "DeepSeek Harness",
+		Width:     1280,
+		Height:    800,
+		MinWidth:  900,
+		MinHeight: 600,
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+		},
+		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 255},
+		OnStartup:        controller.OnStartup,
+		OnShutdown:       controller.OnShutdown,
+		Bind:             []interface{}{controller},
+	})
+	if err != nil {
+		log.Fatalf("dsh-desktop: %v", err)
 	}
-
-	// 窗口关闭，确保子进程已停止
-	sup.Wait()
 }

@@ -1,13 +1,15 @@
-package main
+package toolchain
 
 import (
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 )
 
-func TestCheckTools_StubPath(t *testing.T) {
+func TestCheck_StubPath(t *testing.T) {
 	dir := t.TempDir()
 	stubs := map[string]string{
 		"git":     "git version 2.40.0",
@@ -26,8 +28,8 @@ func TestCheckTools_StubPath(t *testing.T) {
 	_ = os.Setenv("PATH", dir+string(os.PathListSeparator)+old)
 	defer func() { _ = os.Setenv("PATH", old) }()
 
-	checks := CheckTools(DefaultToolSpecs())
-	byName := map[string]ToolCheck{}
+	checks := Check(DefaultSpecs())
+	byName := map[string]domain.ToolCheck{}
 	for _, c := range checks {
 		byName[c.Name] = c
 	}
@@ -39,15 +41,32 @@ func TestCheckTools_StubPath(t *testing.T) {
 	}
 }
 
-func TestCheckTools_Missing(t *testing.T) {
+func TestCheck_Missing(t *testing.T) {
 	dir := t.TempDir()
 	old := os.Getenv("PATH")
 	_ = os.Setenv("PATH", dir)
 	defer func() { _ = os.Setenv("PATH", old) }()
-	checks := CheckTools(DefaultToolSpecs())
+	checks := Check(DefaultSpecs())
 	for _, c := range checks {
 		if c.OK {
 			t.Fatalf("expected %s missing, got OK", c.Name)
+		}
+	}
+}
+
+func TestVersionNumber(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"git version 2.34.1", "2.34.1"},
+		{"Python 3.10.12", "3.10.12"},
+		{"v18.19.0", "18.19.0"},
+		{"jq-1.6", "1.6"},
+		{"unknown", "unknown"},
+	}
+	for _, c := range cases {
+		if got := VersionNumber(c.in); got != c.want {
+			t.Errorf("VersionNumber(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

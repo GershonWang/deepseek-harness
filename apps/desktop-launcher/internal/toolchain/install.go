@@ -1,4 +1,4 @@
-package main
+package toolchain
 
 import (
 	"archive/tar"
@@ -12,17 +12,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// ToolInstallDir 返回按需安装根目录(home 下 .dsh-tools)。
-func ToolInstallDir(home string) string {
+// downloadTimeout 覆盖"下载挂起"场景：超时后放弃整个安装。
+const downloadTimeout = 5 * time.Minute
+
+// InstallDir 返回按需安装根目录（home 下 .dsh-tools）。
+func InstallDir(home string) string {
 	return filepath.Join(home, ".dsh-tools")
 }
 
-// InstallTool 下载 url 的 tar.gz,校验 sha256 后原子解包到
-// <dir>/<name>-<version>,并更新 <dir>/current/<name> 软链。
-// 任一环节失败不残留半成品。
-func InstallTool(dir, name, version, url, sha256Hex string) error {
+// Install 下载 url 的 tar.gz，校验 sha256 后原子解包到
+// <dir>/<name>-<version>，并更新 <dir>/current/<name> 软链。
+// 任一环节失败不残留半成品；已存在旧版本时先移除旧软链与旧目录。
+func Install(dir, name, version, url, sha256Hex string) error {
 	downloaded, err := download(url)
 	if err != nil {
 		return err
@@ -30,7 +34,6 @@ func InstallTool(dir, name, version, url, sha256Hex string) error {
 	if sum := sha256.Sum256(downloaded); hex.EncodeToString(sum[:]) != strings.ToLower(sha256Hex) {
 		return fmt.Errorf("sha256 mismatch for %s", name)
 	}
-	// 安装根目录可能尚不存在(如全新 HOME),先创建再建临时解包目录。
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
@@ -42,7 +45,7 @@ func InstallTool(dir, name, version, url, sha256Hex string) error {
 	if err := extractTarGz(downloaded, tmp); err != nil {
 		return err
 	}
-	// tar 顶层目录剥离:解包出的唯一目录上移一层
+	// tar 顶层目录剥离：解包出的唯一目录上移一层。
 	entries, err := os.ReadDir(tmp)
 	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
 		return fmt.Errorf("unexpected tarball layout for %s", name)
@@ -58,11 +61,13 @@ func InstallTool(dir, name, version, url, sha256Hex string) error {
 	if err := os.MkdirAll(filepath.Dir(current), 0o755); err != nil {
 		return err
 	}
+	// 已存在旧软链（如升级）时先移除，避免 os.Symlink 报 EEXIST。
+	_ = os.Remove(current)
 	return os.Symlink(root, current)
 }
 
-// ListTools 返回当前已安装的工具名列表(按 current 软链)。
-func ListTools(dir string) []string {
+// ListInstalled 返回当前已安装的工具名列表（按 current 软链）。
+func ListInstalled(dir string) []string {
 	cur := filepath.Join(dir, "current")
 	entries, err := os.ReadDir(cur)
 	if err != nil {
@@ -75,8 +80,8 @@ func ListTools(dir string) []string {
 	return names
 }
 
-// RemoveTool 删除 <dir>/<name>-<version>(current 软链目标)与 <dir>/current/<name>。
-func RemoveTool(dir, name string) error {
+// Remove 删除 <dir>/<name>-<version>（current 软链目标）与 <dir>/current/<name>。
+func Remove(dir, name string) error {
 	current := filepath.Join(dir, "current", name)
 	target, err := os.Readlink(current)
 	if err != nil && !os.IsNotExist(err) {
@@ -92,7 +97,8 @@ func RemoveTool(dir, name string) error {
 }
 
 func download(url string) ([]byte, error) {
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: downloadTimeout}
+	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +124,7 @@ func extractTarGz(data []byte, dest string) error {
 		if err != nil {
 			return err
 		}
-		// 防路径逃逸
+		// 防路径逃逸。
 		clean := filepath.Clean(hdr.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
 			return fmt.Errorf("unsafe tar path: %s", hdr.Name)
@@ -142,6 +148,19 @@ func extractTarGz(data []byte, dest string) error {
 				return err
 			}
 			_ = f.Close()
+		case tar.TypeSymlink:
+			// 符号链接条目在当前目录内重建（目标为相对路径）。
+			linkTarget := filepath.Clean(hdr.Linkname)
+			if strings.HasPrefix(linkTarget, "..") || filepath.IsAbs(linkTarget) {
+				return fmt.Errorf("unsafe tar symlink: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				return err
+			}
+			_ = os.Remove(target)
+			if err := os.Symlink(hdr.Linkname, target); err != nil {
+				return err
+			}
 		}
 	}
 }

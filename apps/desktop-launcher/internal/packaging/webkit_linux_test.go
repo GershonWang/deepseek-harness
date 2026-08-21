@@ -1,4 +1,6 @@
-package main
+//go:build linux
+
+package packaging
 
 import (
 	"os"
@@ -12,7 +14,6 @@ func TestWebkitHelperLinkUsable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 链接不存在:应重建
 	if webkitHelperLinkUsable(filepath.Join(t.TempDir(), "missing"), real) {
 		t.Error("链接不存在时应不可用")
 	}
@@ -25,18 +26,15 @@ func TestWebkitHelperLinkUsable(t *testing.T) {
 		return p
 	}
 
-	// 指向当前包 helper 目录:可用
 	if link := mkLink(real); !webkitHelperLinkUsable(link, real) {
 		t.Error("指向真实 helper 目录的链接应可用")
 	}
 
-	// 悬空链接(目标已被卸载):应重建
 	stale := filepath.Join(t.TempDir(), "uninstalled-app")
 	if link := mkLink(stale); webkitHelperLinkUsable(link, real) {
 		t.Error("悬空链接应不可用")
 	}
 
-	// 指向其他目录(如旧包 id 的目录):应重建
 	other := t.TempDir()
 	if link := mkLink(other); webkitHelperLinkUsable(link, real) {
 		t.Error("指向非当前包目录的链接应不可用")

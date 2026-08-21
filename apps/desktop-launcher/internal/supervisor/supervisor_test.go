@@ -1,4 +1,4 @@
-package main
+package supervisor
 
 import (
 	"testing"
@@ -40,30 +40,17 @@ func TestReadyRegex_NoMatch(t *testing.T) {
 	}
 }
 
-func TestBackoffTiming(t *testing.T) {
-	opts := DefaultSupervisorOptions()
-	for attempt := 1; attempt <= 5; attempt++ {
-		delay := opts.RestartDelayMs * (1 << (attempt - 1))
-		if delay > opts.MaxRestartDelayMs {
-			delay = opts.MaxRestartDelayMs
-		}
-		t.Logf("attempt %d: delay %dms", attempt, delay)
-	}
-	// attempt 1: 500ms, 2: 1000ms, 3: 2000ms, 4: 4000ms, 5: 800ms
-}
-
 func TestSupervisor_MockChild(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
 	}
 
-	env := DesktopEnv{
+	cfg := Config{
 		Command: "sh",
 		Args:    []string{"testdata/mock-dsh-web.sh"},
 		LogDir:  t.TempDir(),
-		Port:    "0",
 	}
-	sup := NewSupervisor(env, DefaultSupervisorOptions())
+	sup := NewSupervisor(cfg, DefaultOptions())
 	sup.Start()
 
 	select {

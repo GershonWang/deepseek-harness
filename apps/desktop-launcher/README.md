@@ -2,52 +2,56 @@
 
 English | [中文](README.zh.md)
 
-`apps/desktop-launcher` is the Linux desktop client for deepseek-harness. It is a thin Go launcher: it spawns `dsh web` as a child process and, once ready, opens an independent window with the system webkit2gtk that loads its loopback Web GUI. It is packaged as a Linglong bundle distributed on Deepin 25.
+`apps/desktop-launcher` is the desktop client for deepseek-harness. It is a Go launcher built with [Wails v2](https://wails.io): it spawns `dsh web` as a supervised child process and embeds the harness Web GUI in an iframe inside a thin launcher shell (status bar, server/settings dialogs, guide page). It is packaged as a Linglong bundle distributed on Deepin 25, plus Linux `.deb` and `.rpm`.
 
-> Independent Go module, not part of the pnpm workspace. Linux only.
+> Independent Go module, not part of the pnpm workspace. The launcher shell is a static HTML/CSS/JS page (no Node toolchain) embedded into the binary via `go:embed`.
 
 ## Architecture
 
 ```
-用户点击应用图标
-   │
-   ▼
-dsh-desktop-launcher (Go 二进制)
-   │  1. resolveDesktopEnv() 解析子进程命令
-   │  2. NewSupervisor 起监护循环并 spawn `dsh web`(Start() 仅手动停止后恢复)
-   │     ├── 逐行扫 stdout，等就绪行: "dsh web: http://127.0.0.1:<port>"
-   │     ├── 崩溃后指数退避重启 (500ms→10s)
-   │     └── 优雅停止 (SIGTERM → 5s → SIGKILL，按进程组广播)
-   │  3. 就绪后 webkit2gtk 开独立窗口加载 loopback URL
-   │  4. 窗口关闭 → sup.Stop() 停止子进程
-   ▼
-dsh web 子进程（node + apps/cli/lib/bin.js web）
-   └── Cordis web 服务器 + React Web GUI
+┌─ Wails 窗口（webkit2gtk）───────────────────────────────────┐
+│  launcher 壳（frontend/，静态 HTML/CSS/JS，go:embed）          │
+│   ├── 顶栏：状态 + 服务器/设置/关于                            │
+│   ├── 舞台：<iframe src=http://127.0.0.1:<port>> 嵌 harness UI │
+│   │         （未运行/未连接时显示内置引导页）                   │
+│   └── 底部状态栏：● 运行中 http://127.0.0.1:<port>             │
+└───────────────▲───────────────────────────────────────────┘
+                │ window.go.app.App.*（Wails 绑定）+ 1s 状态事件
+┌───────────────┴───────────────────────────────────────────┐
+│ internal/app —— 绑定层：状态快照、控制方法、事件推送          │
+│   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
+│   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
+│   toolchain   工具链自检 + 按需安装                          │
+│   gitcred     git store 凭据读写（~/.git-credentials）       │
+│   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
+│   packaging   打包态路径、版本、webkit helper 打点            │
+│   domain      共享领域模型（纯类型）                          │
+└───────────────────────────────────────────────────────────┘
 ```
 
-The rendering tier is only Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Configuration such as the API key and workspace is inherited from the launcher's child environment and parsed by harness's own config resolution.
+Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolchain`/`gitcred`/`appenv`/`packaging` are pure Go (stdlib only) and unit-testable; `app` orchestrates them and talks to the frontend; `main` only assembles.
+
+The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
 ## File layout
 
-| File | Purpose |
-|---|---|
-| `main.go` | Entry: resolve environment → start supervisor → open window → block on the event loop |
-| `env.go` | `resolveDesktopEnv()`: three-level resolution of the child command/arguments |
-| `supervisor.go` | `HarnessSupervisor`: spawn, readiness detection, exponential-backoff restart, graceful stop |
-| `window.go` | `webview/webview_go` wrapper: Navigate, title, size, close callback |
-| `ui.go` | Bottom status bar, server-status/about dialogs, window centering (GTK cgo) |
-| `connection.go` | External-service connection: probe, URL validation, persistence, connection state (pure Go) |
-| `version.go` | harness/Linglong version parsing (`packageVersion` injected by prepare-offline) |
-| `linglong/linglong.yaml` | Linglong build manifest |
-| `linglong/tools.yaml` | Container tool manifest (binary/verify/on-demand whitelist) |
-| `linglong/config.d/10-mounts.json` | Filesystem mount config template (reference for users) |
-| `linglong/prepare-pkgconfig.sh` | Generates the webkit2gtk-4.0.pc shim (pointing at 4.1) |
-| `icons/dsh-desktop.png` | Application icon |
-| `testdata/mock-dsh-web.sh` | Mock child process for integration tests |
+```
+main.go                 Wails 入口：环境 → 控制器 → wails.Run（内嵌 frontend）
+frontend/               壳 UI：index.html / styles.css / app.js（无 Node 构建链）
+internal/domain/        纯领域模型（HarnessStatus/ToolCheck/CredentialInfo/Mode）
+internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
+internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
+internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
+internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
+internal/gitcred/       git store 凭据读写
+internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
+linglong/               Linglong 构建清单 + 宿主预备脚本
+icons/dsh-desktop.png   应用图标
+```
 
 ## Environment resolution (three-level fallback)
 
-`resolveDesktopEnv()` resolves the child command by priority:
+`appenv.Resolve()` resolves the child command by priority:
 
 | Priority | Trigger | command | args |
 |---|---|---|---|
@@ -68,13 +72,13 @@ Development infers the repo root from CWD rather than the executable path, becau
 
 ## Connecting to an external service
 
-The server status dialog supports two connection modes:
+The server dialog supports two connection modes:
 
 - **Container-native** (default): starts and supervises the bundled harness inside the Linglong container.
 - **Local/remote service**: connect to an external harness service (a local `npx @deepseek-ai/dsh web` or any other reachable machine). Switching to external mode stops the container harness first; disconnecting restarts the container harness and navigates back.
-- **Idle guide page**: while the container harness is stopped and no external service is connected, the main view shows the built-in guide page (start-in-container, local npx service, and remote connection walkthroughs) instead of a stale service page; it switches back to the matching address once the service is ready or connected.
+- **Idle guide page**: while the container harness is stopped and no external service is connected, the stage shows the built-in guide page (start-in-container, local npx service, and remote connection walkthroughs) instead of a stale service page; it switches back to the matching address once the service is ready or connected.
 
-Connecting to an external service requires the target harness to bind a reachable interface (`dsh web --host <LAN-IP>`; `--host 0.0.0.0` is deliberately rejected upstream, see its CLI hint), reachable on the LAN or via port forwarding/tunnel. The first connection to an external address (non-127.0.0.1/localhost) shows a security confirmation; the last address is remembered in `~/.config/dsh-desktop/config.json`, auto-filled when the dialog opens, and never auto-reconnects.
+Connecting to an external service requires the target harness to bind a reachable interface (`dsh web --host <LAN-IP>`; `--host 0.0.0.0` is deliberately rejected upstream, see its CLI hint), reachable on the LAN or via port forwarding/tunnel. The first connection to an external address (non-127.0.0.1/localhost) shows a native security confirmation; the last address is remembered in `~/.config/dsh-desktop/config.json`, auto-filled when the dialog opens, and never auto-reconnects.
 
 ## Building and running
 
@@ -83,24 +87,22 @@ Connecting to an external service requires the target harness to bind a reachabl
 ```sh
 # 1. 先构建 harness（生成 apps/cli/lib/bin.js 和前端 dist）
 pnpm run build
-pnpm run build:web
 
-# 2. 构建启动器（webkit2gtk-4.0 shim：webview_go 编译期硬编码 4.0，
-#    deepin 25 只有 4.1，需先用 linglong/prepare-pkgconfig.sh 生成 shim）
+# 2. 构建启动器（Wails；Linux 用 -tags "production webkit2_41" 显式选 webkit2gtk-4.1）
 cd apps/desktop-launcher
-sh linglong/prepare-pkgconfig.sh /tmp/dsh-pkgconfig
-PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go build -o dsh-desktop-launcher .
+make build          # 等价: go build -tags "production webkit2_41" -o dsh-desktop-launcher .
 
 # 3. 运行（命中环境解析优先级 3）
 ./dsh-desktop-launcher
 ```
 
-From the repo root you can also use `pnpm run dev:desktop` / `pnpm run build:desktop` (delegating to `go run` / `go build`).
+> The root `pnpm run dev:desktop` / `pnpm run build:desktop` still call the plain `go run`/`go build` (no `-tags "production webkit2_41"`); for the Wails stack use `make build` or `linglong/prepare-offline.sh` instead. The root scripts are upstream-synced and intentionally left untouched.
 
 ### Testing
 
 ```sh
-go test -v ./...        # 单元 + mock 子进程集成测试
+cd apps/desktop-launcher
+go test ./...        # 单元 + mock 子进程集成测试
 ```
 
 ## Linglong packaging
@@ -122,11 +124,11 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 Packaging notes:
 
 - `base: org.deepin.base/25.2.2` (3-segment fuzzy match resolves the stable repository's 25.2.2.6; base rejects a full 4-segment version)
-- Runtime dependencies (webkit2gtk-4.1/gtk3) are pulled from beige via `buildext.apt.depends`; `git` is also shipped through `buildext.apt.depends` (harness runs containerized and the bash toolchain executes in the caplet, so repository git operations depend on it and the base runtime does not include git). They are merged into `${PREFIX}/bin` (on the container PATH) and `${PREFIX}/lib` (in the ld search path). Node 24.9.0 is downloaded to `stage/node` (npmmirror) by prepare-offline and assembled into `${PREFIX}/node` by linglong.yaml (downloaded from the same source when missing in the container). harness needs Node >=24; also, beige's Debian nodejs 20 externalizes cjs-module-lexer to the absolute path `/usr/share/nodejs/`, which does not exist in the sandbox and crashes at startup, so bundling is required
+- Runtime dependencies (webkit2gtk-4.1/gtk3/libsoup3) are pulled from beige via `buildext.apt.depends`; `git` is also shipped through `buildext.apt.depends` (harness runs containerized and the bash toolchain executes in the caplet, so repository git operations depend on it and the base runtime does not include git). They are merged into `${PREFIX}/bin` (on the container PATH) and `${PREFIX}/lib` (in the ld search path). Node 24.9.0 is downloaded to `stage/node` (npmmirror) by prepare-offline and assembled into `${PREFIX}/node` by linglong.yaml. harness needs Node >=24; beige's Debian nodejs 20 externalizes cjs-module-lexer to the absolute path `/usr/share/nodejs/`, which does not exist in the sandbox and crashes at startup, so bundling is required
 - The closure fix (`scripts/fix-deploy-closure.mjs`) runs in the host prepare phase (peer deps, materialized symlinks, legacy hoists)
-- Building the Go launcher on the host first requires `linglong/prepare-pkgconfig.sh` to generate the webkit2gtk-4.0 shim (webview_go hardcodes 4.0 at compile time; deepin 25 only has 4.1)
+- The Go launcher is built with Wails using build tags `production webkit2_41` (`production` enables the real Wails runtime, `webkit2_41` selects webkit2gtk-4.1; the old webkit2gtk-4.0 pkg-config shim is no longer needed)
 - The sandbox does not authorize the user's project directory by default; the user must configure a mount: copy `linglong/config.d/10-mounts.json` to `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` and edit the path
-- The Linglong package version is extracted from linglong.yaml by prepare-offline and injected into the launcher (`-ldflags -X main.packageVersion=...`), shown in the about dialog
+- The Linglong package version is extracted from linglong.yaml by prepare-offline and injected into the launcher (`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`), shown in the about dialog
 
 ## Container usability (toolchain/credentials/mounts)
 
@@ -134,9 +136,3 @@ Packaging notes:
 - On-demand install: heavy/rare tools (go, ripgrep) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default), and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list and install directory, and the whitelist is `linglong/tools.yaml`'s `installable` (installable only once url/sha256 are filled in).
 - git credentials: the GUI "设置 → Git 凭据" area writes `~/.git-credentials` (container HOME = host home directory; `ll-cli uninstall` does not clear user data); optionally bind-mount the host's same-named file read-only (template at `linglong/config.d/20-host-credentials.json`, copied to `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` and edit `<USER>`).
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
-
-## Known webkit2gtk compatibility
-
-- **`location.origin` may return `"null"`** (opaque origin). harness's `resolveBase()` is fixed: when origin is `"null"` it extracts the real origin from `location.href` (`packages/client/connection/src/client/rpc.ts` and `packages/host/apiproxy/src/fetch/client.ts`). After changes rebuild with `pnpm run build:lib:host`, `pnpm run build:lib:client`, `pnpm run build:web`.
-- **Modern CSS features**: Deepin 25's webkit2gtk 2.50.4 natively supports `color-mix()`/`:has()`/`@container`. Older distros (e.g. Ubuntu 22.04's 2.36) need CSS `@supports` gating hardening.
-- **`AbortSignal.any()`**: supported from webkit2gtk 2.44+. Fine on 2.50.4 locally; on older distros `postJson()` in `packages/host/apiproxy/src/fetch/client.ts` errors and needs a feature-detect fallback.

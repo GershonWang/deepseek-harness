@@ -1,4 +1,6 @@
-package main
+// Package gitcred 读写 git store 凭据文件（~/.git-credentials）。
+// 只处理 github.com 条目，保留其它 host 的行；绝不把令牌明文暴露给调用方之外。
+package gitcred
 
 import (
 	"fmt"
@@ -7,11 +9,11 @@ import (
 	"strings"
 )
 
-// gitCredentialsPath 返回 git store 凭据文件路径。
-func gitCredentialsPath(home string) string { return filepath.Join(home, ".git-credentials") }
+// Path 返回 git store 凭据文件路径。
+func Path(home string) string { return filepath.Join(home, ".git-credentials") }
 
 // splitCredential 把 git store 行 "https://user:token@host" 拆成
-// user/token/host;非该格式(空行/其它 scheme/缺段)时 ok=false。
+// user/token/host；非该格式（空行/其它 scheme/缺段）时 ok=false。
 func splitCredential(line string) (user, token, host string, ok bool) {
 	rest, found := strings.CutPrefix(strings.TrimSpace(line), "https://")
 	if !found {
@@ -28,9 +30,9 @@ func splitCredential(line string) (user, token, host string, ok bool) {
 	return user, token, host, true
 }
 
-// ReadGitCredentials 读取 github.com 条目;无条目时 found=false。
-func ReadGitCredentials(home string) (user, token string, found bool) {
-	data, err := os.ReadFile(gitCredentialsPath(home))
+// Read 读取 github.com 条目；无条目时 found=false。
+func Read(home string) (user, token string, found bool) {
+	data, err := os.ReadFile(Path(home))
 	if err != nil {
 		return "", "", false
 	}
@@ -43,9 +45,15 @@ func ReadGitCredentials(home string) (user, token string, found bool) {
 	return "", "", false
 }
 
-// WriteGitCredentials 写入/覆盖 github.com 条目,保留其它 host 行。
-func WriteGitCredentials(home, user, token string) error {
-	path := gitCredentialsPath(home)
+// Write 写入/覆盖 github.com 条目，保留其它 host 行。
+// user/token 中的换行会被剥离，防止注入伪造凭据行。
+func Write(home, user, token string) error {
+	user = sanitize(user)
+	token = sanitize(token)
+	if user == "" || token == "" {
+		return fmt.Errorf("用户名与令牌不能为空")
+	}
+	path := Path(home)
 	lines := []string{}
 	if data, err := os.ReadFile(path); err == nil {
 		for _, line := range strings.Split(string(data), "\n") {
@@ -61,13 +69,15 @@ func WriteGitCredentials(home, user, token string) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	data := []byte(strings.Join(lines, "\n") + "\n")
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600) // 收紧既有文件的权限，git 拒绝 group/world 可读
 }
 
-// ClearGitCredentials 删除 github.com 条目;文件为空/无条目时删除文件。
-func ClearGitCredentials(home string) error {
-	path := gitCredentialsPath(home)
+// Clear 删除 github.com 条目；文件为空/无条目时删除文件。
+func Clear(home string) error {
+	path := Path(home)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -90,4 +100,11 @@ func ClearGitCredentials(home string) error {
 		return os.Remove(path)
 	}
 	return os.WriteFile(path, []byte(strings.Join(kept, "\n")+"\n"), 0o600)
+}
+
+// sanitize 剥离可能破坏行结构或凭据分隔符的字符。
+func sanitize(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.NewReplacer("\n", "", "\r", "").Replace(s)
+	return s
 }

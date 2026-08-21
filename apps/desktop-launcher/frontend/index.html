@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeepSeek Harness</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- 顶部工具条 -->
+  <header id="toolbar">
+    <div class="brand">
+      <span class="brand-mark">dsh</span>
+      <span class="brand-name">DeepSeek Harness</span>
+    </div>
+    <div class="toolbar-actions">
+      <button id="btn-server" class="btn">服务器</button>
+      <button id="btn-settings" class="btn">设置</button>
+      <button id="btn-about" class="btn btn-quiet">关于</button>
+    </div>
+  </header>
+
+  <!-- 主舞台：harness iframe / 引导页 -->
+  <main id="stage">
+    <iframe id="harness" class="hidden" allowfullscreen></iframe>
+
+    <section id="guidance" class="cards">
+      <div class="card-wide">
+        <h1>DeepSeek Harness</h1>
+        <p class="intro">当前没有可用的 harness 会话：容器内服务未运行，外部服务未连接。选择一种方式开始使用（服务启动中时请稍候片刻）。</p>
+      </div>
+      <div class="card">
+        <h2>容器内</h2>
+        <ol>
+          <li>点击右上角「服务器」</li>
+          <li>保持「容器内」模式</li>
+          <li>点击「启动」并等待就绪</li>
+        </ol>
+      </div>
+      <div class="card">
+        <h2>连接本机/远端服务</h2>
+        <ol>
+          <li>点击右上角「服务器」</li>
+          <li>切换「本机/远端服务」</li>
+          <li>填入服务地址，点击「连接」</li>
+        </ol>
+        <p class="hint">目标 harness 需以 <code>dsh web --host &lt;LAN-IP&gt;</code> 启动；非本机地址首次连接需确认。</p>
+      </div>
+      <div class="card-wide">
+        <h2>本机安装并连接（npx）</h2>
+        <ol>
+          <li>在终端运行 <code>npx @deepseek-ai/dsh web</code> 启动本机 harness 服务</li>
+          <li>就绪后服务地址与端口会显示在终端（如 <code>http://127.0.0.1:3456</code>）</li>
+          <li>点「服务器」→ 切「本机/远端服务」→ 填入该地址 →「连接」</li>
+        </ol>
+        <p class="hint">本机回环地址（127.0.0.1/localhost）无需安全确认；需要局域网访问时加 <code>--host &lt;LAN-IP&gt;</code> 重新启动。</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- 底部状态栏 -->
+  <footer id="statusbar">
+    <span id="status-dot" class="dot muted"></span>
+    <span id="status-text">● 启动中</span>
+  </footer>
+</div>
+
+<!-- 服务器弹框 -->
+<div id="server-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>服务器</span>
+      <button class="modal-close" data-close="server-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="mode-row">
+        <span class="key">连接模式</span>
+        <label><input type="radio" name="mode" value="container" checked> 容器内</label>
+        <label><input type="radio" name="mode" value="external"> 本机/远端服务</label>
+      </div>
+
+      <div id="container-panel" class="section">
+        <div class="row"><span class="key">状态</span><span id="server-state">…</span></div>
+        <div class="row"><span class="key">地址</span><span id="server-detail1" class="selectable"></span></div>
+        <div class="row"><span class="key">PID</span><span id="server-detail2" class="selectable"></span></div>
+        <div class="actions">
+          <button id="server-start" class="btn btn-primary">启动</button>
+          <button id="server-stop" class="btn btn-danger">停止</button>
+        </div>
+      </div>
+
+      <div id="external-panel" class="section hidden">
+        <div class="ext-row">
+          <span class="key">服务地址</span>
+          <input id="ext-url" type="text" placeholder="http://127.0.0.1:3456" spellcheck="false">
+          <button id="ext-connect" class="btn btn-primary">连接</button>
+          <button id="ext-disconnect" class="btn">断开</button>
+        </div>
+        <div id="ext-state" class="ext-state"></div>
+        <div id="ext-error" class="error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 设置弹框 -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>设置</span>
+      <button class="modal-close" data-close="settings-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="section">
+        <div class="section-title">工具链自检</div>
+        <div class="tools-wrap">
+          <table id="tools-table" class="tools">
+            <thead><tr><th>工具</th><th>版本</th><th>状态</th></tr></thead>
+            <tbody><tr><td colspan="3">检查中…</td></tr></tbody>
+          </table>
+        </div>
+        <div id="tools-install" class="hint"></div>
+        <div class="actions">
+          <button id="tools-refresh" class="btn">重新检查</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Git 凭据</div>
+        <div id="cred-status" class="selectable hint"></div>
+        <div class="cred-row">
+          <span class="key">用户名</span>
+          <input id="cred-user" type="text" placeholder="GitHub 用户名" spellcheck="false">
+        </div>
+        <div class="cred-row">
+          <span class="key">令牌</span>
+          <input id="cred-token" type="password" placeholder="个人访问令牌 (PAT)">
+        </div>
+        <div class="actions">
+          <button id="cred-save" class="btn btn-primary">保存</button>
+          <button id="cred-clear" class="btn btn-danger">清除</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 关于弹框 -->
+<div id="about-modal" class="modal hidden">
+  <div class="modal-card modal-sm">
+    <div class="modal-head">
+      <span>关于</span>
+      <button class="modal-close" data-close="about-modal">×</button>
+    </div>
+    <div class="modal-body about">
+      <div id="about-logo" class="about-logo">dsh</div>
+      <div class="about-title">DeepSeek Harness</div>
+      <div id="about-version" class="hint"></div>
+      <a id="about-repo" href="#" target="_blank"></a>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
