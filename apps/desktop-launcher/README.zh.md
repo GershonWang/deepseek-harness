@@ -136,3 +136,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 按需安装：重/罕见工具（go、ripgrep）装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单与安装目录，白名单见 `linglong/tools.yaml` 的 `installable`（url/sha256 填实后才可安装）。
 - git 凭据：GUI「设置 → Git 凭据」区写入 `~/.git-credentials`（容器 HOME = 宿主主目录；`ll-cli uninstall` 不清理用户数据）；可选只读挂载宿主同名文件（模板见 `linglong/config.d/20-host-credentials.json`，复制到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改 `<USER>`）。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
+
+## 已知事项
+
+- **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。

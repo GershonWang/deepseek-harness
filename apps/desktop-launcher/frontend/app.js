@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null };
+const state = { status: null, prevConnectError: "" };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -70,8 +70,18 @@ function renderServerDialog(s) {
   $("#container-panel").classList.toggle("hidden", externalMode);
   $("#external-panel").classList.toggle("hidden", !externalMode);
 
-  // 已连接外部时，单选按钮强制镜像外部模式（Go 侧状态是唯一权威）。
-  if (s.Mode === "external" && !externalMode) setRadio("external");
+  // 单选只在两个"权威时刻"被强制，平时让用户自由切换（准备连接外部时不停留在外部面板）：
+  //  - 外部已连接 -> 外部；
+  //  - 连接失败（错误从无到有）-> 回容器，展示容器状态与弹框级错误。
+  if (s.Mode === "external") {
+    setRadio("external");
+  } else if (s.ConnectError && !state.prevConnectError) {
+    setRadio("container");
+  }
+  state.prevConnectError = s.ConnectError;
+
+  // 连接错误在弹框级常显，两种模式都能看到。
+  $("#dlg-error").textContent = s.ConnectError || "";
 
   const stateText = { running: "运行中", starting: "启动中", stopped: "已停止" }[s.State] || "已停止";
   $("#server-state").textContent = stateText;
@@ -100,7 +110,6 @@ function renderServerDialog(s) {
   } else {
     $("#ext-state").textContent = "";
   }
-  $("#ext-error").textContent = s.ConnectError || "";
 }
 
 /* ---------- 工具 / 凭据 ---------- */
@@ -177,7 +186,7 @@ function bindUI() {
   $("#ext-connect").addEventListener("click", async () => {
     const url = $("#ext-url").value.trim();
     const err = await api().ConnectExternal(url);
-    if (err) $("#ext-error").textContent = err;
+    if (err) $("#dlg-error").textContent = err;
   });
   $("#ext-disconnect").addEventListener("click", () => api().DisconnectExternal());
 
