@@ -47,5 +47,15 @@ if [ ! -x "$STAGE/node/bin/node" ]; then
   tar -xzf /tmp/node24.tar.gz -C "$STAGE/node" --strip-components=1
 fi
 
+# 5. 用捆绑 Node 24 在宿主机预编译 node-pty（运行时沙箱无 gcc/make，
+#    一旦触发 node-gyp 源码编译终端就不可用；必须在此编译好 pty.node 打进包）。
+#    宿主需有 make/gcc/python3。--nodedir 用捆绑 node 自带头文件，避免联网下载。
+if [ -d "$STAGE/harness/node_modules/node-pty" ]; then
+  echo "prepare-offline: 编译 node-pty (bundled node $($STAGE/node/bin/node --version))..."
+  NODE_GYP="$STAGE/node/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+  ( cd "$STAGE/harness" && "$ROOT/$STAGE/node/bin/node" "$NODE_GYP" rebuild \
+      --nodedir="$ROOT/$STAGE/node" --directory=node_modules/node-pty )
+fi
+
 echo "prepare-offline: 产物已暂存到 $STAGE"
 echo "  下一步：ll-builder build -f apps/desktop-launcher/linglong/linglong.yaml"

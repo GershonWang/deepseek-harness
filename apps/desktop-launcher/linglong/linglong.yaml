@@ -52,12 +52,13 @@ build: |
   printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
     'exec "$DIR/../node/bin/corepack" pnpm "$@"' > ${PREFIX}/bin/pnpm
   chmod +x ${PREFIX}/bin/pnpm
-  # node-pty 原生 addon:部署闭包不跑其 postinstall,故 build/Release/pty.node 不存在,
-  # 运行时只靠 loadNativeModule 的 prebuilds 回退;一旦回退失效 node-pty 会转 node-gyp
-  # 源码编译(需 make/gcc,与"编译链不进包体"冲突)。把 prebuilds 里的 pty.node 实体化为
-  # 主路径 build/Release,命中即用、永不触发编译;prebuilds 保留作回退。
+  # node-pty 原生 addon:prepare-offline 已用捆绑 Node 24 在宿主编译
+  # build/Release/pty.node(ABI 精确匹配,运行时沙箱无 gcc/make,绝不触发
+  # node-gyp 源码编译)。若该产物缺失(如 --no-prepare 复用旧 stage),才回退
+  # 复制 prebuilds 里的 pty.node;不覆盖已编译的产物。
   mkdir -p ${PREFIX}/harness/node_modules/node-pty/build/Release
-  if [ -f ${PREFIX}/harness/node_modules/node-pty/prebuilds/linux-x64/pty.node ]; then
+  if [ ! -f ${PREFIX}/harness/node_modules/node-pty/build/Release/pty.node ] \
+     && [ -f ${PREFIX}/harness/node_modules/node-pty/prebuilds/linux-x64/pty.node ]; then
     cp ${PREFIX}/harness/node_modules/node-pty/prebuilds/linux-x64/pty.node \
        ${PREFIX}/harness/node_modules/node-pty/build/Release/pty.node
   fi
