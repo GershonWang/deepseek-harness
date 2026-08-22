@@ -39,6 +39,7 @@ apps/desktop-launcher/linglong/stage/
 com.deepseek.dsh-desktop_*.uab
 com.deepseek.dsh-desktop_*.deb
 .artifacts/
+.dsh-build/
 .playwright-mcp/
 .orig
 .worktrees/
