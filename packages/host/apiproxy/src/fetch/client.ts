@@ -291,13 +291,8 @@ export abstract class AbstractApiClient implements IApiClient {
 
   /** Browser = same-origin (a fake authority would fail DNS on real requests); no-location env (Node) = fake authority. */
   protected resolveBase(): string {
-    const loc = (globalThis as { location?: { origin?: string; href?: string } }).location
-    if (loc?.origin !== undefined && loc.origin !== 'null') return loc.origin
-    // webkit2gtk opaque origin: location.origin 返回 "null" 时从 href 提取真实 origin
-    if (loc?.href !== undefined) {
-      try { return new URL(loc.href).origin } catch { /* 格式异常则回退 */ }
-    }
-    return INTERNAL_BASE
+    const loc = (globalThis as { location?: { origin?: string } }).location
+    return loc?.origin !== undefined && loc.origin !== 'null' ? loc.origin : INTERNAL_BASE
   }
 
   protected mintRpcId(): RpcId {

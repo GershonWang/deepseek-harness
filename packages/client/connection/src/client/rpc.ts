@@ -49,13 +49,8 @@ export function createWebConnectionRpc(): ClientConnectionRpc {
 }
 
 function resolveBase(): string {
-  const location = (globalThis as { location?: { origin?: string; href?: string } }).location
-  if (location?.origin !== undefined && location.origin !== 'null') return location.origin
-  // webkit2gtk opaque origin: location.origin 返回 "null" 时从 href 提取真实 origin
-  if (location?.href !== undefined) {
-    try { return new URL(location.href).origin } catch { /* 格式异常则回退 */ }
-  }
-  return INTERNAL_BASE
+  const location = (globalThis as { location?: { origin?: string } }).location
+  return location?.origin !== undefined && location.origin !== 'null' ? location.origin : INTERNAL_BASE
 }
 
 function assertTarget(channel: string, endpoint: string): void {
