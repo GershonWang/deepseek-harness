@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
-    "node": ">=20.15.1"
+    "node": "^22.19.0 || >=24.0.0"
   },
   "workspaces": [
     "vendor/*",
@@ -22,8 +22,6 @@
     "build:lib:host": "tsc -b tsconfig.host.json && tsdown --env.DSH_BUILD_FACE host",
     "build:lib:client": "tsc -b tsconfig.client.json && tsdown --env.DSH_BUILD_FACE client",
     "build:web": "pnpm --filter @deepseek-ai/dsh-web-frontend run build",
-    "build:desktop": "cd apps/desktop-launcher && go build -o dsh-desktop-launcher .",
-    "dev:desktop": "cd apps/desktop-launcher && go run .",
     "clean": "tsx scripts/clean.ts",
     "change-scope": "tsx scripts/change-scope.ts",
     "typecheck": "npm run build:lib:host && npm run typecheck:contracts-ready",
