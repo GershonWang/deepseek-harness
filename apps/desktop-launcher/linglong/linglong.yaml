@@ -63,7 +63,10 @@ build: |
        ${PREFIX}/harness/node_modules/node-pty/build/Release/pty.node
   fi
   install -m755 "$STAGE/bin/dsh-desktop-launcher" ${PREFIX}/bin/dsh-desktop-launcher
-  install -Dm644 /project/apps/desktop-launcher/icons/dsh-desktop.png ${PREFIX}/share/icons/hicolor/256x256/apps/dsh-desktop.png
+  for s in 16 22 24 32 48 64 128 256 512; do
+    install -Dm644 /project/apps/desktop-launcher/icons/hicolor/${s}x${s}/apps/dsh-desktop.png \
+      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop.png
+  done
   # 桌面集成：.desktop 文件（generateEntries 会复制到 entries/share/applications，
   # 玲珑启动器/应用菜单据此显示程序与图标）
   install -Dm644 /project/apps/desktop-launcher/linglong/com.deepseek.dsh-desktop.desktop ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop

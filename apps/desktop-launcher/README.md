@@ -46,7 +46,8 @@ internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/gitcred/       git store 凭据读写
 internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
-icons/dsh-desktop.png   应用图标
+icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
+icons/dsh-desktop.png   dev-mode fallback (256×256)
 ```
 
 ## Environment resolution (three-level fallback)

@@ -41,8 +41,10 @@ mkdir -p "$WORK/$DEB_ROOT/bin" "$WORK/$DEB_ROOT/harness" "$WORK/$DEB_ROOT/node" 
 cp -a "$STAGE/harness/." "$WORK/$DEB_ROOT/harness/"
 cp -a "$STAGE/node/." "$WORK/$DEB_ROOT/node/"
 install -m755 "$STAGE/bin/dsh-desktop-launcher" "$WORK/$DEB_ROOT/bin/"
-install -m644 apps/desktop-launcher/icons/dsh-desktop.png \
-        "$WORK/usr/share/icons/hicolor/256x256/apps/dsh-desktop.png"
+for s in 16 22 24 32 48 64 128 256 512; do
+  install -m644 "apps/desktop-launcher/icons/hicolor/${s}x${s}/apps/dsh-desktop.png" \
+          "$WORK/usr/share/icons/hicolor/${s}x${s}/apps/dsh-desktop.png"
+done
 # .desktop 复用玲珑同款(Exec 指向 /opt/apps/<id>/files,两包布局一致)
 install -m644 apps/desktop-launcher/linglong/com.deepseek.dsh-desktop.desktop \
         "$WORK/usr/share/applications/com.deepseek.dsh-desktop.desktop"
