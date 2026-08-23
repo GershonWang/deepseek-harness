@@ -9,6 +9,8 @@ const (
 	StateStarting HarnessState = iota
 	StateRunning
 	StateStopped
+	// StateFailed 表示持续启动失败后已停止自动重试，等待用户 Start()/Restart()。
+	StateFailed
 )
 
 // HarnessStatus 是 harness 进程的只读快照。

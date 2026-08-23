@@ -257,6 +257,7 @@ body {
 .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }
+.dot.danger { background: var(--danger); }
 .dot.muted { background: var(--fg-dim); }
 
 /* ---------- 弹框 ---------- */

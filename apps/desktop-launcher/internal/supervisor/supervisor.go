@@ -63,6 +63,7 @@ type Supervisor struct {
 	lastExit        string
 	manuallyStopped bool
 	startCh         chan struct{}
+	sawReady        bool // 当前 spawn 周期是否已匹配就绪行
 }
 
 // NewSupervisor 创建监护器并启动监护循环（初始态为 StateStarting，首次
@@ -123,10 +124,10 @@ func (s *Supervisor) Stop() {
 	}
 }
 
-// Start 手动启动：仅停止态生效，恢复崩溃自动重启。
+// Start 手动启动：仅停止态/失败态生效，恢复崩溃自动重启。
 func (s *Supervisor) Start() {
 	s.mu.Lock()
-	if s.stopping || s.state != domain.StateStopped {
+	if s.stopping || (s.state != domain.StateStopped && s.state != domain.StateFailed) {
 		s.mu.Unlock()
 		return
 	}
@@ -208,6 +209,7 @@ func (s *Supervisor) logf(format string, args ...any) {
 // run 是唯一的监护循环：手动停止等待、spawn、等退出、退避重启。
 func (s *Supervisor) run() {
 	attempt := 0
+	var failStart time.Time
 	for {
 		s.mu.Lock()
 		if s.stopping {
@@ -215,6 +217,7 @@ func (s *Supervisor) run() {
 			return
 		}
 		manuallyStopped := s.manuallyStopped
+		state := s.state
 		s.mu.Unlock()
 
 		if manuallyStopped {
@@ -222,6 +225,19 @@ func (s *Supervisor) run() {
 			s.mu.Lock()
 			s.manuallyStopped = false
 			attempt = 0
+			stop := s.stopping
+			s.mu.Unlock()
+			if stop {
+				return
+			}
+		}
+
+		// 启动失败态：停止自动重试，等 Start()/Restart() 唤醒后重新尝试。
+		if state == domain.StateFailed {
+			<-s.startCh
+			failStart = time.Time{}
+			attempt = 0
+			s.mu.Lock()
 			stop := s.stopping
 			s.mu.Unlock()
 			if stop {
@@ -244,9 +260,27 @@ func (s *Supervisor) run() {
 			return
 		}
 		manuallyStopped = s.manuallyStopped
+		sawReady := s.sawReady
 		s.mu.Unlock()
 		if manuallyStopped {
-			continue
+			continue // 回到顶部,进入手动停止等待
+		}
+
+		// 启动失败判定：本次 spawn 从未匹配就绪行（start failed 或就绪前退出）。
+		// 累计超过 StartupTimeoutMs 则进入失败态停止重试，避免"启动中"无限卡死。
+		if !sawReady {
+			if failStart.IsZero() {
+				failStart = time.Now()
+			}
+			if time.Since(failStart) >= time.Duration(s.options.StartupTimeoutMs)*time.Millisecond {
+				s.mu.Lock()
+				s.state = domain.StateFailed
+				s.mu.Unlock()
+				s.logf("[supervisor] harness startup failed; giving up after %dms", s.options.StartupTimeoutMs)
+				continue
+			}
+		} else {
+			failStart = time.Time{}
 		}
 
 		attempt++
@@ -310,6 +344,7 @@ drained:
 	s.cmd = cmd
 	s.exited = exited
 	s.state = domain.StateStarting
+	s.sawReady = false
 	s.url = ""
 	s.pid = 0
 	s.lastExit = ""
@@ -403,5 +438,6 @@ func (s *Supervisor) markReady(url string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state = domain.StateRunning
+	s.sawReady = true
 	s.url = url
 }

@@ -201,7 +201,7 @@ func (a *App) snapshot() FrontendStatus {
 		ConnectError:  a.conn.LastError(),
 		Target:        target,
 		Busy:          busy,
-		CanStart:      st.State == domain.StateStopped && !busy,
+		CanStart:      (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
 		CanStop:       (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
 		CanConnect:    mode == domain.ModeContainer && !busy,
 		CanDisconnect: mode == domain.ModeExternal && !busy,
@@ -462,6 +462,8 @@ func stateName(s domain.HarnessState) string {
 		return "running"
 	case domain.StateStarting:
 		return "starting"
+	case domain.StateFailed:
+		return "failed"
 	default:
 		return "stopped"
 	}

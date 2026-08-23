@@ -34,6 +34,9 @@ func TestStateName(t *testing.T) {
 	if got := stateName(domain.StateStarting); got != "starting" {
 		t.Errorf("stateName(starting) = %q", got)
 	}
+	if got := stateName(domain.StateFailed); got != "failed" {
+		t.Errorf("stateName(failed) = %q", got)
+	}
 	if got := stateName(domain.StateStopped); got != "stopped" {
 		t.Errorf("stateName(stopped) = %q", got)
 	}

@@ -44,6 +44,9 @@ function applyStatus(s) {
   } else if (s.State === "starting") {
     dot.className = "dot warn";
     text.textContent = "启动中";
+  } else if (s.State === "failed") {
+    dot.className = "dot danger";
+    text.textContent = "启动失败" + (s.LastExit ? " (" + s.LastExit + ")" : "");
   } else {
     dot.className = "dot muted";
     text.textContent = "已停止" + (s.LastExit ? " (" + s.LastExit + ")" : "");
@@ -83,7 +86,7 @@ function renderServerDialog(s) {
   // 连接错误在弹框级常显，两种模式都能看到。
   $("#dlg-error").textContent = s.ConnectError || "";
 
-  const stateText = { running: "运行中", starting: "启动中", stopped: "已停止" }[s.State] || "已停止";
+  const stateText = { running: "运行中", starting: "启动中", failed: "启动失败", stopped: "已停止" }[s.State] || "已停止";
   $("#server-state").textContent = stateText;
 
   if (s.State === "running") {
@@ -92,6 +95,9 @@ function renderServerDialog(s) {
   } else if (s.State === "starting") {
     $("#server-detail1").textContent = "harness 正在启动…";
     $("#server-detail2").textContent = "";
+  } else if (s.State === "failed") {
+    $("#server-detail1").textContent = "原因: " + (s.LastExit || "");
+    $("#server-detail2").textContent = "日志: ~/.cache/dsh-desktop/harness.log";
   } else {
     $("#server-detail1").textContent = "上次退出: " + (s.LastExit || "");
     $("#server-detail2").textContent = "";

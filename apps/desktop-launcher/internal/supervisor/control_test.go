@@ -120,3 +120,36 @@ func TestSupervisor_StartWhileRunningIsNoop(t *testing.T) {
 	sup.Stop()
 	sup.Wait()
 }
+
+// TestSupervisor_StartupFailureGivesUp 回归：harness 持续启动失败（从未就绪）累计
+// 超过 StartupTimeoutMs 后应进入失败态停止自动重试，而不是"启动中"无限卡死；
+// Start() 可从失败态唤醒重试。
+func TestSupervisor_StartupFailureGivesUp(t *testing.T) {
+	opts := DefaultOptions()
+	opts.StartupTimeoutMs = 100 // 缩小超时，加快测试
+	sup := NewSupervisor(mockCfg(t, "testdata/mock-fail-start.sh"), opts)
+
+	st := waitState(t, sup, domain.StateFailed)
+	if st.LastExit == "" {
+		t.Fatalf("失败态应保留退出原因,got %q", st.LastExit)
+	}
+	// 失败态不再自动重启。
+	time.Sleep(1500 * time.Millisecond)
+	if got := sup.Status(); got.State != domain.StateFailed {
+		t.Fatalf("失败态不应自动重启,state=%v", got.State)
+	}
+	// Start() 唤醒重试：状态应短暂离开 Failed（进入 Starting/Stopped）。
+	sup.Start()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if got := sup.Status(); got.State != domain.StateFailed {
+			break // 已重新尝试
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Start() 后未重新尝试（状态仍为 Failed）")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	sup.Stop()
+	sup.Wait()
+}
