@@ -60,19 +60,26 @@ body {
   height: 100vh;
 }
 
-/* ---------- 顶部工具条 ---------- */
-#toolbar {
+/* ---------- 自定义标题栏 ---------- */
+#titlebar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  height: 36px;
-  padding: 0 10px;
+  height: 40px;
+  padding: 0 0 0 12px;
   background: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  /* Wails frameless：整条标题栏可拖拽移动窗口；内部按钮单独 no-drag */
+  --wails-draggable: drag;
 }
 
-.brand {
+#titlebar button {
+  --wails-draggable: no-drag;
+}
+
+.titlebar-brand {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -84,7 +91,7 @@ body {
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   background: var(--accent);
   color: #fff;
   font-size: 11px;
@@ -93,7 +100,54 @@ body {
 
 .brand-name { font-size: 12px; color: var(--fg-strong); }
 
-.toolbar-actions { display: flex; gap: 6px; }
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 16px;
+}
+
+/* 动作图标按钮（服务器/设置/关于） */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--fg-strong); }
+.icon-btn:active { background: var(--bg-input); }
+
+/* 窗口控制（最小化/最大化/关闭，VS Code 风格） */
+.titlebar-window {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  height: 40px;
+}
+
+.win-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.win-btn:hover { background: var(--bg-hover); color: var(--fg-strong); }
+.win-btn.win-close:hover { background: var(--danger); color: #fff; }
 
 /* ---------- 按钮 ---------- */
 .btn {
@@ -130,14 +184,27 @@ body {
 }
 .btn-quiet:hover:not(:disabled) { color: var(--fg); background: var(--bg-hover); }
 
-/* ---------- 主舞台 ---------- */
+/* ---------- 主舞台：圆角卡片 + 四周留白 ---------- */
 #stage {
+  flex: 1;
+  display: flex;
+  padding: 10px;
+  min-height: 0;
+  background: var(--bg);
+}
+
+#stage-card {
   flex: 1;
   position: relative;
   overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-panel);
 }
 
 #harness {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: 0;

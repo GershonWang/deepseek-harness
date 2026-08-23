@@ -206,6 +206,15 @@ function closeModal(id) {
 /* ---------- 事件绑定 ---------- */
 
 function bindUI() {
+  // 自定义标题栏窗口控制（Wails frameless）；浏览器预览时 window.runtime 缺失，安全降级
+  $("#win-min").addEventListener("click", () => window.runtime && window.runtime.WindowMinimise && window.runtime.WindowMinimise());
+  $("#win-max").addEventListener("click", () => window.runtime && window.runtime.WindowToggleMaximise && window.runtime.WindowToggleMaximise());
+  $("#win-close").addEventListener("click", () => window.runtime && window.runtime.Quit && window.runtime.Quit());
+  $("#titlebar").addEventListener("dblclick", (e) => {
+    if (e.target.closest("button")) return; // 按钮上双击不触发最大化
+    if (window.runtime && window.runtime.WindowToggleMaximise) window.runtime.WindowToggleMaximise();
+  });
+
   $("#btn-server").addEventListener("click", () => {
     openModal("server-modal");
     if (state.status) renderServerDialog(state.status);

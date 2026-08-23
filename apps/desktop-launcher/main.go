@@ -44,6 +44,9 @@ func main() {
 		Height:    800,
 		MinWidth:  900,
 		MinHeight: 600,
+		// 无边框窗口：自绘标题栏（frontend/#titlebar）承载品牌/按钮/窗口控制，
+		// 通过 --wails-draggable 拖拽、边缘自动 resize。
+		Frameless: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

@@ -8,24 +8,42 @@
 </head>
 <body>
 <div id="app">
-  <!-- 顶部工具条 -->
-  <header id="toolbar">
-    <div class="brand">
+  <!-- 自定义标题栏（合并原工具条）：左品牌，右动作图标 + 窗口控制 -->
+  <header id="titlebar">
+    <div class="titlebar-brand">
       <span class="brand-mark">dsh</span>
       <span class="brand-name">DeepSeek Harness</span>
     </div>
-    <div class="toolbar-actions">
-      <button id="btn-server" class="btn">服务器</button>
-      <button id="btn-settings" class="btn">设置</button>
-      <button id="btn-about" class="btn btn-quiet">关于</button>
+    <div class="titlebar-actions">
+      <button id="btn-server" class="icon-btn" title="服务器">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><circle cx="4.5" cy="4.75" r="0.7" fill="currentColor"/><circle cx="4.5" cy="11.25" r="0.7" fill="currentColor"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" title="设置">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4h12M2 8h12M2 12h12"/><circle cx="5.5" cy="4" r="1.6"/><circle cx="10" cy="8" r="1.6"/><circle cx="6" cy="12" r="1.6"/></svg>
+      </button>
+      <button id="btn-about" class="icon-btn" title="关于">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v3.4M8 4.8v.2"/></svg>
+      </button>
+    </div>
+    <div class="titlebar-window">
+      <button id="win-min" class="win-btn" title="最小化">
+        <svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.2"><path d="M2.5 8h11"/></svg>
+      </button>
+      <button id="win-max" class="win-btn" title="最大化">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
+      </button>
+      <button id="win-close" class="win-btn win-close" title="关闭">
+        <svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.2"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
+      </button>
     </div>
   </header>
 
-  <!-- 主舞台：harness iframe / 引导页 -->
+  <!-- 主舞台：圆角卡片包住 harness iframe / 引导页 -->
   <main id="stage">
-    <iframe id="harness" class="hidden" allowfullscreen></iframe>
+    <div id="stage-card">
+      <iframe id="harness" class="hidden" allowfullscreen></iframe>
 
-    <section id="guidance" class="cards">
+      <section id="guidance" class="cards">
       <div class="card-wide">
         <h1>DeepSeek Harness</h1>
         <p class="intro">当前没有可用的 harness 会话：容器内服务未运行，外部服务未连接。选择一种方式开始使用（服务启动中时请稍候片刻）。</p>
@@ -57,6 +75,7 @@
         <p class="hint">本机回环地址（127.0.0.1/localhost）无需安全确认；需要局域网访问时加 <code>--host &lt;LAN-IP&gt;</code> 重新启动。</p>
       </div>
     </section>
+    </div>
   </main>
 
   <!-- 底部状态栏 -->
