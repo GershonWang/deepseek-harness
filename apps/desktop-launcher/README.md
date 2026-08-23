@@ -22,14 +22,13 @@ English | [中文](README.zh.md)
 │   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
-│   gitcred     git store 凭据读写（~/.git-credentials）       │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
 │   packaging   打包态路径、版本、webkit helper 打点            │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
 
-Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolchain`/`gitcred`/`appenv`/`packaging` are pure Go (stdlib only) and unit-testable; `app` orchestrates them and talks to the frontend; `main` only assembles.
+Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolchain`/`appenv`/`packaging` are pure Go (stdlib only) and unit-testable; `app` orchestrates them and talks to the frontend; `main` only assembles.
 
 The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
@@ -38,12 +37,11 @@ The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh
 ```
 main.go                 Wails 入口：环境 → 控制器 → wails.Run（内嵌 frontend）
 frontend/               壳 UI：index.html / styles.css / app.js（无 Node 构建链）
-internal/domain/        纯领域模型（HarnessStatus/ToolCheck/CredentialInfo/Mode）
+internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
 internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/gitcred/       git store 凭据读写
 internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
@@ -131,11 +129,10 @@ Packaging notes:
 - The sandbox does not authorize the user's project directory by default; the user must configure a mount: copy `linglong/config.d/10-mounts.json` to `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` and edit the path
 - The Linglong package version is extracted from linglong.yaml by prepare-offline and injected into the launcher (`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`), shown in the about dialog
 
-## Container usability (toolchain/credentials/mounts)
+## Container usability (toolchain/mounts)
 
 - Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export).
 - On-demand install: heavy/rare tools (go, ripgrep) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default), and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list and install directory, and the whitelist is `linglong/tools.yaml`'s `installable` (installable only once url/sha256 are filled in).
-- git credentials: the GUI "设置 → Git 凭据" area writes `~/.git-credentials` (container HOME = host home directory; `ll-cli uninstall` does not clear user data); optionally bind-mount the host's same-named file read-only (template at `linglong/config.d/20-host-credentials.json`, copied to `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` and edit `<USER>`).
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
 
 ## Known issues

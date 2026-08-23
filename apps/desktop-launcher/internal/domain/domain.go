@@ -36,10 +36,3 @@ type ToolCheck struct {
 	Version string
 	Err     string
 }
-
-// CredentialInfo 描述 Git 凭据的展示信息，绝不携带令牌明文。
-type CredentialInfo struct {
-	HasToken    bool
-	User        string
-	StoragePath string
-}

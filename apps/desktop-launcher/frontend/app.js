@@ -193,12 +193,6 @@ function renderTools(t) {
     }
   }
 
-  const cred = t.CredSaved
-    ? "✓ 已保存 (" + t.CredUser + ")\n存储位置: " + t.CredPath
-    : "未保存\n存储位置: " + t.CredPath;
-  $("#cred-status").textContent = cred;
-}
-
 /* ---------- 弹框 ---------- */
 
 function openModal(id) {
@@ -227,10 +221,6 @@ function bindUI() {
   });
   $("#btn-tools").addEventListener("click", () => {
     openModal("tools-modal");
-    api().RefreshTools();
-  });
-  $("#btn-credentials").addEventListener("click", () => {
-    openModal("cred-modal");
     api().RefreshTools();
   });
   $("#btn-about").addEventListener("click", async () => {
@@ -282,13 +272,6 @@ function bindUI() {
     }
     api().RefreshTools();
   });
-
-  $("#cred-save").addEventListener("click", async () => {
-    const err = await api().SaveCredentials($("#cred-user").value.trim(), $("#cred-token").value);
-    if (err) $("#cred-status").textContent = "保存失败: " + err;
-    $("#cred-token").value = "";
-  });
-  $("#cred-clear").addEventListener("click", () => api().ClearCredentials());
 }
 
 /* ---------- 启动 ---------- */

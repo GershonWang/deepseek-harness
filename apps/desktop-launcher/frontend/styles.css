@@ -388,22 +388,6 @@ body {
 .tools td.state-ok { color: var(--ok); }
 .tools td.state-missing { color: var(--danger); }
 
-/* 凭据 */
-.cred-row { display: flex; align-items: center; gap: 8px; }
-.cred-row .key { width: 44px; text-align: right; }
-.cred-row input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px 8px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--fg);
-  font-size: 12px;
-  outline: none;
-}
-.cred-row input:focus { border-color: var(--accent); }
-
 .hint { font-size: 12px; line-height: 1.7; color: var(--fg-dim); }
 
 /* 关于 */

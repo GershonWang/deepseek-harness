@@ -22,14 +22,13 @@
 │   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
-│   gitcred     git store 凭据读写（~/.git-credentials）       │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
 │   packaging   打包态路径、版本、webkit helper 打点            │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
 
-分层规则：`domain` 零依赖；`supervisor`/`connector`/`toolchain`/`gitcred`/`appenv`/`packaging` 为纯 Go（仅标准库）、可单测；`app` 编排它们并面向前端；`main` 只做组装。
+分层规则：`domain` 零依赖；`supervisor`/`connector`/`toolchain`/`appenv`/`packaging` 为纯 Go（仅标准库）、可单测；`app` 编排它们并面向前端；`main` 只做组装。
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
@@ -38,12 +37,11 @@
 ```
 main.go                 Wails 入口：环境 → 控制器 → wails.Run（内嵌 frontend）
 frontend/               壳 UI：index.html / styles.css / app.js（无 Node 构建链）
-internal/domain/        纯领域模型（HarnessStatus/ToolCheck/CredentialInfo/Mode）
+internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
 internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/gitcred/       git store 凭据读写
 internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   多尺寸 hicolor 图标（16–512，RGBA 圆角）
@@ -131,11 +129,10 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`），关于弹框展示
 
-## 容器可用性（工具链/凭据/挂载）
+## 容器可用性（工具链/挂载）
 
 - 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。
 - 按需安装：重/罕见工具（go、ripgrep）装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单与安装目录，白名单见 `linglong/tools.yaml` 的 `installable`（url/sha256 填实后才可安装）。
-- git 凭据：GUI「设置 → Git 凭据」区写入 `~/.git-credentials`（容器 HOME = 宿主主目录；`ll-cli uninstall` 不清理用户数据）；可选只读挂载宿主同名文件（模板见 `linglong/config.d/20-host-credentials.json`，复制到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改 `<USER>`）。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 
 ## 已知事项

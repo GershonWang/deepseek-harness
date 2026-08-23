@@ -1,5 +1,5 @@
 // Package app 是 Wails 绑定层：向 Web 壳暴露控制方法，并定时推送状态事件。
-// 它编排下层各领域包（supervisor/connector/toolchain/gitcred/packaging），
+// 它编排下层各领域包（supervisor/connector/toolchain/hosttools/packaging），
 // 不含任何业务实现，只做"翻译"：领域状态 → 前端可渲染的快照。
 package app
 
@@ -16,7 +16,6 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
-	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/gitcred"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
@@ -53,7 +52,7 @@ type ToolRow struct {
 	State   string // "installed" | "missing"
 }
 
-// ToolStatus 是工具自检与凭据分区的一次刷新结果。
+// ToolStatus 是工具自检的一次刷新结果。
 type ToolStatus struct {
 	Rows        []ToolRow
 	Installed   string
@@ -62,9 +61,6 @@ type ToolStatus struct {
 	HostTools   []HostToolEntry           // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                      // 是否玲珑打包（沙箱）环境
 	Notice      string                    // 一次性提示（安装结果等）
-	CredSaved   bool
-	CredUser    string
-	CredPath    string
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -309,12 +305,11 @@ func (a *App) RefreshTools() {
 	}()
 }
 
-// collectTools 采集工具自检 + 已安装列表 + 清单状态 + 宿主挂载 + 凭据状态。
+// collectTools 采集工具自检 + 已安装列表 + 清单状态 + 宿主挂载。
 func (a *App) collectTools() ToolStatus {
 	checks := toolchain.Check(toolchain.DefaultSpecs())
 	dir := toolchain.InstallDir(a.home)
 	installed := toolchain.ListInstalled(dir)
-	user, _, found := gitcred.Read(a.home)
 
 	rows := make([]ToolRow, 0, len(checks))
 	for _, c := range checks {
@@ -338,9 +333,6 @@ func (a *App) collectTools() ToolStatus {
 		Catalog:     toolchain.CatalogStatuses(dir),
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
-		CredSaved:   found,
-		CredUser:    user,
-		CredPath:    gitcred.Path(a.home),
 	}
 }
 
@@ -422,21 +414,6 @@ func (a *App) RemoveHostTool(name string) string {
 	}
 	a.RefreshTools()
 	return ""
-}
-
-// SaveCredentials 保存 GitHub 凭据并刷新。
-func (a *App) SaveCredentials(user, token string) string {
-	if err := gitcred.Write(a.home, user, token); err != nil {
-		return err.Error()
-	}
-	a.RefreshTools()
-	return ""
-}
-
-// ClearCredentials 清除 GitHub 凭据并刷新。
-func (a *App) ClearCredentials() {
-	_ = gitcred.Clear(a.home)
-	a.RefreshTools()
 }
 
 // About 返回关于弹框内容。

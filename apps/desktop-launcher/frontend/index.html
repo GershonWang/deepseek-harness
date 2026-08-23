@@ -23,9 +23,6 @@
       <button id="btn-tools" class="icon-btn" title="工具链">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       </button>
-      <button id="btn-credentials" class="icon-btn" title="Git 凭据">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
-      </button>
       <button id="btn-about" class="icon-btn" title="关于">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v3.4M8 4.8v.2"/></svg>
       </button>
@@ -174,33 +171,6 @@
 </div>
 
 <!-- Git 凭据弹框 -->
-<div id="cred-modal" class="modal hidden">
-  <div class="modal-card modal-sm">
-    <div class="modal-head">
-      <span>Git 凭据</span>
-      <button class="modal-close" data-close="cred-modal">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="section">
-        <div class="section-title">Git 凭据</div>
-        <div id="cred-status" class="selectable hint"></div>
-        <div class="cred-row">
-          <span class="key">用户名</span>
-          <input id="cred-user" type="text" placeholder="GitHub 用户名" spellcheck="false">
-        </div>
-        <div class="cred-row">
-          <span class="key">令牌</span>
-          <input id="cred-token" type="password" placeholder="个人访问令牌 (PAT)">
-        </div>
-        <div class="actions">
-          <button id="cred-save" class="btn btn-primary">保存</button>
-          <button id="cred-clear" class="btn btn-danger">清除</button>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- 关于弹框 -->
 <div id="about-modal" class="modal hidden">
   <div class="modal-card modal-sm">
