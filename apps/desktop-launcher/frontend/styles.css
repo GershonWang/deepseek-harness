@@ -397,6 +397,7 @@ body {
 
 .tools td.state-ok { color: var(--ok); }
 .tools td.state-missing { color: var(--danger); }
+.tools td.state-warn { color: var(--warn); }
 
 .hint { font-size: 12px; line-height: 1.7; color: var(--fg-dim); }
 

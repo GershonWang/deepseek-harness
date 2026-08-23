@@ -61,6 +61,7 @@ type ToolStatus struct {
 	HostTools   []HostToolEntry           // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                      // 是否玲珑打包（沙箱）环境
 	Notice      string                    // 一次性提示（安装结果等）
+	Installing  string                    // 正在安装的工具链名称（空串=无）
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -356,6 +357,10 @@ func (a *App) InstallToolchain(name string) string {
 	if !ok {
 		return "未知工具链: " + name
 	}
+	// 立即推送"正在安装"状态，让前端实时显示。
+	st := a.collectTools()
+	st.Installing = name
+	a.emitToolchain(st)
 	go func() {
 		dir := toolchain.InstallDir(a.home)
 		err := toolchain.InstallFromCatalog(dir, item)
@@ -368,6 +373,7 @@ func (a *App) InstallToolchain(name string) string {
 		}
 		st := a.collectTools()
 		st.Notice = notice
+		st.Installing = ""
 		a.emitToolchain(st)
 	}()
 	return ""

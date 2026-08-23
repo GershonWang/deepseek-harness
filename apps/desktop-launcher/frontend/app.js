@@ -145,18 +145,22 @@ function renderTools(t) {
   for (const c of t.Catalog || []) {
     const tr = document.createElement("tr");
     const installed = c.State === "installed";
+    const installing = !installed && t.Installing === c.Name;
     const statusText = installed
       ? "✓ " + (c.InstalledVersion || "已安装")
-      : (c.Pinned ? "可安装" : "待配置 sha256");
+      : installing
+        ? "安装中…"
+        : (c.Pinned ? "可安装" : "待配置 sha256");
     tr.innerHTML =
       "<td>" + esc(c.Label) + "</td>" +
       "<td>" + esc(c.Version) + "</td>" +
-      "<td class='" + (installed ? "state-ok" : "") + "'>" + esc(statusText) + "</td>";
+      "<td class='" + (installed ? "state-ok" : installing ? "state-warn" : "") + "'>" + esc(statusText) + "</td>";
     const tdBtn = document.createElement("td");
     if (!installed && c.Pinned) {
       const b = document.createElement("button");
       b.className = "btn";
-      b.textContent = "安装";
+      b.textContent = installing ? "安装中…" : "安装";
+      b.disabled = installing;
       b.addEventListener("click", () => {
         b.disabled = true;
         b.textContent = "安装中…";
