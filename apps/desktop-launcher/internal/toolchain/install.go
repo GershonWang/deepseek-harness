@@ -149,9 +149,14 @@ func extractTarGz(data []byte, dest string) error {
 			}
 			_ = f.Close()
 		case tar.TypeSymlink:
-			// 符号链接条目在当前目录内重建（目标为相对路径）。
-			linkTarget := filepath.Clean(hdr.Linkname)
-			if strings.HasPrefix(linkTarget, "..") || filepath.IsAbs(linkTarget) {
+			// 符号链接目标可能是相对路径（如 ../foo），需相对于链接所在目录
+			// 解析后再检查是否逃逸出解压根目录。绝对路径目标一律拒绝。
+			if filepath.IsAbs(hdr.Linkname) {
+				return fmt.Errorf("unsafe tar symlink: %s -> %s", hdr.Name, hdr.Linkname)
+			}
+			linkParent := filepath.Dir(clean)
+			resolved := filepath.Clean(filepath.Join(linkParent, hdr.Linkname))
+			if strings.HasPrefix(resolved, "..") || filepath.IsAbs(resolved) {
 				return fmt.Errorf("unsafe tar symlink: %s -> %s", hdr.Name, hdr.Linkname)
 			}
 			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
