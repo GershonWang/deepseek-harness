@@ -270,7 +270,9 @@ body {
   width: 520px;
   max-width: 92vw;
   max-height: 86vh;
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: var(--bg);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -302,7 +304,15 @@ body {
 }
 .modal-close:hover { color: var(--fg-strong); background: var(--bg-hover); }
 
-.modal-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+.modal-body {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 
 /* 分区模块：清晰边框 + 圆角 */
 .section {
