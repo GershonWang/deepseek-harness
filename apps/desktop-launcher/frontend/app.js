@@ -90,16 +90,16 @@ function renderServerDialog(s) {
   $("#server-state").textContent = stateText;
 
   if (s.State === "running") {
-    $("#server-detail1").textContent = "地址: " + s.URL;
-    $("#server-detail2").textContent = "PID: " + s.PID;
+    $("#server-detail1").textContent = s.URL;
+    $("#server-detail2").textContent = s.PID;
   } else if (s.State === "starting") {
     $("#server-detail1").textContent = "harness 正在启动…";
     $("#server-detail2").textContent = "";
   } else if (s.State === "failed") {
-    $("#server-detail1").textContent = "原因: " + (s.LastExit || "");
-    $("#server-detail2").textContent = "日志: ~/.cache/dsh-desktop/harness.log";
+    $("#server-detail1").textContent = s.LastExit || "";
+    $("#server-detail2").textContent = "~/.cache/dsh-desktop/harness.log";
   } else {
-    $("#server-detail1").textContent = "上次退出: " + (s.LastExit || "");
+    $("#server-detail1").textContent = s.LastExit || "";
     $("#server-detail2").textContent = "";
   }
 
