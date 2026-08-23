@@ -219,8 +219,12 @@ function bindUI() {
     openModal("server-modal");
     if (state.status) renderServerDialog(state.status);
   });
-  $("#btn-settings").addEventListener("click", () => {
-    openModal("settings-modal");
+  $("#btn-tools").addEventListener("click", () => {
+    openModal("tools-modal");
+    api().RefreshTools();
+  });
+  $("#btn-credentials").addEventListener("click", () => {
+    openModal("cred-modal");
     api().RefreshTools();
   });
   $("#btn-about").addEventListener("click", async () => {
