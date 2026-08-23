@@ -77,6 +77,45 @@ func TestConflicts(t *testing.T) {
 	}
 }
 
+func TestReconcileBinLinks_RebuildsAndCleansStale(t *testing.T) {
+	dir := t.TempDir()
+	// 两个已装工具：go 用 bin/ 子目录，rg 用根目录直接含可执行
+	goRoot := filepath.Join(dir, "go-1.23.2")
+	if err := os.MkdirAll(filepath.Join(goRoot, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(goRoot, "bin", "go"), []byte("x"), 0o755)
+	os.WriteFile(filepath.Join(goRoot, "bin", "gofmt"), []byte("x"), 0o755)
+	rgRoot := filepath.Join(dir, "ripgrep-14.1.0")
+	if err := os.MkdirAll(rgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(rgRoot, "rg"), []byte("x"), 0o755)
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Symlink(goRoot, filepath.Join(dir, "current", "go"))
+	os.Symlink(rgRoot, filepath.Join(dir, "current", "ripgrep"))
+
+	// 预置一个失效软链（模拟旧布局/手动破坏）
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.Symlink("/nonexistent/stale", filepath.Join(dir, "bin", "stale"))
+
+	if err := ReconcileBinLinks(dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"go", "gofmt", "rg"} {
+		if _, err := os.Lstat(filepath.Join(dir, "bin", want)); err != nil {
+			t.Errorf("自愈后缺软链 %s: %v", want, err)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "stale")); !os.IsNotExist(err) {
+		t.Errorf("失效软链 stale 应被清理: %v", err)
+	}
+}
+
 func TestCatalogStatuses(t *testing.T) {
 	dir := t.TempDir()
 	// 预置一个已安装的 go: current/go -> go-1.23.2

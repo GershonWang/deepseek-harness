@@ -16,6 +16,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/app"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 )
 
 //go:embed all:frontend
@@ -23,6 +24,9 @@ var assets embed.FS
 
 func main() {
 	home, _ := os.UserHomeDir()
+	// 启动自愈：重建 ~/.dsh-tools/bin 软链，保证已装工具链在重装/更新/HOME 迁移后
+	// 仍自动可用；随后 ConfigureChildEnv 把该目录注入子进程 PATH。
+	_ = toolchain.ReconcileBinLinks(toolchain.InstallDir(home))
 	appenv.ConfigureChildEnv(home)
 	packaging.ConfigureWebKitHelperPath()
 

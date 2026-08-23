@@ -74,13 +74,60 @@ func InstallFromCatalog(dir string, it CatalogItem) error {
 // <dir>/bin，使这些命令进入 PATH（dshToolsEnv 已把 <dir>/bin 前置）。
 func LinkBin(dir string, it CatalogItem) error {
 	src := filepath.Join(dir, "current", it.Name, it.BinRel)
-	entries, err := os.ReadDir(src)
-	if err != nil {
+	if _, err := os.Stat(src); err != nil {
 		return err
 	}
 	linkDir := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(linkDir, 0o755); err != nil {
 		return err
+	}
+	linkExecutables(src, linkDir, map[string]bool{})
+	return nil
+}
+
+// ReconcileBinLinks 自愈：扫描 <dir>/current 下已装工具，在 <dir>/bin 重建其
+// 可执行文件软链，并清理不再对应任何工具失效软链。启动时调用，保证重装、
+// 更新、HOME 迁移后工具链仍自动可用。
+func ReconcileBinLinks(dir string) error {
+	cur := filepath.Join(dir, "current")
+	entries, err := os.ReadDir(cur)
+	if err != nil {
+		return nil // 尚未安装任何工具
+	}
+	linkDir := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, e := range entries {
+		if e.Type().IsRegular() {
+			continue
+		}
+		root := filepath.Join(cur, e.Name())
+		if e.Type()&os.ModeSymlink != 0 {
+			if t, err := os.Readlink(root); err == nil {
+				if !filepath.IsAbs(t) {
+					t = filepath.Join(cur, t)
+				}
+				root = t
+			}
+		}
+		// 兼容 "bin 子目录" 与 "根目录直接含可执行" 两种布局。
+		if info, err := os.Stat(filepath.Join(root, "bin")); err == nil && info.IsDir() {
+			linkExecutables(filepath.Join(root, "bin"), linkDir, seen)
+		} else if info, err := os.Stat(root); err == nil && info.IsDir() {
+			linkExecutables(root, linkDir, seen)
+		}
+	}
+	cleanStaleLinks(linkDir, seen)
+	return nil
+}
+
+// linkExecutables 把 src 下所有可执行文件软链进 linkDir，并记入 seen。
+func linkExecutables(src, linkDir string, seen map[string]bool) {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return
 	}
 	for _, e := range entries {
 		if e.IsDir() {
@@ -93,12 +140,28 @@ func LinkBin(dir string, it CatalogItem) error {
 		if fi.Mode()&0o111 == 0 {
 			continue
 		}
-		_ = os.Remove(filepath.Join(linkDir, e.Name()))
-		if err := os.Symlink(filepath.Join(src, e.Name()), filepath.Join(linkDir, e.Name())); err != nil {
-			return err
+		name := e.Name()
+		_ = os.Remove(filepath.Join(linkDir, name))
+		if err := os.Symlink(filepath.Join(src, name), filepath.Join(linkDir, name)); err == nil {
+			seen[name] = true
 		}
 	}
-	return nil
+}
+
+// cleanStaleLinks 删除 linkDir 里不再对应任何工具的失效软链。
+func cleanStaleLinks(linkDir string, seen map[string]bool) {
+	entries, err := os.ReadDir(linkDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if seen[e.Name()] {
+			continue
+		}
+		if e.Type()&os.ModeSymlink != 0 {
+			_ = os.Remove(filepath.Join(linkDir, e.Name()))
+		}
+	}
 }
 
 // CatalogStatuses 组装设置弹框的清单状态：已安装工具的版本来自 current 软链
