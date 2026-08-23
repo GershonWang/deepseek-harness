@@ -128,6 +128,25 @@
       </div>
 
       <div class="section">
+        <div class="section-title">环境命令 / 工具链</div>
+        <table id="catalog-table" class="tools">
+          <thead><tr><th>工具</th><th>版本</th><th>状态</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div id="toolchain-notice" class="hint"></div>
+        <div id="hosttools-box">
+          <div class="host-row">
+            <span class="key">宿主路径</span>
+            <input id="host-path" type="text" placeholder="/usr/lib/jvm/java-21-openjdk-amd64" spellcheck="false">
+            <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
+            <button id="host-add" class="btn btn-primary">挂载</button>
+          </div>
+          <div id="host-list"></div>
+          <div id="host-hint" class="hint"></div>
+        </div>
+      </div>
+
+      <div class="section">
         <div class="section-title">Git 凭据</div>
         <div id="cred-status" class="selectable hint"></div>
         <div class="cred-row">

@@ -361,4 +361,31 @@ body {
 .about-title { font-size: 15px; font-weight: 600; color: var(--fg-strong); }
 .about a { color: var(--accent); font-size: 12px; text-decoration: none; }
 
+/* 宿主命令挂载 */
+.host-row { display: flex; align-items: center; gap: 8px; }
+.host-row .key { width: auto; text-align: left; }
+.host-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--fg);
+  font-size: 12px;
+  outline: none;
+}
+.host-row input:focus { border-color: var(--accent); }
+.host-row input#host-name { flex: 0 0 140px; }
+
+.host-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+}
+.host-item .host-name { font-weight: 600; }
+.host-item .hint { flex: 1; }
+
 .hidden { display: none !important; }

@@ -2,6 +2,8 @@ package appenv
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -100,5 +102,49 @@ func TestConfigureChildEnv_SkipsWhenAbsent(t *testing.T) {
 	ConfigureChildEnv(home)
 	if got := os.Getenv("PATH"); got != oldPath {
 		t.Fatalf("PATH changed when tools dir absent: %q", got)
+	}
+}
+
+func TestHostToolBins_OrderingAndFallback(t *testing.T) {
+	base := t.TempDir()
+	// jdk: <base>/jdk/bin; rg: <base>/rg 直接含可执行; empty: 无 bin
+	for _, d := range []string{"jdk/bin", "rg", "empty"} {
+		if err := os.MkdirAll(filepath.Join(base, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(base, "rg", "rg"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := hostToolBins(base)
+	want := []string{filepath.Join(base, "jdk", "bin"), filepath.Join(base, "rg")}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("hostToolBins = %v, want %v", got, want)
+	}
+}
+
+func TestConfigureChildEnv_HostBinsPrependFirst(t *testing.T) {
+	home := t.TempDir()
+	toolsBin := home + "/.dsh-tools/bin"
+	if err := os.MkdirAll(toolsBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := os.Getenv("PATH")
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
+
+	base := t.TempDir()
+	hostBin := filepath.Join(base, "jdk", "bin")
+	if err := os.MkdirAll(hostBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := hostToolsBase
+	hostToolsBase = base
+	defer func() { hostToolsBase = prev }()
+
+	ConfigureChildEnv(home)
+	got := os.Getenv("PATH")
+	wantPrefix := hostBin + string(os.PathListSeparator) + toolsBin + string(os.PathListSeparator)
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("PATH 顺序应为 宿主>按需>现有, got: %q", got)
 	}
 }

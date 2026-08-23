@@ -7,14 +7,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/gitcred"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
@@ -55,9 +58,26 @@ type ToolStatus struct {
 	Rows        []ToolRow
 	Installed   string
 	Installable string
+	Catalog     []toolchain.CatalogStatus // 内置一键安装清单状态
+	HostTools   []HostToolEntry           // 宿主命令挂载列表（仅沙箱环境）
+	Sandboxed   bool                      // 是否玲珑打包（沙箱）环境
+	Notice      string                    // 一次性提示（安装结果等）
 	CredSaved   bool
 	CredUser    string
 	CredPath    string
+}
+
+// HostToolEntry 是宿主命令挂载的渲染数据。
+type HostToolEntry struct {
+	Name   string
+	Source string
+	Target string
+}
+
+// HostToolResult 是 AddHostTool 的返回。
+type HostToolResult struct {
+	Warning string
+	Error   string
 }
 
 // AboutInfo 是"关于"弹框的内容。
@@ -289,10 +309,11 @@ func (a *App) RefreshTools() {
 	}()
 }
 
-// collectTools 采集工具自检 + 已安装列表 + 凭据状态。
+// collectTools 采集工具自检 + 已安装列表 + 清单状态 + 宿主挂载 + 凭据状态。
 func (a *App) collectTools() ToolStatus {
 	checks := toolchain.Check(toolchain.DefaultSpecs())
-	installed := toolchain.ListInstalled(toolchain.InstallDir(a.home))
+	dir := toolchain.InstallDir(a.home)
+	installed := toolchain.ListInstalled(dir)
 	user, _, found := gitcred.Read(a.home)
 
 	rows := make([]ToolRow, 0, len(checks))
@@ -304,14 +325,103 @@ func (a *App) collectTools() ToolStatus {
 		}
 		rows = append(rows, row)
 	}
+
+	hostTools := []HostToolEntry{}
+	for _, e := range hosttools.List(a.home) {
+		hostTools = append(hostTools, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target})
+	}
+
 	return ToolStatus{
 		Rows:        rows,
 		Installed:   joinOrNone(installed),
-		Installable: "go,ripgrep",
+		Installable: catalogInstallable(),
+		Catalog:     toolchain.CatalogStatuses(dir),
+		HostTools:   hostTools,
+		Sandboxed:   a.sandboxed(),
 		CredSaved:   found,
 		CredUser:    user,
 		CredPath:    gitcred.Path(a.home),
 	}
+}
+
+// sandboxed 判断是否玲珑打包（沙箱）环境：打包态可执行文件在 $PREFIX/bin，
+// HarnessPrefix() 非空；开发态在 /tmp/go-build 下返回空。
+func (a *App) sandboxed() bool {
+	return packaging.HarnessPrefix() != ""
+}
+
+func catalogInstallable() string {
+	names := []string{}
+	for _, it := range toolchain.Catalog() {
+		names = append(names, it.Name)
+	}
+	return strings.Join(names, ",")
+}
+
+// InstallToolchain 一键安装内置工具链。异步执行，结果经 toolchain 事件推送。
+func (a *App) InstallToolchain(name string) string {
+	item, ok := toolchain.Lookup(name)
+	if !ok {
+		return "未知工具链: " + name
+	}
+	go func() {
+		dir := toolchain.InstallDir(a.home)
+		err := toolchain.InstallFromCatalog(dir, item)
+		notice := "工具链 " + name + " 安装成功"
+		if err != nil {
+			notice = "工具链 " + name + " 安装失败: " + err.Error()
+		} else {
+			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
+			appenv.ConfigureChildEnv(a.home)
+		}
+		st := a.collectTools()
+		st.Notice = notice
+		a.emitToolchain(st)
+	}()
+	return ""
+}
+
+// AddHostTool 把宿主命令路径挂载进沙箱（写 linglong config.d），返回冲突提示。
+func (a *App) AddHostTool(source, name string) HostToolResult {
+	if !a.sandboxed() {
+		return HostToolResult{Error: "宿主挂载仅在玲珑打包环境生效（开发态宿主命令本就在 PATH）"}
+	}
+	if name == "" {
+		name = hosttools.SuggestName(source)
+	}
+	e, err := hosttools.Add(a.home, name, source)
+	if err != nil {
+		return HostToolResult{Error: err.Error()}
+	}
+	warn := ""
+	if conflicts := hostToolConflicts(e.Source, a.home); len(conflicts) > 0 {
+		warn = "与按需安装同名的命令，宿主挂载优先生效: " + strings.Join(conflicts, ", ")
+	}
+	a.RefreshTools()
+	return HostToolResult{Warning: warn}
+}
+
+// hostToolConflicts 返回宿主挂载源 bin 与按需安装 bin 同名的命令。
+func hostToolConflicts(source, home string) []string {
+	return toolchain.Conflicts(hosttools.EffectiveBin(source), filepath.Join(toolchain.InstallDir(home), "bin"))
+}
+
+// ListHostTools 返回已配置的宿主命令挂载。
+func (a *App) ListHostTools() []HostToolEntry {
+	out := []HostToolEntry{}
+	for _, e := range hosttools.List(a.home) {
+		out = append(out, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target})
+	}
+	return out
+}
+
+// RemoveHostTool 移除宿主命令挂载配置。
+func (a *App) RemoveHostTool(name string) string {
+	if err := hosttools.Remove(a.home, name); err != nil {
+		return err.Error()
+	}
+	a.RefreshTools()
+	return ""
 }
 
 // SaveCredentials 保存 GitHub 凭据并刷新。

@@ -8,7 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strings"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 )
 
@@ -94,14 +97,25 @@ func resolveNode() string {
 	return "node"
 }
 
+// hostToolsBase 是宿主工具链的容器内挂载基址（测试可覆盖）。
+var hostToolsBase = hosttools.MountBase
+
 // ConfigureChildEnv 设置子进程（harness 及其后代）需要的环境变量。
-// 打包态专属的 GTK 与目录选择器打点都在这里，Linux 下生效。
+// PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 按需安装(~/.dsh-tools/bin) > 现有 PATH。
 func ConfigureChildEnv(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
+
+	segs := []string{}
+	if bins := hostToolBins(hostToolsBase); len(bins) > 0 {
+		segs = append(segs, bins...)
+	}
 	bin, lib := dshToolsEnv(home)
 	if info, err := os.Stat(bin); err == nil && info.IsDir() {
-		_ = os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		segs = append(segs, bin)
+	}
+	if len(segs) > 0 {
+		_ = os.Setenv("PATH", strings.Join(append(segs, os.Getenv("PATH")), string(os.PathListSeparator)))
 	}
 	if info, err := os.Stat(lib); err == nil && info.IsDir() {
 		if old := os.Getenv("LD_LIBRARY_PATH"); old != "" {
@@ -110,6 +124,54 @@ func ConfigureChildEnv(home string) {
 			_ = os.Setenv("LD_LIBRARY_PATH", lib)
 		}
 	}
+}
+
+// hostToolBins 扫描宿主挂载基址下各工具链的生效 bin 目录（按名字排序）。
+// 优先 <dir>/bin；若目录本身直接含可执行文件（用户粘贴的 bin 目录），
+// 则用目录本身。
+func hostToolBins(base string) []string {
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(base, e.Name())
+		bin := filepath.Join(dir, "bin")
+		if info, err := os.Stat(bin); err == nil && info.IsDir() {
+			out = append(out, bin)
+			continue
+		}
+		if hasExecutable(dir) {
+			out = append(out, dir)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// hasExecutable 判断目录是否直接含至少一个可执行文件。
+func hasExecutable(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if fi.Mode()&0o111 != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // dshToolsEnv 返回按需工具目录的 PATH 与 LD_LIBRARY_PATH 段（home/.dsh-tools）。

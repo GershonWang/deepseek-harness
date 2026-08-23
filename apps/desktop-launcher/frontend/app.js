@@ -133,6 +133,60 @@ function renderTools(t) {
   $("#tools-install").textContent =
     "已安装: " + (t.Installed || "无") + "    可安装(启动器): " + (t.Installable || "");
 
+  // 内置工具链一键安装清单
+  const ctb = $("#catalog-table tbody");
+  ctb.innerHTML = "";
+  for (const c of t.Catalog || []) {
+    const tr = document.createElement("tr");
+    const installed = c.State === "installed";
+    const statusText = installed
+      ? "✓ " + (c.InstalledVersion || "已安装")
+      : (c.Pinned ? "可安装" : "待配置 sha256");
+    tr.innerHTML =
+      "<td>" + esc(c.Label) + "</td>" +
+      "<td>" + esc(c.Version) + "</td>" +
+      "<td class='" + (installed ? "state-ok" : "") + "'>" + esc(statusText) + "</td>";
+    const tdBtn = document.createElement("td");
+    if (!installed && c.Pinned) {
+      const b = document.createElement("button");
+      b.className = "btn";
+      b.textContent = "安装";
+      b.addEventListener("click", () => {
+        b.disabled = true;
+        b.textContent = "安装中…";
+        api().InstallToolchain(c.Name);
+      });
+      tdBtn.appendChild(b);
+    }
+    tr.appendChild(tdBtn);
+    ctb.appendChild(tr);
+  }
+  $("#toolchain-notice").textContent = t.Notice || "";
+
+  // 宿主命令挂载（仅沙箱环境显示）
+  const hostBox = $("#hosttools-box");
+  if (!t.Sandboxed) {
+    hostBox.classList.add("hidden");
+    $("#toolchain-notice").textContent = "开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。";
+  } else {
+    hostBox.classList.remove("hidden");
+    const hl = $("#host-list");
+    hl.innerHTML = "";
+    for (const h of t.HostTools || []) {
+      const row = document.createElement("div");
+      row.className = "host-item";
+      const rm = document.createElement("button");
+      rm.className = "btn btn-danger";
+      rm.textContent = "移除";
+      rm.addEventListener("click", () => api().RemoveHostTool(h.Name));
+      row.innerHTML =
+        "<span class='selectable host-name'>" + esc(h.Name) + "</span>" +
+        "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>";
+      row.appendChild(rm);
+      hl.appendChild(row);
+    }
+  }
+
   const cred = t.CredSaved
     ? "✓ 已保存 (" + t.CredUser + ")\n存储位置: " + t.CredPath
     : "未保存\n存储位置: " + t.CredPath;
@@ -191,6 +245,24 @@ function bindUI() {
   $("#ext-disconnect").addEventListener("click", () => api().DisconnectExternal());
 
   $("#tools-refresh").addEventListener("click", () => api().RefreshTools());
+
+  $("#host-add").addEventListener("click", async () => {
+    const src = $("#host-path").value.trim();
+    const name = $("#host-name").value.trim();
+    if (!src) return;
+    const res = await api().AddHostTool(src, name);
+    $("#host-path").value = "";
+    $("#host-name").value = "";
+    const hint = $("#host-hint");
+    if (res.Error) {
+      hint.className = "error";
+      hint.textContent = "挂载失败: " + res.Error;
+    } else {
+      hint.className = "hint";
+      hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效";
+    }
+    api().RefreshTools();
+  });
 
   $("#cred-save").addEventListener("click", async () => {
     const err = await api().SaveCredentials($("#cred-user").value.trim(), $("#cred-token").value);
