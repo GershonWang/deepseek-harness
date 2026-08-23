@@ -193,6 +193,8 @@ function renderTools(t) {
     }
   }
 
+}
+
 /* ---------- 弹框 ---------- */
 
 function openModal(id) {
