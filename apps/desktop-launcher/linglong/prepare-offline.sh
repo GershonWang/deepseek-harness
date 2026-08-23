@@ -52,8 +52,8 @@ fi
 #    宿主需有 make/gcc/python3。--nodedir 用捆绑 node 自带头文件，避免联网下载。
 if [ -d "$STAGE/harness/node_modules/node-pty" ]; then
   echo "prepare-offline: 编译 node-pty (bundled node $($STAGE/node/bin/node --version))..."
-  NODE_GYP="$STAGE/node/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
-  ( cd "$STAGE/harness" && "$ROOT/$STAGE/node/bin/node" "$NODE_GYP" rebuild \
+  NODE_GYP="$ROOT/$STAGE/node/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
+  ( cd "$ROOT/$STAGE/harness" && "$ROOT/$STAGE/node/bin/node" "$NODE_GYP" rebuild \
       --nodedir="$ROOT/$STAGE/node" --directory=node_modules/node-pty )
 fi
 
