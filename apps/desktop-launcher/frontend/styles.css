@@ -404,17 +404,12 @@ body {
 /* 关于 */
 .about { align-items: center; text-align: center; }
 .about-logo {
+  /* 黑色小鲸鱼（DeepSeek Harness 品牌 logo）：颜色随主题对比弹框背景 */
   width: 56px;
   height: 56px;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
-  font-weight: 700;
+  display: block;
   margin-bottom: 10px;
+  color: var(--fg-strong);
 }
 .about-title { font-size: 15px; font-weight: 600; color: var(--fg-strong); }
 .about a { color: var(--accent); font-size: 12px; text-decoration: none; }
