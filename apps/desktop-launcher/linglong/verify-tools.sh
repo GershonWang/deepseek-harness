@@ -73,6 +73,33 @@ while IFS='|' read -r name binary verify shim base; do
   fi
 done < "$LIST"
 
+# installable 段校验：sha256 必须填实（不含占位符 "<"）。运行时实际生效的
+# 清单在 launcher 的 internal/toolchain/catalog.go，本段与其同步；占位即视为
+# 白名单未就绪并中止导出，防止"界面可安装、实际必失败"的假承诺。
+INST=$(mktemp)
+awk '
+  /^[a-zA-Z0-9_-]+:$/ {
+    sec = $1; sub(/:$/, "", sec);
+    in_inst = (sec == "installable") ? 1 : 0;
+    next;
+  }
+  in_inst && /^  [a-zA-Z0-9_-]+:$/ {
+    name = $1; sub(/:$/, "", name);
+    next;
+  }
+  in_inst && /^    sha256: / {
+    sub(/^    sha256: /, "");
+    print name "|" $0
+  }
+' "$YAML" > "$INST"
+while IFS='|' read -r name sha; do
+  case "$sha" in
+    *'<'*|'""'|'') echo "FAIL installable/$name: sha256 未填实（占位或为空）" >&2; fail=1 ;;
+    *) echo "OK   installable/$name (sha256 已填实)" ;;
+  esac
+done < "$INST"
+rm -f "$INST"
+
 # git 功能探测（宿主侧静态）：随包 git 必须是被 wrap-git-exec-path.sh 包装过
 # 的脚本（携带 GIT_EXEC_PATH），否则容器内编译期 exec-path /usr/lib/git-core
 # 不存在，git-remote-* helper 失联、push/fetch 全部不可用。包装丢失即视为失败，

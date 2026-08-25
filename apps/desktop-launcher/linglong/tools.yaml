@@ -36,18 +36,22 @@ tools:
   pnpm:
     shim: true
     verify: pnpm --version
-# 按需安装白名单:url/sha256 启用时从官方发布页取最新值填入
+# 按需安装白名单:运行时实际生效的清单在 launcher 的 internal/toolchain/catalog.go
+# （校验 sha256 后原子安装到 $HOME/.dsh-tools）；本段与其保持同步，供打包文档
+# 与 verify-tools.sh 校验（sha256 含 "<" 占位符即失败）。
 installable:
+  jdk21:
+    version: "21.0.12.1"
+    url: "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz"
+    sha256: "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94"
   go:
     version: "1.23.2"
     url: "https://go.dev/dl/go1.23.2.linux-amd64.tar.gz"
-    # 启用该工具前从官方发布页取得并替换为真实 sha256
-    sha256: "<启用前从官方发布页填入>"
+    sha256: "542d3c1705f1c6a1c5a80d5dc62e2e45171af291e755d591c5e6531ef63b454e"
   ripgrep:
     version: "14.1.0"
     url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
-    # 启用该工具前从官方发布页取得并替换为真实 sha256
-    sha256: "<启用前从官方发布页填入>"
+    sha256: "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
 excluded:
   - gcc
