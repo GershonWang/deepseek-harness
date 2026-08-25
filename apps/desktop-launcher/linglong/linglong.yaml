@@ -44,9 +44,14 @@ build: |
     mkdir -p "$STAGE/node/lib/node_modules/pnpm"
     tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
   fi
-  if [ -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
-    printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
-      'exec "$DIR/node" "$DIR/lib/node_modules/pnpm/bin/pnpm.cjs" "$@"' > "$STAGE/node/bin/pnpm"
+  # 薄包装：readlink -f 解析 $0 真实位置（可能经 bin/pnpm 软链调用），
+  # pnpm 装在 <node>/lib/node_modules/pnpm，入口用 bin/pnpm.mjs（pnpm 11 的
+  # bin/pnpm.cjs 只是 import('./pnpm.mjs') 兼容存根；真正 CLI 由 pnpm.mjs
+  # 加载 ../dist/pnpm.mjs）。
+  if [ -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.mjs" ]; then
+    printf '%s\n' '#!/bin/sh' 'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
+      'DIR=$(dirname "$SELF")' \
+      'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' > "$STAGE/node/bin/pnpm"
     chmod +x "$STAGE/node/bin/pnpm"
   fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node

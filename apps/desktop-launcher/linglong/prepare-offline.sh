@@ -58,9 +58,14 @@ if [ ! -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
   mkdir -p "$STAGE/node/lib/node_modules/pnpm"
   tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
 fi
-# node/bin/pnpm 薄包装（路径由脚本位置推导，任意机器一致）
-printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
-  'exec "$DIR/node" "$DIR/lib/node_modules/pnpm/bin/pnpm.cjs" "$@"' \
+# node/bin/pnpm 薄包装（路径由脚本位置推导，任意机器一致）。
+# 注意：$0 可能经 $PREFIX/bin/pnpm 的软链调用（dirname 只拿到软链目录），
+# 先用 readlink -f 解析真实位置（<node>/bin）；pnpm 装在
+# <node>/lib/node_modules/pnpm，入口用 bin/pnpm.mjs（pnpm 11 的 bin/pnpm.cjs
+# 只是 import('./pnpm.mjs') 兼容存根，真正 CLI 由 pnpm.mjs 加载 ../dist/pnpm.mjs）。
+printf '%s\n' '#!/bin/sh' 'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
+  'DIR=$(dirname "$SELF")' \
+  'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' \
   > "$STAGE/node/bin/pnpm"
 chmod +x "$STAGE/node/bin/pnpm"
 
