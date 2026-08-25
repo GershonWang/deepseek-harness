@@ -33,6 +33,22 @@ build: |
     mkdir -p "$STAGE/node"
     tar -xzf /tmp/node24.tar.gz -C "$STAGE/node" --strip-components=1
   fi
+  # pnpm 出厂内置（离线可用）：prepare-offline 已把 pnpm 装入
+  # stage/node/lib/node_modules/pnpm（版本取 package.json 的 packageManager）；
+  # stage 缺失时才在构建容器内下载。corepack 首启需联网且缓存落 $HOME/.cache，
+  # 容器内只读 HOME 下不可靠，故不依赖 corepack。
+  if [ ! -d "$STAGE/node/lib/node_modules/pnpm" ]; then
+    PNPM_V=$(node -e "console.log(require('/project/package.json').packageManager.split('@')[1])")
+    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+    wget -q -O /tmp/pnpm.tgz "https://registry.npmmirror.com/pnpm/-/pnpm-$PNPM_V.tgz"
+    mkdir -p "$STAGE/node/lib/node_modules/pnpm"
+    tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
+  fi
+  if [ -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
+    printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
+      'exec "$DIR/node" "$DIR/lib/node_modules/pnpm/bin/pnpm.cjs" "$@"' > "$STAGE/node/bin/pnpm"
+    chmod +x "$STAGE/node/bin/pnpm"
+  fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
   # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
@@ -47,11 +63,15 @@ build: |
   ln -sf ../node/bin/corepack ${PREFIX}/bin/corepack
   ln -sf ../node/bin/npm ${PREFIX}/bin/npm
   ln -sf ../node/bin/npx ${PREFIX}/bin/npx
-  # corepack 默认不生成 pnpm 命令(需 enable 才有 shim),提供薄包装上 PATH:
-  # pnpm -> corepack pnpm,首次调用按需下载 pnpm 并缓存于 $HOME/.cache/node/corepack。
-  printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
-    'exec "$DIR/../node/bin/corepack" pnpm "$@"' > ${PREFIX}/bin/pnpm
-  chmod +x ${PREFIX}/bin/pnpm
+  # pnpm 上 PATH：优先出厂内置 CLI（离线可用）；无内置时退回 corepack
+  # 薄包装（首次调用需联网下载 pnpm）。
+  if [ -f "$PREFIX/node/bin/pnpm" ]; then
+    ln -sf ../node/bin/pnpm ${PREFIX}/bin/pnpm
+  else
+    printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
+      'exec "$DIR/../node/bin/corepack" pnpm "$@"' > ${PREFIX}/bin/pnpm
+    chmod +x ${PREFIX}/bin/pnpm
+  fi
   # node-pty 原生 addon:prepare-offline 已用捆绑 Node 24 在宿主编译
   # build/Release/pty.node(ABI 精确匹配,运行时沙箱无 gcc/make,绝不触发
   # node-gyp 源码编译)。若该产物缺失(如 --no-prepare 复用旧 stage),才回退
@@ -99,6 +119,9 @@ buildext:
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
       # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
       - git
+      # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
+      # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
+      - git-lfs
       # 层1 工具链自包含:随包工具与其运行时依赖
       - python3
       - python3-pip

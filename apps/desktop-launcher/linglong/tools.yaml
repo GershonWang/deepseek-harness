@@ -8,6 +8,9 @@ tools:
   git:
     binary: bin/git
     verify: git --version
+  git-lfs:
+    binary: bin/git-lfs
+    verify: git lfs version
   python3:
     binary: bin/python3
     verify: python3 --version

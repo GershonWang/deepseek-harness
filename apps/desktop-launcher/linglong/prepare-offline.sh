@@ -47,6 +47,23 @@ if [ ! -x "$STAGE/node/bin/node" ]; then
   tar -xzf /tmp/node24.tar.gz -C "$STAGE/node" --strip-components=1
 fi
 
+# 4.5 捆绑 pnpm（随包离线可用）：corepack 首次调用需联网下载 pnpm，且缓存
+#     落 $HOME/.cache（容器内可能只读）；改为出厂直连捆绑 CLI。版本取
+#     package.json 的 packageManager 字段，保证与仓库锁定的 pnpm 一致。
+PNPM_V=$(node -e "console.log(require('./package.json').packageManager.split('@')[1])")
+if [ ! -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
+  echo "prepare-offline: 下载 pnpm $PNPM_V..."
+  unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
+  wget -q -O /tmp/pnpm.tgz "https://registry.npmmirror.com/pnpm/-/pnpm-$PNPM_V.tgz"
+  mkdir -p "$STAGE/node/lib/node_modules/pnpm"
+  tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
+fi
+# node/bin/pnpm 薄包装（路径由脚本位置推导，任意机器一致）
+printf '%s\n' '#!/bin/sh' 'DIR=$(dirname "$0")' \
+  'exec "$DIR/node" "$DIR/lib/node_modules/pnpm/bin/pnpm.cjs" "$@"' \
+  > "$STAGE/node/bin/pnpm"
+chmod +x "$STAGE/node/bin/pnpm"
+
 # 5. 用捆绑 Node 24 在宿主机预编译 node-pty（运行时沙箱无 gcc/make，
 #    一旦触发 node-gyp 源码编译终端就不可用；必须在此编译好 pty.node 打进包）。
 #    宿主需有 make/gcc/python3。--nodedir 用捆绑 node 自带头文件，避免联网下载。

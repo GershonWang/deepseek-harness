@@ -39,11 +39,14 @@ awk '
 fail=0
 while IFS='|' read -r name binary verify shim base; do
   if [ "$shim" = "1" ]; then
-    if [ -x "$PREFIX/node/bin/corepack" ] \
+    if [ -x "$PREFIX/node/bin/pnpm" ] \
+       && "$PREFIX/node/bin/pnpm" --version >/dev/null 2>&1; then
+      echo "OK   $name (bundled pnpm)"
+    elif [ -x "$PREFIX/node/bin/corepack" ] \
        && "$PREFIX/node/bin/corepack" pnpm --version >/dev/null 2>&1; then
       echo "OK   $name (corepack shim)"
     else
-      echo "FAIL $name: corepack pnpm --version 失败" >&2; fail=1
+      echo "FAIL $name: bundled pnpm / corepack 均不可用" >&2; fail=1
     fi
     continue
   fi
@@ -69,5 +72,14 @@ while IFS='|' read -r name binary verify shim base; do
     echo "FAIL $name: $PREFIX/$binary 缺失或不可执行" >&2; fail=1
   fi
 done < "$LIST"
+
+# git 功能探测（宿主侧静态）：随包 git 必须是被 wrap-git-exec-path.sh 包装过
+# 的脚本（携带 GIT_EXEC_PATH），否则容器内编译期 exec-path /usr/lib/git-core
+# 不存在，git-remote-* helper 失联、push/fetch 全部不可用。包装丢失即视为失败，
+# 避免"git --version 通过但 git push 必挂"的虚假自检。
+if [ -x "$PREFIX/bin/git" ] && [ ! -f "$PREFIX/bin/git.real" ]; then
+  echo "FAIL git: 未被包装（缺 git.real / GIT_EXEC_PATH），容器内远程操作将不可用" >&2
+  fail=1
+fi
 
 exit $fail
