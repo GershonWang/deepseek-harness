@@ -66,9 +66,10 @@ type ToolStatus struct {
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
 type HostToolEntry struct {
-	Name   string
-	Source string
-	Target string
+	Name    string
+	Source  string
+	Target  string
+	Mounted bool // 本次实例启动时挂载是否生效（需重启应用才能更新）
 }
 
 // HostToolResult 是 AddHostTool 的返回。
@@ -324,7 +325,7 @@ func (a *App) collectTools() ToolStatus {
 
 	hostTools := []HostToolEntry{}
 	for _, e := range hosttools.List(a.home) {
-		hostTools = append(hostTools, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target})
+		hostTools = append(hostTools, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target, Mounted: e.Mounted})
 	}
 
 	return ToolStatus{
@@ -387,13 +388,15 @@ func (a *App) AddHostTool(source, name string) HostToolResult {
 	if name == "" {
 		name = hosttools.SuggestName(source)
 	}
-	e, err := hosttools.Add(a.home, name, source)
+	e, warn, err := hosttools.Add(a.home, name, source)
 	if err != nil {
 		return HostToolResult{Error: err.Error()}
 	}
-	warn := ""
 	if conflicts := hostToolConflicts(e.Source, a.home); len(conflicts) > 0 {
-		warn = "与按需安装同名的命令，宿主挂载优先生效: " + strings.Join(conflicts, ", ")
+		if warn != "" {
+			warn += "；"
+		}
+		warn += "与按需安装同名的命令，宿主挂载优先生效: " + strings.Join(conflicts, ", ")
 	}
 	a.RefreshTools()
 	return HostToolResult{Warning: warn}
@@ -408,7 +411,7 @@ func hostToolConflicts(source, home string) []string {
 func (a *App) ListHostTools() []HostToolEntry {
 	out := []HostToolEntry{}
 	for _, e := range hosttools.List(a.home) {
-		out = append(out, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target})
+		out = append(out, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target, Mounted: e.Mounted})
 	}
 	return out
 }

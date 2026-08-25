@@ -189,12 +189,20 @@ function renderTools(t) {
       rm.className = "btn btn-danger";
       rm.textContent = "移除";
       rm.addEventListener("click", () => api().RemoveHostTool(h.Name));
+      const mounted = h.Mounted
+        ? "<span class='state-ok'>✓ 生效中</span>"
+        : "<span class='state-missing'>配置已写入 · 重启应用后生效</span>";
       row.innerHTML =
         "<span class='selectable host-name'>" + esc(h.Name) + "</span>" +
-        "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>";
+        "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>" +
+        "<span class='hint'>" + mounted + "</span>";
       row.appendChild(rm);
       hl.appendChild(row);
     }
+    const hint = $("#host-hint");
+    hint.textContent =
+      "挂载为只读（工具箱需自写安装目录时不可用）；非家目录路径在部分系统环境可能挂载失败，" +
+      "建议优先用上方一键安装或把工具放入家目录后再挂载；改动需重启应用生效。";
   }
 
 }

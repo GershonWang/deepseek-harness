@@ -440,5 +440,8 @@ body {
 }
 .host-item .host-name { font-weight: 600; }
 .host-item .hint { flex: 1; }
+.host-item .state-ok { color: var(--ok); }
+.host-item .state-missing { color: var(--warn); }
+.host-item .hint .state-ok, .host-item .hint .state-missing { flex: none; }
 
 .hidden { display: none !important; }

@@ -31,6 +31,7 @@ type Entry struct {
 	Name   string // 标识（配置文件与挂载目录名）
 	Source string // 宿主路径
 	Target string // 容器内挂载路径 /opt/host-tools/<name>
+	Mounted bool // 本次实例启动时挂载是否已生效（容器内 /opt/host-tools/<name> 是否存在）
 }
 
 // mountJSON 与 linglong config.d 的挂载配置格式一致。
@@ -81,28 +82,30 @@ func SuggestName(source string) string {
 }
 
 // Add 校验宿主路径并把挂载配置写入 config.d。name 为空时由 source 派生。
-func Add(home, name, source string) (Entry, error) {
+// 返回 (挂载项, 警告, 错误)：源路径不在家目录下时给出警告（玲珑的绑定挂载
+// 由用户态 ll-cli 执行，非家目录源在部分系统上可能失败）。
+func Add(home, name, source string) (Entry, string, error) {
 	if name == "" {
 		name = SuggestName(source)
 	}
 	name = SanitizeName(name)
 	if !namePattern.MatchString(name) {
-		return Entry{}, fmt.Errorf("挂载名称非法（仅允许小写字母/数字/连字符，长度≤32）: %q", name)
+		return Entry{}, "", fmt.Errorf("挂载名称非法（仅允许小写字母/数字/连字符，长度≤32）: %q", name)
 	}
 	info, err := os.Stat(source)
 	if err != nil {
-		return Entry{}, fmt.Errorf("宿主路径不可访问: %v", err)
+		return Entry{}, "", fmt.Errorf("宿主路径不可访问: %v", err)
 	}
 	if !info.IsDir() {
-		return Entry{}, fmt.Errorf("宿主路径不是目录: %s", source)
+		return Entry{}, "", fmt.Errorf("宿主路径不是目录: %s", source)
 	}
 	abs, err := filepath.Abs(source)
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, "", err
 	}
 	dir := ConfigDir(home)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return Entry{}, err
+		return Entry{}, "", err
 	}
 	m := mountJSON{
 		Mounts: []struct {
@@ -110,16 +113,21 @@ func Add(home, name, source string) (Entry, error) {
 			Source      string   `json:"source"`
 			Destination string   `json:"destination"`
 			Options     []string `json:"options"`
-		}{{Type: "bind", Source: abs, Destination: targetFor(name), Options: []string{"ro", "bind"}}},
+		}{{Type: "bind", Source: abs, Destination: targetFor(name), Options: []string{"rbind", "ro"}}},
 	}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, "", err
 	}
 	if err := os.WriteFile(fileFor(dir, name), data, 0o644); err != nil {
-		return Entry{}, err
+		return Entry{}, "", err
 	}
-	return Entry{Name: name, Source: abs, Target: targetFor(name)}, nil
+	warn := ""
+	homeClean := filepath.Clean(home) + string(os.PathSeparator)
+	if abs != filepath.Clean(home) && !strings.HasPrefix(abs, homeClean) {
+		warn = "路径不在家目录下，部分系统环境的绑定挂载可能失败（建议放入 ~/tools 或改用一键安装）；挂载为只读，工具需自写安装目录时不可用"
+	}
+	return Entry{Name: name, Source: abs, Target: targetFor(name)}, warn, nil
 }
 
 // List 读取 config.d 里已有的宿主工具链挂载配置。
@@ -143,10 +151,22 @@ func List(home string) []Entry {
 		if json.Unmarshal(data, &m) != nil || len(m.Mounts) == 0 {
 			continue
 		}
-		out = append(out, Entry{Name: name, Source: m.Mounts[0].Source, Target: m.Mounts[0].Destination})
+		out = append(out, Entry{
+			Name:    name,
+			Source:  m.Mounts[0].Source,
+			Target:  m.Mounts[0].Destination,
+			Mounted: mounted(targetFor(name)),
+		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// mounted 判断容器内挂载目标是否存在（launcher 在容器内运行，目标存在即
+// 表示本次实例启动时玲珑已应用该挂载规则）。
+func mounted(target string) bool {
+	info, err := os.Stat(target)
+	return err == nil && info.IsDir()
 }
 
 // EffectiveBin 返回挂载源的"生效 bin 目录"：优先 <source>/bin，否则当
