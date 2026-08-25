@@ -52,4 +52,8 @@ pre-merge-commit:
 pre-push:
   jobs:
     - name: typecheck
-      run: pnpm run typecheck
+      # 用 npm 直接跑（typecheck 脚本本身就是 npm run 链）：pnpm run 会在执行前
+      # 做 deps 状态检查，在非交互/受限环境（如玲珑容器内只读 HOME）会因 store
+      # SQLite 打不开或需整体重装 node_modules 而无 TTY 中止，导致钩子无法执行；
+      # npm run 不做该检查，行为在所有环境一致。
+      run: npm run typecheck
