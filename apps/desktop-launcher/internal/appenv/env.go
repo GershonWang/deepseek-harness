@@ -100,11 +100,30 @@ func resolveNode() string {
 // hostToolsBase 是宿主工具链的容器内挂载基址（测试可覆盖）。
 var hostToolsBase = hosttools.MountBase
 
+// packagedGitExecPath 返回随包 git-core 目录（形如 <files>/lib/git-core，由
+// 可执行文件位置推导，任意机器一致）；仅当该目录存在时返回 true。打包态 git
+// 的编译期 exec-path 指向 /usr/lib/git-core（容器内不存在），必须显式指回包内。
+func packagedGitExecPath(exe string) (string, bool) {
+	prefix := filepath.Dir(filepath.Dir(exe))
+	gitCore := filepath.Join(prefix, "lib", "git-core")
+	info, err := os.Stat(gitCore)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return gitCore, true
+}
+
 // ConfigureChildEnv 设置子进程（harness 及其后代）需要的环境变量。
 // PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 按需安装(~/.dsh-tools/bin) > 现有 PATH。
 func ConfigureChildEnv(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
+
+	if exe, err := os.Executable(); err == nil {
+		if gitCore, ok := packagedGitExecPath(exe); ok {
+			_ = os.Setenv("GIT_EXEC_PATH", gitCore)
+		}
+	}
 
 	segs := []string{}
 	if bins := hostToolBins(hostToolsBase); len(bins) > 0 {

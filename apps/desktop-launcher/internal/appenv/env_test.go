@@ -148,3 +148,25 @@ func TestConfigureChildEnv_HostBinsPrependFirst(t *testing.T) {
 		t.Fatalf("PATH 顺序应为 宿主>按需>现有, got: %q", got)
 	}
 }
+
+func TestPackagedGitExecPath_Present(t *testing.T) {
+	root := t.TempDir()
+	files := filepath.Join(root, "files")
+	gitCore := filepath.Join(files, "lib", "git-core")
+	if err := os.MkdirAll(gitCore, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(files, "bin", "dsh-desktop-launcher")
+	got, ok := packagedGitExecPath(exe)
+	if !ok || got != gitCore {
+		t.Fatalf("packagedGitExecPath(%q) = %q,%v want %q,true", exe, got, ok, gitCore)
+	}
+}
+
+func TestPackagedGitExecPath_Absent(t *testing.T) {
+	root := t.TempDir()
+	exe := filepath.Join(root, "files", "bin", "dsh-desktop-launcher")
+	if got, ok := packagedGitExecPath(exe); ok {
+		t.Fatalf("packagedGitExecPath(%q) = %q,true want absent", exe, got)
+	}
+}

@@ -21,11 +21,18 @@ else
 fi
 
 ll-builder build -f "$YAML"
+echo "==> 包装随包 git 的 exec-path（git-remote-* helper 容器内可用）"
+sh apps/desktop-launcher/linglong/wrap-git-exec-path.sh linglong/output/binary/files
 echo "==> 校验合并产物树工具清单"
 sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
 ART="${LL_ID}_${LL_VERSION}_x86_64_main.uab"
 [ -f "$ART" ] || { echo "导出失败: 未找到 $ART" >&2; exit 1; }
+# export 后复核随包 git 仍是被包装的（防导出流程重铺产物树丢掉包装；
+# git.real 只由 wrap-git-exec-path.sh 创建，真实 git 二进制含 GIT_EXEC_PATH
+# 字样，不能用 grep 内容作判据）
+[ -f linglong/output/binary/files/bin/git.real ] \
+  || { echo "导出后 git 包装丢失，uab 内 git 远程操作将不可用" >&2; exit 1; }
 echo "==> 完成: $ART ($(du -h "$ART" | cut -f1))"
 echo "==> 安装: ll-cli install ./$ART"
