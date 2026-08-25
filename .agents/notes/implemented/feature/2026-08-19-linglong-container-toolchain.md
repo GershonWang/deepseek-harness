@@ -43,3 +43,7 @@ The package grows: python3 plus pip add roughly 100 MB and git drags in the perl
 ## Testing
 
 `test-verify-tools.sh` pins the build gate; the launcher Go module pins behavior with `go test` (toolinstall, toolcheck, gitcred, panel-state pure functions, env injection). The verify-tools gate is exercised by deleting an entry from a fixture tree, and the real Linglong build/export on the user's machine is the runtime acceptance check the plan assigns there.
+
+## Related
+
+Later fixes for the same subsystem — bundled-git exec-path wrapping, bundled pnpm, git-lfs, and the pre-push hook running through npm: [Portability fixes for the Linglong-packaged desktop client](../bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md).

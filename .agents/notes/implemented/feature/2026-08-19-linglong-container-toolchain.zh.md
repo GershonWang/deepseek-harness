@@ -43,3 +43,7 @@ Status: implemented
 ## Testing
 
 `test-verify-tools.sh` 固定构建门禁；launcher 的 Go 模块以 `go test` 固定行为（toolinstall、toolcheck、gitcred、面板状态纯函数、env 注入）。verify-tools 门禁通过从夹具产物树删除一项来演练，用户机器上的真实玲珑 build/export 是计划交由彼处的运行时验收。
+
+## Related
+
+同一子系统的后续修复——随包 git 的 exec-path 包装、捆绑 pnpm、git-lfs、pre-push 钩子改走 npm： [玲珑打包桌面客户端的可移植性修复](../bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md)。

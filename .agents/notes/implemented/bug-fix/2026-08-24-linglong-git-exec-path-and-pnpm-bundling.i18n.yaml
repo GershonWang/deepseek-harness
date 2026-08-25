@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md
+2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md: ae0309ea1f0f0b95f75d27b97ea35174d02e6101
+2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md: e69fb09d27e3f1e076dacb164e3ec071551ddd43
