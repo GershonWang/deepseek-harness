@@ -10,13 +10,13 @@ Status: implemented
 
 ## Decision
 
-随包 git 被包装，使其 exec-path 在每台机器上由自身位置推导。 `wrap-git-exec-path.sh`（由 `build-linglong.sh` 在 `ll-builder build` 之后、 `verify-tools.sh` 之前运行）把 `<prefix>/bin/git` 改名为 `git.real`，并安装 一个薄包装脚本：`export GIT_EXEC_PATH="${GIT_EXEC_PATH:-$PREFIX/lib/git-core}"` （PREFIX 由 `dirname $0` 推导）后 `exec git.real`。幂等与导出后复核以 `git.real` 文件存在为判据，绝不用文件内容 grep（真实 git 二进制的用法文本 里就含 `GIT_EXEC_PATH` 字样）。launcher 在 `ConfigureChildEnv` 里经 `packagedGitExecPath` 为整个 harness 进程树设置 `GIT_EXEC_PATH`：前缀由 `os.Executable()` 推导，仅在 `<files>/lib/git-core` 存在时设置，并由 `env_test.go` 单测覆盖。pre-push 钩子改为 `npm run typecheck` 而非 `pnpm run typecheck`，完全跳过 pnpm 的 deps 预检查，执行的是同一组命令。 pnpm 出厂内置、离线可用：`prepare-offline.sh` 按 packageManager 锁定的版本 下载 pnpm tarball 到 `stage/node/lib/node_modules/pnpm`，并生成 `node/bin/pnpm` 薄包装（exec 捆绑的 node 与 pnpm CLI）；`linglong.yaml` 组装时把 `bin/pnpm` 软链到它，仅在捆绑缺失时回退 corepack 薄包装。 git-lfs 加入 `buildext.apt.depends` 与 `tools.yaml`。`verify-tools.sh` 优先校验捆绑 pnpm，并在合并后的 git 未被包装时大声失败——`git --version` 绿色不再能掩盖远程 helper 不可用。
+launcher 在 `ConfigureChildEnv` 里经 `packagedGitExecPath` 为整个 harness 进程树设置 `GIT_EXEC_PATH`：`<files>/lib/git-core` 由 `os.Executable()` 推导（固定包 id 在任意机器一致），仅在目录存在时设置，并由 `env_test.go` 单测覆盖。该环境注入是随包生效的唯一机制：harness 下的一切 git 调用——bash 工具、LFS 钩子、仓库 pre-push 钩子——都继承它。pre-push 钩子改为 `npm run typecheck` 而非 `pnpm run typecheck`，完全跳过 pnpm 的 deps 预检查，执行的是同一组命令。 pnpm 出厂内置、离线可用：`prepare-offline.sh` 按 packageManager 锁定的版本 下载 pnpm tarball 到 `stage/node/lib/node_modules/pnpm`，并生成 `node/bin/pnpm` 薄包装（exec 捆绑的 node 与 pnpm CLI）；`linglong.yaml` 组装时把 `bin/pnpm` 软链到它，仅在捆绑缺失时回退 corepack 薄包装。 git-lfs 加入 `buildext.apt.depends` 与 `tools.yaml`。`verify-tools.sh` 优先校验捆绑 pnpm，并在合并后的 git 未被包装时大声失败——`git --version` 绿色不再能掩盖远程 helper 不可用。
 
 ## Alternatives considered
 
-**字节补丁 git 二进制的 exec-path 字符串。** webkit helper 路径就是这么修的， 但 `/usr/lib/git-core`（17 字节）无法替换为长度不同的 `<prefix>/lib/git-core`，且前缀只有在运行时推导才在各机器一致；包装是唯一 长度安全的形态。
+**在 `ll-builder build` 后包装合并树里的 `bin/git`。**
 
-**用 grep `GIT_EXEC_PATH` 判定"已包装"。** 测试后发现真实 git 二进制的用法 文本含该字符串，会对新合并的 git 误判而跳过包装，予以否决。
+先期尝试作为双保险：`wrap-git-exec-path.sh` 把 `<prefix>/bin/git` 改名为 `git.real` 并安装按自身位置推导 `GIT_EXEC_PATH` 的薄包装，`build-linglong.sh` 在 `verify-tools.sh` 前运行它并加导出后 `git.real` 复核。真实构建证明它从未打进包：`ll-builder export` 从基础 overlay 与构建层重新组装导出层，构建后对 `linglong/output/binary/files` 的修改进不了 `.uab`（合并树 18:14:01 已包装、uab 18:14:27 导出、安装后 `bin/git` 仍是原厂二进制）。因此包装机制被移除，环境注入随 launcher 二进制出厂，是唯一修复手段。字节补丁 git 自身同样不可行：`/usr/lib/git-core` 17 字节，无法替换为更长的 `<prefix>/lib/git-core`。
 
 **把开发者的 pnpm store / corepack 缓存打进包。** store 的 SQLite 索引与 corepack 缓存是机器相关状态；快照在别的机器上是陈旧、超大且错误的。
 
@@ -28,11 +28,11 @@ Status: implemented
 
 ## Consequences
 
-任何机器上安装重建后的 `.uab`，git 远程操作开箱可用、LFS 钩子通过、 typecheck 钩子在容器内能跑、pnpm 离线可用——包里没有任何构建者相关状态。 代价是真 git 二进制多一层包装（若 buildext 不再产出 `bin/git` 连同 `lib/git-core`，包装需同步更新）、pnpm 与 git-lfs 带来少量包体增长、 以及钩子命令假设 npm 存在——仓库所有脚本本就经 npm 运行，这是既有前提。 未完成的仍在产品层：可写 HOME 目录与出站网络在窄授权落地前仍被 full-access 沙箱预设门控；挂载模板与 README 本次刻意未更新。
+任何机器上安装重建后的 `.uab`，git 远程操作开箱可用、LFS 钩子通过、 typecheck 钩子在容器内能跑、pnpm 离线可用——包里没有任何构建者相关状态。 代价是git exec-path 修复依赖 launcher 进程：直接进容器 shell（仅开发态，`ll-builder run --exec`）需自行 `export GIT_EXEC_PATH`，且 `verify-tools.sh` 只门禁 `lib/git-core/git-remote-https` 存在（环境注入的目标）。pnpm 与 git-lfs 带来少量包体增长、 以及钩子命令假设 npm 存在——仓库所有脚本本就经 npm 运行，这是既有前提。 未完成的仍在产品层：可写 HOME 目录与出站网络在窄授权落地前仍被 full-access 沙箱预设门控；挂载模板与 README 本次刻意未更新。
 
 ## Testing
 
-`go test ./internal/appenv/`（CGO_ENABLED=0）覆盖 `packagedGitExecPath`。 包装脚本在合成前缀上端到端验证：默认 exec-path 从 `/usr/lib/git-core` 重指到推导的 `<prefix>/lib/git-core`，重跑幂等，显式 `GIT_EXEC_PATH` 仍然优先。完整验证需在宿主机跑 `sh apps/desktop-launcher/build-linglong.sh` 重建，并在干净机器上、默认 沙箱下、无审批升级与 `--no-verify` 地重放分支推送场景。
+`go test ./internal/appenv/`（CGO_ENABLED=0）覆盖 `packagedGitExecPath`。 `verify-tools.sh` 的 git-core helper 门禁由 `test-verify-tools.sh` 夹具固定。打包机器上 launcher 注入的 `GIT_EXEC_PATH` 解析为 `/opt/apps/com.deepseek.dsh-desktop/files/lib/git-core`，`git ls-remote` 与 `git push --dry-run` 无需手动环境即成功。完整验证需在宿主机跑 `sh apps/desktop-launcher/build-linglong.sh` 重建，并在干净机器上、默认 沙箱下、无审批升级与 `--no-verify` 地重放分支推送场景。
 
 ## Related
 

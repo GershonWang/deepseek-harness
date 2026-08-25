@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md
-2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md: ae0309ea1f0f0b95f75d27b97ea35174d02e6101
-2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md: e69fb09d27e3f1e076dacb164e3ec071551ddd43
+2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md: c41302b631ba7475f7bd80ee2c0ab9b93964ea1b
+2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md: 2b60054efea796ec577830ec8aeaf4e246f12fc0

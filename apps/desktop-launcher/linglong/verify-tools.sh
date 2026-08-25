@@ -100,12 +100,13 @@ while IFS='|' read -r name sha; do
 done < "$INST"
 rm -f "$INST"
 
-# git 功能探测（宿主侧静态）：随包 git 必须是被 wrap-git-exec-path.sh 包装过
-# 的脚本（携带 GIT_EXEC_PATH），否则容器内编译期 exec-path /usr/lib/git-core
-# 不存在，git-remote-* helper 失联、push/fetch 全部不可用。包装丢失即视为失败，
-# 避免"git --version 通过但 git push 必挂"的虚假自检。
-if [ -x "$PREFIX/bin/git" ] && [ ! -f "$PREFIX/bin/git.real" ]; then
-  echo "FAIL git: 未被包装（缺 git.real / GIT_EXEC_PATH），容器内远程操作将不可用" >&2
+# git 功能探测（宿主侧静态）：launcher 启动时为整个 harness 进程树注入
+# GIT_EXEC_PATH=<prefix>/lib/git-core（packagedGitExecPath 按可执行文件位置
+# 推导，任意机器一致），因此 lib/git-core 里的远程 helper 必须随包存在；
+# helper 缺失即 git push/fetch 全部不可用。缺失即视为失败，避免
+# "git --version 通过但 git push 必挂"的虚假自检。
+if [ -x "$PREFIX/bin/git" ] && [ ! -f "$PREFIX/lib/git-core/git-remote-https" ]; then
+  echo "FAIL git: lib/git-core/git-remote-https 缺失（GIT_EXEC_PATH 指向它），容器内远程操作将不可用" >&2
   fail=1
 fi
 
