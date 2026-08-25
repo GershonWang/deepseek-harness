@@ -44,8 +44,8 @@ internal/connector/     外部服务连接（探测/校验/确认记忆/持久�
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
-icons/hicolor/*/apps/dsh-desktop.png   多尺寸 hicolor 图标（16–512，RGBA 圆角）
-icons/dsh-desktop.png   dev 模式 fallback（256×256）
+icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
+icons/dsh-desktop.png   dev-mode fallback (256×256)
 ```
 
 ## 环境解析（三级回退）
@@ -126,13 +126,13 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 运行时依赖（webkit2gtk-4.1/gtk3/libsoup3）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
 - 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
 - Go 启动器用 Wails 构建，须带 `-tags "production webkit2_41"`（wails 在该标签下选用 webkit2gtk-4.1）；旧的 webkit2gtk-4.0 pkg-config shim 不再需要
-- 沙箱默认不授权用户项目目录，用户需配置挂载：复制 `linglong/config.d/10-mounts.json` 到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径
+- 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`），关于弹框展示
 
 ## 容器可用性（工具链/挂载）
 
 - 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。
-- 按需安装：重/罕见工具（go、ripgrep）装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单与安装目录，白名单见 `linglong/tools.yaml` 的 `installable`（url/sha256 填实后才可安装）。
+- 按需安装：重/罕见工具（jdk21、go、ripgrep）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 
 ## 已知事项
