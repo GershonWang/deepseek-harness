@@ -120,42 +120,86 @@ function renderServerDialog(s) {
 
 /* ---------- 工具 / 凭据 ---------- */
 
-function renderTools(t) {
-  const tbody = $("#tools-table tbody");
-  tbody.innerHTML = "";
-  if (!t.Rows || t.Rows.length === 0) {
-    tbody.innerHTML = "<tr><td colspan='3'>无结果</td></tr>";
-    return;
-  }
-  for (const row of t.Rows) {
-    const tr = document.createElement("tr");
-    const ok = row.State === "installed";
-    tr.innerHTML =
-      "<td>" + esc(row.Name) + "</td>" +
-      "<td>" + esc(row.Version) + "</td>" +
-      "<td class='" + (ok ? "state-ok" : "state-missing") + "'>" + (ok ? "✓ 已安装" : "✗ 缺失") + "</td>";
-    tbody.appendChild(tr);
-  }
-  $("#tools-install").textContent =
-    "已安装: " + (t.Installed || "无") + "    可安装(启动器): " + (t.Installable || "");
+const TOOL_DETAILS = {
+  node: "npm · npx · corepack · pnpm",
+  python3: "pip · pip3",
+  git: "git-lfs",
+};
 
-  // 内置工具链一键安装清单
-  const ctb = $("#catalog-table tbody");
-  ctb.innerHTML = "";
-  for (const c of t.Catalog || []) {
-    const tr = document.createElement("tr");
+function pill(cls, text) {
+  return "<span class='pill " + cls + "'>" + esc(text) + "</span>";
+}
+
+function dot(cls) {
+  return "<span class='state-dot " + cls + "'></span>";
+}
+
+function renderTools(t) {
+  // ------ 摘要条 ------
+  const sum = $("#tool-summary");
+  sum.innerHTML = "";
+  const rows = t.Rows || [];
+  const cats = t.Catalog || [];
+  const chips = [];
+  if (rows.length > 0) {
+    const ok = rows.filter((r) => r.State === "installed").length;
+    const all = ok === rows.length;
+    chips.push("<span class='chip " + (all ? "chip-ok" : "chip-warn") + "'>随包 " + ok + "/" + rows.length + " ✓</span>");
+  }
+  if (cats.length > 0) {
+    const installed = cats.filter((c) => c.State === "installed").length;
+    const all = installed === cats.length;
+    chips.push("<span class='chip " + (all ? "chip-ok" : "chip-brand") + "'>可安装 " + installed + "/" + cats.length + " ✓</span>");
+  }
+  if (t.Sandboxed && (t.HostTools || []).length > 0) {
+    chips.push("<span class='chip'>挂载 " + t.HostTools.length + " 项</span>");
+  }
+  sum.innerHTML = chips.join("");
+
+  // ------ 随包工具 ------
+  const bl = $("#bundled-list");
+  bl.innerHTML = "";
+  if (rows.length === 0) bl.innerHTML = "<div class='empty'>无结果</div>";
+  for (const row of rows) {
+    const ok = row.State === "installed";
+    const detail = TOOL_DETAILS[row.Name]
+      ? "<div class='tool-detail'>" + esc(TOOL_DETAILS[row.Name]) + "</div>"
+      : "";
+    const el = document.createElement("div");
+    el.className = "tool-row";
+    el.innerHTML =
+      (ok ? dot("ok") : dot("missing")) +
+      "<span class='tool-name'>" + esc(row.Name) + "</span>" +
+      "<span class='tool-version'>" + (ok ? esc(row.Version) : "—") + "</span>" +
+      (ok ? pill("ok", "✓ 已安装") : pill("danger", "✗ 缺失"));
+    bl.appendChild(el);
+    if (detail) {
+      const d = document.createElement("div");
+      d.innerHTML = detail;
+      bl.appendChild(d);
+    }
+  }
+
+  // ------ 一键安装 ------
+  const cl = $("#catalog-list");
+  cl.innerHTML = "";
+  if (cats.length === 0) cl.innerHTML = "<div class='empty'>无结果</div>";
+  for (const c of cats) {
     const installed = c.State === "installed";
     const installing = !installed && t.Installing === c.Name;
-    const statusText = installed
-      ? "✓ " + (c.InstalledVersion || "已安装")
-      : installing
-        ? "安装中…"
-        : (c.Pinned ? "可安装" : "待配置 sha256");
-    tr.innerHTML =
-      "<td>" + esc(c.Label) + "</td>" +
-      "<td>" + esc(c.Version) + "</td>" +
-      "<td class='" + (installed ? "state-ok" : installing ? "state-warn" : "") + "'>" + esc(statusText) + "</td>";
-    const tdBtn = document.createElement("td");
+    let statusPill = "";
+    if (installed) statusPill = pill("ok", "✓ 已安装");
+    else if (installing) statusPill = pill("warn", "安装中…");
+    else if (c.Pinned) statusPill = pill("brand", "可安装");
+    else statusPill = pill("warn", "待配置");
+    const version = installed ? (c.InstalledVersion || c.Version) : c.Version;
+    const el = document.createElement("div");
+    el.className = "tool-row";
+    el.innerHTML =
+      (installed ? dot("ok") : dot("brand")) +
+      "<span class='tool-name'>" + esc(c.Label) + "</span>" +
+      "<span class='tool-version'>" + esc(version) + "</span>" +
+      statusPill;
     if (!installed && c.Pinned) {
       const b = document.createElement("button");
       b.className = "btn";
@@ -166,46 +210,45 @@ function renderTools(t) {
         b.textContent = "安装中…";
         api().InstallToolchain(c.Name);
       });
-      tdBtn.appendChild(b);
+      el.appendChild(b);
     }
-    tr.appendChild(tdBtn);
-    ctb.appendChild(tr);
+    cl.appendChild(el);
   }
   $("#toolchain-notice").textContent = t.Notice || "";
 
-  // 宿主命令挂载（仅沙箱环境显示）
-  const hostBox = $("#hosttools-box");
+  // ------ 宿主挂载 ------
+  const hostBox = $("#card-hosts");
   if (!t.Sandboxed) {
     hostBox.classList.add("hidden");
     $("#toolchain-notice").textContent = "开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。";
-  } else {
-    hostBox.classList.remove("hidden");
-    const hl = $("#host-list");
-    hl.innerHTML = "";
-    for (const h of t.HostTools || []) {
-      const row = document.createElement("div");
-      row.className = "host-item";
-      const rm = document.createElement("button");
-      rm.className = "btn btn-danger";
-      rm.textContent = "移除";
-      rm.addEventListener("click", () => api().RemoveHostTool(h.Name));
-      const mounted = h.Mounted
-        ? "<span class='state-ok'>✓ 生效中</span>"
-        : "<span class='state-missing'>配置已写入 · 重启应用后生效</span>";
-      row.innerHTML =
-        "<span class='selectable host-name'>" + esc(h.Name) + "</span>" +
-        "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>" +
-        "<span class='hint'>" + mounted + "</span>";
-      row.appendChild(rm);
-      hl.appendChild(row);
-    }
-    const hint = $("#host-hint");
-    hint.textContent =
-      "挂载为只读（工具箱需自写安装目录时不可用）；非家目录路径在部分系统环境可能挂载失败，" +
-      "建议优先用上方一键安装或把工具放入家目录后再挂载；改动需重启应用生效。";
+    return;
   }
-
+  hostBox.classList.remove("hidden");
+  const hl = $("#host-list");
+  hl.innerHTML = "";
+  for (const h of t.HostTools || []) {
+    const row = document.createElement("div");
+    row.className = "host-item";
+    const rm = document.createElement("button");
+    rm.className = "btn btn-danger";
+    rm.textContent = "移除";
+    rm.addEventListener("click", () => api().RemoveHostTool(h.Name));
+    const mounted = h.Mounted
+      ? "<span class='state-ok'>✓ 生效中</span>"
+      : "<span class='state-missing'>配置已写入 · 重启应用后生效</span>";
+    row.innerHTML =
+      "<span class='selectable host-name'>" + esc(h.Name) + "</span>" +
+      "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>" +
+      "<span class='hint'>" + mounted + "</span>";
+    row.appendChild(rm);
+    hl.appendChild(row);
+  }
+  const hint = $("#host-hint");
+  hint.textContent =
+    "挂载为只读（工具箱需自写安装目录时不可用）；非家目录路径在部分系统环境可能挂载失败，" +
+    "建议优先用上方一键安装或把工具放入家目录后再挂载；改动需重启应用生效。";
 }
+
 
 /* ---------- 弹框 ---------- */
 
