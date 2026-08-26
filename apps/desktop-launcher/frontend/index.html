@@ -126,45 +126,39 @@
   </div>
 </div>
 
-<!-- 工具链弹框 -->
 <div id="tools-modal" class="modal hidden">
-  <div class="modal-card">
+  <div class="modal-card modal-tools">
     <div class="modal-head">
-      <span>工具链</span>
+      <span class="modal-title"><span class="brand-mark"></span>工具链</span>
       <button class="modal-close" data-close="tools-modal">×</button>
     </div>
     <div class="modal-body">
-      <div class="section">
-        <div class="section-title">工具链自检</div>
-        <div class="tools-wrap">
-          <table id="tools-table" class="tools">
-            <thead><tr><th>工具</th><th>版本</th><th>状态</th></tr></thead>
-            <tbody><tr><td colspan="3">检查中…</td></tr></tbody>
-          </table>
-        </div>
-        <div id="tools-install" class="hint"></div>
-        <div class="actions">
-          <button id="tools-refresh" class="btn">重新检查</button>
-        </div>
-      </div>
+      <div id="tool-summary" class="tool-summary" role="status"></div>
 
-      <div class="section">
-        <div class="section-title">环境命令 / 工具链</div>
-        <table id="catalog-table" class="tools">
-          <thead><tr><th>工具</th><th>版本</th><th>状态</th><th></th></tr></thead>
-          <tbody></tbody>
-        </table>
+      <section class="tool-card tool-card-live" aria-label="随包工具">
+        <h3 class="section-title">随包工具</h3>
+        <div id="bundled-list" class="tool-list"></div>
+      </section>
+
+      <section class="tool-card" aria-label="一键安装">
+        <h3 class="section-title">一键安装</h3>
+        <div id="catalog-list" class="tool-list"></div>
         <div id="toolchain-notice" class="hint"></div>
-        <div id="hosttools-box">
-          <div class="host-row">
-            <span class="key">宿主路径</span>
-            <input id="host-path" type="text" placeholder="/usr/lib/jvm/java-21-openjdk-amd64" spellcheck="false">
-            <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
-            <button id="host-add" class="btn btn-primary">挂载</button>
-          </div>
-          <div id="host-list"></div>
-          <div id="host-hint" class="hint"></div>
+      </section>
+
+      <section id="card-hosts" class="tool-card" aria-label="宿主挂载">
+        <h3 class="section-title">宿主挂载</h3>
+        <div class="host-row">
+          <input id="host-path" type="text" placeholder="宿主路径，如 /usr/lib/jvm/java-21-openjdk-amd64" spellcheck="false">
+          <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
+          <button id="host-add" class="btn btn-primary">挂载</button>
         </div>
+        <div id="host-list" class="host-list"></div>
+        <div id="host-hint" class="hint"></div>
+      </section>
+
+      <div class="actions">
+        <button id="tools-refresh" class="btn btn-quiet">重新检查</button>
       </div>
     </div>
   </div>
