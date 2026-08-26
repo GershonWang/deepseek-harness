@@ -162,9 +162,6 @@ function renderTools(t) {
   if (rows.length === 0) bl.innerHTML = "<div class='empty'>无结果</div>";
   for (const row of rows) {
     const ok = row.State === "installed";
-    const detail = TOOL_DETAILS[row.Name]
-      ? "<div class='tool-detail'>" + esc(TOOL_DETAILS[row.Name]) + "</div>"
-      : "";
     const el = document.createElement("div");
     el.className = "tool-row";
     el.innerHTML =
@@ -173,9 +170,10 @@ function renderTools(t) {
       "<span class='tool-version'>" + (ok ? esc(row.Version) : "—") + "</span>" +
       (ok ? pill("ok", "✓ 已安装") : pill("danger", "✗ 缺失"));
     bl.appendChild(el);
-    if (detail) {
+    if (TOOL_DETAILS[row.Name]) {
       const d = document.createElement("div");
-      d.innerHTML = detail;
+      d.className = "tool-detail";
+      d.textContent = TOOL_DETAILS[row.Name];
       bl.appendChild(d);
     }
   }
@@ -202,7 +200,7 @@ function renderTools(t) {
       statusPill;
     if (!installed && c.Pinned) {
       const b = document.createElement("button");
-      b.className = "btn";
+      b.className = "btn btn-primary";
       b.textContent = installing ? "安装中…" : "安装";
       b.disabled = installing;
       b.addEventListener("click", () => {

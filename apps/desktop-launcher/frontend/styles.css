@@ -477,6 +477,7 @@ body {
 .tool-list { display: flex; flex-direction: column; }
 .tool-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .tool-row + .tool-row { border-top: 1px solid var(--border); }
+.tool-detail + .tool-row { border-top: 1px solid var(--border); }
 .tool-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .tool-version { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .tool-detail { padding: 0 0 5px 17px; font-size: 10.5px; color: var(--fg-dim); }
