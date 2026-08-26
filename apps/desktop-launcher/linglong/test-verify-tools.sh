@@ -11,7 +11,7 @@ mkbin() { mkdir -p "$(dirname "$TMP/$1")"; : > "$TMP/$1"; chmod +x "$TMP/$1"; }
 
 # 通过路径:齐全的产物树（git-core helper 随包，launcher 以 GIT_EXEC_PATH 指回）
 mkbin bin/git; mkbin bin/git-lfs; mkbin bin/python3; mkbin bin/curl; mkbin bin/wget
-mkbin bin/jq; mkbin bin/unzip; mkbin bin/xxd; mkbin bin/node
+mkbin bin/jq; mkbin bin/unzip; mkbin bin/xxd; mkbin bin/node; mkbin bin/dsh
 mkdir -p "$TMP/lib/git-core"; : > "$TMP/lib/git-core/git-remote-https"; chmod +x "$TMP/lib/git-core/git-remote-https"
 mkdir -p "$TMP/node/bin"; : > "$TMP/node/bin/corepack"; chmod +x "$TMP/node/bin/corepack"
 if "$VERIFY" "$TMP" >/dev/null 2>&1; then

@@ -36,6 +36,9 @@ tools:
   pnpm:
     shim: true
     verify: pnpm --version
+  dsh:
+    binary: bin/dsh
+    verify: dsh --version
 # 按需安装白名单:运行时实际生效的清单在 launcher 的 internal/toolchain/catalog.go
 # （校验 sha256 后原子安装到 $HOME/.dsh-tools）；本段与其保持同步，供打包文档
 # 与 verify-tools.sh 校验（sha256 含 "<" 占位符即失败）。

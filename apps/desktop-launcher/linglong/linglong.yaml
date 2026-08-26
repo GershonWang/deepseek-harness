@@ -77,6 +77,16 @@ build: |
       'exec "$DIR/../node/bin/corepack" pnpm "$@"' > ${PREFIX}/bin/pnpm
     chmod +x ${PREFIX}/bin/pnpm
   fi
+  # dsh 上 PATH：官方 CLI 就是 harness/lib/bin.js（package.json 的 bin.dsh 指向它），
+  # 玲珑只自动加 $PREFIX/bin，不会生成命令包装。薄包装用捆绑 Node 24 执行全部
+  # dsh 子命令（plugin、--profile、web 等），容器内（含模型 bash/终端）可直接使用
+  # 官方命令安装/管理插件。
+  if [ -x "${PREFIX}/harness/lib/bin.js" ]; then
+    printf '%s\n' '#!/bin/sh' 'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
+      'DIR=$(dirname "$SELF")' \
+      'exec "$DIR/../node/bin/node" "$DIR/../harness/lib/bin.js" "$@"' > ${PREFIX}/bin/dsh
+    chmod +x ${PREFIX}/bin/dsh
+  fi
   # node-pty 原生 addon:prepare-offline 已用捆绑 Node 24 在宿主编译
   # build/Release/pty.node(ABI 精确匹配,运行时沙箱无 gcc/make,绝不触发
   # node-gyp 源码编译)。若该产物缺失(如 --no-prepare 复用旧 stage),才回退

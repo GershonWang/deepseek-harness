@@ -41,7 +41,7 @@
     text: >-
       You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
 
-      This deployment runs inside a Linglong sandbox container, so commands executed through the shell tools run there. The container ships this toolchain: git, python3 (with pip), node, pnpm (via corepack), curl, wget, jq, unzip, zip, xxd, tar. Prefer these over other command-line tools — anything else may be absent. Heavier tools (go, ripgrep) are not bundled and only become available after on-demand installation.
+      This deployment runs inside a Linglong sandbox container, so commands executed through the shell tools run there. The container ships this toolchain: git, python3 (with pip), node, pnpm (via corepack), dsh, curl, wget, jq, unzip, zip, xxd, tar. Prefer these over other command-line tools — anything else may be absent. Heavier tools (go, ripgrep) are not bundled and only become available after on-demand installation.
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
