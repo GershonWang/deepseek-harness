@@ -201,6 +201,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
     .tool-list { display: flex; flex-direction: column; }
     .tool-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
     .tool-row + .tool-row { border-top: 1px solid var(--border); }
+    .tool-detail + .tool-row { border-top: 1px solid var(--border); }
     .tool-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
     .tool-version { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
     .tool-detail { padding: 0 0 5px 17px; font-size: 10.5px; color: var(--fg-dim); }
@@ -287,9 +288,6 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
       if (rows.length === 0) bl.innerHTML = "<div class='empty'>无结果</div>";
       for (const row of rows) {
         const ok = row.State === "installed";
-        const detail = TOOL_DETAILS[row.Name]
-          ? "<div class='tool-detail'>" + esc(TOOL_DETAILS[row.Name]) + "</div>"
-          : "";
         const el = document.createElement("div");
         el.className = "tool-row";
         el.innerHTML =
@@ -298,9 +296,10 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
           "<span class='tool-version'>" + (ok ? esc(row.Version) : "—") + "</span>" +
           (ok ? pill("ok", "✓ 已安装") : pill("danger", "✗ 缺失"));
         bl.appendChild(el);
-        if (detail) {
+        if (TOOL_DETAILS[row.Name]) {
           const d = document.createElement("div");
-          d.innerHTML = detail;
+          d.className = "tool-detail";
+          d.textContent = TOOL_DETAILS[row.Name];
           bl.appendChild(d);
         }
       }
@@ -327,7 +326,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
           statusPill;
         if (!installed && c.Pinned) {
           const b = document.createElement("button");
-          b.className = "btn";
+          b.className = "btn btn-primary";
           b.textContent = installing ? "安装中…" : "安装";
           b.disabled = installing;
           b.addEventListener("click", () => {
@@ -430,5 +429,6 @@ Expected: 启动成功（开发态命中 appenv 三级回退）。
 - spec 覆盖：C 品牌（Task 3 token/样式）、B 信息组织（Task 2 结构 + Task 4 摘要）、D 交互（Task 4 徽章/禁用态 + Task 3 焦点环）、A 质感（Task 3 组件样式）；详情副文本（Task 4 TOOL_DETAILS）；uv（Task 1 + Task 5 Step 5）；双主题（Task 3 Step 1）。
 
 - 无占位符：所有代码块为完整可实现内容，命令含预期输出。
+- 跟进项（非阻塞）：最终审查指出的 ToolStatus.Installed/.Installable 字段与 catalogInstallable() 已被前端停用（死线负载）——保留不删以免扩大 Go 改动面；后续可单独清理并移除相关单测。
 
 - 类型一致：字段名与 app.go 的 ToolRow{Name,Version,State}/CatalogStatus{Name,Label,Version,InstalledVersion,State,Pinned}/HostToolEntry 一致；id 与 Task 2 HTML 一致。
