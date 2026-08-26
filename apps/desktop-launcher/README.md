@@ -132,7 +132,7 @@ Packaging notes:
 ## Container usability (toolchain/mounts)
 
 - Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
-- On-demand install: heavy/rare tools (jdk21, go, ripgrep) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after sha256 verification, and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes.
+- On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after sha256 verification, and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes.
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
 
 ## Known issues

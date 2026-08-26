@@ -149,8 +149,11 @@ func TestCatalog_Uv(t *testing.T) {
 	if it.SHA256 == "" {
 		t.Fatal("uv 应已填实 sha256")
 	}
+	if it.URL != "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz" {
+		t.Fatalf("uv URL 应指向官方 0.12.6 gnu tarball: %+v", it)
+	}
 	if it.BinRel != "." {
-		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根，BinRel 应为 .: %+v", it)
+		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根: BinRel 应为 .: %+v", it)
 	}
 	if it.Version != "0.12.6" {
 		t.Fatalf("uv 版本应为 0.12.6: %+v", it)
