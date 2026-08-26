@@ -46,6 +46,14 @@ func Catalog() []CatalogItem {
 			SHA256:  "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7",
 			BinRel:  ".",
 		},
+		{
+			Name:    "uv",
+			Label:   "uv",
+			Version: "0.12.6",
+			URL:     "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz",
+			SHA256:  "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477",
+			BinRel:  ".",
+		},
 	}
 }
 

@@ -140,3 +140,19 @@ func TestCatalogStatuses(t *testing.T) {
 		t.Fatalf("jdk21 应可安装且已填 sha256: %+v", cs)
 	}
 }
+
+func TestCatalog_Uv(t *testing.T) {
+	it, ok := Lookup("uv")
+	if !ok {
+		t.Fatal("catalog 应含 uv")
+	}
+	if it.SHA256 == "" {
+		t.Fatal("uv 应已填实 sha256")
+	}
+	if it.BinRel != "." {
+		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根，BinRel 应为 .: %+v", it)
+	}
+	if it.Version != "0.12.6" {
+		t.Fatalf("uv 版本应为 0.12.6: %+v", it)
+	}
+}

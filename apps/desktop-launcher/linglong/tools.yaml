@@ -55,6 +55,10 @@ installable:
     version: "14.1.0"
     url: "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz"
     sha256: "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7"
+  uv:
+    version: "0.12.6"
+    url: "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz"
+    sha256: "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
 excluded:
   - gcc
