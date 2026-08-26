@@ -107,8 +107,8 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
     <div id="tools-modal" class="modal hidden">
       <div class="modal-card modal-tools">
         <div class="modal-head">
-          <span class="modal-title"><span class="brand-mark"></span>工具链</span>
-          <button class="modal-close" data-close="tools-modal">×</button>
+          <span class="modal-title"><span class="brand-dot"></span>工具链</span>
+          <button class="modal-close" data-close="tools-modal" aria-label="关闭">×</button>
         </div>
         <div class="modal-body">
           <div id="tool-summary" class="tool-summary" role="status"></div>
@@ -176,7 +176,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
     /* 工具链弹框（品牌化改版） */
     .modal-card.modal-tools { width: 560px; }
     .modal-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
-    .brand-mark { width: 9px; height: 9px; border-radius: 3px; background: var(--brand);
+    .brand-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--brand);
       box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
 
     .tool-summary { display: flex; flex-wrap: wrap; gap: 7px; }
@@ -194,6 +194,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
     .tool-card-live { border-color: color-mix(in srgb, var(--brand) 35%, var(--border-strong)); }
     .tool-card .section-title { margin: 0; }
 
+    .host-list { display: flex; flex-direction: column; }
     .tool-list { display: flex; flex-direction: column; }
     .tool-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
     .tool-row + .tool-row { border-top: 1px solid var(--border); }
