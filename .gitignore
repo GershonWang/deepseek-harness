@@ -47,4 +47,5 @@ worktrees/
 .agents/worktrees/
 .typert-*/
 
-# visual companion scratch\.superpowers/
+# visual companion scratch
+.superpowers/
