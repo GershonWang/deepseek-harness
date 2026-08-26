@@ -220,7 +220,8 @@ function renderTools(t) {
   const hostBox = $("#card-hosts");
   if (!t.Sandboxed) {
     hostBox.classList.add("hidden");
-    $("#toolchain-notice").textContent = "开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。";
+    const devMsg = "开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。";
+    $("#toolchain-notice").textContent = t.Notice ? devMsg + " " + t.Notice : devMsg;
     return;
   }
   hostBox.classList.remove("hidden");
