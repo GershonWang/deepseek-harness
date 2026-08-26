@@ -46,3 +46,5 @@ com.deepseek.dsh-desktop_*.deb
 worktrees/
 .agents/worktrees/
 .typert-*/
+
+# visual companion scratch\.superpowers/
