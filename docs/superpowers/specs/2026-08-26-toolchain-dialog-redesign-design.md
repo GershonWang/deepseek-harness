@@ -132,6 +132,7 @@ linglong/tools.yaml 的 installable 段同步新增同名条目（version/url/sh
 :root {
   --brand: #4d6bfe;          /* DeepSeek 品牌蓝（深色主题） */
   --brand-strong: #6e8bff;   /* hover/按压 */
+  --brand-text: var(--brand-strong); /* 品牌文字色：深色下用亮蓝满足 4.5:1 对比度 */
   --accent: var(--brand);    /* 既有使用点统一对齐品牌蓝 */
   --radius-lg: 10px;         /* 分区卡圆角 */
 }
@@ -139,6 +140,8 @@ linglong/tools.yaml 的 installable 段同步新增同名条目（version/url/sh
   :root {
     --brand: #2547d0;        /* 浅色下加深保证对比度 */
     --brand-strong: #1b38b8;
+    --brand-text: var(--brand);
+    /* 删除浅色块遗留的 --accent: #0066b8;，两主题统一继承 --accent: var(--brand) */
   }
 }
 ```
@@ -147,7 +150,7 @@ linglong/tools.yaml 的 installable 段同步新增同名条目（version/url/sh
 
 - **分区卡**：沿用现有 .section 的边框/背景变量体系，新增 .tool-card（--radius-lg、--bg-panel、边距 10px 12px）。
 - **摘要 chips**：圆角胶囊，浅色底 + 品牌/绿描边；ok 态用 --ok，warn 态用 --warn。
-- **状态徽章 pill**：color-mix(in srgb, var(--ok/warn/danger) 12%, transparent) 底色 + 同色系半透明描边（现有 CSS 已使用 color-mix，见 .btn-danger:hover，WebKit 兼容有先例）。
+- **状态徽章 pill**：color-mix(in srgb, var(--ok/warn/danger) 12%, transparent) 底色 + 同色系半透明描边（现有 CSS 已使用 color-mix，见 .btn-danger:hover，WebKit 兼容有先例）。品牌文字（.chip-brand/.pill.brand 的 color）统一用 --brand-text，深色下即 --brand-strong（#6e8bff，对比度 ~4.96:1 达标），浅色下即 --brand（#2547d0）。
 - **状态点**：7px 圆形，绿/红/蓝语义色。
 - **按钮层级**：主要动作「安装」= brand 实心；次要动作「重新检查」= 幽灵按钮；危险「移除」= 现有 btn-danger。
 - **焦点环**：输入框/按钮焦点 outline: 2px solid var(--brand)。

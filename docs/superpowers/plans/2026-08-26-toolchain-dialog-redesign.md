@@ -164,12 +164,15 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
 - [ ] **Step 1: 品牌 token** —— :root 里把 --accent: #007acc; 替换为：
       --brand: #4d6bfe;
       --brand-strong: #6e8bff;
+      --brand-text: var(--brand-strong);   /* 品牌文字色：深色下用亮蓝保证对比度 */
       --accent: var(--brand);
       --radius-lg: 10px;
 
-并在 @media (prefers-color-scheme: light) 的 :root 块里追加：
+并在 @media (prefers-color-scheme: light) 的 :root 块里：
         --brand: #2547d0;
         --brand-strong: #1b38b8;
+        --brand-text: var(--brand);
+  同时删除浅色块遗留的 --accent: #0066b8;（两主题统一继承 --accent: var(--brand)）。
 
 
 - [ ] **Step 2: 追加组件样式** —— 在 styles.css 末尾追加（复用既有 .host-row/.host-item/.btn*/hint/.section-title）：
@@ -186,7 +189,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
       background: color-mix(in srgb, var(--ok) 8%, transparent); }
     .chip-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent);
       background: color-mix(in srgb, var(--warn) 8%, transparent); }
-    .chip-brand { color: var(--brand); border-color: color-mix(in srgb, var(--brand) 45%, transparent);
+    .chip-brand { color: var(--brand-text); border-color: color-mix(in srgb, var(--brand) 45%, transparent);
       background: color-mix(in srgb, var(--brand) 10%, transparent); }
 
     .tool-card { border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
@@ -211,7 +214,7 @@ Expected: 4 项 PASS（verify-tools.sh 会校验 installable/sha256 非占位，
     .pill { font-size: 10px; font-weight: 600; border-radius: 99px; padding: 1.5px 8px; flex-shrink: 0; }
     .pill.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent);
       border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); }
-    .pill.brand { color: var(--brand); background: color-mix(in srgb, var(--brand) 10%, transparent);
+    .pill.brand { color: var(--brand-text); background: color-mix(in srgb, var(--brand) 10%, transparent);
       border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent); }
     .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent);
       border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
