@@ -55,11 +55,32 @@ function bindExternalLinks() {
   // 只用 harness 帧发来的 http(s) 请求，其余一律忽略。
   window.addEventListener("message", (e) => {
     const d = e.data || {};
-    if (d.dshDesktop !== true || d.type !== "open-external") return;
-    if (!isHttpUrl(d.url)) return;
+    if (d.dshDesktop !== true) return;
     const frame = $("#harness");
     if (!frame || !frame.contentWindow || e.source !== frame.contentWindow) return;
-    openExternal(d.url);
+
+    if (d.type === "open-external") {
+      if (!isHttpUrl(d.url)) return;
+      openExternal(d.url);
+      return;
+    }
+
+    // 内嵌 WebKitGTK 的 paste 事件不暴露剪贴板位图，harness 前端在
+    // 输入框请求“从剪贴板取图”时走壳进程（宿主侧可直接读 X selection）。
+    if (d.type === "clipboard-read-image") {
+      const reply = (data) => {
+        if (!frame || !frame.contentWindow) return;
+        frame.contentWindow.postMessage(
+          { dshDesktop: true, type: "clipboard-image-result", data: data || "" },
+          "*"
+        );
+      };
+      if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReadClipboardImage) {
+        window.go.app.App.ReadClipboardImage().then(reply).catch(() => reply(""));
+      } else {
+        reply("");
+      }
+    }
   });
 }
 

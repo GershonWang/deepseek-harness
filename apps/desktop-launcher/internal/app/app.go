@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/clipboard"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
@@ -433,6 +435,21 @@ func (a *App) About() AboutInfo {
 		PackageVersion: packaging.Version,
 		Repo:           packaging.GithubRepo,
 	}
+}
+
+// ReadClipboardImage 读取当前 X11 CLIPBOARD 的 image/png 数据并返回
+// base64 编码结果。剪贴板空、无图片或读取超时时返回空串（前端据此
+// 判断“当前没有可粘贴的图片”），不视为错误。
+//
+// 背景：内嵌 WebKitGTK 的 paste 事件不暴露剪贴板位图，壳进程直接读
+// X selection 反而完整可行；浏览器模式无此限制，该绑定只在 iframe
+// 内嵌模式下被前端调用。
+func (a *App) ReadClipboardImage() string {
+	img, err := clipboard.ReadImage()
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(img)
 }
 
 func modeName(m domain.Mode) string {

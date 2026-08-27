@@ -137,6 +137,26 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 
+## 剪贴板图片桥接
+
+打包壳把 harness UI 嵌在 WebKitGTK iframe 内。与 Chromium 不同，WebKitGTK
+不会把剪贴板位图交给页面：粘贴截图时 `clipboardData` 里没有图片条目，
+拖拽图片文件还会把整个帧导航走；文本（包括粘贴的路径）正常，图片不行。
+
+缓解方案保留 WebKitGTK 渲染器：壳进程（与宿主共享 X11 显示）自行读取
+`CLIPBOARD` selection，把 base64 PNG 通过既有的 `{ dshDesktop: true }`
+postMessage 协议交给页面。
+
+- Go：`internal/clipboard` 是零依赖的 X11 wire 客户端（无 cgo、无外部
+  工具），读取 `image/png` 并支持 INCR、超时与体积上限；
+  `App.ReadClipboardImage()`（Wails 绑定）返回 base64 或空串。
+- 壳前端（`frontend/app.js`）：应答 harness iframe 的
+  `clipboard-read-image` 请求，回发 `clipboard-image-result`。
+- harness UI（`packages/client/ui-conversation`）：`desktop-clipboard.ts`
+  封装请求；`InputBar` 在 paste 事件没有图片条目时改向壳取图，并提供
+  “从剪贴板取图”工具按钮。两者仅在壳 iframe 内生效——普通浏览器标签页
+  保持原生 Chromium 路径不变。
+
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。

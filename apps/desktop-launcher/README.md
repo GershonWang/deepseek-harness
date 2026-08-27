@@ -137,6 +137,29 @@ External links cannot open through WebKit's new-window path in the Wails webview
 - On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after sha256 verification, and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes.
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
 
+## Clipboard image bridging
+
+The packaged shell renders the harness UI inside a WebKitGTK iframe. Unlike
+Chromium, WebKitGTK never surfaces clipboard bitmaps to the page: pasting a
+screenshot produces no `clipboardData` image item, and dragging an image file
+navigates the frame. Text (including pasted paths) works; images do not.
+
+The workaround keeps the WebKitGTK renderer: the shell process — which shares
+the host X11 display — reads the `CLIPBOARD` selection itself and hands the
+page a base64 PNG over the existing `{ dshDesktop: true }` postMessage protocol.
+
+- Go: `internal/clipboard` is a zero-dependency X11 wire client
+  (no cgo/no external tools) that reads `image/png` with INCR support,
+  timeouts and payload caps; `App.ReadClipboardImage()` (Wails binding)
+  returns base64 or `""`.
+- Shell frontend (`frontend/app.js`): answers `clipboard-read-image`
+  messages from the harness iframe with `clipboard-image-result`.
+- Harness UI (`packages/client/ui-conversation`): `desktop-clipboard.ts`
+  wraps the request; `InputBar` asks the shell on paste when no image item
+  arrived and shows a "paste image from clipboard" toolbar button. Both only
+  activate inside the shell iframe — a plain browser tab keeps the native
+  Chromium path untouched.
+
 ## Known issues
 
 - **Shared `~/.dsh` across harness versions**: an external harness (e.g. `npx @deepseek-ai/dsh web`, a published release) shares the same `~/.dsh` home as the launcher's bundled harness. A different version may write `~/.dsh/.credentials.yaml` in a schema this version rejects (a `version` key whose value is not a string), crashing the harness at boot into a restart loop. If the harness enters a restart loop after using an external harness, check `~/.cache/dsh-desktop/harness.log` for `credentials-local` errors; back up and remove `~/.dsh/.credentials.yaml` so the harness rebuilds an empty store (stored credentials are lost).
