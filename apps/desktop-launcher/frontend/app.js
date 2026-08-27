@@ -27,6 +27,42 @@ function setRadio(value) {
   if (el) el.checked = true;
 }
 
+/* ---------- 外部链接 ---------- */
+
+// target=_blank 在 Wails WebKitGTK 里不生效；统一交给 Wails 运行时
+// BrowserOpenURL（随包 xdg-open → 宿主 portal → 本机默认浏览器）。
+// 浏览器预览（无 window.runtime）时保持原生行为。
+function isHttpUrl(value) {
+  return typeof value === "string" && /^https?:\/\//i.test(value);
+}
+
+function openExternal(url) {
+  if (!isHttpUrl(url)) return;
+  if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
+}
+
+function bindExternalLinks() {
+  $("#about-repo").addEventListener("click", (e) => {
+    const url = $("#about-repo").getAttribute("href") || "";
+    if (!isHttpUrl(url)) return; // 非 http(s) 保留默认行为
+    if (!window.runtime || !window.runtime.BrowserOpenURL) return; // 预览模式
+    e.preventDefault();
+    openExternal(url);
+  });
+
+  // 打包注入的 GUI 链接桥（dsh-link-bridge.js）把 iframe 内的外链点击
+  // postMessage 上来（{ dshDesktop: true, type: "open-external", url }），
+  // 只用 harness 帧发来的 http(s) 请求，其余一律忽略。
+  window.addEventListener("message", (e) => {
+    const d = e.data || {};
+    if (d.dshDesktop !== true || d.type !== "open-external") return;
+    if (!isHttpUrl(d.url)) return;
+    const frame = $("#harness");
+    if (!frame || !frame.contentWindow || e.source !== frame.contentWindow) return;
+    openExternal(d.url);
+  });
+}
+
 /* ---------- 状态渲染 ---------- */
 
 function applyStatus(s) {
@@ -262,6 +298,8 @@ function closeModal(id) {
 /* ---------- 事件绑定 ---------- */
 
 function bindUI() {
+  bindExternalLinks();
+
   // 自定义标题栏窗口控制（Wails frameless）；浏览器预览时 window.runtime 缺失，安全降级
   $("#win-min").addEventListener("click", () => window.runtime && window.runtime.WindowMinimise && window.runtime.WindowMinimise());
   $("#win-max").addEventListener("click", () => window.runtime && window.runtime.WindowToggleMaximise && window.runtime.WindowToggleMaximise());

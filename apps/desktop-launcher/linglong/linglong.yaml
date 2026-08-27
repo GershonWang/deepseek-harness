@@ -147,3 +147,8 @@ buildext:
       - jq
       - xxd   # 独立二进制包;beige/noble 的 vim-common 已不含 xxd
       - ca-certificates   # git/https/python 校验
+      # 打开外部链接需要真实的 xdg-open：基础运行时的 /bin/xdg-open 只是个
+      # systemd-run 转发壳（实测递归失败，打不开任何东西）。随包合并真实的
+      # xdg-utils（deepin fork）到 ${PREFIX}/bin（容器 PATH 首位，盖过该壳），
+      # 由其在 XDG_CURRENT_DESKTOP=DDE 下经宿主 portal 打开本机默认浏览器。
+      - xdg-utils

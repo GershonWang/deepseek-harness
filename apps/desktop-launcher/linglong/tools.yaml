@@ -39,6 +39,10 @@ tools:
   dsh:
     binary: bin/dsh
     verify: dsh --version
+  xdg-open:
+    binary: bin/xdg-open
+    # 无 verify：任何安全的调用要么无意义要么必然报错，而真实调用会打开浏览器
+    #（经宿主 portal）。随包目标是真实 xdg-utils，盖过基础运行时失败的转发壳。
 # 按需安装白名单:运行时实际生效的清单在 launcher 的 internal/toolchain/catalog.go
 # （校验 sha256 后原子安装到 $HOME/.dsh-tools）；本段与其保持同步，供打包文档
 # 与 verify-tools.sh 校验（sha256 含 "<" 占位符即失败）。

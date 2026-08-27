@@ -129,9 +129,11 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`），关于弹框展示
 
+外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每个 `target="_blank"` 的 HTTP(S) 点击经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。「关于」弹框的仓库链接走同一通道。
+
 ## 容器可用性（工具链/挂载）
 
-- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
+- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
 - 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 

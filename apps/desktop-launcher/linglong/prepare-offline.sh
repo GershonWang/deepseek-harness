@@ -25,6 +25,12 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
+# 2.5 注入外部链接桥：桌面壳 GUI 里的 target=_blank 外链在 Wails WebKitGTK
+#     中开不了新窗口，需在打包的 GUI dist 里注入脚本，把点击 URL 经
+#     postMessage 交给启动器（BrowserOpenURL → 随包 xdg-open → 宿主 portal）。
+sh apps/desktop-launcher/linglong/inject-link-bridge.sh \
+  "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+
 # 3. Go 启动器（wails，webkit2gtk-4.1；用 -tags webkit2_41 显式选 4.1）
 #    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
 #    "cannot find main module"
