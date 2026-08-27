@@ -28,7 +28,7 @@ The rebuilt `.uab` opens external links — the about dialog's repository link a
 
 ## Testing
 
-`node --check` on the edited `frontend/app.js` and `linglong/dsh-link-bridge.js`; `sh apps/desktop-launcher/linglong/test-verify-tools.sh` passes all four paths (the pass-tree fixture includes `bin/xdg-open`); `linglong.yaml` parses with the repo's yaml library; `inject-link-bridge.sh` run twice against a fixture dist proves both injection and idempotency; a jsdom two-window protocol smoke proves the bridge captures exactly the https handoff (javascript:/mailto: pass through), the launcher opens exactly that URL through `BrowserOpenURL`, spoofed sources and missing markers are ignored, and the standalone page keeps native behavior. Full validation happened on a rebuilt `.uab`: the about dialog's repository link opened the host's default browser. Re-verify the GUI links after the next package rebuild.
+`node --check` on the edited `frontend/app.js` and `linglong/dsh-link-bridge.js`; `sh apps/desktop-launcher/linglong/test-verify-tools.sh` passes all four paths (the pass-tree fixture includes `bin/xdg-open`); `linglong.yaml` parses with the repo's yaml library; `inject-link-bridge.sh` run twice against a fixture dist proves both injection and idempotency; a jsdom two-window protocol smoke proves the bridge captures exactly the https handoff (javascript:/mailto: pass through), the launcher opens exactly that URL through `BrowserOpenURL`, spoofed sources and missing markers are ignored, and the standalone page keeps native behavior. Full validation on a rebuilt `.uab` confirmed both surfaces: the about dialog's repository link and `target="_blank"` links inside the packaged GUI open the host's default browser.
 
 ## Related
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-bundle-xdg-open-for-host-browser-opening.md
-2026-08-27-bundle-xdg-open-for-host-browser-opening.md: 6557f4afceaa5adf5e72bd9f933b078dc0775394
-2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md: ac0dde8f73cc49294d411514563a177c12d3bcdb
+2026-08-27-bundle-xdg-open-for-host-browser-opening.md: c03d62a26214f1a108b09e99a49d9161f9fc9f75
+2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md: 5a674268520971b8114b7a2f47617cb8b0e6f7c9

@@ -28,7 +28,7 @@ Status: implemented
 
 ## Testing
 
-对改动后的 `frontend/app.js` 与 `linglong/dsh-link-bridge.js` 跑 `node --check`；`sh apps/desktop-launcher/linglong/test-verify-tools.sh` 四条路径全过（齐全产物树夹具含 `bin/xdg-open`）；`linglong.yaml` 用仓库 yaml 库解析通过；`inject-link-bridge.sh` 对夹具 dist 连跑两次证明注入与幂等；jsdom 双窗口协议冒烟证明桥恰好捕获 https 转交（javascript:/mailto: 放行）、启动器恰好经 `BrowserOpenURL` 打开该 URL、伪造来源与缺标记被忽略、独立页面保持原生行为。完整验证已在重建的 `.uab` 上完成：关于弹框的仓库链接打开了宿主默认浏览器。下次包重建后需复验 GUI 内链接。
+对改动后的 `frontend/app.js` 与 `linglong/dsh-link-bridge.js` 跑 `node --check`；`sh apps/desktop-launcher/linglong/test-verify-tools.sh` 四条路径全过（齐全产物树夹具含 `bin/xdg-open`）；`linglong.yaml` 用仓库 yaml 库解析通过；`inject-link-bridge.sh` 对夹具 dist 连跑两次证明注入与幂等；jsdom 双窗口协议冒烟证明桥恰好捕获 https 转交（javascript:/mailto: 放行）、启动器恰好经 `BrowserOpenURL` 打开该 URL、伪造来源与缺标记被忽略、独立页面保持原生行为。完整验证在重建的 `.uab` 上确认了两个表面：关于弹框的仓库链接与打包 GUI 内的 `target="_blank"` 链接都会打开宿主默认浏览器。
 
 ## Related
 
