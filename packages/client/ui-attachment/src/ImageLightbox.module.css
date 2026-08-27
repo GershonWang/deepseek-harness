@@ -21,10 +21,28 @@
   position: relative;
   max-width: min(100%, 1600px);
   max-height: calc(100vh - 80px);
+  min-width: 48px;
+  min-height: 48px;
   object-fit: contain;
   border-radius: 12px;
   background: var(--dsw-specific-input-major);
   box-shadow: var(--dsw-shadow-lv3);
+}
+
+.loading {
+  position: absolute;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.error {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 14px;
+  padding: 16px 20px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 .close {

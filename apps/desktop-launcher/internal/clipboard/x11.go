@@ -1,8 +1,19 @@
-// Package clipboard reads the X11 CLIPBOARD selection over a raw wire
-// connection (no cgo, no external tools). It exists because the packaged
-// WebKitGTK renderer never surfaces clipboard images to the page, while the
-// shell process itself can read them from the host X server. Only image/png
-// is supported today.
+// Package clipboard reads the current desktop clipboard image. It tries
+// several strategies in order because modern desktops split clipboard ownership
+// between X11 and Wayland and different apps advertise different target atoms:
+//
+//  1. X11 CLIPBOARD selection, TARGETS-aware: query what formats the owner
+//     offers and pick the first raster one we can decode.
+//  2. X11 PRIMARY selection, same TARGETS-aware path (some apps only put
+//     screenshots on PRIMARY, or the user has "copy on select" behaviour).
+//  3. wl-paste (Wayland clipboard) when the host compositor is Wayland and
+//     X11 reading produced no image — XWayland clipboard bridges do not
+//     always carry image formats across the protocol boundary.
+//
+// The X11 path uses a raw wire connection (no cgo, no external tools). It
+// exists because the packaged WebKitGTK renderer never surfaces clipboard
+// images to the page, while the shell process itself can reach the host
+// display server.
 package clipboard
 
 import (
@@ -12,7 +23,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -22,6 +35,171 @@ const (
 	maxImageBytes = 20 << 20 // 20 MiB
 	readTimeout   = 6 * time.Second
 )
+
+var errSelectionEmpty = errors.New("clipboard has no supported image content")
+
+// ReadImage returns the current clipboard image payload, or nil when no
+// supported image is available. It tries X11 CLIPBOARD, X11 PRIMARY, and
+// Wayland (wl-paste) in order, so screenshots from apps that only offer one
+// path still work. Errors are returned only for unreachable displays or
+// protocol failures — an empty clipboard is not an error.
+//
+// The search also follows text/uri-list entries: many screenshot tools save
+// the capture to a file and put only the file URI on the clipboard, in which
+// case we read the file from disk and return its bytes (provided the file
+// extension and magic bytes both match a supported raster format).
+func ReadImage() ([]byte, error) {
+	// Strategy 1 & 2: X11 CLIPBOARD, then PRIMARY (direct bitmap).
+	if data, err := readX11Images(); err == nil && data != nil {
+		return data, nil
+	}
+	// Strategy 3: X11 text/uri-list → read the image file from disk.
+	//    Many screenshot tools only put a file URI on CLIPBOARD after saving
+	//    the capture, especially when the "save to file" workflow is used.
+	if data := readX11UriListImage(); data != nil {
+		return data, nil
+	}
+	// Strategy 4: Wayland clipboard via wl-paste (when available).
+	if data := readWaylandImage(); data != nil {
+		return data, nil
+	}
+	return nil, errSelectionEmpty
+}
+
+// readX11Images tries CLIPBOARD then PRIMARY over one X connection and
+// returns the first image found, or (nil, nil) when none is available.
+func readX11Images() ([]byte, error) {
+	x, err := dial()
+	if err != nil {
+		return nil, err
+	}
+	defer x.c.Close()
+	selections := []string{"CLIPBOARD", "PRIMARY"}
+	for _, selName := range selections {
+		sel := x.mustAtom(selName)
+		if sel == 0 {
+			continue
+		}
+		owner, err := x.getSelectionOwner(sel)
+		if err != nil || owner == 0 {
+			continue
+		}
+		if data, err := x.readImageFromSelection(sel); err == nil && data != nil {
+			return data, nil
+		}
+	}
+	return nil, nil
+}
+
+// readX11UriListImage checks the CLIPBOARD selection for a text/uri-list
+// payload and, when it contains a local file path whose extension and magic
+// bytes match a supported image format, returns the file's bytes.
+//
+// Many screenshot tools (including deepin-screenshot in the "save to file"
+// workflow) put only a file:// URI on the clipboard rather than the bitmap
+// itself. Since the shell process runs inside the Linglong container, the
+// target file must be under a path that the container can read (typically
+// the user's home directory when mounted).
+func readX11UriListImage() []byte {
+	x, err := dial()
+	if err != nil {
+		return nil
+	}
+	defer x.c.Close()
+
+	clip := x.mustAtom("CLIPBOARD")
+	prop := x.mustAtom("_DSH_CLIP_URI")
+	incr := x.mustAtom("INCR")
+	uriList := x.mustAtom("text/uri-list")
+	if clip == 0 || prop == 0 || incr == 0 || uriList == 0 {
+		return nil
+	}
+	owner, err := x.getSelectionOwner(clip)
+	if err != nil || owner == 0 {
+		return nil
+	}
+	got, err := x.convert(clip, uriList, prop)
+	if err != nil || got == 0 {
+		return nil
+	}
+	_, data, err := x.getProperty(got, 0, incr)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	// text/uri-list: one URI per line, lines starting with # are comments.
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		path := uriToPath(line)
+		if path == "" {
+			continue
+		}
+		if !isImageExtension(path) {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if info.Size() > int64(maxImageBytes) || info.Size() == 0 {
+			continue
+		}
+		fileData, err := os.ReadFile(path)
+		if err != nil || len(fileData) == 0 {
+			continue
+		}
+		if isValidImage(fileData) {
+			return fileData
+		}
+	}
+	return nil
+}
+
+// uriToPath converts a file:// URI to a local filesystem path. Returns an
+// empty string for non-file URIs or unparseable input.
+func uriToPath(uri string) string {
+	uri = strings.TrimSpace(uri)
+	if !strings.HasPrefix(uri, "file://") {
+		return ""
+	}
+	path := strings.TrimPrefix(uri, "file://")
+	// file:///path → /path (three slashes for local files with no host)
+	// file://localhost/path → /path (localhost is special-cased)
+	if strings.HasPrefix(path, "//localhost/") {
+		path = strings.TrimPrefix(path, "//localhost")
+	} else if strings.HasPrefix(path, "//") {
+		// Non-localhost host — not a local file.
+		return ""
+	}
+	return path
+}
+
+// imageExtensions lists the file extensions we consider valid image inputs
+// for the text/uri-list fallback.
+var imageExtensions = []string{
+	".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif", ".gif",
+}
+
+func isImageExtension(path string) bool {
+	lower := strings.ToLower(path)
+	for _, ext := range imageExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// isValidImage returns true if the byte slice starts with any supported
+// raster format's magic number. Used for the uri-list file fallback.
+func isValidImage(data []byte) bool {
+	return isValidPNG(data) || isValidJPEG(data) || isValidWebP(data) ||
+		isValidBMP(data) || isValidTIFF(data) || isValidGIF(data)
+}
 
 // xconn is one X11 wire connection. Methods are strictly serial: each call
 // sends one request and reads its reply (or the next event when the request
@@ -36,20 +214,6 @@ type xconn struct {
 	// atoms interned per connection (atom ids are connection-global in X11,
 	// but re-interning keeps the code self-contained).
 	atoms map[string]uint32
-}
-
-var errSelectionEmpty = errors.New("CLIPBOARD has no image/png content")
-
-// ReadImage returns the current CLIPBOARD image/png payload, or nil when the
-// selection carries no image. Errors are returned for unreachable displays,
-// protocol failures and oversized payloads.
-func ReadImage() ([]byte, error) {
-	x, err := dial()
-	if err != nil {
-		return nil, err
-	}
-	defer x.c.Close()
-	return x.readClipboardPNG()
 }
 
 func dial() (*xconn, error) {
@@ -388,43 +552,219 @@ func (x *xconn) installWindow() error {
 // nextWindow returns the installed requestor window.
 func (x *xconn) nextWindow() uint32 { return x.requesterWindow }
 
-// readClipboardPNG implements the selection read for image/png.
-func (x *xconn) readClipboardPNG() ([]byte, error) {
-	clip := x.mustAtom("CLIPBOARD")
-	if clip == 0 {
-		return nil, errors.New("clipboard: X11 intern failed")
+// imageFormats lists every X11 selection target we can decode, in priority
+// order. Some apps advertise non-standard names (Qt/GIMP/KDE flavours); we
+// match them all and validate the bytes independently.
+var imageFormats = []struct {
+	atom  string
+	valid func([]byte) bool
+}{
+	{"image/png", isValidPNG},
+	{"image/jpeg", isValidJPEG},
+	{"image/webp", isValidWebP},
+	{"image/bmp", isValidBMP},
+	{"image/tiff", isValidTIFF},
+	{"image/gif", isValidGIF},
+	// Non-standard but common target names advertised by Qt, GTK, and image
+	// viewers. Some apps use the x- prefix, others use the vendor prefix.
+	{"image/x-png", isValidPNG},
+	{"image/x-jpeg", isValidJPEG},
+	{"image/x-bmp", isValidBMP},
+	{"image/x-tiff", isValidTIFF},
+	{"image/x-webp", isValidWebP},
+	{"application/x-qt-image", isValidPNG}, // Qt sometimes wraps PNG here
+}
+
+func isValidPNG(data []byte) bool {
+	// 8-byte PNG signature: 89 50 4E 47 0D 0A 1A 0A
+	return len(data) >= 8 &&
+		data[0] == 0x89 && data[1] == 'P' && data[2] == 'N' && data[3] == 'G' &&
+		data[4] == 0x0d && data[5] == 0x0a && data[6] == 0x1a && data[7] == 0x0a
+}
+
+func isValidJPEG(data []byte) bool {
+	// SOI marker FF D8 followed by at least one FF marker
+	return len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff
+}
+
+func isValidBMP(data []byte) bool {
+	return len(data) >= 2 && data[0] == 'B' && data[1] == 'M'
+}
+
+func isValidTIFF(data []byte) bool {
+	if len(data) < 4 {
+		return false
 	}
-	owner, err := x.getSelectionOwner(clip)
-	if err != nil {
-		return nil, err
-	}
-	if owner == 0 {
-		return nil, errSelectionEmpty
-	}
-	png := x.mustAtom("image/png")
+	// Little-endian (II) or big-endian (MM) + magic number 42
+	return (data[0] == 'I' && data[1] == 'I' && data[2] == 0x2a && data[3] == 0x00) ||
+		(data[0] == 'M' && data[1] == 'M' && data[2] == 0x00 && data[3] == 0x2a)
+}
+
+func isValidWebP(data []byte) bool {
+	// RIFF....WEBP
+	return len(data) >= 12 &&
+		data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F' &&
+		data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P'
+}
+
+func isValidGIF(data []byte) bool {
+	return len(data) >= 6 &&
+		data[0] == 'G' && data[1] == 'I' && data[2] == 'F' && data[3] == '8' &&
+		(data[4] == '7' || data[4] == '9') && data[5] == 'a'
+}
+
+// readImageFromSelection queries the selection owner's TARGETS first, then
+// tries each image format we recognise in priority order, returning the
+// first one whose bytes pass a magic-number check.
+func (x *xconn) readImageFromSelection(sel uint32) ([]byte, error) {
+	targets := x.mustAtom("TARGETS")
 	prop := x.mustAtom("_DSH_CLIP")
 	incr := x.mustAtom("INCR")
-	if png == 0 || prop == 0 || incr == 0 {
+	if prop == 0 || incr == 0 {
 		return nil, errors.New("clipboard: X11 intern failed")
 	}
-	got, err := x.convert(clip, png, prop)
+
+	// Phase 1: ask the owner what targets it offers. If we can list them we
+	// can short-circuit to a supported format instead of trying every atom.
+	var available []uint32
+	if targets != 0 {
+		got, err := x.convert(sel, targets, prop)
+		if err == nil && got != 0 {
+			_, data, err := x.getProperty(got, 0, incr)
+			if err == nil && len(data) > 0 {
+				available = parseAtomList(data)
+			}
+		}
+	}
+
+	// Phase 2: try each known image format. When we have a TARGETS list we
+	// only attempt targets the owner actually advertises; otherwise we try
+	// every known format as a best-effort fallback.
+	for _, f := range imageFormats {
+		target := x.mustAtom(f.atom)
+		if target == 0 {
+			continue
+		}
+		if len(available) > 0 && !containsAtom(available, target) {
+			continue
+		}
+		got, err := x.convert(sel, target, prop)
+		if err != nil {
+			continue
+		}
+		if got == 0 {
+			continue
+		}
+		_, data, err := x.getProperty(got, 0, incr)
+		if err != nil {
+			continue
+		}
+		if len(data) == 0 || !f.valid(data) {
+			continue
+		}
+		if len(data) > maxImageBytes {
+			return nil, fmt.Errorf("clipboard: image exceeds %d bytes", maxImageBytes)
+		}
+		return data, nil
+	}
+	return nil, nil
+}
+
+// parseAtomList decodes an array-of-atoms property payload (format 32).
+func parseAtomList(data []byte) []uint32 {
+	if len(data) < 4 || len(data)%4 != 0 {
+		return nil
+	}
+	atoms := make([]uint32, 0, len(data)/4)
+	for i := 0; i+4 <= len(data); i += 4 {
+		atoms = append(atoms, binary.LittleEndian.Uint32(data[i:i+4]))
+	}
+	return atoms
+}
+
+func containsAtom(list []uint32, target uint32) bool {
+	for _, a := range list {
+		if a == target {
+			return true
+		}
+	}
+	return false
+}
+
+// readWaylandImage tries to read an image from the Wayland compositor's
+// clipboard using wl-paste. It returns nil when wl-paste is unavailable,
+// produces no image, or the output is not a supported raster format.
+//
+// This is a fallback for Wayland-native desktops (e.g. deepin with Wayland
+// compositing) where XWayland's clipboard bridge does not carry image
+// formats across the protocol boundary.
+func readWaylandImage() []byte {
+	// Only try when we appear to be on a Wayland session.
+	if os.Getenv("WAYLAND_DISPLAY") == "" {
+		return nil
+	}
+	// Find wl-paste: it might be on PATH in the host mount, or in the
+	// container's own /usr/bin. Prefer host paths when they exist.
+	wlPaste, err := exec.LookPath("wl-paste")
 	if err != nil {
-		return nil, err
+		// Common locations in a Linglong host mount.
+		for _, p := range []string{
+			"/run/host/usr/bin/wl-paste",
+			"/usr/bin/wl-paste",
+			"/bin/wl-paste",
+		} {
+			if _, err := os.Stat(p); err == nil {
+				wlPaste = p
+				break
+			}
+		}
+		if wlPaste == "" {
+			return nil
+		}
 	}
-	if got == 0 {
-		return nil, errSelectionEmpty
+
+	// Try each common image MIME type; wl-paste --list-types is available in
+	// wl-clipboard 2.0+, but iterating the common set works everywhere and
+	// is only a handful of short processes.
+	mimeTypes := []string{
+		"image/png",
+		"image/jpeg",
+		"image/webp",
+		"image/bmp",
+		"image/tiff",
+		"image/gif",
 	}
-	_, data, err := x.getProperty(got, 0, incr)
-	if err != nil {
-		return nil, err
+	for _, mime := range mimeTypes {
+		cmd := exec.Command(wlPaste, "--type", mime, "--no-newline")
+		cmd.Env = append(os.Environ(), "WAYLAND_DISPLAY="+os.Getenv("WAYLAND_DISPLAY"))
+		out, err := cmd.Output()
+		if err != nil || len(out) == 0 {
+			continue
+		}
+		if len(out) > maxImageBytes {
+			continue
+		}
+		// Validate the bytes match the requested MIME type.
+		valid := false
+		switch mime {
+		case "image/png":
+			valid = isValidPNG(out)
+		case "image/jpeg":
+			valid = isValidJPEG(out)
+		case "image/webp":
+			valid = isValidWebP(out)
+		case "image/bmp":
+			valid = isValidBMP(out)
+		case "image/tiff":
+			valid = isValidTIFF(out)
+		case "image/gif":
+			valid = isValidGIF(out)
+		}
+		if valid {
+			return out
+		}
 	}
-	if len(data) == 0 || data[0] != 0x89 { // PNG magic
-		return nil, errSelectionEmpty
-	}
-	if len(data) > maxImageBytes {
-		return nil, fmt.Errorf("clipboard: image exceeds %d bytes", maxImageBytes)
-	}
-	return data, nil
+	return nil
 }
 
 // loadXauthCookie parses the MIT-MAGIC-COOKIE-1 entry from $XAUTHORITY or

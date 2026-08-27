@@ -75,18 +75,6 @@ function editRangeOf(pending: PendingEdit | null, prevLength: number, nextLength
   return undefined
 }
 
-/** A pasted text that is really an image path (WeChat and file managers put
- * such a uri line next to the bitmap). The shell bridge replaces it with the
- * actual image when one is available. */
-const IMAGE_PATH_RE = /\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i
-
-function isImagePathText(text: string): boolean {
-  const trimmed = text.trim()
-  if (trimmed === '') return false
-  if (IMAGE_PATH_RE.test(trimmed)) return true
-  return /^file:\/\/\//i.test(trimmed) && IMAGE_PATH_RE.test(trimmed.split(/\s/)[0] ?? '')
-}
-
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
@@ -509,39 +497,34 @@ export function InputBar({
     const text = e.clipboardData.getData('text/plain')
 
     if (files.length > 0) {
-      intakeImages(files)
-    } else if (shellPaste && isImagePathText(text)) {
-      // WeChat-style copy puts both the bitmap and an image-path text line in
-      // the clipboard. WebKitGTK exposes only the text, so ask the shell for
-      // the bitmap: when it arrives we add the image and drop the path text;
-      // when it does not we fall back to pasting the text.
       e.preventDefault()
-      if (text !== '') {
-        void requestClipboardImage().then((data) => {
-          const file = data === null ? null : base64ToImageFile(data)
-          if (file !== null) {
-            intakeImages([file])
-            return
-          }
-          pasteText(el, text)
-        })
-      } else {
-        requestShellImage()
-      }
+      intakeImages(files)
       return
     }
 
-    if (text === '') {
-      // Pure bitmap (system screenshot): WebKitGTK carries no text here, so
-      // the shell supplies the image.
-      if (shellPaste) {
-        e.preventDefault()
-        requestShellImage()
-      } else if (files.length > 0) {
-        e.preventDefault()
-      }
+    if (shellPaste) {
+      // Inside the packaged shell (WebKitGTK iframe), the paste event never
+      // carries clipboard bitmap data — the engine withholds file items even
+      // when the X selection holds an image. The shell process can read the
+      // host X11 CLIPBOARD directly, so we always ask it for the current image
+      // first. When one arrives we add it and suppress any accompanying text
+      // (e.g. WeChat-style path lines, screenshot filenames); when the shell
+      // has no image we fall back to pasting the plain text.
+      e.preventDefault()
+      void requestClipboardImage().then((data) => {
+        const file = data === null ? null : base64ToImageFile(data)
+        if (file !== null) {
+          intakeImages([file])
+          return
+        }
+        if (text !== '') {
+          pasteText(el, text)
+        }
+      })
       return
     }
+
+    if (text === '') return
     e.preventDefault()
     pasteText(el, text)
   }
@@ -584,14 +567,6 @@ export function InputBar({
   // clipboard images; ask the shell for the current CLIPBOARD image instead.
   // Plain browser tabs (window.parent === window) keep the fast native path.
   const shellPaste = isShellEmbedded() && addImages !== undefined
-  const requestShellImage = useCallback((): void => {
-    if (addImages === undefined || locked || machineBusy) return
-    void requestClipboardImage().then((data) => {
-      if (data === null) return
-      const file = base64ToImageFile(data)
-      if (file !== null) intakeImages([file])
-    })
-  }, [addImages, intakeImages, locked, machineBusy])
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
