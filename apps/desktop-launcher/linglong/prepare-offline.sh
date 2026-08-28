@@ -25,19 +25,26 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
-# 2.1 补装 dsh-app-boot 必需但 pnpm deploy --prod + auto-install-peers=false
-#     下被遗漏的 vendored cordis 插件（peerDependency + devDependency 组合
-#     在 workspace 里能解析，deploy 后闭包里没有）。从源码 vendor 直接复制。
-MISSING_PKGS="cordis-plugin-group"
-for pkg in $MISSING_PKGS; do
-  dest="$STAGE/harness/node_modules/@deepseek-ai/$pkg"
+# 2.1 补装 pnpm deploy --prod + auto-install-peers=false 下被遗漏的
+#     vendored 包（纯 peerDependency 的包在 deploy 闭包里没有）。
+#     遍历 vendor/ 下所有包，将缺失的从源码直接复制进闭包。
+#     包名映射：
+#       vendor/cordis/             →  @deepseek-ai/cordis
+#       vendor/cosmokit/           →  @deepseek-ai/cosmokit
+#       vendor/schemastery/        →  @deepseek-ai/schemastery
+#       vendor/<name>/             →  @deepseek-ai/cordis-plugin-<name>   (其余)
+for vendir in vendor/*/; do
+  vendir=${vendir%/}
+  name=${vendir#vendor/}
+  case "$name" in
+    cordis|cosmokit|schemastery) pkg="@deepseek-ai/$name" ;;
+    *) pkg="@deepseek-ai/cordis-plugin-$name" ;;
+  esac
+  dest="$STAGE/harness/node_modules/$pkg"
   if [ ! -d "$dest" ]; then
-    src="vendor/$(echo "$pkg" | sed 's/cordis-plugin-//')"
-    if [ -d "$src" ]; then
-      echo "prepare-offline: injecting vendored $pkg from $src"
-      mkdir -p "$(dirname "$dest")"
-      cp -a "$src" "$dest"
-    fi
+    echo "prepare-offline: injecting vendored $pkg from $vendir"
+    mkdir -p "$(dirname "$dest")"
+    cp -a "$vendir" "$dest"
   fi
 done
 
