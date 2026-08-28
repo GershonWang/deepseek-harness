@@ -11,9 +11,12 @@
  */
 
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { readProfileManifest, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
+import { runRepair } from '../src/index.ts'
 import { pluginDynamicLoadCheck, pluginChecks } from '../src/checks/plugins.ts'
 
 /** A single probe boot takes seconds; bound each case like loader-probe.spec. */
@@ -192,5 +195,71 @@ describe('plugin-dynamic-load', () => {
     const result = await pluginDynamicLoadCheck.check(home)
     expect(result.ok).toBe(true)
     expect(result.message).toContain('profile not loadable')
+  })
+
+  describe('repair', () => {
+    it('removes the culprit bundle from the profile and the check passes afterwards', async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-dyn-repair-'))
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad'])
+      await writeBundle(home, 'third-party-bad', brokenPatch())
+      await writeBundleFile(home, 'third-party-bad', 'broken-plugin.js',
+        `import { value } from '${MISSING_DEP}'\nexport default function () { void value }\n`)
+
+      const repair = await runRepair(2, home)
+
+      expect(repair.applied.map(a => a.checkId)).toContain('plugin-dynamic-load')
+      // Back up the original manifest into the repair run's backup directory.
+      const backupDir = repair.backups[0]!
+      expect(existsSync(join(backupDir, 'web-profile.package.json'))).toBe(true)
+      // The culprit layer is gone from the profile's bundle list.
+      const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
+      expect(manifest.dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-sdk-minimal'])
+
+      const after = await pluginDynamicLoadCheck.check(home)
+      expect(after.ok).toBe(true)
+    }, PROBE_BOUND)
+
+    it('reports nothing to repair when every third-party bundle loads', async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-dyn-fix-ok-'))
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-ok'])
+      await writeBundle(home, 'third-party-ok', healthyPatch('fix-ok-noop'))
+      await writeBundleFile(home, 'third-party-ok', 'noop.js', NOOP_PLUGIN)
+
+      const backupDir = join(home, 'backups', 'doctor-test')
+      await mkdir(backupDir, { recursive: true })
+      const result = await pluginDynamicLoadCheck.fix!(home, backupDir)
+      expect(result.ok).toBe(true)
+      expect(result.message).toContain('无需修复')
+      // No manifest was touched.
+      const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
+      expect(manifest.dsh?.profile?.bundles).toContain('third-party-ok')
+    }, PROBE_BOUND)
+
+    it('reports it cannot fix when no single bundle reproduces the failure', async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-dyn-fix-interact-'))
+      // The same interacting pair as the unlocatable check case: either bundle
+      // alone loads fine, so the repair cannot locate anything to disable.
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'trip-bundle', 'partner-bundle'])
+      await writeBundle(home, 'trip-bundle', [
+        '- insert:',
+        '    - id: trip-plugin',
+        '      name: ./trip.js',
+      ].join('\n') + '\n')
+      await writeBundleFile(home, 'trip-bundle', 'trip.js',
+        'globalThis.__tripLoaded = true\nexport default function () { void 0 }\n')
+      await writeBundle(home, 'partner-bundle', [
+        '- insert:',
+        '    - id: partner-plugin',
+        '      name: ./partner.js',
+      ].join('\n') + '\n')
+      await writeBundleFile(home, 'partner-bundle', 'partner.js',
+        "if (globalThis.__tripLoaded === true) { throw new Error('incompatible pair detected') }\nexport default function () { void 0 }\n")
+
+      const backupDir = join(home, 'backups', 'doctor-test')
+      await mkdir(backupDir, { recursive: true })
+      const result = await pluginDynamicLoadCheck.fix!(home, backupDir)
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('未能定位')
+    }, PROBE_BOUND)
   })
 })

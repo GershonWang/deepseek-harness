@@ -11,14 +11,20 @@
  */
 
 import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   loadProfile,
   composeEntries,
+  readProfileManifest,
+  resolveProfileDir,
+  writeProfileManifest,
 } from '@deepseek-ai/dsh-app-boot'
+import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { bisectBy } from '../bisect-by.js'
-import type { DoctorCheck, CheckResult } from '../types.js'
+import type { DoctorCheck, CheckResult, FixResult } from '../types.js'
 
 const require = createRequire(import.meta.url)
 
@@ -254,11 +260,67 @@ function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<Lo
   })
 }
 
+/** One third-party inspection pass shared by the check and its repair. */
+interface LocateCulpritResult {
+  /** Whether the profile manifest loaded enough to enumerate bundles. */
+  loadable: boolean
+  /** Third-party bundle names currently layered in the profile. */
+  thirdParty: string[]
+  /**
+   * Captured full-tree probe output, or the profile-read error when
+   * `loadable` is false.
+   */
+  output: string
+  /** Whether the full tree (every bundle layer) booted cleanly. */
+  fullOk: boolean
+  /** The bundle that alone breaks the load; null when none is found. */
+  culprit: string | null
+}
+
+/**
+ * Enumerate the profile's third-party bundles, boot them all through the
+ * loader probe once, and bisect to the single bundle that breaks the load.
+ * Shared by the check (which reports the culprit) and its repair (which
+ * re-locates the culprit at fix time instead of trusting check state).
+ * @param dshHome - harness home passed to loadProfile and the probe.
+ * @returns the load outcome and the located culprit, if any.
+ */
+async function locateCulprit(dshHome: string): Promise<LocateCulpritResult> {
+  let thirdParty: string[]
+  try {
+    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+    thirdParty = profile.layers
+      .filter(layer => !isOfficialBundle(layer.packageName))
+      .map(layer => layer.packageName)
+  } catch (err) {
+    return { loadable: false, thirdParty: [], output: (err as Error).message, fullOk: false, culprit: null }
+  }
+  if (thirdParty.length === 0) {
+    return { loadable: true, thirdParty, output: '', fullOk: true, culprit: null }
+  }
+
+  const full = await runLoaderProbe(dshHome, [])
+  if (full.code === 0) {
+    return { loadable: true, thirdParty, output: full.output, fullOk: true, culprit: null }
+  }
+
+  // The full tree failed to load; isolate the offending bundle. A subset
+  // "is bad" when loading only it still fails — with the full set failing
+  // and the empty set passing, bisectBy's contract holds.
+  const culprit = await bisectBy(thirdParty, async (subset) => {
+    const result = await runLoaderProbe(dshHome, subset)
+    return result.code !== 0
+  })
+  return { loadable: true, thirdParty, output: full.output, fullOk: false, culprit }
+}
+
 /**
  * Load every third-party bundle once; on failure, binary-search which bundle
  * breaks the load and report it. Failures only a real boot exposes (plugin
  * modules importing dependencies the installation no longer provides) land
- * here, so the report can name the culprit instead of the whole tree.
+ * here, so the report can name the culprit instead of the whole tree. Its
+ * repair removes the culprit bundle from the profile's bundle list after
+ * backing up the manifest, then re-boots to prove the tree loads.
  */
 export const pluginDynamicLoadCheck: DoctorCheck = {
   id: 'plugin-dynamic-load',
@@ -266,47 +328,31 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
   category: 'plugin',
   severity: 'fatal',
   check: async (dshHome: string): Promise<CheckResult> => {
-    let thirdParty: string[]
-    try {
-      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
-      thirdParty = profile.layers
-        .filter(layer => !isOfficialBundle(layer.packageName))
-        .map(layer => layer.packageName)
-    } catch (err) {
+    const located = await locateCulprit(dshHome)
+    if (!located.loadable) {
       return {
         ok: true,
-        message: `Cannot list third-party bundles (profile not loadable): ${(err as Error).message}`,
+        message: `Cannot list third-party bundles (profile not loadable): ${located.output}`,
         fixable: false,
         suggestedLevel: 2,
       }
     }
-    if (thirdParty.length === 0) {
+    if (located.thirdParty.length === 0) {
       return { ok: true, message: '无第三方插件', fixable: false, suggestedLevel: 2 }
     }
-
-    const full = await runLoaderProbe(dshHome, [])
-    if (full.code === 0) {
+    if (located.fullOk) {
       return {
         ok: true,
-        message: `所有 ${thirdParty.length} 个第三方插件加载正常`,
+        message: `所有 ${located.thirdParty.length} 个第三方插件加载正常`,
         fixable: false,
         suggestedLevel: 2,
       }
     }
-
-    // The full tree failed to load; isolate the offending bundle. A subset
-    // "is bad" when loading only it still fails — with the full set failing
-    // and the empty set passing, bisectBy's contract holds.
-    const culprit = await bisectBy(thirdParty, async (subset) => {
-      const result = await runLoaderProbe(dshHome, subset)
-      return result.code !== 0
-    })
-
-    if (culprit !== null) {
+    if (located.culprit !== null) {
       return {
         ok: false,
-        message: `插件 ${culprit} 导致启动失败（缺少运行依赖或损坏）`,
-        detail: full.output,
+        message: `插件 ${located.culprit} 导致启动失败（缺少运行依赖或损坏）`,
+        detail: located.output,
         fixable: true,
         suggestedLevel: 2,
       }
@@ -314,9 +360,64 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     return {
       ok: false,
       message: '第三方插件导致启动失败，未能定位',
-      detail: full.output,
+      detail: located.output,
       fixable: false,
       suggestedLevel: 2,
+    }
+  },
+  fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
+    const located = await locateCulprit(dshHome)
+    if (!located.loadable) {
+      return { ok: false, message: '无法读取 profile，无法自动修复' }
+    }
+    if (located.thirdParty.length === 0 || located.fullOk) {
+      return { ok: true, message: '插件加载已正常，无需修复' }
+    }
+    if (located.culprit === null) {
+      return { ok: false, message: '未能定位问题插件，无法自动修复' }
+    }
+    const culprit = located.culprit
+
+    // Third-party bundles are profile layers listed in `dsh.profile.bundles`,
+    // so disabling one means removing it from the manifest's bundle list —
+    // the same exclusion DSH_SAFE_MODE=plugins applies to every non-official
+    // bundle. Back up the raw manifest first and restore it on verify failure.
+    const profileDir = resolveProfileDir('web', dshHome)
+    const manifest = readProfileManifest('doctor', profileDir)
+    const bundles = manifest.dsh?.profile?.bundles ?? []
+    if (!bundles.includes(culprit)) {
+      return { ok: true, message: '插件加载已正常，无需修复' }
+    }
+
+    const manifestPath = join(profileDir, 'package.json')
+    const original = readFileSync(manifestPath, 'utf8')
+    const backupPath = join(backupDir, 'web-profile.package.json')
+    await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
+
+    writeProfileManifest(profileDir, {
+      ...manifest,
+      dsh: {
+        ...manifest.dsh,
+        profile: {
+          ...manifest.dsh?.profile,
+          bundles: bundles.filter(bundle => bundle !== culprit),
+        },
+      },
+    })
+
+    const verify = await runLoaderProbe(dshHome, [])
+    if (verify.code !== 0) {
+      await writeFileAtomic(manifestPath, original, { mode: 0o600 })
+      return {
+        ok: false,
+        message: `移除 ${culprit} 后加载仍然失败，已还原 profile manifest`,
+        backupPath,
+      }
+    }
+    return {
+      ok: true,
+      message: `已从 profile bundles 移除导致加载失败的插件 ${culprit}（原 manifest 已备份）`,
+      backupPath,
     }
   },
 }
