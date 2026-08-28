@@ -51,16 +51,18 @@ var errSelectionEmpty = errors.New("clipboard has no supported image content")
 func ReadImage() ([]byte, error) {
 	// Strategy 1 & 2: X11 CLIPBOARD, then PRIMARY (direct bitmap).
 	if data, err := readX11Images(); err == nil && data != nil {
-		return data, nil
+		if isPlausibleImage(data) {
+			return data, nil
+		}
 	}
 	// Strategy 3: X11 text/uri-list → read the image file from disk.
 	//    Many screenshot tools only put a file URI on CLIPBOARD after saving
 	//    the capture, especially when the "save to file" workflow is used.
-	if data := readX11UriListImage(); data != nil {
+	if data := readX11UriListImage(); data != nil && isPlausibleImage(data) {
 		return data, nil
 	}
 	// Strategy 4: Wayland clipboard via wl-paste (when available).
-	if data := readWaylandImage(); data != nil {
+	if data := readWaylandImage(); data != nil && isPlausibleImage(data) {
 		return data, nil
 	}
 	return nil, errSelectionEmpty
@@ -199,6 +201,66 @@ func isImageExtension(path string) bool {
 func isValidImage(data []byte) bool {
 	return isValidPNG(data) || isValidJPEG(data) || isValidWebP(data) ||
 		isValidBMP(data) || isValidTIFF(data) || isValidGIF(data)
+}
+
+// minPlausibleImageBytes is the smallest image payload we accept as a real
+// screenshot or copied picture. Tiny payloads (sub-kilobyte) are almost always
+// 1×1 placeholders from chat apps, drag-and-drop drag-image ghosts, or
+// broken X11 selection transfers, all of which would produce a useless blank
+// image in the composer.
+const minPlausibleImageBytes = 1 << 10 // 1 KiB
+
+// minPlausibleDimension is the smallest width/height we accept in pixels.
+// 1×1 to 4×4 images are always placeholders or corrupt.
+const minPlausibleDimension = 5
+
+// isPlausibleImage returns true when data looks like a real, usable image —
+// not a 1×1 placeholder, a drag ghost, or a truncated transfer. It checks
+// minimum byte size and, for formats whose header contains dimensions, a
+// minimum width/height.
+func isPlausibleImage(data []byte) bool {
+	if len(data) < minPlausibleImageBytes {
+		return false
+	}
+	if w, h, ok := pngDimensions(data); ok {
+		return w >= minPlausibleDimension && h >= minPlausibleDimension
+	}
+	if w, h, ok := bmpDimensions(data); ok {
+		return w >= minPlausibleDimension && h >= minPlausibleDimension
+	}
+	// For formats where we don't parse the header (JPEG, WebP, GIF, TIFF),
+	// the byte-size floor is the only filter.
+	return true
+}
+
+// pngDimensions returns the width/height from a PNG's IHDR chunk, or (0,0,false)
+// when the header is too short or malformed.
+func pngDimensions(data []byte) (uint32, uint32, bool) {
+	if !isValidPNG(data) || len(data) < 24 {
+		return 0, 0, false
+	}
+	// PNG structure: 8-byte signature | 4-byte length | 'IHDR' (4) | width (4) | height (4) | ...
+	// IHDR starts at offset 8, width at 16, height at 20 (all big-endian).
+	width := binary.BigEndian.Uint32(data[16:20])
+	height := binary.BigEndian.Uint32(data[20:24])
+	return width, height, true
+}
+
+// bmpDimensions returns the width/height from a BMP info header, or (0,0,false)
+// when the header is too short.
+func bmpDimensions(data []byte) (uint32, uint32, bool) {
+	if !isValidBMP(data) || len(data) < 26 {
+		return 0, 0, false
+	}
+	// BITMAPFILEHEADER: 14 bytes (signature + size + reserved + offset)
+	// BITMAPINFOHEADER starts at offset 14; width at 18, height at 22 (little-endian int32).
+	width := binary.LittleEndian.Uint32(data[18:22])
+	height := binary.LittleEndian.Uint32(data[22:26])
+	// Height can be negative (top-down DIB); take absolute value.
+	if int32(height) < 0 {
+		height = uint32(-int32(height))
+	}
+	return width, height, true
 }
 
 // xconn is one X11 wire connection. Methods are strictly serial: each call
