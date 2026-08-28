@@ -72,10 +72,10 @@
 
 ### 1.5 修复逻辑（L2）
 
-1. 备份 `cordis.patch.yml` 到 doctor 本次修复的 backup 目录
-2. 在 patch 文件中定位导致崩溃的 bundle 对应的配置行（import / include / group）
-3. 注释掉该 bundle 的整组配置
-4. 重新运行动态加载检查
+1. 定位导致崩溃的 bundle（全量探测 + 二分）
+2. 备份 profile 的 `package.json`（字节级，`writeFileAtomic`）到 doctor 本次修复的 backup 目录
+3. 用 `writeProfileManifest` 将 culprit 从 `dsh.profile.bundles` 移除 —— 与 `DSH_SAFE_MODE=plugins` 的排除模型一致（第三方 bundle 是 profile 层，不在用户 patch 文件里）
+4. 重新运行动态加载检查验证
 5. 验证通过 → 修复成功；仍失败 → 还原备份，报告失败原因
 
 ## 二、启动失败自动触发诊断

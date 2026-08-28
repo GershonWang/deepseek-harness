@@ -496,15 +496,14 @@
 
 - [ ] **Step 2: 实现 fix 方法**
 
-  修复步骤：
-  1. 读取 `cordis.patch.yml`
-  2. 找到 culprit bundle 对应的行（import 或 include 形式）
-  3. 备份原文件到 `backupDir/`
-  4. 注释掉相关行（整组配置）
-  5. 写回修改后的文件
-  6. 重新跑动态加载检查验证
-  7. 如果验证失败 → 还原备份，返回失败
-  8. 如果验证通过 → 返回成功
+  修复步骤（方案 A：编辑 profile manifest —— 第三方 bundle 是 profile 的 bundle 层，位于 `package.json` 的 `dsh.profile.bundles`，不在 `cordis.patch.yml` 里）：
+  1. 调用共享的 `locateCulprit()` 定位 culprit bundle
+  2. 备份 `profiles/web/package.json` 原始字节到 `backupDir/web-profile.package.json`（`writeFileAtomic`，字节级可逆）
+  3. 用 `writeProfileManifest` 从 `dsh.profile.bundles` 移除 culprit（其余字段 spread 保留）
+  4. 重新跑全量探测验证
+  5. 验证失败 → 还原备份字节，返回失败；验证通过 → 返回成功
+
+  与 `DSH_SAFE_MODE=plugins` 的跳过模型一致（同样排除非官方 bundle）。
 
 - [ ] **Step 3: 运行测试验证**
 
