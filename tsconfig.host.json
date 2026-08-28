@@ -135,6 +135,7 @@
     { "path": "./packages/util/workspace-path" },
     { "path": "./packages/util/output-retention" },
     { "path": "./packages/util/atomic-write" },
+    { "path": "./packages/support/doctor" },
     { "path": "./packages/attachment/attachment" },
     { "path": "./packages/attachment/attachment-local" },
     { "path": "./packages/llm/llm" },

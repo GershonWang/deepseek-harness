@@ -793,18 +793,31 @@ export function resolveBundleDir(
  * layer and parse the profile's own patch file. A listed bundle without a
  * `dsh.bundle` manifest fails loud — naming a bundle-less package as a layer
  * is a misconfiguration, not "no patches".
+ *
+ * ## Safe mode
+ *
+ * When `process.env.DSH_SAFE_MODE` is set, certain user-owned layers are
+ * skipped so the process can still start even when user data is broken:
+ * - `plugins` (or higher): skip non-official bundles (`@deepseek-ai/*` keep)
+ * - `config` (or higher): also skip the user's `cordis.patch.yml`
+ * - `full`: equivalent to `config` (the deepest safe-mode tier today)
+ *
+ * Callers can also pass explicit booleans in `options`; those win over the
+ * environment variable when provided.
+ *
  * @param binName - the diagnostic prefix on thrown errors.
  * @param name - the profile name.
  * @param installAnchor - absolute path of the dsh app's package.json (first resolution anchor).
  * @param home - the Harness home; defaults to {@link resolveDshHome}.
  * @param options - `userLayer: false` skips reading `cordis.patch.yml`, so a
- * bundles-only consumer (`--dump-default-config`, a recovery diagnostic)
- * cannot fail on a broken user layer.
+ *   bundles-only consumer (`--dump-default-config`, a recovery diagnostic)
+ *   cannot fail on a broken user layer. `skipThirdPartyBundles: true` strips
+ *   non-`@deepseek-ai/` bundles from the composition.
  * @returns the loaded profile (empty `patches` when the user layer is skipped).
  */
 export function loadProfile(
   binName: string, name: string, installAnchor: string, home: string = resolveDshHome(),
-  options: { userLayer?: boolean } = {},
+  options: { userLayer?: boolean; skipThirdPartyBundles?: boolean; extraPatchFiles?: string[] } = {},
 ): Profile {
   const dir = resolveProfileDir(name, home)
   if (!existsSync(join(dir, 'package.json'))) {
@@ -826,7 +839,10 @@ export function loadProfile(
     )
   }
   const patchReload = rawPatchReload ?? DEFAULT_PROFILE_PATCH_RELOAD
-  const layers = bundles.map((packageName): ProfileLayer => {
+  const safeMode = process.env.DSH_SAFE_MODE
+  const skipThirdParty = options.skipThirdPartyBundles
+    ?? (safeMode === 'plugins' || safeMode === 'config' || safeMode === 'full')
+  let layers = bundles.map((packageName): ProfileLayer => {
     const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir)
     const bundleManifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as ProfileManifest
     const declared = bundleManifest.dsh?.bundle?.patch
@@ -836,10 +852,25 @@ export function loadProfile(
     const patchPath = join(packageDir, declared)
     return { packageName, packageDir, patchPath, patches: loadOverlayPatches(binName, patchPath) }
   })
+  if (skipThirdParty) {
+    layers = layers.filter(l => l.packageName.startsWith('@deepseek-ai/'))
+  }
+  const skipUserLayer = options.userLayer === false
+    || safeMode === 'config'
+    || safeMode === 'full'
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
-  const patches = options.userLayer !== false && existsSync(patchPath)
+  const userPatches = !skipUserLayer && existsSync(patchPath)
     ? loadOverlayPatches(binName, patchPath)
     : []
+  const extraPatches: PatchOptions[] = []
+  if (options.extraPatchFiles) {
+    for (const extraPath of options.extraPatchFiles) {
+      if (existsSync(extraPath)) {
+        extraPatches.push(...loadOverlayPatches(binName, extraPath))
+      }
+    }
+  }
+  const patches = [...userPatches, ...extraPatches]
   return { name, dir, layers, patchPath, patches, patchReload }
 }
 

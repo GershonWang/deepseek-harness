@@ -23,6 +23,9 @@
       <button id="btn-tools" class="icon-btn" title="工具链">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       </button>
+      <button id="btn-doctor" class="icon-btn" title="诊断与修复">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.43 12.98c.09.33.07.69-.06 1A8.03 8.03 0 0 1 3 12 8 8 0 0 1 14.07 2.54"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 10v4"/><path d="M10 12h4"/></svg>
+      </button>
       <button id="btn-about" class="icon-btn" title="关于">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v3.4M8 4.8v.2"/></svg>
       </button>
@@ -109,6 +112,14 @@
           <button id="server-start" class="btn btn-primary">启动</button>
           <button id="server-stop" class="btn btn-danger">停止</button>
         </div>
+        <div id="safe-mode-row" class="safe-mode-row hidden">
+          <button id="btn-safe-mode" class="btn">🔒 以插件安全模式启动</button>
+          <p class="hint">跳过后装的第三方插件，保留你的会话和设置。升级后启动失败时可以试试。</p>
+        </div>
+        <div id="safe-mode-active" class="safe-mode-active hidden">
+          <span class="badge-safe">🔒 插件安全模式运行中</span>
+          <button id="btn-exit-safe-mode" class="btn btn-link">退出安全模式</button>
+        </div>
       </div>
 
       <div id="external-panel" class="section hidden">
@@ -160,6 +171,33 @@
 
       <div class="actions">
         <button id="tools-refresh" class="btn btn-quiet">重新检查</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 诊断与修复弹框 -->
+<div id="doctor-modal" class="modal hidden">
+  <div class="modal-card modal-lg">
+    <div class="modal-head">
+      <span>诊断与修复</span>
+      <button class="modal-close" data-close="doctor-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <div id="doctor-summary" class="doctor-summary">
+        点击"开始诊断"检查环境、配置、插件和会话数据。
+      </div>
+      <div id="doctor-content" class="doctor-content hidden">
+        <div id="doctor-checks" class="doctor-checks"></div>
+        <div class="doctor-actions">
+          <button id="doctor-refresh" class="btn">重新诊断</button>
+          <button id="doctor-repair-1" class="btn btn-quiet">轻度修复（L1）</button>
+          <button id="doctor-repair-2" class="btn btn-warn">中度修复（L2）</button>
+        </div>
+        <div id="doctor-repair-output" class="doctor-repair-output hidden"></div>
+      </div>
+      <div class="doctor-actions-start">
+        <button id="doctor-start" class="btn btn-primary">开始诊断</button>
       </div>
     </div>
   </div>

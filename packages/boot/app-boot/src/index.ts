@@ -93,7 +93,7 @@ export function loadEnv(
 }
 
 /** Exact names no discovered file may set. */
-const BOOTSTRAP_NAMES = new Set([
+export const BOOTSTRAP_NAMES = new Set([
   // Process launch and module resolution.
   'PATH', 'HOME', 'USERPROFILE', 'SHELL',
   'NODE_OPTIONS', 'NODE_PATH', 'NODE_EXTRA_CA_CERTS',
@@ -117,7 +117,7 @@ const BOOTSTRAP_NAMES = new Set([
 ])
 
 /** Name prefixes no discovered file may set. */
-const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_', 'BASH_FUNC_']
+export const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_', 'BASH_FUNC_']
 
 /**
  * Whether a variable may come only from the inherited process environment
@@ -125,7 +125,7 @@ const BOOTSTRAP_PREFIXES = ['DSH_', 'XDG_', 'DYLD_', 'BASH_FUNC_']
  * @param name - the variable name.
  * @returns true when only the inherited environment may supply it.
  */
-function isBootstrapOnly(name: string): boolean {
+export function isBootstrapOnly(name: string): boolean {
   const upper = name.toUpperCase()
   return BOOTSTRAP_NAMES.has(upper) || BOOTSTRAP_PREFIXES.some(prefix => upper.startsWith(prefix))
 }

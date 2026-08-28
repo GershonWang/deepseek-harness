@@ -499,3 +499,66 @@ body {
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
 
 .btn:focus-visible, .host-row input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+/* 安全模式 */
+.safe-mode-row { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.safe-mode-row .hint { margin-top: 8px; }
+.safe-mode-active {
+  margin-top: 12px; padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, transparent);
+  display: flex; align-items: center; gap: 10px;
+}
+.badge-safe { font-size: 12px; font-weight: 600; color: var(--brand-text); }
+.btn-link {
+  background: none; border: none; padding: 0;
+  color: var(--brand-text); cursor: pointer;
+  font-size: 12px; text-decoration: underline;
+}
+.btn-link:hover { opacity: 0.8; }
+
+/* 诊断弹框 */
+.modal-lg { width: min(720px, 90vw); max-height: 80vh; }
+.doctor-summary {
+  padding: 12px 16px; margin-bottom: 12px;
+  background: var(--bg-panel); border-radius: 8px;
+  font-size: 13px;
+}
+.doctor-content { max-height: 50vh; overflow-y: auto; }
+.doctor-checks { display: flex; flex-direction: column; gap: 6px; }
+.doctor-check-row {
+  display: flex; gap: 10px; padding: 10px 12px;
+  background: var(--bg-panel); border-radius: 8px;
+}
+.doctor-check-icon { font-weight: 700; width: 18px; flex-shrink: 0; text-align: center; }
+.doctor-check-main { flex: 1; min-width: 0; }
+.doctor-check-title {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 13px; font-weight: 500;
+}
+.doctor-check-msg { font-size: 12px; color: var(--fg-dim); margin-top: 2px; }
+.doctor-detail {
+  margin-top: 6px; padding: 8px 10px;
+  background: var(--bg); border-radius: 6px;
+  font-family: var(--mono, monospace); font-size: 11.5px;
+  white-space: pre-wrap; color: var(--fg-dim);
+  max-height: 120px; overflow: auto;
+}
+.doctor-actions {
+  display: flex; gap: 8px; margin-top: 14px;
+  padding-top: 12px; border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.doctor-actions-start {
+  display: flex; justify-content: center; margin-top: 16px;
+}
+.doctor-repair-output {
+  margin-top: 12px; padding: 10px 12px;
+  background: var(--bg); border-radius: 8px;
+  font-family: var(--mono, monospace); font-size: 12px;
+  white-space: pre-wrap; color: var(--fg-dim);
+  max-height: 160px; overflow: auto;
+}
+.btn-warn { background: var(--warn); color: #1a1a1a; border-color: transparent; }
+.btn-warn:hover { opacity: 0.9; }

@@ -1,0 +1,27 @@
+{
+  "name": "@deepseek-ai/dsh-doctor",
+  "description": "Diagnostic and repair framework for DeepSeek Harness installations",
+  "version": "0.1.2-alpha.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./invariant": "./src/invariant.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-atomic-write": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-web-app": "workspace:^",
+    "js-yaml": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.0",
+    "vitest": "^4.1.8"
+  }
+}

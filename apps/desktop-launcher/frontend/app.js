@@ -97,10 +97,10 @@ function applyStatus(s) {
     text.textContent = "外部服务 " + (s.ExternalURL || "");
   } else if (s.State === "running") {
     dot.className = "dot ok";
-    text.textContent = "运行中 " + s.URL;
+    text.textContent = "运行中 " + s.URL + (s.SafeMode ? " 🔒" : "");
   } else if (s.State === "starting") {
     dot.className = "dot warn";
-    text.textContent = "启动中";
+    text.textContent = "启动中" + (s.SafeMode ? "（安全模式）" : "");
   } else if (s.State === "failed") {
     dot.className = "dot danger";
     text.textContent = "启动失败" + (s.LastExit ? " (" + s.LastExit + ")" : "");
@@ -162,6 +162,12 @@ function renderServerDialog(s) {
 
   $("#server-start").disabled = !s.CanStart;
   $("#server-stop").disabled = !s.CanStop;
+
+  // 安全模式：失败态显示「以插件安全模式启动」
+  const failed = s.State === "failed" || s.State === "stopped";
+  $("#safe-mode-row").classList.toggle("hidden", !failed || !!s.SafeMode);
+  // 运行中且为安全模式，显示安全模式标识和退出按钮
+  $("#safe-mode-active").classList.toggle("hidden", !s.SafeMode);
 
   $("#ext-connect").disabled = !s.CanConnect;
   $("#ext-disconnect").disabled = !s.CanDisconnect;
@@ -360,6 +366,12 @@ function bindUI() {
   $("#server-stop").addEventListener("click", async () => {
     applyStatus(await api().StopServer());
   });
+  $("#btn-safe-mode").addEventListener("click", async () => {
+    applyStatus(await api().StartSafeMode());
+  });
+  $("#btn-exit-safe-mode").addEventListener("click", async () => {
+    applyStatus(await api().ExitSafeMode());
+  });
 
   $("#ext-connect").addEventListener("click", async () => {
     const url = $("#ext-url").value.trim();
@@ -402,6 +414,92 @@ function init() {
 
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
+
+  // 诊断与修复
+  $("#btn-doctor").addEventListener("click", () => {
+    openModal("doctor-modal");
+  });
+
+  async function runDoctor() {
+    $("#doctor-summary").textContent = "正在诊断…";
+    $("#doctor-content").classList.add("hidden");
+    $("#doctor-start").classList.add("hidden");
+    try {
+      const r = await api().RunDoctor();
+      renderDoctorReport(r);
+    } catch (e) {
+      $("#doctor-summary").textContent = "诊断失败: " + e.message;
+      $("#doctor-start").classList.remove("hidden");
+    }
+  }
+
+  function renderDoctorReport(r) {
+    if (r.Error) {
+      $("#doctor-summary").textContent = "诊断失败: " + r.Error;
+      $("#doctor-start").classList.remove("hidden");
+      $("#doctor-content").classList.add("hidden");
+      return;
+    }
+
+    const sevColor = { fatal: "#f48771", error: "#f48771", warning: "#cca700", info: "#75beff" };
+    const statusColor = (ok, sev) => ok ? "#89d185" : (sevColor[sev] || "#ccc");
+
+    $("#doctor-summary").innerHTML =
+      `<strong>共 ${r.Total} 项</strong>：` +
+      `<span style="color:#89d185">✓ ${r.OK} 通过</span>，` +
+      `<span style="color:#f48771">✗ ${r.Failed} 失败</span>` +
+      (r.Fatal > 0 ? `（<span style="color:#f48771">${r.Fatal} 严重</span>）` : "") +
+      (r.Fixable > 0 ? `，<span style="color:#cca700">${r.Fixable} 项可自动修复</span>` : "");
+
+    const checksHtml = r.Checks.map((c) => {
+      const icon = c.OK ? "✓" : "✗";
+      const color = statusColor(c.OK, c.Severity);
+      const fixBadge = c.Fixable && !c.OK
+        ? `<span class="pill warn" style="margin-left:auto">可修复 L${c.SuggestedLevel}</span>` : "";
+      const detail = c.Detail && !c.OK
+        ? `<div class="doctor-detail">${escapeHtml(c.Detail)}</div>` : "";
+      return `
+        <div class="doctor-check-row">
+          <span class="doctor-check-icon" style="color:${color}">${icon}</span>
+          <div class="doctor-check-main">
+            <div class="doctor-check-title">
+              <span>${escapeHtml(c.Name)}</span>
+              <span class="hint" style="margin-left:8px">[${c.Category} / ${c.Severity}]</span>
+              ${fixBadge}
+            </div>
+            <div class="doctor-check-msg">${escapeHtml(c.Message)}</div>
+            ${detail}
+          </div>
+        </div>`;
+    }).join("");
+
+    $("#doctor-checks").innerHTML = checksHtml;
+    $("#doctor-content").classList.remove("hidden");
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (m) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+  }
+
+  $("#doctor-start").addEventListener("click", runDoctor);
+  $("#doctor-refresh").addEventListener("click", runDoctor);
+
+  async function runRepair(level) {
+    $("#doctor-repair-output").classList.remove("hidden");
+    $("#doctor-repair-output").textContent = "正在修复…";
+    try {
+      const result = await api().RunDoctorRepair(level);
+      $("#doctor-repair-output").textContent = result;
+      // 修复后重新诊断
+      await runDoctor();
+    } catch (e) {
+      $("#doctor-repair-output").textContent = "修复失败: " + e.message;
+    }
+  }
+
+  $("#doctor-repair-1").addEventListener("click", () => runRepair(1));
+  $("#doctor-repair-2").addEventListener("click", () => runRepair(2));
 
   api().Status().then((s) => applyStatus(s));
 }

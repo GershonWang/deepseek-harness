@@ -6,7 +6,9 @@ package app
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -45,6 +47,7 @@ type FrontendStatus struct {
 	CanStop       bool
 	CanConnect    bool
 	CanDisconnect bool
+	SafeMode      string // "" | "plugins" | "config" | "full"
 }
 
 // ToolRow 是工具链表格的一行。
@@ -95,18 +98,30 @@ type App struct {
 	configPath string
 	home       string
 	ctx        context.Context
+	dshCmd     string   // dsh executable / node binary
+	dshScript  string   // path to dsh bin script (empty when dshCmd is itself the dsh bin)
 
 	mu           sync.Mutex
 	externalBusy bool
+	safeMode     string // "plugins" | "config" | "full" | ""
 }
 
 // New 创建应用控制器并启动 harness 监护。
 func New(cfg supervisor.Config, home, configPath string) *App {
+	// 推导 doctor 命令：Args 形如 ["web", "--port", "N"] 或 ["/path/to/bin.js", "web", "--port", "N"]
+	// 后者表示 Command 是 node，第一个 arg 是 dsh 脚本路径。
+	dshCmd := cfg.Command
+	dshScript := ""
+	if len(cfg.Args) >= 1 && strings.HasSuffix(cfg.Args[0], ".js") {
+		dshScript = cfg.Args[0]
+	}
 	return &App{
 		sup:        supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
 		conn:       connector.New(),
 		configPath: configPath,
 		home:       home,
+		dshCmd:     dshCmd,
+		dshScript:  dshScript,
 	}
 }
 
@@ -205,6 +220,7 @@ func (a *App) snapshot() FrontendStatus {
 		CanStop:       (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
 		CanConnect:    mode == domain.ModeContainer && !busy,
 		CanDisconnect: mode == domain.ModeExternal && !busy,
+		SafeMode:      a.safeMode,
 	}
 	// 连接失败错误只在容器模式展示，成功后清除。
 	if mode != domain.ModeExternal {
@@ -242,6 +258,145 @@ func (a *App) StopServer() FrontendStatus {
 	a.sup.StopHarness()
 	a.emitStatus()
 	return a.snapshot()
+}
+
+// StartSafeMode 以插件安全模式启动 harness（跳过第三方 bundle，保留官方插件和用户数据）。
+// 适用于升级后第三方插件不兼容导致启动失败的场景。
+func (a *App) StartSafeMode() FrontendStatus {
+	os.Setenv("DSH_SAFE_MODE", "plugins")
+	a.safeMode = "plugins"
+	a.sup.Restart()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// ExitSafeMode 退出安全模式，恢复正常启动。
+func (a *App) ExitSafeMode() FrontendStatus {
+	os.Unsetenv("DSH_SAFE_MODE")
+	a.safeMode = ""
+	a.sup.Restart()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// DoctorCheck 是诊断结果中的单条检查（与 doctor 包 DoctorReportCheckEntry 对齐的前端视图）。
+type DoctorCheck struct {
+	ID       string
+	Name     string
+	Category string // "env" | "config" | "plugin" | "data"
+	Severity string // "info" | "warning" | "error" | "fatal"
+	OK       bool
+	Message  string
+	Detail   string
+	Fixable  bool
+	SuggestedLevel int
+}
+
+// DoctorReport 是诊断结果的前端视图。
+type DoctorReport struct {
+	DshHome     string
+	GeneratedAt string
+	Checks      []DoctorCheck
+	Total       int
+	OK          int
+	Failed      int
+	Fatal       int
+	Fixable     int
+	Error       string // 非空表示 doctor 命令本身执行失败
+}
+
+// RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
+func (a *App) RunDoctor() DoctorReport {
+	args := []string{}
+	if a.dshScript != "" {
+		args = append(args, a.dshScript)
+	}
+	args = append(args, "doctor", "--json")
+
+	cmd := exec.Command(a.dshCmd, args...)
+	cmd.Env = append(os.Environ(), "DSH_HOME="+a.home)
+	out, err := cmd.Output()
+	if err != nil {
+		return DoctorReport{Error: err.Error()}
+	}
+
+	// 用 json.RawMessage 先解一层结构
+	var raw struct {
+		DshHome     string `json:"dshHome"`
+		GeneratedAt string `json:"generatedAt"`
+		Checks      []struct {
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			Category       string `json:"category"`
+			Severity       string `json:"severity"`
+			Result         struct {
+				OK             bool   `json:"ok"`
+				Message        string `json:"message"`
+				Detail         string `json:"detail"`
+				Fixable        bool   `json:"fixable"`
+				SuggestedLevel int    `json:"suggestedLevel"`
+			} `json:"result"`
+		} `json:"checks"`
+		Summary struct {
+			Total   int `json:"total"`
+			OK      int `json:"ok"`
+			Failed  int `json:"failed"`
+			Fatal   int `json:"fatal"`
+			Fixable int `json:"fixable"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return DoctorReport{Error: "doctor output parse error: " + err.Error()}
+	}
+
+	checks := make([]DoctorCheck, 0, len(raw.Checks))
+	for _, c := range raw.Checks {
+		checks = append(checks, DoctorCheck{
+			ID:             c.ID,
+			Name:           c.Name,
+			Category:       c.Category,
+			Severity:       c.Severity,
+			OK:             c.Result.OK,
+			Message:        c.Result.Message,
+			Detail:         c.Result.Detail,
+			Fixable:        c.Result.Fixable,
+			SuggestedLevel: c.Result.SuggestedLevel,
+		})
+	}
+
+	return DoctorReport{
+		DshHome:     raw.DshHome,
+		GeneratedAt: raw.GeneratedAt,
+		Checks:      checks,
+		Total:       raw.Summary.Total,
+		OK:          raw.Summary.OK,
+		Failed:      raw.Summary.Failed,
+		Fatal:       raw.Summary.Fatal,
+		Fixable:     raw.Summary.Fixable,
+	}
+}
+
+// RunDoctorRepair 运行指定级别的修复，返回修复结果摘要。
+func (a *App) RunDoctorRepair(level int) string {
+	args := []string{}
+	if a.dshScript != "" {
+		args = append(args, a.dshScript)
+	}
+	args = append(args, "doctor", "--repair", "1")
+	if level >= 2 {
+		args[len(args)-1] = "2"
+	}
+	if level >= 3 {
+		args[len(args)-1] = "3"
+	}
+
+	cmd := exec.Command(a.dshCmd, args...)
+	cmd.Env = append(os.Environ(), "DSH_HOME="+a.home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "修复失败: " + err.Error() + "\n" + string(out)
+	}
+	return string(out)
 }
 
 // ConnectExternal 校验并连接外部服务。确认与探测不阻塞前端：

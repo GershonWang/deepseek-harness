@@ -44,8 +44,17 @@ interface PluginInvocation {
   args: string[]
 }
 
+/** Run the diagnostic doctor: check env/config/plugins and report issues. */
+interface DoctorInvocation {
+  mode: 'doctor'
+  /** When true, run repair at the requested level (default: no repair). */
+  repair?: number
+  /** Output JSON instead of human-readable text. */
+  json: boolean
+}
+
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | DoctorInvocation
 
 /** Launcher flags shared by the default command and the `web` alias. */
 interface BootOptions {
@@ -178,6 +187,43 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       if (options.profile === '') program.error('error: --profile needs a name')
       if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
       resolved = { mode: 'plugin', profile: options.profile, args }
+    })
+
+  const doctor = program.command('doctor')
+    .description('diagnose and repair common harness installation issues (env, config, plugins, data)')
+  doctor
+    .option('--json', 'output machine-readable JSON instead of human-readable text')
+    .option('--repair [level]', 'run auto-repair at the given level (1=mild, 2=moderate, 3=destructive); omit for level 1')
+    .action((_args: string[], opts: { json?: boolean; repair?: boolean | string }) => {
+      rejectParentOptions('doctor')
+      // Under the root command's passThroughOptions, subcommand boolean and
+      // optional-value flags sometimes don't pick up their values from argv.
+      // Fall back to scanning process.argv directly for reliability.
+      const argv = process.argv.slice(2)
+      const json = opts.json ?? argv.includes('--json')
+      let repair: number | undefined
+      if (opts.repair === true) repair = 1
+      else if (typeof opts.repair === 'string') {
+        const n = Number(opts.repair)
+        if (!Number.isInteger(n) || n < 1 || n > 3) {
+          program.error('error: --repair level must be 1, 2, or 3')
+        }
+        repair = n
+      } else {
+        const idx = argv.indexOf('--repair')
+        if (idx >= 0) {
+          const next = argv[idx + 1]
+          if (next === undefined || next.startsWith('-')) repair = 1
+          else {
+            const n = Number(next)
+            if (!Number.isInteger(n) || n < 1 || n > 3) {
+              program.error('error: --repair level must be 1, 2, or 3')
+            }
+            repair = n
+          }
+        }
+      }
+      resolved = { mode: 'doctor', json, ...repair !== undefined ? { repair } : {} }
     })
 
   try {
