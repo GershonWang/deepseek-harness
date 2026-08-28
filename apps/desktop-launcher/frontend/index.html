@@ -80,6 +80,25 @@
         <p class="hint">本机回环地址（127.0.0.1/localhost）无需安全确认；需要局域网访问时加 <code>--host &lt;LAN-IP&gt;</code> 重新启动。</p>
       </div>
     </section>
+
+      <!-- 启动加载页 -->
+      <section id="loading-page" class="loading-page hidden">
+        <div class="loading-spinner" aria-hidden="true"></div>
+        <h2>正在启动...</h2>
+        <p class="loading-hint">DeepSeek Harness 正在加载插件和服务，请稍候</p>
+      </section>
+
+      <!-- 启动失败页 -->
+      <section id="failed-page" class="failed-page hidden">
+        <div class="failed-icon" aria-hidden="true">⚠️</div>
+        <h2>启动失败</h2>
+        <div id="failed-reason" class="failed-reason"></div>
+        <div class="failed-actions">
+          <button id="btn-failed-doctor" class="btn btn-primary">诊断问题</button>
+          <button id="btn-failed-safe-mode" class="btn">以安全模式启动</button>
+        </div>
+        <p class="failed-log-hint">完整日志: ~/.cache/dsh-desktop/harness.log</p>
+      </section>
     </div>
   </main>
 
