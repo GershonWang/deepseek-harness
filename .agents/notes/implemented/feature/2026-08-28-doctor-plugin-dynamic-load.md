@@ -26,8 +26,7 @@ Third-party bundles live in `dsh.profile.bundles` in the profile's `package.json
 
 ## Deferred
 
-- Startup-failure auto-diagnosis in the desktop launcher (trigger the doctor when the supervisor enters `StateFailed`) is designed but not yet implemented.
-- The startup loading/failure pages in the desktop frontend are implemented; the auto-diagnosis popup that consumes the doctor result is not.
+None: the desktop launcher auto-diagnosis and startup pages landed with the check. The desktop supervisor runs a background doctor when it enters `StateFailed` (container mode), the frontend shows diagnosing progress on the failure page, and auto-opens the doctor report once the result is ready.
 
 ## Testing
 

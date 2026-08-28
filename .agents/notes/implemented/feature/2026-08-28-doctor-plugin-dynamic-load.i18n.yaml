@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-28-doctor-plugin-dynamic-load.md
-2026-08-28-doctor-plugin-dynamic-load.md: b5374f8264e6ed422279660ada1604d3ae1f4b14
-2026-08-28-doctor-plugin-dynamic-load.zh.md: b7cad032bf667af525feb45a51997a77a7891ed2
+2026-08-28-doctor-plugin-dynamic-load.md: c4455eaf8985582ffb65242b25aadf62327f7d41
+2026-08-28-doctor-plugin-dynamic-load.zh.md: ee1e3a06961a0472d83fec8976fb283d4ffec2d5

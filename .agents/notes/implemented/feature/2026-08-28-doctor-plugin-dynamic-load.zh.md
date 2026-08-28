@@ -26,8 +26,7 @@ doctor 的 plugin 分类此前只检查静态事实：profile bundle 能否解�
 
 ## Deferred
 
-- 桌面启动器里的启动失败自动诊断（supervisor 进入 `StateFailed` 时触发 doctor）已设计但尚未实现。
-- 桌面前端启动加载页/失败页已实现；消费 doctor 结果的自动诊断弹窗尚未实现。
+无：桌面启动器自动诊断与启动页已随检查一并落地。桌面 supervisor 进入 `StateFailed`（容器模式）时后台运行 doctor，前端失败页显示诊断进度，结果就绪后自动弹出诊断报告。
 
 ## Testing
 
