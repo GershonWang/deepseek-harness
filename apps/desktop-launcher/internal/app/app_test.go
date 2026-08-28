@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -116,5 +117,22 @@ func TestTrackStartupDoctor_ResetOnExitFailed(t *testing.T) {
 	if running || ready || doneOnce || errText != "" {
 		t.Fatalf("退出失败态后应重置全部诊断标志: running=%v ready=%v doneOnce=%v err=%q",
 			running, ready, doneOnce, errText)
+	}
+}
+
+func TestDoctorEnv_StripsSafeModeAndPointsDshHome(t *testing.T) {
+	t.Setenv("DSH_SAFE_MODE", "plugins")
+	t.Setenv("DSH_HOME", "/should-be-overridden")
+	a := &App{home: "/home/tester"}
+	env := map[string]string{}
+	for _, kv := range a.doctorEnv() {
+		key, value, _ := strings.Cut(kv, "=")
+		env[key] = value
+	}
+	if _, ok := env["DSH_SAFE_MODE"]; ok {
+		t.Fatalf("doctorEnv 不应携带 DSH_SAFE_MODE, got %q", env["DSH_SAFE_MODE"])
+	}
+	if got := env["DSH_HOME"]; got != "/home/tester/.dsh" {
+		t.Fatalf("DSH_HOME 应指向 a.home/.dsh, got %q", got)
 	}
 }

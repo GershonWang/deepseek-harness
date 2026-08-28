@@ -393,9 +393,15 @@ type DoctorReport struct {
 }
 
 // doctorEnv 构造 doctor 子进程环境：继承当前环境但剥离 DSH_SAFE_MODE，
-// 再覆盖 DSH_HOME。安全模式会令 loadProfile 跳过第三方 bundle，若让
-// doctor 继承它，诊断永远看不到真实安装中的第三方插件问题；
-// 诊断必须反映完整安装状态，安全模式只是修复手段。
+// 再覆盖 DSH_HOME 指向真实的 harness home（a.home/.dsh）。两个历史缺陷
+// 在此一并修复：
+//   - 安全模式会令 loadProfile 跳过第三方 bundle，若让 doctor 继承它，
+//     诊断永远看不到真实安装中的第三方插件问题；
+//   - 之前把 DSH_HOME 设成 a.home（用户主目录而非 ~/.dsh，主目录下没有
+//     profiles/settings/sessions），doctor 会在 $HOME 下自动初始化一个空的
+//     模板 profile（无第三方、无用户设置），诊断 12 项全绿但完全没检查
+//     真实安装。harness 子进程不设 DSH_HOME、由 node 落到 ~/.dsh，
+//     这里显式指向同一目录。
 func (a *App) doctorEnv() []string {
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
@@ -404,7 +410,7 @@ func (a *App) doctorEnv() []string {
 		}
 		env = append(env, kv)
 	}
-	return append(env, "DSH_HOME="+a.home)
+	return append(env, "DSH_HOME="+filepath.Join(a.home, ".dsh"))
 }
 
 // RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
