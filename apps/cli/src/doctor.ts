@@ -70,7 +70,7 @@ function formatHuman(report: DoctorReport): string {
 
   if (report.summary.fixable > 0) {
     lines.push('')
-    lines.push(`Run: dsh doctor --repair [level]  (level 1 = mild, 2 = moderate, 3 = destructive)`)
+    lines.push('Run: dsh doctor --repair [level]  (level 1 = mild, 2 = moderate, 3 = destructive)')
   }
 
   return lines.join('\n')

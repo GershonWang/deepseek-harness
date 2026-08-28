@@ -88,8 +88,8 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
   }
 
   const thirdParty = fullProfile.layers
-    .filter((l) => !l.packageName.startsWith(OFFICIAL_PREFIX))
-    .map((l) => l.packageName)
+    .filter(l => !l.packageName.startsWith(OFFICIAL_PREFIX))
+    .map(l => l.packageName)
 
   if (thirdParty.length === 0) {
     return {
@@ -114,13 +114,13 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
 
     const patchLines: string[] = []
     for (const bundleName of disabledBundles) {
-      const layer = fullProfile.layers.find((l) => l.packageName === bundleName)
+      const layer = fullProfile.layers.find(l => l.packageName === bundleName)
       if (!layer) continue
       for (const patch of layer.patches) {
         const id = patch.id
         if (!id) continue
         patchLines.push(`- id: ${String(id)}`)
-        patchLines.push(`  disabled: true`)
+        patchLines.push('  disabled: true')
       }
     }
     writeFileSync(tmpPatchPath, patchLines.join('\n') + '\n')
@@ -202,7 +202,7 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
       reason: 'No suspect remaining after binary search',
     }
   }
-  const verifyDisable = thirdParty.filter((b) => b !== finalCulprit)
+  const verifyDisable = thirdParty.filter(b => b !== finalCulprit)
   const verifyOk = tryLoadWithDisabled(verifyDisable)
 
   if (verifyOk) {
@@ -210,7 +210,7 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
       found: true,
       culprit: finalCulprit,
       attempts,
-      ruledOut: ruledOut.filter((b) => b !== finalCulprit),
+      ruledOut: ruledOut.filter(b => b !== finalCulprit),
     }
   }
 

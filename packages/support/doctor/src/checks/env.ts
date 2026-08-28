@@ -84,7 +84,7 @@ const envBootstrapEnv: DoctorCheck = {
       return {
         ok: false,
         message: `.env contains bootstrap-only variables that will prevent startup: ${bad.join(', ')}`,
-        detail: `These variables can only come from the inherited process environment; remove them from ~/.dsh/.env`,
+        detail: 'These variables can only come from the inherited process environment; remove them from ~/.dsh/.env',
         fixable: true,
         suggestedLevel: 1,
       }
