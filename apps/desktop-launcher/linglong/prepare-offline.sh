@@ -20,32 +20,42 @@ pnpm install --frozen-lockfile
 pnpm run build
 
 # 2. deploy dsh 闭包并修复（peer deps、符号链接实体化、legacy hoists）
+#    用 --config.node-linker=hoisted + 默认 auto-install-peers 让 pnpm 尽量
+#    装全 peer deps；legacy 模式下仍会漏掉纯 peer-only 的 workspace 包
+#    （动态插件架构下很多包只以 peerDep 存在），在 2.1 步统一补齐。
 pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
-  --config.auto-install-peers=false --config.node-linker=hoisted \
+  --config.node-linker=hoisted \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
-# 2.1 补装 pnpm deploy --prod + auto-install-peers=false 下被遗漏的
-#     vendored 包（纯 peerDependency 的包在 deploy 闭包里没有）。
-#     遍历 vendor/ 下所有包，将缺失的从源码直接复制进闭包。
-#     包名映射：
-#       vendor/cordis/             →  @deepseek-ai/cordis
-#       vendor/cosmokit/           →  @deepseek-ai/cosmokit
-#       vendor/schemastery/        →  @deepseek-ai/schemastery
-#       vendor/<name>/             →  @deepseek-ai/cordis-plugin-<name>   (其余)
-for vendir in vendor/*/; do
-  vendir=${vendir%/}
-  name=${vendir#vendor/}
-  case "$name" in
-    cordis|cosmokit|schemastery) pkg="@deepseek-ai/$name" ;;
-    *) pkg="@deepseek-ai/cordis-plugin-$name" ;;
-  esac
-  dest="$STAGE/harness/node_modules/$pkg"
-  if [ ! -d "$dest" ]; then
-    echo "prepare-offline: injecting vendored $pkg from $vendir"
+# 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
+#     v0.1.2-alpha.1 起大量包改为 peerDependency + devDependency 模式，
+#     deploy --prod 闭包里缺失。遍历 packages/ 和 vendor/ 下所有已构建的
+#     包，将闭包里没有的从源码工作区直接复制进去。
+#     跳过 test-support 与 typert-generator（仅开发/构建期用）。
+inject_workspace_pkg() {
+  pkgdir=$1
+  pkgname=$(node -e "console.log(require('./$pkgdir/package.json').name)" 2>/dev/null)
+  [ -z "$pkgname" ] && return 0
+  # 跳过非 @deepseek-ai 域的包
+  case "$pkgname" in @deepseek-ai/* ) ;; *) return 0 ;; esac
+  short=${pkgname#@deepseek-ai/}
+  dest="$STAGE/harness/node_modules/@deepseek-ai/$short"
+  if [ ! -d "$dest" ] && [ -d "$pkgdir/lib" ]; then
+    echo "prepare-offline: injecting $pkgname from $pkgdir"
     mkdir -p "$(dirname "$dest")"
-    cp -a "$vendir" "$dest"
+    cp -a "$pkgdir" "$dest"
   fi
+}
+
+for pkgdir in packages/*/*/; do
+  case "$pkgdir" in
+    */test-support/*|*/typert/generator/) continue ;;
+  esac
+  inject_workspace_pkg "$pkgdir"
+done
+for vendir in vendor/*/; do
+  inject_workspace_pkg "${vendir%/}"
 done
 
 # 2.5 注入外部链接桥：桌面壳 GUI 里的 target=_blank 外链在 Wails WebKitGTK
