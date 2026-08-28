@@ -1,20 +1,23 @@
 /**
  * Plugin-level diagnostic checks: profile bundle resolvability,
- * third-party inventory, and patch composability.
+ * third-party inventory, patch composability, and one live-load probe.
  *
- * Full activation dry-run is intentionally out of scope for the doctor:
- * the real harness startup already exercises that path via the supervisor.
- * The doctor focuses on static checks that catch the most common
- * upgrade-breakage scenarios without spinning up the full plugin tree.
+ * Most checks are static; `pluginDynamicLoadCheck` additionally spawns the
+ * loader-probe subprocess for a bounded real boot, catching plugin modules
+ * whose imports no longer resolve after an upgrade without starting the full
+ * supervisor path.
  *
  * @module @deepseek-ai/dsh-doctor/checks/plugins
  */
 
+import { execFile } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import {
   loadProfile,
   composeEntries,
 } from '@deepseek-ai/dsh-app-boot'
+import { bisectBy } from '../bisect-by.js'
 import type { DoctorCheck, CheckResult } from '../types.js'
 
 const require = createRequire(import.meta.url)
@@ -193,9 +196,135 @@ const pluginPatchTargets: DoctorCheck = {
   },
 }
 
+/** Profile the dynamic-load check probes; must match the static checks. */
+const DYNAMIC_PROFILE = 'web'
+/** Bound a single probe run before the probe itself reports a timeout. */
+const DYNAMIC_PROBE_TIMEOUT_MS = 60_000
+/** Upper bound for captured probe output (a failing load stack can be long). */
+const DYNAMIC_PROBE_MAX_BUFFER = 10 * 1024 * 1024
+/** The loader-probe subprocess, located next to this module. */
+const loaderProbePath = fileURLToPath(new URL('../loader-probe.ts', import.meta.url))
+
+interface LoaderProbeOutcome {
+  /** Exit code of the probe; -1 when the spawn itself failed. */
+  code: number
+  /** Captured stdout and stderr, trimmed and joined. */
+  output: string
+}
+
+/**
+ * Run the loader-probe subprocess against `dshHome`, loading every bundle
+ * layer when `include` is empty or only the named third-party subset.
+ * @param dshHome - harness home, passed as `--dsh-home`.
+ * @param include - third-party bundle names to load (`--include` per name).
+ * @returns the probe exit code and its captured output.
+ */
+function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<LoaderProbeOutcome> {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  // The explicit `--dsh-home` argument owns the home; a stray ambient
+  // DSH_HOME would otherwise redirect the probe to another installation.
+  delete env.DSH_HOME
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [
+        '--import', 'tsx/esm',
+        loaderProbePath,
+        '--dsh-home', dshHome,
+        '--profile', DYNAMIC_PROFILE,
+        '--timeout', String(DYNAMIC_PROBE_TIMEOUT_MS),
+        ...include.flatMap(name => ['--include', name]),
+      ],
+      { env, maxBuffer: DYNAMIC_PROBE_MAX_BUFFER, encoding: 'utf8' },
+      (error, stdout, stderr) => {
+        const output = [stdout, stderr].filter(Boolean).join('\n').trim()
+        if (error === null) {
+          resolve({ code: 0, output })
+        } else {
+          // A non-zero exit rejects with the numeric exit code; the -1 arm
+          // only fires when the probe binary itself cannot spawn.
+          /* v8 ignore next 3 -- no test can break process.execPath; the -1 arm keeps the outcome typed. */
+          resolve({
+            code: typeof error.code === 'number' ? error.code : -1,
+            output: output === '' ? error.message : output,
+          })
+        }
+      },
+    )
+  })
+}
+
+/**
+ * Load every third-party bundle once; on failure, binary-search which bundle
+ * breaks the load and report it. Failures only a real boot exposes (plugin
+ * modules importing dependencies the installation no longer provides) land
+ * here, so the report can name the culprit instead of the whole tree.
+ */
+export const pluginDynamicLoadCheck: DoctorCheck = {
+  id: 'plugin-dynamic-load',
+  name: '插件运行时兼容性',
+  category: 'plugin',
+  severity: 'fatal',
+  check: async (dshHome: string): Promise<CheckResult> => {
+    let thirdParty: string[]
+    try {
+      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+      thirdParty = profile.layers
+        .filter(layer => !isOfficialBundle(layer.packageName))
+        .map(layer => layer.packageName)
+    } catch (err) {
+      return {
+        ok: true,
+        message: `Cannot list third-party bundles (profile not loadable): ${(err as Error).message}`,
+        fixable: false,
+        suggestedLevel: 2,
+      }
+    }
+    if (thirdParty.length === 0) {
+      return { ok: true, message: '无第三方插件', fixable: false, suggestedLevel: 2 }
+    }
+
+    const full = await runLoaderProbe(dshHome, [])
+    if (full.code === 0) {
+      return {
+        ok: true,
+        message: `所有 ${thirdParty.length} 个第三方插件加载正常`,
+        fixable: false,
+        suggestedLevel: 2,
+      }
+    }
+
+    // The full tree failed to load; isolate the offending bundle. A subset
+    // "is bad" when loading only it still fails — with the full set failing
+    // and the empty set passing, bisectBy's contract holds.
+    const culprit = await bisectBy(thirdParty, async (subset) => {
+      const result = await runLoaderProbe(dshHome, subset)
+      return result.code !== 0
+    })
+
+    if (culprit !== null) {
+      return {
+        ok: false,
+        message: `插件 ${culprit} 导致启动失败（缺少运行依赖或损坏）`,
+        detail: full.output,
+        fixable: true,
+        suggestedLevel: 2,
+      }
+    }
+    return {
+      ok: false,
+      message: '第三方插件导致启动失败，未能定位',
+      detail: full.output,
+      fixable: false,
+      suggestedLevel: 2,
+    }
+  },
+}
+
 export const pluginChecks: DoctorCheck[] = [
   pluginBundlesResolvable,
   pluginPatchComposable,
   pluginPatchTargets,
   pluginThirdPartyList,
+  pluginDynamicLoadCheck,
 ]
