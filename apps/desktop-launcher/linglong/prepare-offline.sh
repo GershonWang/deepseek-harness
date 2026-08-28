@@ -25,6 +25,22 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
+# 2.1 补装 dsh-app-boot 必需但 pnpm deploy --prod + auto-install-peers=false
+#     下被遗漏的 vendored cordis 插件（peerDependency + devDependency 组合
+#     在 workspace 里能解析，deploy 后闭包里没有）。从源码 vendor 直接复制。
+MISSING_PKGS="cordis-plugin-group"
+for pkg in $MISSING_PKGS; do
+  dest="$STAGE/harness/node_modules/@deepseek-ai/$pkg"
+  if [ ! -d "$dest" ]; then
+    src="vendor/$(echo "$pkg" | sed 's/cordis-plugin-//')"
+    if [ -d "$src" ]; then
+      echo "prepare-offline: injecting vendored $pkg from $src"
+      mkdir -p "$(dirname "$dest")"
+      cp -a "$src" "$dest"
+    fi
+  fi
+done
+
 # 2.5 注入外部链接桥：桌面壳 GUI 里的 target=_blank 外链在 Wails WebKitGTK
 #     中开不了新窗口，需在打包的 GUI dist 里注入脚本，把点击 URL 经
 #     postMessage 交给启动器（BrowserOpenURL → 随包 xdg-open → 宿主 portal）。
