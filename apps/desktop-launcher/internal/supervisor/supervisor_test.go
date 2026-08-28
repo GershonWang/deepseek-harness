@@ -27,6 +27,28 @@ func TestReadyRegex_WithLAN(t *testing.T) {
 	}
 }
 
+func TestReadyRegex_WithToken(t *testing.T) {
+	line := "dsh web: http://127.0.0.1:34567/?token=abc123XYZ"
+	match := readyPattern.FindStringSubmatch(line)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match[1] != "http://127.0.0.1:34567/?token=abc123XYZ" {
+		t.Errorf("expected URL with token, got %s", match[1])
+	}
+}
+
+func TestReadyRegex_WithTokenAndLAN(t *testing.T) {
+	line := "dsh web: http://127.0.0.1:34567/?token=abc123 (LAN: http://192.168.1.100:34567/?token=abc123)"
+	match := readyPattern.FindStringSubmatch(line)
+	if match == nil {
+		t.Fatal("expected match")
+	}
+	if match[1] != "http://127.0.0.1:34567/?token=abc123" {
+		t.Errorf("expected URL with token (without LAN suffix), got %s", match[1])
+	}
+}
+
 func TestReadyRegex_NoMatch(t *testing.T) {
 	lines := []string{
 		"Hello world",

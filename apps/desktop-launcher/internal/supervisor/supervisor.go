@@ -19,7 +19,8 @@ import (
 )
 
 // readyPattern 匹配 dsh web 的就绪行。
-var readyPattern = regexp.MustCompile(`^dsh web:\s+(https?://127\.0\.0\.1:\d+)`)
+// v0.1.2-alpha.1 起 URL 带认证 token（?token=xxx），需捕获到空白前的完整 URL。
+var readyPattern = regexp.MustCompile(`^dsh web:\s+(https?://127\.0\.0\.1:\d+[^\s]*)`)
 
 // Options 监护参数。
 type Options struct {
