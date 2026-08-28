@@ -21,12 +21,14 @@ let inFlight: Promise<string | null> | undefined
 /**
  * Ask the shell for the current CLIPBOARD image.
  * @param timeoutMs - how long to wait for the shell reply.
- *   Defaults to 6 s to match the Go-side X11 read deadline so large images
- *   transferred via INCR don't time out on the client side first.
+ *   Defaults to 15 s: the shell probes CLIPBOARD, PRIMARY, text/uri-list and
+ *   Wayland in sequence, each with its own X11 deadline, and leveling the
+ *   client wait below that chain would make slow-but-good pastes report as
+ *   "no image".
  * @returns base64 image data, or null when absent, refused, or timed out.
  * Concurrent callers share one request.
  */
-export function requestClipboardImage(timeoutMs = 6000): Promise<string | null> {
+export function requestClipboardImage(timeoutMs = 15000): Promise<string | null> {
   if (!isShellEmbedded()) return Promise.resolve(null)
   if (inFlight !== undefined) return inFlight
   inFlight = new Promise<string | null>((resolve) => {

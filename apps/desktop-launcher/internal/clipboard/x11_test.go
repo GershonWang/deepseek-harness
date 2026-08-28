@@ -2,7 +2,9 @@ package clipboard
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
+	"hash/crc32"
 	"io"
 	"net"
 	"os"
@@ -14,7 +16,7 @@ import (
 // TestReadImageSimple drives ReadImage through a fake X server that hands
 // back a small PNG immediately (no INCR).
 func TestReadImageSimple(t *testing.T) {
-	png := []byte{0x89, 'P', 'N', 'G', 1, 2, 3}
+	png := makeTestPNG(64, 64)
 	server := newFakeXServer(t, png, false)
 	data, err := ReadImage()
 	if err != nil {
@@ -26,19 +28,45 @@ func TestReadImageSimple(t *testing.T) {
 	}
 }
 
-// TestReadImageINCR covers the incremental transfer path used for big payloads.
-func TestReadImageINCR(t *testing.T) {
-	png := bytes.Repeat([]byte{0x89, 'P', 'N', 'G', 3, 4}, 3000) // > property chunk
-	server := newFakeXServer(t, png, true)
-	data, err := ReadImage()
-	if err != nil {
-		t.Fatalf("ReadImage: %v", err)
+// TestGetPropertyDeleteFlag pins the X11 INCR requirement: every GetProperty
+// the client sends carries the delete flag set in the request header's second
+// byte. Without it, an incremental selection transfer accumulates property
+// bytes and the assembled image is corrupted (blank preview / bad format).
+func TestGetPropertyDeleteFlag(t *testing.T) {
+	var got []byte
+	rec := &recordingConn{write: func(p []byte) { got = append(got, p...) }}
+	x := &xconn{c: rec, requesterWindow: 0x100001}
+	payload := make([]byte, 20)
+	binary.LittleEndian.PutUint32(payload[4:8], 0x300)
+	if err := x.send(20, payload, 1); err != nil {
+		t.Fatalf("send: %v", err)
 	}
-	server.wait()
-	if !bytes.Equal(data, png) {
-		t.Fatalf("got %d bytes, want %d", len(data), len(png))
+	// Header layout: opcode(1) delete(1) length(2).
+	if len(got) < 4 || got[0] != 20 || got[1] != 1 {
+		t.Fatalf("GetProperty header = %x, want opcode 20 with delete=1", got[:4])
 	}
 }
+
+// recordingConn records every write for wire-level assertions.
+type recordingConn struct {
+	write func(p []byte)
+}
+
+func (r *recordingConn) Write(p []byte) (int, error) { r.write(p); return len(p), nil }
+func (r *recordingConn) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (r *recordingConn) Close() error                { return nil }
+func (r *recordingConn) LocalAddr() net.Addr         { return recAddr("rec") }
+func (r *recordingConn) RemoteAddr() net.Addr        { return recAddr("rec") }
+func (r *recordingConn) SetDeadline(time.Time) error { return nil }
+func (r *recordingConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+func (r *recordingConn) SetWriteDeadline(time.Time) error { return nil }
+
+type recAddr string
+
+func (a recAddr) Network() string { return "rec" }
+func (a recAddr) String() string  { return string(a) }
 
 // TestReadImageEmpty reports an empty selection without an error.
 func TestReadImageEmpty(t *testing.T) {
@@ -77,10 +105,14 @@ func TestLoadXauthCookie(t *testing.T) {
 // ---------- fake X server ----------
 
 type fakeXServer struct {
-	t    *testing.T
-	png  []byte
-	incr bool
-	done chan struct{}
+	t          *testing.T
+	png        []byte
+	incr       bool
+	done       chan struct{}
+	incrSent   bool
+	atoms      map[string]uint32
+	lastTarget uint32
+	nextAtom   uint32
 }
 
 func newFakeXServer(t *testing.T, png []byte, incr bool) *fakeXServer {
@@ -91,7 +123,8 @@ func newFakeXServer(t *testing.T, png []byte, incr bool) *fakeXServer {
 	origConn := connectSocket
 	connectSocket = func() (net.Conn, error) { return cliConn, nil }
 	t.Cleanup(func() { connectSocket = origConn })
-	fs := &fakeXServer{t: t, png: png, incr: incr, done: make(chan struct{})}
+	fs := &fakeXServer{t: t, png: png, incr: incr, done: make(chan struct{}),
+		atoms: map[string]uint32{}, nextAtom: 0x200}
 	go fs.serve(srvConn)
 	return fs
 }
@@ -129,7 +162,6 @@ func (f *fakeXServer) serve(c net.Conn) {
 		f.t.Errorf("setup reply: %v", err)
 		return
 	}
-	nextAtom := uint32(0x200)
 	prop := uint32(0x300)
 	// request loop
 	for {
@@ -147,15 +179,23 @@ func (f *fakeXServer) serve(c net.Conn) {
 		case 1, 8: // CreateWindow/MapWindow: acknowledge without a reply
 			continue
 		case 16: // InternAtom
-			nextAtom++
-			reply(c, nextAtom)
+			nlen := int(binary.LittleEndian.Uint16(payload[0:2]))
+			name := string(payload[4 : 4+nlen])
+			if a, ok := f.atoms[name]; ok {
+				reply(c, a)
+				continue
+			}
+			f.nextAtom++
+			f.atoms[name] = f.nextAtom
+			reply(c, f.nextAtom)
 		case 23: // GetSelectionOwner
 			owner := uint32(0)
 			if f.png != nil {
 				owner = 0x500
 			}
 			reply(c, owner)
-		case 24: // ConvertSelection
+		case 24: // ConvertSelection: window(0-3) sel(4-7) target(8-11) prop(12-15)
+			f.lastTarget = binary.LittleEndian.Uint32(payload[8:12])
 			// SelectionNotify event: type 31, prop at offset 24
 			ev := make([]byte, 32)
 			ev[0] = 31
@@ -166,21 +206,20 @@ func (f *fakeXServer) serve(c net.Conn) {
 				return
 			}
 		case 20: // GetProperty
-			if f.incr {
-				// First read: type INCR, bytes-after huge, one chunk.
-				writePropReplyAfter(c, 0x201, f.png, uint32(len(f.png)))
-				// Then a PropertyNotify and an empty read with after=0.
-				pn := make([]byte, 32)
-				pn[0] = 28
-				pn[1] = 0
-				binary.LittleEndian.PutUint32(pn[8:12], prop)
-				if _, err := c.Write(pn); err != nil {
-					return
-				}
-				writePropReplyAfter(c, 0x201, nil, 0)
+			// X11 INCR requires the client to delete each segment it reads.
+			if h[1] != 1 {
+				f.t.Errorf("GetProperty delete flag = %d, want 1", h[1])
 				return
 			}
-			writePropReplyAfter(c, 0x200, f.png, 0)
+			switch f.lastTarget {
+			case f.atoms["TARGETS"]:
+				// Advertise nothing: the client then tries every format.
+				writePropReplyAfter(c, f.atoms["ATOM"], nil, 0)
+			case f.atoms["image/png"]:
+				writePropReplyAfter(c, f.atoms["image/png"], f.png, 0)
+			default:
+				writePropReplyAfter(c, f.atoms["ATOM"], nil, 0)
+			}
 		default:
 			f.t.Errorf("unexpected opcode %d", op)
 			return
@@ -193,6 +232,40 @@ func reply(c net.Conn, value uint32) {
 	hdr[0] = 1
 	binary.LittleEndian.PutUint32(hdr[8:12], value)
 	_, _ = c.Write(hdr)
+}
+
+// makeTestPNG builds a real, valid PNG (gradient RGB, no alpha) of the given
+// dimensions so the plausibility filter and pixel decoding accept it.
+func makeTestPNG(w, h int) []byte {
+	var raw bytes.Buffer
+	for y := 0; y < h; y++ {
+		raw.WriteByte(0) // filter: none
+		for x := 0; x < w; x++ {
+			raw.WriteByte(byte(x * 255 / w))
+			raw.WriteByte(byte(y * 255 / h))
+			raw.WriteByte(byte((x + y) * 255 / (w + h)))
+		}
+	}
+	var comp bytes.Buffer
+	zw := zlib.NewWriter(&comp)
+	_, _ = zw.Write(raw.Bytes())
+	_ = zw.Close()
+	out := new(bytes.Buffer)
+	chunk := func(tag string, data []byte) {
+		_ = binary.Write(out, binary.BigEndian, uint32(len(data)))
+		out.WriteString(tag)
+		out.Write(data)
+		_ = binary.Write(out, binary.BigEndian, crc32.ChecksumIEEE(append([]byte(tag), data...)))
+	}
+	var ihdr bytes.Buffer
+	_ = binary.Write(&ihdr, binary.BigEndian, uint32(w))
+	_ = binary.Write(&ihdr, binary.BigEndian, uint32(h))
+	ihdr.Write([]byte{8, 2, 0, 0, 0})
+	out.Write([]byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a})
+	chunk("IHDR", ihdr.Bytes())
+	chunk("IDAT", comp.Bytes())
+	chunk("IEND", nil)
+	return out.Bytes()
 }
 
 func writePropReplyAfter(c net.Conn, ptype uint32, data []byte, after uint32) {

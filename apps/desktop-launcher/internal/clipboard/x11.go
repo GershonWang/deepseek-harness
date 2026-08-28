@@ -385,13 +385,16 @@ func readFullUntil(c net.Conn, buf []byte) (int, error) {
 // send writes one request: 4-byte header (opcode, pad, length in words) then
 // the 4-byte-aligned payload. length counts the whole request including the
 // header.
-func (x *xconn) send(opcode byte, payload []byte) error {
+func (x *xconn) send(opcode byte, payload []byte, pad ...byte) error {
 	padded := payload
 	if r := len(payload) % 4; r != 0 {
 		padded = append(append([]byte{}, payload...), make([]byte, 4-r)...)
 	}
 	words := uint16(1 + len(padded)/4)
 	hdr := []byte{opcode, 0, 0, 0}
+	if len(pad) > 0 {
+		hdr[1] = pad[0]
+	}
 	binary.LittleEndian.PutUint16(hdr[2:4], words)
 	if _, err := x.c.Write(hdr); err != nil {
 		return err
@@ -531,7 +534,8 @@ func (x *xconn) getProperty(prop, expectedType, incr uint32) (uint32, []byte, er
 			if hdr[0] != 28 { // PropertyNotify
 				continue
 			}
-			if binary.LittleEndian.Uint32(hdr[8:12]) != prop {
+			// PropertyNotify: window at bytes 8-11, property atom at 12-15.
+			if binary.LittleEndian.Uint32(hdr[12:16]) != prop {
 				continue
 			}
 			_, after, chunk, err := x.getPropertyOnce(prop, expectedType)
@@ -555,7 +559,11 @@ func (x *xconn) getPropertyOnce(prop, expectedType uint32) (uint32, uint32, []by
 	binary.LittleEndian.PutUint32(payload[8:12], expectedType) // 0 = any
 	binary.LittleEndian.PutUint32(payload[12:16], 0)
 	binary.LittleEndian.PutUint32(payload[16:20], 1<<20)
-	if err := x.send(20, payload); err != nil { // GetProperty
+	// GetProperty: the request header's second byte is the delete flag. X11
+	// INCR protocol requires the client to delete each segment it reads;
+	// without it, later reads return the accumulated property and the INCR
+	// assembly below duplicates every chunk, corrupting the image bytes.
+	if err := x.send(20, payload, 1); err != nil { // GetProperty (delete = True)
 		return 0, 0, nil, err
 	}
 	hdr, extra, err := x.readReplySkipEvents()
