@@ -72,6 +72,10 @@ async function writeBundle(
     name: bundleName,
     version: '1.0.0',
     private: true,
+    // 插件模块是 ESM（.js 含 import/export）：不声明 type:module 会被 Node 当
+    // CJS require，含 import 语法时抛 ERR_REQUIRE_CYCLE_MODULE 而非真实的
+    // 模块缺失错误（与真实 ESM 插件行为一致）。
+    type: 'module',
     dsh: { bundle: { patch: './cordis.patch.yml' } },
   }, undefined, 2) + '\n')
   await writeFile(join(dir, 'cordis.patch.yml'), patch)
