@@ -392,6 +392,21 @@ type DoctorReport struct {
 	Error       string // 非空表示 doctor 命令本身执行失败
 }
 
+// doctorEnv 构造 doctor 子进程环境：继承当前环境但剥离 DSH_SAFE_MODE，
+// 再覆盖 DSH_HOME。安全模式会令 loadProfile 跳过第三方 bundle，若让
+// doctor 继承它，诊断永远看不到真实安装中的第三方插件问题；
+// 诊断必须反映完整安装状态，安全模式只是修复手段。
+func (a *App) doctorEnv() []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "DSH_SAFE_MODE=") {
+			continue
+		}
+		env = append(env, kv)
+	}
+	return append(env, "DSH_HOME="+a.home)
+}
+
 // RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
 func (a *App) RunDoctor() DoctorReport {
 	args := []string{}
@@ -401,7 +416,7 @@ func (a *App) RunDoctor() DoctorReport {
 	args = append(args, "doctor", "--json")
 
 	cmd := exec.Command(a.dshCmd, args...)
-	cmd.Env = append(os.Environ(), "DSH_HOME="+a.home)
+	cmd.Env = a.doctorEnv()
 	out, err := cmd.Output()
 	if err != nil {
 		return DoctorReport{Error: err.Error()}
@@ -478,7 +493,7 @@ func (a *App) RunDoctorRepair(level int) string {
 	}
 
 	cmd := exec.Command(a.dshCmd, args...)
-	cmd.Env = append(os.Environ(), "DSH_HOME="+a.home)
+	cmd.Env = a.doctorEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "修复失败: " + err.Error() + "\n" + string(out)

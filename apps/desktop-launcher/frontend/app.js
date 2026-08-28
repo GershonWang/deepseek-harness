@@ -565,7 +565,14 @@ function init() {
     const sevColor = { fatal: "#f48771", error: "#f48771", warning: "#cca700", info: "#75beff" };
     const statusColor = (ok, sev) => ok ? "#89d185" : (sevColor[sev] || "#ccc");
 
+    // 安全模式提示：安全模式下第三方插件被跳过，诊断看到的是不完整的安装
+    // 状态（可能误报"无第三方插件"并漏掉插件问题），提示用户先退出安全模式。
+    const safeModeNotice = state.status && state.status.SafeMode
+      ? '<div class="doctor-auto-hint">当前以安全模式运行（已跳过第三方插件），诊断结果不完整。请先退出安全模式再重新诊断。</div>'
+      : "";
+
     $("#doctor-summary").innerHTML =
+      safeModeNotice +
       `<strong>共 ${r.Total} 项</strong>：` +
       `<span style="color:#89d185">✓ ${r.OK} 通过</span>，` +
       `<span style="color:#f48771">✗ ${r.Failed} 失败</span>` +

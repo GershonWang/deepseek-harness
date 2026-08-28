@@ -107,7 +107,7 @@ function formatRepairHuman(report: RepairReport): string {
 /**
  * Run the doctor command and return the process exit code.
  * @param options - doctor invocation options.
- * @returns process exit code (0 = all ok / repair succeeded, 1 = issues found).
+ * @returns process exit code (0 = all ok / repair succeeded or nothing to repair, 1 = issues found or repairs pending).
  */
 export async function runDoctor(options: DoctorOptions): Promise<number> {
   if (options.repair !== undefined) {
@@ -117,7 +117,9 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     } else {
       console.log(formatRepairHuman(report))
     }
-    return report.applied.length > 0 ? 0 : 1
+    // 没有跳过项说明没有任何失败项需要处理（全部通过或修复已应用）——
+    // "无可修"不是错误；有跳过项才表示仍有未完成的问题。
+    return report.skipped.length === 0 ? 0 : 1
   }
 
   const report = await runDiagnosis()
