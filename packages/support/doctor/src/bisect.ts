@@ -20,6 +20,7 @@ import { join } from 'node:path'
 import { loadProfile, PROFILE_PATCH_FILENAME } from '@deepseek-ai/dsh-app-boot'
 import type { Profile } from '@deepseek-ai/dsh-app-boot'
 import { createRequire } from 'node:module'
+import { bisectBy } from './bisect-by.js'
 
 const OFFICIAL_PREFIX = '@deepseek-ai/'
 
@@ -101,14 +102,16 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
     }
   }
 
-  const suspects = [...thirdParty]
-  const ruledOut: string[] = []
-  let attempts = 0
-
   const tmpPatchDir = join(options.dshHome ?? '/tmp/dsh-doctor-bisect', 'profiles', profileName)
   mkdirSync(tmpPatchDir, { recursive: true })
   const tmpPatchPath = join(tmpPatchDir, PROFILE_PATCH_FILENAME)
 
+  let attempts = 0
+
+  /**
+   * Disable the given set of bundles by writing a patch file and loading.
+   * Returns true when the load succeeds (no error thrown).
+   */
   function tryLoadWithDisabled(disabledBundles: string[]): boolean {
     attempts += 1
 
@@ -159,66 +162,29 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
     }
   }
 
-  // Binary search: narrow down the suspects
-  let low = 0
-  let high = suspects.length - 1
+  // Use the generic bisectBy framework.
+  // The predicate answers: "does the profile still fail when only the given
+  // subset of third-party bundles is enabled?" — i.e. the bad behavior
+  // (load failure) is still present.
+  const culprit = await bisectBy(thirdParty, async (subset) => {
+    const toDisable = thirdParty.filter(b => !subset.includes(b))
+    return !tryLoadWithDisabled(toDisable)
+  })
 
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2)
-    const toDisable = suspects.slice(low, mid + 1)
-    const alreadyRuled = suspects.slice(0, low)
-    const allDisabled = [...alreadyRuled, ...toDisable]
-
-    const loadsOk = tryLoadWithDisabled(allDisabled)
-
-    if (loadsOk) {
-      // Disabling the first half fixed it → culprit is in the first half
-      high = mid
-      // The second half is now ruled out
-      for (let i = mid + 1; i <= high; i++) {
-        const name = suspects[i]
-        if (name && !ruledOut.includes(name)) ruledOut.push(name)
-      }
-    } else {
-      // Still fails → culprit is in the second half
-      low = mid + 1
-      // The first half is ruled out
-      for (let i = low - 1; i >= 0; i--) {
-        const name = suspects[i]
-        if (!name || ruledOut.includes(name)) break
-        ruledOut.push(name)
-      }
-    }
-  }
-
-  // Verify the final suspect
-  const finalCulprit = suspects[low] ?? ''
-  if (!finalCulprit) {
+  if (!culprit) {
     return {
       found: false,
       culprit: '',
       attempts,
-      ruledOut,
-      reason: 'No suspect remaining after binary search',
-    }
-  }
-  const verifyDisable = thirdParty.filter(b => b !== finalCulprit)
-  const verifyOk = tryLoadWithDisabled(verifyDisable)
-
-  if (verifyOk) {
-    return {
-      found: true,
-      culprit: finalCulprit,
-      attempts,
-      ruledOut: ruledOut.filter(b => b !== finalCulprit),
+      ruledOut: [],
+      reason: 'Binary search inconclusive — issue may involve multiple bundles interacting',
     }
   }
 
   return {
-    found: false,
-    culprit: '',
+    found: true,
+    culprit,
     attempts,
-    ruledOut,
-    reason: 'Binary search inconclusive — issue may involve multiple bundles interacting',
+    ruledOut: thirdParty.filter(b => b !== culprit),
   }
 }
