@@ -34,20 +34,22 @@ const (
 
 // FrontendStatus 是 Web 壳每次状态刷新收到的快照。
 type FrontendStatus struct {
-	Mode          string // "container" | "external"
-	State         string // "starting" | "running" | "stopped"
-	URL           string
-	PID           int
-	LastExit      string
-	ExternalURL   string
-	ConnectError  string
-	Target        string // 前端 iframe 应加载的地址；空串表示显示引导页
-	Busy          bool
-	CanStart      bool
-	CanStop       bool
-	CanConnect    bool
-	CanDisconnect bool
-	SafeMode      string // "" | "plugins" | "config" | "full"
+	Mode               string // "container" | "external"
+	State              string // "starting" | "running" | "stopped"
+	URL                string
+	PID                int
+	LastExit           string
+	ExternalURL        string
+	ConnectError       string
+	Target             string // 前端 iframe 应加载的地址；空串表示显示引导页
+	Busy               bool
+	StartupDiagnosing  bool // 是否正在进行启动失败自动诊断
+	StartupDoctorReady bool // 自动诊断结果已就绪（本次失败周期内）
+	CanStart           bool
+	CanStop            bool
+	CanConnect         bool
+	CanDisconnect      bool
+	SafeMode           string // "" | "plugins" | "config" | "full"
 }
 
 // ToolRow 是工具链表格的一行。
@@ -98,12 +100,18 @@ type App struct {
 	configPath string
 	home       string
 	ctx        context.Context
-	dshCmd     string   // dsh executable / node binary
-	dshScript  string   // path to dsh bin script (empty when dshCmd is itself the dsh bin)
+	dshCmd     string // dsh executable / node binary
+	dshScript  string // path to dsh bin script (empty when dshCmd is itself the dsh bin)
 
 	mu           sync.Mutex
 	externalBusy bool
 	safeMode     string // "plugins" | "config" | "full" | ""
+
+	// 启动失败自动诊断状态（受 mu 保护；语义按失败周期计）。
+	startupDoctorRunning  bool   // 自动诊断是否正在后台运行
+	startupDoctorReady    bool   // 自动诊断结果是否已就绪（本失败周期内）
+	startupDoctorDoneOnce bool   // 本次失败周期是否已触发过诊断（防重复触发）
+	startupDoctorError    string // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
 }
 
 // New 创建应用控制器并启动 harness 监护。
@@ -152,11 +160,16 @@ func (a *App) OnShutdown(_ context.Context) {
 func (a *App) tick(ctx context.Context) {
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
+	// 上一次状态，用于启动失败边沿检测（tick 是常驻 goroutine，局部变量即可）。
+	prevState := a.sup.Status().State
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			curState := a.sup.Status().State
+			a.trackStartupDoctor(prevState, curState)
+			prevState = curState
 			a.emitStatus()
 		}
 	}
@@ -190,12 +203,84 @@ func (a *App) isBusy() bool {
 	return a.externalBusy
 }
 
+// trackStartupDoctor 维护启动失败自动诊断状态：进入失败态触发一次后台诊断，
+// 退出失败态（用户手动 Restart/StartSafeMode）重置本周期标志。
+// 边沿检测幂等：仅状态真正变化时动作，每秒轮询不会重复触发。
+func (a *App) trackStartupDoctor(prev, cur domain.HarnessState) {
+	if maybeStartStartupDoctor(prev, cur, a.conn.Mode()) {
+		a.startStartupDoctor()
+		return
+	}
+	if exitFailedEdge(prev, cur) {
+		a.resetStartupDoctor()
+	}
+}
+
+// maybeStartStartupDoctor 判断状态边沿是否应自动触发启动失败诊断：
+// 从非 failed 变为 failed，且处于容器模式（外置模式由用户显式触达，无需诊断）。
+// 纯函数便于单测；同周期防重由调用方 startupDoctorDoneOnce 保证。
+func maybeStartStartupDoctor(prev, cur domain.HarnessState, mode domain.Mode) bool {
+	return prev != domain.StateFailed && cur == domain.StateFailed && mode == domain.ModeContainer
+}
+
+// exitFailedEdge 判断是否刚退出失败态（用户手动 Restart/StartSafeMode），
+// 用于重置本失败周期的自动诊断状态。
+func exitFailedEdge(prev, cur domain.HarnessState) bool {
+	return prev == domain.StateFailed && cur != domain.StateFailed
+}
+
+// startStartupDoctor 触发一次后台自动诊断；本失败周期内只触发一次。
+// RunDoctor 可能耗时数秒（执行 dsh doctor），放独立 goroutine 运行，不阻塞状态轮询。
+func (a *App) startStartupDoctor() {
+	a.mu.Lock()
+	if a.startupDoctorDoneOnce {
+		a.mu.Unlock()
+		return
+	}
+	a.startupDoctorRunning = true
+	a.startupDoctorDoneOnce = true
+	a.mu.Unlock()
+
+	go func() {
+		report := a.RunDoctor()
+		a.mu.Lock()
+		if !a.startupDoctorRunning {
+			// 周期已被退出失败态重置，丢弃过期结果。
+			a.mu.Unlock()
+			return
+		}
+		a.startupDoctorRunning = false
+		a.startupDoctorReady = true
+		a.startupDoctorError = report.Error
+		a.mu.Unlock()
+		a.emitStatus()
+	}()
+}
+
+// resetStartupDoctor 清除本失败周期的自动诊断状态，等待下一次失败边沿重新触发。
+func (a *App) resetStartupDoctor() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.startupDoctorRunning = false
+	a.startupDoctorDoneOnce = false
+	a.startupDoctorReady = false
+	a.startupDoctorError = ""
+}
+
+// startupDoctorStatus 返回自动诊断的两个前端可见状态位。
+func (a *App) startupDoctorStatus() (diagnosing, ready bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.startupDoctorRunning, a.startupDoctorReady
+}
+
 // snapshot 组装当前完整状态。
 func (a *App) snapshot() FrontendStatus {
 	st := a.sup.Status()
 	mode := a.conn.Mode()
 	extURL := a.conn.ExternalURL()
 	busy := a.isBusy()
+	diagnosing, doctorReady := a.startupDoctorStatus()
 
 	var target string
 	switch mode {
@@ -207,20 +292,22 @@ func (a *App) snapshot() FrontendStatus {
 		}
 	}
 	s := FrontendStatus{
-		Mode:          modeName(mode),
-		State:         stateName(st.State),
-		URL:           st.URL,
-		PID:           st.PID,
-		LastExit:      st.LastExit,
-		ExternalURL:   extURL,
-		ConnectError:  a.conn.LastError(),
-		Target:        target,
-		Busy:          busy,
-		CanStart:      (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
-		CanStop:       (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
-		CanConnect:    mode == domain.ModeContainer && !busy,
-		CanDisconnect: mode == domain.ModeExternal && !busy,
-		SafeMode:      a.safeMode,
+		Mode:               modeName(mode),
+		State:              stateName(st.State),
+		URL:                st.URL,
+		PID:                st.PID,
+		LastExit:           st.LastExit,
+		ExternalURL:        extURL,
+		ConnectError:       a.conn.LastError(),
+		Target:             target,
+		Busy:               busy,
+		StartupDiagnosing:  diagnosing,
+		StartupDoctorReady: doctorReady,
+		CanStart:           (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
+		CanStop:            (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
+		CanConnect:         mode == domain.ModeContainer && !busy,
+		CanDisconnect:      mode == domain.ModeExternal && !busy,
+		SafeMode:           a.safeMode,
 	}
 	// 连接失败错误只在容器模式展示，成功后清除。
 	if mode != domain.ModeExternal {
@@ -281,14 +368,14 @@ func (a *App) ExitSafeMode() FrontendStatus {
 
 // DoctorCheck 是诊断结果中的单条检查（与 doctor 包 DoctorReportCheckEntry 对齐的前端视图）。
 type DoctorCheck struct {
-	ID       string
-	Name     string
-	Category string // "env" | "config" | "plugin" | "data"
-	Severity string // "info" | "warning" | "error" | "fatal"
-	OK       bool
-	Message  string
-	Detail   string
-	Fixable  bool
+	ID             string
+	Name           string
+	Category       string // "env" | "config" | "plugin" | "data"
+	Severity       string // "info" | "warning" | "error" | "fatal"
+	OK             bool
+	Message        string
+	Detail         string
+	Fixable        bool
 	SuggestedLevel int
 }
 
@@ -325,11 +412,11 @@ func (a *App) RunDoctor() DoctorReport {
 		DshHome     string `json:"dshHome"`
 		GeneratedAt string `json:"generatedAt"`
 		Checks      []struct {
-			ID             string `json:"id"`
-			Name           string `json:"name"`
-			Category       string `json:"category"`
-			Severity       string `json:"severity"`
-			Result         struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Category string `json:"category"`
+			Severity string `json:"severity"`
+			Result   struct {
 				OK             bool   `json:"ok"`
 				Message        string `json:"message"`
 				Detail         string `json:"detail"`
