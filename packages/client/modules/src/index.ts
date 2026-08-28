@@ -813,8 +813,21 @@ export class ClientModuleRegistry extends Service {
         ? internal.resolveSync(baseUrl, { specifier: loaderName, attributes: {} }).url
         : internal.resolveSync(loaderName, baseUrl, {}).url
     } catch {
-      // The Loader cannot resolve the name: its row cannot have imported, so
-      // the name is permanently not a client row.
+      // Node internal resolveSync signature varies across versions (vendored
+      // loader tags Node 24+ as v2, but some Node 24 builds still use the v1
+      // shape or throw on unknown option shapes). For bare package specifiers
+      // we can fall back to createRequire, which is enough to locate the
+      // package.json and read its dsh.client declaration.
+      if (expectedPackageName !== undefined) {
+        try {
+          return {
+            path: createRequire(baseUrl).resolve(`${expectedPackageName}/package.json`),
+            packageName: expectedPackageName,
+          }
+        } catch {
+          return undefined
+        }
+      }
       return undefined
     }
     return this.nearestPackage(moduleUrl, expectedPackageName)
