@@ -251,19 +251,33 @@ export function InputBar({
   const shellPaste = isShellEmbedded() && addImages !== undefined
 
   // Shell clipboard image paste: intercept paste at capture phase on the
-  // editor root so we can ask the host X11 clipboard for images before
-  // Lexical's PASTE_COMMAND fires. WebKitGTK withholds file items from the
-  // paste event even when the selection holds an image, so we fall back to
-  // the shell bridge. When the shell has no image we resume normal text paste.
+  // window so we catch it before Lexical's PASTE_COMMAND, regardless of which
+  // element in the editor tree was the original target. WebKitGTK withholds
+  // file items from the paste event even when the X11 CLIPBOARD selection
+  // holds an image, so we ask the host shell for the bitmap instead. When the
+  // shell has no image we resume normal text paste.
+  //
+  // We listen on window (not editor.getRootElement()) because the Lexical
+  // editor's DOM structure changed in v0.1.2-alpha.1 and paste events do not
+  // always bubble through the root element in a way capture listeners on the
+  // root can intercept.
   useEffect(() => {
     if (!shellPaste || editor === null) return
     const root = editor.getRootElement()
     if (root === null) return
     const onPaste = (e: ClipboardEvent): void => {
+      // Only handle pastes that target the editor or its descendants.
+      const target = e.target as Node | null
+      if (target === null || !root.contains(target)) return
       const items = e.clipboardData?.items
       if (items === undefined) return
-      // If the event already carries files, Lexical handles it natively.
-      if (Array.from(items).some(item => item.kind === 'file')) return
+      // If the event already carries a real image file, let Lexical handle it.
+      // (WebKitGTK usually withholds these, but in some paste paths they do
+      // show up — e.g. dragging a file in triggers a different flow.)
+      const hasImageFile = Array.from(items).some(
+        item => item.kind === 'file' && item.type.startsWith('image/'),
+      )
+      if (hasImageFile) return
       const text = e.clipboardData?.getData('text/plain') ?? ''
       e.preventDefault()
       e.stopPropagation()
@@ -278,8 +292,8 @@ export function InputBar({
         }
       })
     }
-    root.addEventListener('paste', onPaste, true) // capture phase, before Lexical
-    return () => { root.removeEventListener('paste', onPaste, true) }
+    window.addEventListener('paste', onPaste, true) // capture phase, before Lexical
+    return () => { window.removeEventListener('paste', onPaste, true) }
   }, [shellPaste, editor, keyboard])
 
   // The keymap handlers read live bar state through this ref so the editor
