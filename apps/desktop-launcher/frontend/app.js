@@ -3,7 +3,11 @@
 
 "use strict";
 
-const state = { status: null, prevConnectError: "", _stoppedTimer: null };
+const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false };
+
+// 由 init() 在 Wails 环境赋值为真实诊断函数；浏览器预览分支保持 null，
+// applyStatus 的自动弹窗逻辑据此安全跳过（不弹窗、不跑诊断）。
+let runDoctor = null;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -154,7 +158,82 @@ function applyStatus(s) {
     }
   }
 
+  updateStartupDoctor(s);
   renderServerDialog(s);
+}
+
+/* ---------- 启动失败自动诊断 ---------- */
+
+// 失败页的"正在自动诊断问题…"提示行：惰性创建一次，挂在 #failed-reason 之后。
+function autoDiagHintEl() {
+  let el = $("#auto-diag-hint");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "auto-diag-hint";
+    const reason = $("#failed-reason");
+    reason.parentNode.insertBefore(el, reason.nextSibling);
+  }
+  return el;
+}
+
+function setAutoDiagHint(text) {
+  const el = autoDiagHintEl();
+  el.textContent = text;
+  el.classList.remove("hidden");
+}
+
+function hideAutoDiagHint() {
+  const el = $("#auto-diag-hint");
+  if (el) el.classList.add("hidden");
+}
+
+// 自动弹窗提示条：插在 #doctor-summary 上方。runDoctor/renderDoctorReport 会用
+// textContent/innerHTML 整体重写 summary，提示条放兄弟节点才能跨渲染保留。
+function showDoctorAutoBanner() {
+  let banner = $("#doctor-auto-hint");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "doctor-auto-hint";
+    banner.className = "doctor-auto-hint";
+    banner.textContent = "检测到启动失败，已为你自动诊断";
+    const summary = $("#doctor-summary");
+    summary.parentNode.insertBefore(banner, summary);
+  }
+  banner.classList.remove("hidden");
+}
+
+function hideDoctorAutoBanner() {
+  const el = $("#doctor-auto-hint");
+  if (el) el.classList.add("hidden");
+}
+
+// 自动诊断状态处理：失败页提示诊断中/完成；StartupDoctorReady 首次变 true 时
+// 自动打开诊断弹窗并运行一次诊断。state._startupDoctorShown 保证每个失败周期
+// 只自动弹窗一次，退出失败态（用户手动重启/安全模式）后重置，下一周期可再触发。
+// 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
+function updateStartupDoctor(s) {
+  if (s.State !== "failed") {
+    state._startupDoctorShown = false;
+    hideAutoDiagHint();
+    hideDoctorAutoBanner();
+    return;
+  }
+
+  if (s.StartupDoctorReady) {
+    setAutoDiagHint("诊断完成");
+    if (!state._startupDoctorShown) {
+      state._startupDoctorShown = true;
+      if (runDoctor) {
+        openModal("doctor-modal");
+        runDoctor();
+        showDoctorAutoBanner();
+      }
+    }
+  } else if (s.StartupDiagnosing) {
+    setAutoDiagHint("正在自动诊断问题…");
+  } else {
+    hideAutoDiagHint();
+  }
 }
 
 function renderServerDialog(s) {
@@ -452,7 +531,8 @@ function init() {
     openModal("doctor-modal");
   });
 
-  // 失败页快捷操作：复用本作用域内声明的 runDoctor（函数声明提升）直接触发诊断。
+  // 失败页快捷操作：runDoctor 是模块级绑定，失败页按钮与 applyStatus 的
+  // 自动弹窗共用同一实现。
   $("#btn-failed-doctor").addEventListener("click", () => {
     openModal("doctor-modal");
     runDoctor();
@@ -461,7 +541,7 @@ function init() {
     applyStatus(await api().StartSafeMode());
   });
 
-  async function runDoctor() {
+  runDoctor = async function () {
     $("#doctor-summary").textContent = "正在诊断…";
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
@@ -472,7 +552,7 @@ function init() {
       $("#doctor-summary").textContent = "诊断失败: " + e.message;
       $("#doctor-start").classList.remove("hidden");
     }
-  }
+  };
 
   function renderDoctorReport(r) {
     if (r.Error) {
