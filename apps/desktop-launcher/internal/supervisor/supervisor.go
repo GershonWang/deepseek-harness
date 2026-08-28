@@ -22,6 +22,14 @@ import (
 // v0.1.2-alpha.1 起 URL 带认证 token（?token=xxx），需捕获到空白前的完整 URL。
 var readyPattern = regexp.MustCompile(`^dsh web:\s+(https?://127\.0\.0\.1:\d+[^\s]*)`)
 
+// fatalLoadPattern 匹配 harness 打印的确定性启动失败特征：插件树无法加载
+// （缺失依赖、语法错误、模块解析失败）。出现即表示重试无意义，supervisor
+// 直接进入失败态而非等待 StartupTimeoutMs 熔断——否则用户会看到"启动
+// 几秒后停止、重复数次"的卡顿（坏插件下每轮加载整个插件树耗时数秒）。
+var fatalLoadPattern = regexp.MustCompile(
+	`plugin tree failed to load|host preparation failed|ERR_MODULE_NOT_FOUND`,
+)
+
 // Options 监护参数。
 type Options struct {
 	RestartDelayMs    int
@@ -65,6 +73,7 @@ type Supervisor struct {
 	manuallyStopped bool
 	startCh         chan struct{}
 	sawReady        bool // 当前 spawn 周期是否已匹配就绪行
+	sawFatalLoad    bool // 当前 spawn 周期是否已出现确定性加载失败特征
 }
 
 // NewSupervisor 创建监护器并启动监护循环（初始态为 StateStarting，首次
@@ -262,14 +271,25 @@ func (s *Supervisor) run() {
 		}
 		manuallyStopped = s.manuallyStopped
 		sawReady := s.sawReady
+		sawFatalLoad := s.sawFatalLoad
 		s.mu.Unlock()
 		if manuallyStopped {
 			continue // 回到顶部,进入手动停止等待
 		}
 
 		// 启动失败判定：本次 spawn 从未匹配就绪行（start failed 或就绪前退出）。
-		// 累计超过 StartupTimeoutMs 则进入失败态停止重试，避免"启动中"无限卡死。
+		// 若 stderr 出现确定性加载失败特征（插件树无法加载），立即进入失败态，
+		// 重试没有意义——坏插件每次都会在加载阶段崩掉，等待熔断只会让用户
+		// 反复看到"启动几秒后停止、重复数次"。其余情况累计超过
+		// StartupTimeoutMs 才进入失败态，避免"启动中"无限卡死。
 		if !sawReady {
+			if sawFatalLoad {
+				s.mu.Lock()
+				s.state = domain.StateFailed
+				s.mu.Unlock()
+				s.logf("[supervisor] harness plugin load failed; giving up immediately")
+				continue
+			}
 			if failStart.IsZero() {
 				failStart = time.Now()
 			}
@@ -336,7 +356,7 @@ drained:
 		return nil
 	}
 	cmd.Stdout = io.MultiWriter(out, &readyScanner{sup: s})
-	cmd.Stderr = out
+	cmd.Stderr = io.MultiWriter(out, &failScanner{sup: s})
 
 	exited := make(chan struct{})
 	s.mu.Lock()
@@ -346,6 +366,7 @@ drained:
 	s.exited = exited
 	s.state = domain.StateStarting
 	s.sawReady = false
+	s.sawFatalLoad = false
 	s.url = ""
 	s.pid = 0
 	s.lastExit = ""
@@ -441,4 +462,34 @@ func (s *Supervisor) markReady(url string) {
 	s.state = domain.StateRunning
 	s.sawReady = true
 	s.url = url
+}
+
+// failScanner 逐行扫描 stderr，匹配确定性加载失败特征（插件树无法加载）。
+// 匹配即标记，run() 在进程退出后据此直接进入失败态，不再等待熔断。
+type failScanner struct {
+	sup *Supervisor
+	buf []byte
+}
+
+func (f *failScanner) Write(p []byte) (n int, err error) {
+	f.buf = append(f.buf, p...)
+	for {
+		idx := bytes.IndexByte(f.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := string(f.buf[:idx])
+		f.buf = f.buf[idx+1:]
+		if fatalLoadPattern.MatchString(line) {
+			f.sup.markFatalLoad()
+		}
+	}
+	return len(p), nil
+}
+
+// markFatalLoad 记录本次 spawn 已出现确定性加载失败特征。
+func (s *Supervisor) markFatalLoad() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sawFatalLoad = true
 }

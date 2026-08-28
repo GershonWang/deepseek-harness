@@ -153,3 +153,36 @@ func TestSupervisor_StartupFailureGivesUp(t *testing.T) {
 	sup.Stop()
 	sup.Wait()
 }
+
+// TestSupervisor_FatalLoadFailsFast 回归：stderr 出现确定性加载失败特征时，
+// 即使 StartupTimeoutMs 未到也应立即进入失败态，而不是继续退避重试——
+// 坏插件每轮加载整个插件树耗时数秒，等待熔断会让用户看到"启动几秒后
+// 停止、重复数次"的卡顿。
+func TestSupervisor_FatalLoadFailsFast(t *testing.T) {
+	// 默认 StartupTimeoutMs=30000:若快速失败路径未生效,2 秒内不可能进入 Failed。
+	sup := NewSupervisor(mockCfg(t, "testdata/mock-fail-plugin.sh"), DefaultOptions())
+	st := waitState(t, sup, domain.StateFailed)
+	if st.LastExit == "" {
+		t.Fatalf("失败态应保留退出原因,got %q", st.LastExit)
+	}
+	sup.Stop()
+	sup.Wait()
+}
+
+// TestSupervisor_NoFatalFeatureKeepsRetrying 对照：stderr 无失败特征时快速失败
+// 路径不触发——默认熔断期内仍在退避重试（尚未进入 Failed），保证快速失败只
+// 针对确定性特征，不误伤一般的启动失败。
+func TestSupervisor_NoFatalFeatureKeepsRetrying(t *testing.T) {
+	sup := NewSupervisor(mockCfg(t, "testdata/mock-fail-start.sh"), DefaultOptions())
+	// mock-fail-start.sh 立即退出(无特征),默认熔断 30s;快速失败仅在有特征时生效,
+	// 因此短暂观察期后状态不应是 Failed。
+	deadline := time.Now().Add(1500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if got := sup.Status(); got.State == domain.StateFailed {
+			t.Fatalf("无失败特征不应快速进入 Failed,state=%v", got.State)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	sup.Stop()
+	sup.Wait()
+}
