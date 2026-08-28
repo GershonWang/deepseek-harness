@@ -366,59 +366,69 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     }
   },
   fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
-    const located = await locateCulprit(dshHome)
+    const profileDir = resolveProfileDir('web', dshHome)
+    const manifestPath = join(profileDir, 'package.json')
+    const original = readFileSync(manifestPath, 'utf8')
+    const backupPath = join(backupDir, 'web-profile.package.json')
+
+    // 循环定位并移除所有导致加载失败的第三方 bundle：移除一个后重新全量
+    // 探测，若仍失败则继续定位下一个元凶（多个插件各自损坏时逐个清理），
+    // 直到全量探测通过或无法再定位。整轮以最初 manifest 为回滚基准：
+    // 任何一步的探测失败都不还原中间结果（已修好的保留），只有"全部移除
+    // 仍无法加载"才用最初备份整体还原，避免把能修的也丢回去。
+    let located = await locateCulprit(dshHome)
     if (!located.loadable) {
       return { ok: false, message: '无法读取 profile，无法自动修复' }
     }
     if (located.thirdParty.length === 0 || located.fullOk) {
       return { ok: true, message: '插件加载已正常，无需修复' }
     }
-    if (located.culprit === null) {
-      return { ok: false, message: '未能定位问题插件，无法自动修复' }
-    }
-    const culprit = located.culprit
 
-    // Third-party bundles are profile layers listed in `dsh.profile.bundles`,
-    // so disabling one means removing it from the manifest's bundle list —
-    // the same exclusion DSH_SAFE_MODE=plugins applies to every non-official
-    // bundle. Back up the raw manifest first and restore it on verify failure.
-    const profileDir = resolveProfileDir('web', dshHome)
-    const manifest = readProfileManifest('doctor', profileDir)
-    const bundles = manifest.dsh?.profile?.bundles ?? []
-    if (!bundles.includes(culprit)) {
-      return { ok: true, message: '插件加载已正常，无需修复' }
-    }
-
-    const manifestPath = join(profileDir, 'package.json')
-    const original = readFileSync(manifestPath, 'utf8')
-    const backupPath = join(backupDir, 'web-profile.package.json')
+    let current = readProfileManifest('doctor', profileDir)
+    let currentBundles = current.dsh?.profile?.bundles ?? []
+    const removed: string[] = []
     await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
 
-    writeProfileManifest(profileDir, {
-      ...manifest,
-      dsh: {
-        ...manifest.dsh,
-        profile: {
-          ...manifest.dsh?.profile,
-          bundles: bundles.filter(bundle => bundle !== culprit),
+    while (located.culprit !== null) {
+      const culprit = located.culprit
+      if (!currentBundles.includes(culprit)) break
+      currentBundles = currentBundles.filter(bundle => bundle !== culprit)
+      removed.push(culprit)
+      writeProfileManifest(profileDir, {
+        ...current,
+        dsh: {
+          ...current.dsh,
+          profile: {
+            ...current.dsh?.profile,
+            bundles: currentBundles,
+          },
         },
-      },
-    })
-
-    const verify = await runLoaderProbe(dshHome, [])
-    if (verify.code !== 0) {
-      await writeFileAtomic(manifestPath, original, { mode: 0o600 })
-      return {
-        ok: false,
-        message: `移除 ${culprit} 后加载仍然失败，已还原 profile manifest`,
-        backupPath,
+      })
+      // 移除后重新全量探测：通过则修复完成；仍失败则继续定位下一个元凶。
+      const verify = await runLoaderProbe(dshHome, [])
+      if (verify.code === 0) {
+        return {
+          ok: true,
+          message: `已从 profile bundles 移除导致加载失败的插件：${removed.join('、')}（原 manifest 已备份）`,
+          backupPath,
+        }
       }
+      located = await locateCulprit(dshHome)
+      if (!located.loadable) {
+        await writeFileAtomic(manifestPath, original, { mode: 0o600 })
+        return { ok: false, message: '修复过程中无法读取 profile，已还原 manifest', backupPath }
+      }
+      current = readProfileManifest('doctor', profileDir)
+      currentBundles = current.dsh?.profile?.bundles ?? []
     }
-    return {
-      ok: true,
-      message: `已从 profile bundles 移除导致加载失败的插件 ${culprit}（原 manifest 已备份）`,
-      backupPath,
-    }
+
+    // 所有第三方 bundle 已移除仍无法加载，或无法再定位元凶：整体还原，
+    // 保留备份供手动处理。
+    await writeFileAtomic(manifestPath, original, { mode: 0o600 })
+    const reason = removed.length > 0
+      ? `已移除 ${removed.length} 个插件仍无法加载，已还原 manifest`
+      : '未能定位问题插件，无法自动修复'
+    return { ok: false, message: reason, backupPath }
   },
 }
 

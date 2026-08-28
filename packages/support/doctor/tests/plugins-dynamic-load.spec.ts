@@ -261,5 +261,28 @@ describe('plugin-dynamic-load', () => {
       expect(result.ok).toBe(false)
       expect(result.message).toContain('未能定位')
     }, PROBE_BOUND)
+
+    it('removes every independently broken bundle, not just the first', async () => {
+      // 两个第三方 bundle 各自独立损坏（移除其一后另一个冒头）：修复应
+      // 循环定位并全部移除，直到全量探测通过 —— 对应真实环境的多个坏插件。
+      home = await mkdtemp(join(tmpdir(), 'dsh-dyn-repair-multi-'))
+      await writeProfile(home,
+        ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad-a', 'third-party-bad-b'])
+      for (const name of ['third-party-bad-a', 'third-party-bad-b']) {
+        await writeBundle(home, name, brokenPatch())
+        await writeBundleFile(home, name, 'broken-plugin.js',
+          `import { value } from '${MISSING_DEP}'\nexport default function () { void value }\n`)
+      }
+
+      const repair = await runRepair(2, home)
+
+      expect(repair.applied.map(a => a.checkId)).toContain('plugin-dynamic-load')
+      // 两个坏 bundle 都从 profile bundle 列表消失。
+      const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
+      expect(manifest.dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-sdk-minimal'])
+      // 修复后检查通过（只剩官方树可加载）。
+      const after = await pluginDynamicLoadCheck.check(home)
+      expect(after.ok).toBe(true)
+    }, PROBE_BOUND)
   })
 })
