@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, prevConnectError: "" };
+const state = { status: null, prevConnectError: "", _stoppedTimer: null };
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -86,6 +86,22 @@ function bindExternalLinks() {
 
 /* ---------- 状态渲染 ---------- */
 
+// 取消挂起的 stopped 防抖定时器（状态恢复时调用）。
+function clearStoppedTimer() {
+  if (state._stoppedTimer) {
+    clearTimeout(state._stoppedTimer);
+    state._stoppedTimer = null;
+  }
+}
+
+// 主舞台四选一展示：harness iframe / 引导页 / 启动加载页 / 启动失败页。
+function showStageOnly(el) {
+  for (const id of ["harness", "guidance", "loading-page", "failed-page"]) {
+    const node = document.getElementById(id);
+    node.classList.toggle("hidden", node !== el);
+  }
+}
+
 function applyStatus(s) {
   state.status = s;
 
@@ -109,17 +125,33 @@ function applyStatus(s) {
     text.textContent = "已停止" + (s.LastExit ? " (" + s.LastExit + ")" : "");
   }
 
-  // 目标：外部已连接 -> 外部 URL；容器运行中 -> 容器 URL；否则引导页。
+  // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页；
+  // 启动失败 -> 失败页（附失败原因）；手动停止（非重试间隙）-> 引导页。
   const frame = $("#harness");
-  const guide = $("#guidance");
   if (s.Target) {
+    clearStoppedTimer();
     if (frame.getAttribute("src") !== s.Target) frame.setAttribute("src", s.Target);
-    frame.classList.remove("hidden");
-    guide.classList.add("hidden");
+    showStageOnly(frame);
   } else {
-    frame.classList.add("hidden");
+    // 不展示 iframe 时清掉 src，避免后台继续加载
     frame.removeAttribute("src");
-    guide.classList.remove("hidden");
+    if (s.State === "starting") {
+      clearStoppedTimer();
+      showStageOnly($("#loading-page"));
+    } else if (s.State === "failed") {
+      clearStoppedTimer();
+      $("#failed-reason").textContent = s.LastExit || "";
+      showStageOnly($("#failed-page"));
+    } else if (s.State === "stopped") {
+      // supervisor 重试期间进程退出后会短暂变回 stopped（500ms~10s）再重新 starting，
+      // 延迟 1s 再切引导页，期间状态恢复由后续 applyStatus 的 clearStoppedTimer 取消。
+      if (!state._stoppedTimer) {
+        state._stoppedTimer = setTimeout(() => {
+          state._stoppedTimer = null;
+          showStageOnly($("#guidance"));
+        }, 1000);
+      }
+    }
   }
 
   renderServerDialog(s);
@@ -418,6 +450,15 @@ function init() {
   // 诊断与修复
   $("#btn-doctor").addEventListener("click", () => {
     openModal("doctor-modal");
+  });
+
+  // 失败页快捷操作：复用本作用域内声明的 runDoctor（函数声明提升）直接触发诊断。
+  $("#btn-failed-doctor").addEventListener("click", () => {
+    openModal("doctor-modal");
+    runDoctor();
+  });
+  $("#btn-failed-safe-mode").addEventListener("click", async () => {
+    applyStatus(await api().StartSafeMode());
   });
 
   async function runDoctor() {
