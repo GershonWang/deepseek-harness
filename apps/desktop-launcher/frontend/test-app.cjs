@@ -190,7 +190,7 @@ function buildHtml(document) {
     "about-repo", "about-version", "win-min", "win-max", "win-close", "titlebar",
     "btn-server", "btn-tools", "btn-about", "btn-doctor",
     "doctor-summary", "doctor-content", "doctor-checks", "doctor-start",
-    "doctor-refresh", "doctor-repair-1", "doctor-repair-2", "doctor-repair-output",
+    "doctor-refresh", "repair-plans", "doctor-repair-output",
     "ext-url", "tools-refresh", "host-add", "host-path", "host-name",
     "btn-safe-mode", "btn-exit-safe-mode",
   ];
@@ -404,6 +404,14 @@ test("StartupDoctorReady 自动弹窗并运行诊断，同周期只触发一次"
   assert.equal(h.runCalls.length, 1, "同周期不应重复运行诊断");
   assert.equal(h.document.querySelectorAll("#doctor-auto-hint").length, 1,
     "提示条不应重复创建");
+
+  // 修复方案区：mock 报告有一项 fixable(SuggestedLevel=2)，应渲染 L2 推荐卡
+  const plans = h.document.getElementById("repair-plans");
+  assert.equal(plans.classList.contains("hidden"), false, "有可修项时修复方案区应可见");
+  assert.match(plans.innerHTML, /轻度修复/, "L1 卡片应有说明");
+  assert.match(plans.innerHTML, /中度修复/, "L2 卡片应有说明");
+  assert.match(plans.innerHTML, /建议优先执行/, "应有推荐级别标记");
+  assert.match(plans.innerHTML, /插件加载/, "L2 卡片应列出可修检查项");
 });
 
 test("退出 failed 后标记重置，新失败周期可再次自动弹窗", async () => {

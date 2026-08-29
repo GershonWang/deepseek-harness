@@ -603,6 +603,72 @@ function init() {
 
     $("#doctor-checks").innerHTML = checksHtml;
     $("#doctor-content").classList.remove("hidden");
+    renderRepairPlans(r);
+  }
+
+  // 修复方案元数据：每个级别的名称、范围描述、适用场景、示例。
+  // 文案与 doctor 包的 RepairLevel 语义对齐（1=轻度，2=中度，3=深度）。
+  const REPAIR_PLAN_META = {
+    1: {
+      title: "轻度修复",
+      desc: "执行安全、可逆的调整，不修改用户数据。适合环境或配置层面的小问题。",
+      what: "环境变量提示、设置文件补全、缓存类修正",
+    },
+    2: {
+      title: "中度修复",
+      desc: "修改配置或插件列表解决冲突，操作前自动备份、失败自动回滚。适合插件不兼容或配置损坏。",
+      what: "禁用损坏的第三方插件、移除失效的配置引用，全程备份可还原",
+    },
+    3: {
+      title: "深度修复",
+      desc: "删除或重建损坏的数据与状态，无法回滚。适合数据文件损坏等严重问题。",
+      what: "清理损坏的会话记录、重建异常存储",
+    },
+  };
+
+  // 渲染修复方案区：按诊断结果动态列出每级可修项，并标记最高建议级别。
+  function renderRepairPlans(r) {
+    const failed = r.Checks.filter((c) => !c.OK);
+    // 可自动修复的检查项，按建议级别分组。
+    const fixableByLevel = (level) =>
+      failed.filter((c) => c.Fixable && c.SuggestedLevel <= level).map((c) => c.Name);
+    // 推荐级别：所有可修项中最大的 required 级别；无可修项则不显示。
+    const maxLevel = failed.reduce((acc, c) =>
+      (c.Fixable && c.SuggestedLevel > acc ? c.SuggestedLevel : acc), 0);
+
+    if (maxLevel === 0) {
+      $("#repair-plans").classList.add("hidden");
+      return;
+    }
+
+    const cards = [1, 2, 3].map((level) => {
+      const meta = REPAIR_PLAN_META[level];
+      const items = fixableByLevel(level);
+      const recommended = level === maxLevel;
+      const itemText = items.length > 0
+        ? items.slice(0, 4).map((n) => `<span class="repair-plan-item">${escapeHtml(n)}</span>`).join("")
+        : `<span class="repair-plan-item">本级无待修复项</span>`;
+      const recoBadge = recommended
+        ? `<span class="repair-plan-reco">★ 建议优先执行（覆盖 ${items.length} 项）</span>` : "";
+      return `
+        <div class="repair-plan${recommended ? " recommended" : ""}">
+          <div class="repair-plan-head">
+            <span class="repair-level-badge">L${level}</span>
+            <span class="repair-plan-title">${meta.title}</span>
+          </div>
+          <div class="repair-plan-desc">${meta.desc}</div>
+          <div class="repair-plan-items">${itemText}${recoBadge}</div>
+          <button class="btn ${level === 2 ? "btn-warn" : level === 3 ? "btn-danger" : "btn-primary"} repair-plan-btn"
+                  data-repair-level="${level}" ${recommended ? "" : "disabled"}>执行${meta.title}（L${level}）</button>
+        </div>`;
+    }).join("");
+
+    $("#repair-plans").innerHTML = cards;
+    $("#repair-plans").classList.remove("hidden");
+    // 卡片按钮统一绑定：只允许执行诊断建议的级别（disabled 卡不可点）。
+    document.querySelectorAll("[data-repair-level]").forEach((btn) => {
+      btn.addEventListener("click", () => runRepair(Number(btn.dataset.repairLevel)));
+    });
   }
 
   function escapeHtml(s) {
@@ -625,9 +691,6 @@ function init() {
       $("#doctor-repair-output").textContent = "修复失败: " + e.message;
     }
   }
-
-  $("#doctor-repair-1").addEventListener("click", () => runRepair(1));
-  $("#doctor-repair-2").addEventListener("click", () => runRepair(2));
 
   api().Status().then((s) => applyStatus(s));
 }

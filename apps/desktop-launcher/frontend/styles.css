@@ -649,6 +649,57 @@ body {
   padding-top: 12px; border-top: 1px solid var(--border);
   flex-wrap: wrap;
 }
+
+/* 修复方案：按等级横排的三张卡片，各自说明修复范围、可修项与执行按钮 */
+.repair-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.repair-plan {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.repair-plan.recommended {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.repair-plan-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.repair-level-badge {
+  font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px;
+  color: var(--brand-text);
+  background: var(--brand);
+}
+.repair-plan:nth-child(1) .repair-level-badge { background: var(--ok); }
+.repair-plan:nth-child(2) .repair-level-badge { background: var(--warn); }
+.repair-plan:nth-child(3) .repair-level-badge { background: var(--danger); }
+.repair-plan-title {
+  font-size: 13px; font-weight: 600; color: var(--fg-strong);
+}
+.repair-plan-desc {
+  font-size: 12px; color: var(--fg-dim); line-height: 1.6;
+}
+.repair-plan-items {
+  display: flex; flex-direction: column; gap: 4px;
+  font-size: 12px; color: var(--fg);
+}
+.repair-plan-item { display: flex; gap: 6px; align-items: baseline; }
+.repair-plan-item::before { content: "·"; color: var(--fg-dim); }
+.repair-plan-reco {
+  font-size: 11px; font-weight: 600; color: var(--accent);
+}
+.repair-plan-btn {
+  margin-top: auto; align-self: stretch;
+}
 .doctor-actions-start {
   display: flex; justify-content: center; margin-top: 16px;
 }
