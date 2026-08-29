@@ -109,10 +109,13 @@ type App struct {
 	safeMode     string // "plugins" | "config" | "full" | ""
 
 	// 启动失败自动诊断状态（受 mu 保护；语义按失败周期计）。
-	startupDoctorRunning  bool   // 自动诊断是否正在后台运行
-	startupDoctorReady    bool   // 自动诊断结果是否已就绪（本失败周期内）
-	startupDoctorDoneOnce bool   // 本次失败周期是否已触发过诊断（防重复触发）
-	startupDoctorError    string // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
+	startupDoctorRunning  bool      // 自动诊断是否正在后台运行
+	startupDoctorReady    bool      // 自动诊断结果是否已就绪（本失败周期内）
+	startupDoctorDoneOnce bool      // 本次失败周期是否已触发过诊断（防重复触发）
+	startupDoctorError    string    // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
+	doctorCancel          func()    // 取消正在运行的 doctor 进程
+	doctorDone            chan struct{} // doctor 进程退出信号（nil 表示未在运行）
+	doctorEpoch           int       // 诊断启动序号，用于 goroutine 收尾时归属判断
 }
 
 // New 创建应用控制器并启动 harness 监护。
@@ -142,9 +145,28 @@ func ExternalConfigFilePath() string {
 	return filepath.Join(".cache", "dsh-desktop", "config.json")
 }
 
-// Shutdown 停止 harness 子进程（窗口关闭与外置信号两路共用；幂等）。
+// Shutdown 停止 harness 子进程和后台 doctor（窗口关闭与外置信号两路共用；幂等）。
 func (a *App) Shutdown() {
 	a.sup.Stop()
+	a.stopDoctor()
+}
+
+// stopDoctor 取消正在运行的 doctor 进程并等待它退出。
+func (a *App) stopDoctor() {
+	a.mu.Lock()
+	cancel := a.doctorCancel
+	done := a.doctorDone
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		// 最多等 2 秒，避免 shutdown 被卡死
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
@@ -240,11 +262,25 @@ func (a *App) startStartupDoctor() {
 	}
 	a.startupDoctorRunning = true
 	a.startupDoctorDoneOnce = true
+	// 为本次诊断创建独立的 context，便于在 shutdown 或失败周期重置时取消。
+	a.doctorEpoch++
+	myEpoch := a.doctorEpoch
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.doctorCancel = cancel
+	a.doctorDone = done
 	a.mu.Unlock()
 
 	go func() {
-		report := a.RunDoctor()
+		defer close(done)
+		report := a.RunDoctor(ctx)
 		a.mu.Lock()
+		// 只有当本次诊断仍是"当前"的那次时才清理资源引用。
+		// 如果已经被 reset 或新的诊断覆盖，不要动外部状态。
+		if a.doctorEpoch == myEpoch {
+			a.doctorCancel = nil
+			a.doctorDone = nil
+		}
 		if !a.startupDoctorRunning {
 			// 周期已被退出失败态重置，丢弃过期结果。
 			a.mu.Unlock()
@@ -259,13 +295,23 @@ func (a *App) startStartupDoctor() {
 }
 
 // resetStartupDoctor 清除本失败周期的自动诊断状态，等待下一次失败边沿重新触发。
+// 如果诊断仍在运行，则取消它，避免旧的诊断结果或进程残留。
 func (a *App) resetStartupDoctor() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	cancel := a.doctorCancel
+	done := a.doctorDone
+	a.doctorCancel = nil
+	a.doctorDone = nil
 	a.startupDoctorRunning = false
 	a.startupDoctorDoneOnce = false
 	a.startupDoctorReady = false
 	a.startupDoctorError = ""
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	// 不等它退出——reset 是轻量操作，goroutine 自己会收尾。
+	_ = done
 }
 
 // startupDoctorStatus 返回自动诊断的两个前端可见状态位。
@@ -419,14 +465,14 @@ func (a *App) doctorEnv() []string {
 // 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
 // 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
 // stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
-func (a *App) RunDoctor() DoctorReport {
+func (a *App) RunDoctor(ctx context.Context) DoctorReport {
 	args := []string{}
 	if a.dshScript != "" {
 		args = append(args, a.dshScript)
 	}
 	args = append(args, "doctor", "--json")
 
-	cmd := exec.Command(a.dshCmd, args...)
+	cmd := exec.CommandContext(ctx, a.dshCmd, args...)
 	cmd.Env = a.doctorEnv()
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
