@@ -257,6 +257,14 @@ function showRepairToast(text, kind) {
 // 只自动弹窗一次，退出失败态（用户手动重启/安全模式）后重置，下一周期可再触发。
 // 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
 function updateStartupDoctor(s) {
+  // 修复进行中：保持弹窗的"修复中…"状态，不响应任何状态事件去自动弹窗/
+  // 重置标记 —— 修复期间 supervisor 状态抖动（如在重启）不能触发又一轮
+  // "正在诊断…"的自动弹窗，打断用户看到的修复进度。
+  if (diagnosisState.repairing) {
+    if (s.State !== "failed") hideAutoDiagHint();
+    return;
+  }
+
   if (s.State !== "failed") {
     state._startupDoctorShown = false;
     hideAutoDiagHint();
@@ -586,14 +594,16 @@ function init() {
     applyStatus(await api().StartSafeMode());
   });
 
-  runDoctor = async function () {
+  runDoctor = async function (summaryText) {
     // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
     // 弹框被关闭再打开不应二次触发重复检测），返回相同的结果。
     if (diagnosisState.running && diagnosisState.promise) {
       return diagnosisState.promise;
     }
     diagnosisState.running = true;
-    setDoctorSummary("正在诊断…", false);
+    // summaryText 可覆盖默认文案：修复后的复检用"修复完成，正在复查…"，
+    // 与"又出问题了"的诊断区分开。
+    setDoctorSummary(summaryText || "正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
     diagnosisState.promise = (async () => {
