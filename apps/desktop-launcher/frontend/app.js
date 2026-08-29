@@ -695,7 +695,11 @@ function init() {
   runDoctor = async function (summaryText, force) {
     // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
     // 弹框被关闭再打开不应二次触发重复检测），返回相同的结果。
-    if (diagnosisState.running && diagnosisState.promise) {
+    // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
+    // 弹框被关闭再打开不应二次触发重复检测）。force=true（重新诊断、修复后
+    // 复检）不能被进行中的检测或缓存短路——必须真正重跑，否则修复前后
+    // running/promise 残留会让复检返回旧的失败结果。
+    if (!force && diagnosisState.running && diagnosisState.promise) {
       return diagnosisState.promise;
     }
     // 诊断已完成且有结果：直接展示缓存，不重复检测。只有"重新诊断"按钮
@@ -711,7 +715,7 @@ function init() {
     setDoctorSummary(summaryText || "正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
-    diagnosisState.promise = (async () => {
+    const currentPromise = (async () => {
       try {
         const r = await api().RunDoctor();
         renderDoctorReport(r);
@@ -727,11 +731,16 @@ function init() {
         return null;
       }
     })();
+    diagnosisState.promise = currentPromise;
     try {
-      return await diagnosisState.promise;
+      return await currentPromise;
     } finally {
-      diagnosisState.running = false;
-      diagnosisState.promise = null;
+      // 只在仍是当前诊断时才清理状态：force 重跑会替换 promise，
+      // 旧 promise 完成时不能误清新一轮的状态。
+      if (diagnosisState.promise === currentPromise) {
+        diagnosisState.running = false;
+        diagnosisState.promise = null;
+      }
     }
   };
 

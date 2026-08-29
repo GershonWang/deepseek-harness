@@ -365,6 +365,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   // 加一行暴露模块级绑定供测试直接调用（函数声明提升，运行前已定义）
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
+    + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
@@ -586,6 +587,23 @@ test("诊断完成后关闭再开弹窗：直接复用结果，不重新诊断",
   assert.match(
     h.document.getElementById("doctor-summary-text").innerHTML,
     /共 3 项/, "应直接展示诊断结果");
+});
+
+test("force 诊断穿透缓存与进行中状态（重新诊断/修复复检必须真正重跑）", async () => {
+  const h = loadApp();
+  await flush();
+  // 第一次诊断（非 force）完成并缓存。
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 1, "首次诊断跑一次");
+
+  // 用暴露的 force 包装：必须重新调用后端，忽略缓存。
+  await h.sandbox.__testRunDoctorForce("复查");
+  await flush();
+  assert.equal(h.runCalls.length, 2, "force 诊断应重新调用 RunDoctor（忽略缓存）");
+  assert.equal(
+    h.document.getElementById("doctor-summary-text").innerHTML.includes("共 3 项"),
+    true, "复检结果仍正常渲染");
 });
 
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
