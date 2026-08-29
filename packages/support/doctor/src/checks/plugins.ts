@@ -208,8 +208,25 @@ const DYNAMIC_PROFILE = 'web'
 const DYNAMIC_PROBE_TIMEOUT_MS = 60_000
 /** Upper bound for captured probe output (a failing load stack can be long). */
 const DYNAMIC_PROBE_MAX_BUFFER = 10 * 1024 * 1024
-/** The loader-probe subprocess, located next to this module. */
-const loaderProbePath = fileURLToPath(new URL('../loader-probe.ts', import.meta.url))
+
+/**
+ * Resolve the loader-probe subprocess entry. Prefer the package export
+ * `@deepseek-ai/dsh-doctor/loader-probe` (the built `lib/types/loader-probe.js`):
+ * it works both from a bundled consumer (CLI bundle resolves it through the
+ * installation's node_modules) and from source (workspace link). A relative
+ * `../loader-probe.ts` would break once `checks/plugins.ts` is bundled, and
+ * spawn with `--import tsx/esm` fails in packaged installs where tsx is a
+ * dev-only dependency. Fall back to the source file when the package export
+ * is not resolvable (pre-build workspace).
+ */
+function loaderProbeEntry(): { path: string; needsTsx: boolean } {
+  try {
+    const resolved = require.resolve('@deepseek-ai/dsh-doctor/loader-probe')
+    return { path: resolved, needsTsx: false }
+  } catch {
+    return { path: fileURLToPath(new URL('../loader-probe.ts', import.meta.url)), needsTsx: true }
+  }
+}
 
 interface LoaderProbeOutcome {
   /** Exit code of the probe; -1 when the spawn itself failed. */
@@ -230,12 +247,15 @@ function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<Lo
   // The explicit `--dsh-home` argument owns the home; a stray ambient
   // DSH_HOME would otherwise redirect the probe to another installation.
   delete env.DSH_HOME
+  const probe = loaderProbeEntry()
+  const args = probe.needsTsx
+    ? ['--import', 'tsx/esm', probe.path]
+    : [probe.path]
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [
-        '--import', 'tsx/esm',
-        loaderProbePath,
+        ...args,
         '--dsh-home', dshHome,
         '--profile', DYNAMIC_PROFILE,
         '--timeout', String(DYNAMIC_PROBE_TIMEOUT_MS),
