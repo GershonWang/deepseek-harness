@@ -8946,6 +8946,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:^
+        version: link:../../../vendor/include
       '@deepseek-ai/dsh-app-boot':
         specifier: workspace:^
         version: link:../../boot/app-boot

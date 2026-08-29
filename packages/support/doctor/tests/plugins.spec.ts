@@ -34,6 +34,53 @@ describe('plugin-patch-composable', () => {
     expect(c?.result.ok).toBe(true)
     expect(c?.result.message).toContain('entries composed')
   })
+
+  it('repair disables only the broken patch row and keeps the file', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    // 坏条目：target 在基准合成中不存在。
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- id: some-removed-plugin\n  config: { foo: bar }\n',
+    )
+    const pre = await runDiagnosis(tempHome)
+    const preC = pre.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(preC?.result.ok).toBe(false)
+    expect(preC?.result.fixable).toBe(true)
+
+    // 单独调 composable 的 fix（不走 runRepair 全流程，避免 plugin-patch-targets
+    // 的"删除孤儿补丁"修复在同一轮把坏条目删掉、混淆验证目标）。
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const composable = checks.find(c => c.id === 'plugin-patch-composable')!
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+    const fixResult = await composable.fix!(tempHome, backupDir)
+    expect(fixResult.ok).toBe(true)
+    expect(fixResult.message).toContain('some-removed-plugin')
+
+    // 原文件仍在（不再改名为 .disabled），坏条目被移除。
+    const { existsSync, readFileSync } = await import('node:fs')
+    const patchPath = join(tempHome, 'profiles', 'web', 'cordis.patch.yml')
+    expect(existsSync(patchPath)).toBe(true)
+    expect(existsSync(patchPath + '.disabled')).toBe(false)
+    const content = readFileSync(patchPath, 'utf8')
+    expect(content).not.toContain('some-removed-plugin')
+
+    // 修复后复检：该检查应通过（坏条目已禁用）。
+    const post = await runDiagnosis(tempHome)
+    const postC = post.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(postC?.result.ok).toBe(true)
+  })
+
+  it('repair with no patch file reports nothing to fix instead of crashing', async () => {
+    // 补丁文件不存在（未创建或已被禁用过）：修复应返回"无需修复"而非 ENOENT 崩溃。
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const composable = checks.find(c => c.id === 'plugin-patch-composable')
+    const result = await composable!.fix!(tempHome, backupDir)
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('无需修复')
+  })
 })
 
 describe('plugin-patch-targets', () => {

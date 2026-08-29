@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/dsh-app-boot": "workspace:^",
     "@deepseek-ai/dsh-atomic-write": "workspace:^",
     "@deepseek-ai/dsh-cmdline": "workspace:^",

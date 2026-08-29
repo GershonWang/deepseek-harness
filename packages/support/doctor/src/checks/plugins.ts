@@ -11,11 +11,12 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFileSync, renameSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as yaml from 'js-yaml'
+import { entryListSchema, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import {
   loadProfile,
   composeEntries,
@@ -119,18 +120,52 @@ const pluginPatchComposable: DoctorCheck = {
     const profileDir = resolveProfileDir('web', dshHome)
     const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
     const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
-    const content = readFileSync(patchPath, 'utf8')
+
+    // 文件不存在（从未创建，或此前已被禁用改名为 .disabled）：没有任何条目
+    // 需要处置，视为无需修复，而不是把"读不存在的文件"当成崩溃。
+    let content: string
+    try {
+      content = readFileSync(patchPath, 'utf8')
+    } catch {
+      return { ok: true, message: '用户补丁文件不存在（未创建或已禁用），无需修复' }
+    }
+    // 原文件字节级备份：修复写回失败或误伤时都可用它还原。
     await writeFileAtomic(backupPath, content, { mode: 0o600, dirMode: 0o700 })
-    // Rename to .disabled so the profile loader skips it entirely.
-    // This is the safest fix for compose warnings: user patches are often
-    // written for an older harness version and reference entries that were
-    // renamed or removed in an upgrade; disabling all of them guarantees a
-    // clean compose.
-    const disabledPath = join(profileDir, `${PROFILE_PATCH_FILENAME}.disabled`)
-    renameSync(patchPath, disabledPath)
+
+    // 识别引用不存在 target 的用户补丁：以不含用户层的合成结果为基准，
+    // 用户补丁条目里 target id 不在基准 entries 中的就是坏条目。把坏条目
+    // 从补丁列表移除（加 disabled 无效——loader 对 target 缺失的补丁条目
+    // 一视同仁地报告 warning，disabled 只是写到 target 上的属性，不能让
+    // 缺失的 target 复现），其余条目与原文件其余内容原样保留，文件本身
+    // 不删除、不改名，避免像整体改名那样把好补丁一并禁用。
+    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+    const baselineIds = new Set(
+      composeEntries(profile.layers.map(l => l.patches))
+        .map(entry => entry.id)
+        .filter((id): id is string => id !== undefined),
+    )
+    const patches = structuredClone(profile.patches) satisfies PatchOptions[]
+    const removed: string[] = []
+    const kept: PatchOptions[] = []
+    for (const patch of patches) {
+      if (patch.id !== undefined && !baselineIds.has(String(patch.id))) {
+        removed.push(String(patch.id))
+      } else {
+        kept.push(patch)
+      }
+    }
+    if (removed.length === 0) {
+      // 合成报警但识别不到坏条目（可能是 insert 子条目或跨层冲突）：
+      // 不做不确定的修改，避免误伤。
+      return { ok: false, message: '无法定位失效补丁条目，未做修改', backupPath }
+    }
+
+    // 用与 loader 相同的 schema dump，保住 `!!js` 表达式语义。
+    const updated = yaml.dump(kept, { schema: entryListSchema, noRefs: true }).trimEnd() + '\n'
+    await writeFileAtomic(patchPath, updated, { mode: 0o600 })
     return {
       ok: true,
-      message: `User patch file disabled (renamed to ${PROFILE_PATCH_FILENAME}.disabled)`,
+      message: `已移除失效补丁条目：${removed.join('、')}（原文件已备份，其余补丁保留）`,
       backupPath,
     }
   },
