@@ -520,3 +520,31 @@ test("maybeAutoStartAfterRepair：全绿报告触发自动启动，非全绿不�
   assert.equal(fn(null), false);
   assert.equal(fn(undefined), false);
 });
+
+test("诊断进行中再次触发 runDoctor 复用同一次检测，不重复调用", async () => {
+  // RunDoctor 返回受控 promise：证明第二次 runDoctor 等待同一个结果。
+  let apiCalls = 0;
+  let resolveRun;
+  const gate = new Promise((res) => { resolveRun = res; });
+  const h = loadApp({
+    overrides: {
+      RunDoctor: async () => {
+        apiCalls += 1;
+        await gate;
+        return fakeReport();
+      },
+    },
+  });
+  await flush();
+  // 触发第一次诊断
+  await h.document.getElementById("btn-failed-doctor").fire("click");
+  await flush();
+  // 检测未完成时再次触发（模拟：自动检测未完成，用户关掉弹窗再点诊断按钮）
+  await h.document.getElementById("btn-failed-doctor").fire("click");
+  await flush();
+  assert.equal(apiCalls, 1, "进行中的检测应被复用，不应二次调用 RunDoctor");
+  // 放行第一次检测：两次调用者都拿到结果
+  resolveRun();
+  await flush();
+  await flush();
+});

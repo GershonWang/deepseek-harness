@@ -320,12 +320,25 @@ body {
 
 /* 启动失败自动诊断提示（失败页） */
 #auto-diag-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 12px;
   color: var(--warn);
   padding: 6px 14px;
   background: var(--bg-panel);
   border: 1px dashed var(--warn);
   border-radius: 999px;
+}
+/* 检测中的 spinner：提示条左侧转圈，让用户看到"正在检测"而非静默 */
+#auto-diag-hint.diagnosing::before {
+  content: "";
+  width: 12px; height: 12px;
+  border: 2px solid rgba(204, 167, 0, 0.35);
+  border-top-color: var(--warn);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
 }
 
 /* ---------- 底部状态栏 ---------- */
@@ -603,6 +616,29 @@ body {
   font-size: 12px; text-decoration: underline;
 }
 .btn-link:hover { opacity: 0.8; }
+
+/* 修复完成/失败的右下角 toast 提醒 */
+.repair-toast {
+  position: fixed;
+  right: 16px; bottom: 48px;
+  z-index: 2000;
+  max-width: 360px;
+  padding: 12px 16px;
+  font-size: 13px; line-height: 1.6;
+  border-radius: 10px;
+  box-shadow: var(--shadow, 0 4px 16px rgba(0,0,0,.35));
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--fg-strong);
+  animation: toast-in 0.25s ease-out;
+}
+.repair-toast.ok { border-color: var(--ok); }
+.repair-toast.warn { border-color: var(--warn); }
+.repair-toast.error { border-color: var(--danger); }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* 诊断弹框 */
 .modal-lg { width: min(720px, 90vw); max-height: 80vh; }

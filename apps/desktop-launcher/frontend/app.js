@@ -5,6 +5,10 @@
 
 const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false };
 
+// 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
+// 检测结果，repairing 期间禁止再次点击修复按钮。
+const diagnosisState = { running: false, repairing: false, lastCulprit: "" };
+
 // 由 init() 在 Wails 环境赋值为真实诊断函数；浏览器预览分支保持 null，
 // applyStatus 的自动弹窗逻辑据此安全跳过（不弹窗、不跑诊断）。
 let runDoctor = null;
@@ -182,9 +186,10 @@ function autoDiagHintEl() {
   return el;
 }
 
-function setAutoDiagHint(text) {
+function setAutoDiagHint(text, diagnosing) {
   const el = autoDiagHintEl();
   el.textContent = text;
+  el.classList.toggle("diagnosing", !!diagnosing);
   el.classList.remove("hidden");
 }
 
@@ -223,6 +228,30 @@ function setDoctorSummary(htmlOrText, showRefresh) {
   btn.classList.toggle("hidden", !showRefresh);
 }
 
+// 修复进行中：所有修复卡片按钮禁用并显示"修复中…"（跨弹窗关闭重开保持，
+// 因为按钮节点在弹框 DOM 内，hidden 不销毁它们）。
+function setRepairButtonsBusy(busy) {
+  document.querySelectorAll("[data-repair-level]").forEach((btn) => {
+    btn.disabled = busy;
+    if (busy) btn.textContent = "修复中…";
+  });
+}
+
+// 右下角 toast 提醒：修复完成/失败时短暂提示原因与处理方式，几秒后自动消失。
+function showRepairToast(text, kind) {
+  let toast = $("#repair-toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "repair-toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.className = "repair-toast " + (kind || "ok");
+  toast.classList.remove("hidden");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.add("hidden"), 6000);
+}
+
 // 自动诊断状态处理：失败页提示诊断中/完成；StartupDoctorReady 首次变 true 时
 // 自动打开诊断弹窗并运行一次诊断。state._startupDoctorShown 保证每个失败周期
 // 只自动弹窗一次，退出失败态（用户手动重启/安全模式）后重置，下一周期可再触发。
@@ -236,7 +265,7 @@ function updateStartupDoctor(s) {
   }
 
   if (s.StartupDoctorReady) {
-    setAutoDiagHint("诊断完成");
+    setAutoDiagHint("诊断完成", false);
     if (!state._startupDoctorShown) {
       state._startupDoctorShown = true;
       if (runDoctor) {
@@ -246,7 +275,7 @@ function updateStartupDoctor(s) {
       }
     }
   } else if (s.StartupDiagnosing) {
-    setAutoDiagHint("正在自动诊断问题…");
+    setAutoDiagHint("正在自动诊断问题…", true);
   } else {
     hideAutoDiagHint();
   }
@@ -558,17 +587,34 @@ function init() {
   });
 
   runDoctor = async function () {
+    // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
+    // 弹框被关闭再打开不应二次触发重复检测），返回相同的结果。
+    if (diagnosisState.running && diagnosisState.promise) {
+      return diagnosisState.promise;
+    }
+    diagnosisState.running = true;
     setDoctorSummary("正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
+    diagnosisState.promise = (async () => {
+      try {
+        const r = await api().RunDoctor();
+        renderDoctorReport(r);
+        // 记录失败元凶（供修复后的 toast 说明原因）。
+        const firstBad = (r && !r.Error && r.Checks || []).find((c) => !c.OK);
+        diagnosisState.lastCulprit = firstBad ? firstBad.Name : "";
+        return r;
+      } catch (e) {
+        setDoctorSummary("诊断失败: " + e.message, false);
+        $("#doctor-start").classList.remove("hidden");
+        return null;
+      }
+    })();
     try {
-      const r = await api().RunDoctor();
-      renderDoctorReport(r);
-      return r;
-    } catch (e) {
-      setDoctorSummary("诊断失败: " + e.message, false);
-      $("#doctor-start").classList.remove("hidden");
-      return null;
+      return await diagnosisState.promise;
+    } finally {
+      diagnosisState.running = false;
+      diagnosisState.promise = null;
     }
   };
 
@@ -711,6 +757,10 @@ function init() {
   $("#doctor-refresh").addEventListener("click", runDoctor);
 
   async function runRepair(level) {
+    // 修复进行中：按钮已禁用，重复点击直接忽略。
+    if (diagnosisState.repairing) return;
+    diagnosisState.repairing = true;
+    setRepairButtonsBusy(true);
     $("#doctor-repair-output").classList.remove("hidden");
     $("#doctor-repair-output").textContent = "正在修复…";
     try {
@@ -728,12 +778,25 @@ function init() {
           } else {
             applyStatus(await api().StartServer());
           }
+          // 启动应用成功 → 关闭诊断弹框，右下角提示原因与处理方式。
+          const reason = diagnosisState.lastCulprit
+            ? `启动失败原因：${diagnosisState.lastCulprit} 异常`
+            : "启动失败原因已自动修复";
+          setTimeout(() => {
+            closeModal("doctor-modal");
+            showRepairToast(`${reason}，已自动移除/修复并恢复启动。`, "ok");
+          }, 1500);
         } catch (e) {
           $("#doctor-repair-output").textContent += "\n自动启动失败: " + e.message;
+          showRepairToast("自动启动失败，请稍后手动点「启动」重试。", "warn");
         }
       }
     } catch (e) {
       $("#doctor-repair-output").textContent = "修复失败: " + e.message;
+      showRepairToast("修复失败：" + e.message, "warn");
+    } finally {
+      diagnosisState.repairing = false;
+      setRepairButtonsBusy(false);
     }
   }
 
