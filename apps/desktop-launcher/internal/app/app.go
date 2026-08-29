@@ -109,13 +109,13 @@ type App struct {
 	safeMode     string // "plugins" | "config" | "full" | ""
 
 	// 启动失败自动诊断状态（受 mu 保护；语义按失败周期计）。
-	startupDoctorRunning  bool      // 自动诊断是否正在后台运行
-	startupDoctorReady    bool      // 自动诊断结果是否已就绪（本失败周期内）
-	startupDoctorDoneOnce bool      // 本次失败周期是否已触发过诊断（防重复触发）
-	startupDoctorError    string    // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
-	doctorCancel          func()    // 取消正在运行的 doctor 进程
+	startupDoctorRunning  bool          // 自动诊断是否正在后台运行
+	startupDoctorReady    bool          // 自动诊断结果是否已就绪（本失败周期内）
+	startupDoctorDoneOnce bool          // 本次失败周期是否已触发过诊断（防重复触发）
+	startupDoctorError    string        // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
+	doctorCancel          func()        // 取消正在运行的 doctor 进程
 	doctorDone            chan struct{} // doctor 进程退出信号（nil 表示未在运行）
-	doctorEpoch           int       // 诊断启动序号，用于 goroutine 收尾时归属判断
+	doctorEpoch           int           // 诊断启动序号，用于 goroutine 收尾时归属判断
 }
 
 // New 创建应用控制器并启动 harness 监护。
@@ -175,9 +175,10 @@ func (a *App) OnStartup(ctx context.Context) {
 	go a.tick(ctx)
 }
 
-// OnShutdown 在窗口关闭时停止 harness，避免子进程残留。
+// OnShutdown 在窗口关闭时停止 harness 子进程和后台 doctor，避免子进程残留。
+// 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
 func (a *App) OnShutdown(_ context.Context) {
-	a.sup.Stop()
+	a.Shutdown()
 }
 
 func (a *App) tick(ctx context.Context) {
@@ -460,14 +461,12 @@ func (a *App) doctorEnv() []string {
 	return append(env, "DSH_HOME="+filepath.Join(a.home, ".dsh"))
 }
 
-// RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
-//
-// 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
-// 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
-// stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
-func (a *App) RunDoctor() DoctorReport {
-	// 用户手动触发的诊断：用后台 context，shutdown 时会被 stopDoctor 取消。
-	ctx, cancel := context.WithCancel(context.Background())
+// beginDoctorRun 登记一次 doctor 子进程运行：取消上一次仍在运行的 doctor，
+// 递增 epoch 作为本次运行的身份，返回后台 context 与其收尾句柄。
+// 登记后必须调用 endDoctorRun 收尾（通常经 defer）。
+func (a *App) beginDoctorRun() (ctx context.Context, cancel func(), myEpoch int, done chan struct{}) {
+	// 用户手动触发的诊断/修复：用后台 context，shutdown 时会被 stopDoctor 取消。
+	ctx, cancel = context.WithCancel(context.Background())
 	a.mu.Lock()
 	// 取消上一次诊断（如果有）
 	if a.doctorCancel != nil {
@@ -476,20 +475,33 @@ func (a *App) RunDoctor() DoctorReport {
 	a.doctorCancel = cancel
 	a.doctorDone = make(chan struct{})
 	a.doctorEpoch++
-	myEpoch := a.doctorEpoch
-	done := a.doctorDone
+	myEpoch = a.doctorEpoch
+	done = a.doctorDone
 	a.mu.Unlock()
+	return ctx, cancel, myEpoch, done
+}
 
-	defer func() {
-		close(done)
-		a.mu.Lock()
-		if a.doctorEpoch == myEpoch {
-			a.doctorCancel = nil
-			a.doctorDone = nil
-		}
-		a.mu.Unlock()
-		cancel()
-	}()
+// endDoctorRun 收尾一次 doctor 运行：关闭退出信号、仅当本次仍是最新登记时
+// 清空追踪引用，最后取消 ctx。与 beginDoctorRun 配对使用。
+func (a *App) endDoctorRun(myEpoch int, done chan struct{}, cancel func()) {
+	close(done)
+	a.mu.Lock()
+	if a.doctorEpoch == myEpoch {
+		a.doctorCancel = nil
+		a.doctorDone = nil
+	}
+	a.mu.Unlock()
+	cancel()
+}
+
+// RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
+//
+// 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
+// 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
+// stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
+func (a *App) RunDoctor() DoctorReport {
+	ctx, cancel, myEpoch, done := a.beginDoctorRun()
+	defer a.endDoctorRun(myEpoch, done, cancel)
 	return a.runDoctor(ctx)
 }
 
@@ -581,8 +593,11 @@ func exitCodeText(cmd *exec.Cmd) string {
 //
 // 同 RunDoctor：dsh doctor --repair 的退出码表达修复结论（1 = 仍有未完成
 // 的修复项），非零退出码不代表命令失败。CombinedOutput 保留完整输出，
-// 直接返回它；只有输出为空才视为命令本身失败。
+// 直接返回它；只有输出为空才视为命令本身失败。修复进程纳入 doctor 追踪，
+// 关闭窗口时同样会被 stopDoctor 取消，避免残留。
 func (a *App) RunDoctorRepair(level int) string {
+	ctx, cancel, myEpoch, done := a.beginDoctorRun()
+	defer a.endDoctorRun(myEpoch, done, cancel)
 	args := []string{}
 	if a.dshScript != "" {
 		args = append(args, a.dshScript)
@@ -595,7 +610,7 @@ func (a *App) RunDoctorRepair(level int) string {
 		args[len(args)-1] = "3"
 	}
 
-	cmd := exec.Command(a.dshCmd, args...)
+	cmd := exec.CommandContext(ctx, a.dshCmd, args...)
 	cmd.Env = a.doctorEnv()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {

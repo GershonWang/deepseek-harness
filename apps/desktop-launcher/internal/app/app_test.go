@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 )
 
 // testApp 构造一个不会真正执行 dsh 的 App：RunDoctor 命令不存在，
@@ -166,4 +168,121 @@ exit 1
 	if report.Checks[0].ID != "plugin-dynamic-load" || !report.Checks[0].Fixable {
 		t.Fatalf("检查项解析错误: %+v", report.Checks[0])
 	}
+}
+
+// writeBusyLoop 写一个纯忙循环的 sh 脚本（无孙进程，SIGKILL 即彻底退出），
+// 模拟"诊断/修复仍在运行"的长任务。
+func writeBusyLoop(t *testing.T) string {
+	t.Helper()
+	script := filepath.Join(t.TempDir(), "mock-busy-loop.sh")
+	body := "#!/bin/sh\nwhile :; do :; done\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return script
+}
+
+// waitDoctorRegistered 轮询直到 doctor 子进程已登记（cancel/done 非 nil）。
+func waitDoctorRegistered(t *testing.T, a *App) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		a.mu.Lock()
+		registered := a.doctorCancel != nil && a.doctorDone != nil
+		a.mu.Unlock()
+		if registered {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("doctor 未在 3 秒内登记")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// assertDoctorUntracked 断言 doctor 追踪引用已清空（cancel/done 均为 nil）。
+func assertDoctorUntracked(t *testing.T, a *App) {
+	t.Helper()
+	a.mu.Lock()
+	cancel, done := a.doctorCancel, a.doctorDone
+	a.mu.Unlock()
+	if cancel != nil || done != nil {
+		t.Fatalf("doctor 追踪应已清空, cancel=%v done=%v", cancel != nil, done != nil)
+	}
+}
+
+func TestOnShutdown_CancelsRunningDoctor(t *testing.T) {
+	// 回归：窗口关闭（OnShutdown）必须同样取消正在运行的 doctor，
+	// 否则 `dsh doctor` 子进程孤儿化、残留于 ll-cli ps。OnShutdown 委托
+	// Shutdown（sup.Stop + stopDoctor），sup 用不存在的命令构造（spawn 立即
+	// 失败，Stop 安全快速），仅验证 doctor 被取消。
+	a := &App{
+		conn:      connector.New(),
+		sup:       supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
+		dshCmd:    "sh",
+		dshScript: writeBusyLoop(t),
+		home:      t.TempDir(),
+	}
+	defer a.sup.Stop()
+
+	done := make(chan struct{})
+	go func() { a.RunDoctor(); close(done) }()
+
+	waitDoctorRegistered(t, a)
+	a.OnShutdown(context.Background())
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnShutdown 后 RunDoctor 未在 5 秒内返回（doctor 未被取消）")
+	}
+	assertDoctorUntracked(t, a)
+}
+
+func TestRunDoctorRepair_CancellableViaStopDoctor(t *testing.T) {
+	// 回归：修复进程（dsh doctor --repair）此前用无 context 的 exec.Command，
+	// 关闭窗口时不可取消而残留。现在纳入 doctor 追踪，stopDoctor 必须能取消它。
+	a := &App{dshCmd: "sh", dshScript: writeBusyLoop(t), home: t.TempDir()}
+
+	done := make(chan struct{})
+	var result string
+	go func() { result = a.RunDoctorRepair(1); close(done) }()
+
+	waitDoctorRegistered(t, a)
+	a.stopDoctor()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stopDoctor 后 RunDoctorRepair 未在 5 秒内返回（修复未被取消）")
+	}
+	if result == "" {
+		t.Fatalf("被取消的修复应返回错误文本, got %q", result)
+	}
+	assertDoctorUntracked(t, a)
+}
+
+func TestShutdown_CancelsRunningDoctor(t *testing.T) {
+	// Shutdown 与 OnShutdown 共用清理路径，同样取消正在运行的 doctor。
+	a := &App{
+		conn:      connector.New(),
+		sup:       supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
+		dshCmd:    "sh",
+		dshScript: writeBusyLoop(t),
+		home:      t.TempDir(),
+	}
+	defer a.sup.Stop()
+
+	done := make(chan struct{})
+	go func() { a.RunDoctor(); close(done) }()
+
+	waitDoctorRegistered(t, a)
+	a.Shutdown()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown 后 RunDoctor 未在 5 秒内返回（doctor 未被取消）")
+	}
+	assertDoctorUntracked(t, a)
 }
