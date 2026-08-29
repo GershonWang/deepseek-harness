@@ -6,8 +6,9 @@
 const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
-// 检测结果，repairing 期间禁止再次点击修复按钮。
-const diagnosisState = { running: false, repairing: false, lastCulprit: "" };
+// 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
+// 结果（诊断完成后再次打开弹窗直接展示，不重复检测）。
+const diagnosisState = { running: false, repairing: false, lastCulprit: "", lastReport: null };
 
 // 由 init() 在 Wails 环境赋值为真实诊断函数；浏览器预览分支保持 null，
 // applyStatus 的自动弹窗逻辑据此安全跳过（不弹窗、不跑诊断）。
@@ -344,9 +345,11 @@ function renderRepairOutput(raw) {
   }
 }
 
-// 自动诊断状态处理：失败页提示诊断中/完成；StartupDoctorReady 首次变 true 时
-// 自动打开诊断弹窗并运行一次诊断。state._startupDoctorShown 保证每个失败周期
-// 只自动弹窗一次，退出失败态（用户手动重启/安全模式）后重置，下一周期可再触发。
+// 自动诊断状态处理：失败页提示诊断中/完成；进入诊断（StartupDiagnosing 或
+// StartupDoctorReady）时打开诊断弹窗。弹窗在诊断一开始就打开并显示
+// "正在诊断…"，而不是干等结果才出现，避免用户只看到失败页 spinner 转几十秒。
+// state._startupDoctorShown 保证每个失败周期只自动弹窗一次，退出失败态
+// （用户手动重启/安全模式）后重置，下一周期可再触发。
 // 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
 function updateStartupDoctor(s) {
   // 修复进行中：保持弹窗的"修复中…"状态，不响应任何状态事件去自动弹窗/
@@ -359,13 +362,18 @@ function updateStartupDoctor(s) {
 
   if (s.State !== "failed") {
     state._startupDoctorShown = false;
+    // 退出失败态（用户重启/安全模式/修复后自动启动）：环境可能已变化，
+    // 清空诊断缓存，进入下一次失败周期时重新检测而非展示旧结果。
+    diagnosisState.lastReport = null;
     hideAutoDiagHint();
     hideDoctorAutoBanner();
     return;
   }
 
-  if (s.StartupDoctorReady) {
-    setAutoDiagHint("诊断完成", false);
+  if (s.StartupDoctorReady || s.StartupDiagnosing) {
+    if (s.StartupDoctorReady) setAutoDiagHint("诊断完成", false);
+    else setAutoDiagHint("正在自动诊断问题…", true);
+    // 诊断一开始（Diagnosing）或已就绪（Ready）都打开弹窗。
     if (!state._startupDoctorShown) {
       state._startupDoctorShown = true;
       if (runDoctor) {
@@ -374,8 +382,6 @@ function updateStartupDoctor(s) {
         showDoctorAutoBanner();
       }
     }
-  } else if (s.StartupDiagnosing) {
-    setAutoDiagHint("正在自动诊断问题…", true);
   } else {
     hideAutoDiagHint();
   }
@@ -686,11 +692,18 @@ function init() {
     applyStatus(await api().StartSafeMode());
   });
 
-  runDoctor = async function (summaryText) {
+  runDoctor = async function (summaryText, force) {
     // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
     // 弹框被关闭再打开不应二次触发重复检测），返回相同的结果。
     if (diagnosisState.running && diagnosisState.promise) {
       return diagnosisState.promise;
+    }
+    // 诊断已完成且有结果：直接展示缓存，不重复检测。只有"重新诊断"按钮
+    // （force=true）才强制重跑。
+    if (!force && diagnosisState.lastReport) {
+      setDoctorSummary(summaryText || "正在诊断…", false);
+      renderDoctorReport(diagnosisState.lastReport);
+      return diagnosisState.lastReport;
     }
     diagnosisState.running = true;
     // summaryText 可覆盖默认文案：修复后的复检用"修复完成，正在复查…"，
@@ -705,6 +718,8 @@ function init() {
         // 记录失败元凶（供修复后的 toast 说明原因）。
         const firstBad = (r && !r.Error && r.Checks || []).find((c) => !c.OK);
         diagnosisState.lastCulprit = firstBad ? firstBad.Name : "";
+        // 缓存结果：成功后再次打开弹窗直接展示（含出错报告，供用户查看）。
+        diagnosisState.lastReport = r;
         return r;
       } catch (e) {
         setDoctorSummary("诊断失败: " + e.message, false);
@@ -850,8 +865,9 @@ function init() {
     });
   }
 
-  $("#doctor-start").addEventListener("click", () => runDoctor());
-  $("#doctor-refresh").addEventListener("click", () => runDoctor());
+  $("#doctor-start").addEventListener("click", () => runDoctor("", true));
+  // "重新诊断"：忽略缓存，强制重新检测。
+  $("#doctor-refresh").addEventListener("click", () => runDoctor("", true));
 
   async function runRepair(level) {
     // 修复进行中：按钮已禁用，重复点击直接忽略。
@@ -868,7 +884,7 @@ function init() {
       const result = await api().RunDoctorRepair(level);
       renderRepairOutput(result);
       // 修复后重新诊断
-      const report = await runDoctor("修复完成，正在复查…");
+      const report = await runDoctor("修复完成，正在复查…", true);
       // 诊断全绿 → 自动启动应用：安全模式下先退出安全模式再用正常配置重启，
       // 免去用户手动到服务器弹框里点"启动"。
       if (maybeAutoStartAfterRepair(report)) {

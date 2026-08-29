@@ -386,7 +386,7 @@ const flush = () => new Promise((r) => setImmediate(r));
 
 /* ---------- 用例 ---------- */
 
-test("StartupDiagnosing 时失败页显示诊断中提示，不弹窗", async () => {
+test("StartupDiagnosing 时失败页提示诊断中并立即打开弹窗", async () => {
   const h = loadApp();
   await flush(); // 结算 init() 首个 Status() 快照，避免与事件竞态
   h.status(baseStatus({
@@ -404,10 +404,11 @@ test("StartupDiagnosing 时失败页显示诊断中提示，不弹窗", async ()
   assert.equal(hint.classList.contains("hidden"), false);
   assert.equal(hint.textContent, "正在自动诊断问题…");
 
+  // 诊断一开始就要打开弹窗（显示"正在诊断…"），而不是干等结果才出现。
   assert.equal(
     h.document.getElementById("doctor-modal").classList.contains("hidden"),
-    true, "诊断中不应弹窗");
-  assert.equal(h.runCalls.length, 0, "诊断中不应调用 RunDoctor");
+    false, "诊断中应立即打开弹窗");
+  assert.equal(h.runCalls.length, 1, "诊断中应调用 RunDoctor");
 });
 
 test("StartupDoctorReady 自动弹窗并运行诊断，同周期只触发一次", async () => {
@@ -559,6 +560,32 @@ test("诊断进行中再次触发 runDoctor 复用同一次检测，不重复调
   resolveRun();
   await flush();
   await flush();
+});
+
+test("诊断完成后关闭再开弹窗：直接复用结果，不重新诊断", async () => {
+  const h = loadApp();
+  await flush();
+  // 首次诊断（会自动触发一次 RunDoctor）
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 1, "首次诊断应跑一次");
+  // 模拟诊断完成事件（并已打开过弹窗）
+  h.status(baseStatus({ State: "failed", StartupDoctorReady: true }));
+  await flush();
+
+  // 关闭弹窗，再点失败页"诊断问题"：应直接展示缓存结果，不重新检测。
+  // 关闭弹窗（模拟用户点 ×），再点失败页"诊断问题"：应直接展示缓存结果。
+  h.document.getElementById("doctor-modal").classList.add("hidden");
+  await h.document.getElementById("btn-failed-doctor").fire("click");
+  await flush();
+  assert.equal(h.runCalls.length, 1, "复用缓存后不应再次调用 RunDoctor");
+  assert.equal(
+    h.document.getElementById("doctor-modal").classList.contains("hidden"),
+    false, "弹窗应重新打开");
+  // 摘要应展示诊断结果而非"正在诊断…"
+  assert.match(
+    h.document.getElementById("doctor-summary-text").innerHTML,
+    /共 3 项/, "应直接展示诊断结果");
 });
 
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
