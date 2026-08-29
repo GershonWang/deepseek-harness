@@ -7,7 +7,7 @@
  * @module @deepseek-ai/dsh-doctor
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { envChecks } from './checks/env.js'
@@ -132,7 +132,18 @@ export async function runRepair(level: RepairLevel, dshHome?: string): Promise<R
   const home = resolveDshHome(dshHome)
   const diagnosis = await runDiagnosis(home)
 
-  const backupDir = join(home, 'backups', `doctor-${Date.now()}`)
+  // Human-readable backup dir: doctor-YYYYMMDD-HHmmss
+  const now = new Date()
+  const stamp =
+    String(now.getFullYear()) +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    String(now.getDate()).padStart(2, '0') +
+    '-' +
+    String(now.getHours()).padStart(2, '0') +
+    String(now.getMinutes()).padStart(2, '0') +
+    String(now.getSeconds()).padStart(2, '0')
+  const backupsRoot = join(home, 'backups')
+  const backupDir = join(backupsRoot, `doctor-${stamp}`)
   await mkdir(backupDir, { recursive: true })
 
   const applied: RepairReport['applied'] = []
@@ -167,5 +178,30 @@ export async function runRepair(level: RepairLevel, dshHome?: string): Promise<R
     }
   }
 
+  // Prune old doctor backup directories, keeping only the most recent
+  // MAX_RETAINED_DOCTOR_BACKUPS. Folders are listed by name, which starts
+  // with doctor-YYYYMMDD-HHmmss, so lexicographic sort == chronological.
+  void pruneDoctorBackups(backupsRoot).catch(() => { /* best-effort */ })
+
   return { level, backups, applied, skipped }
+}
+
+/** Maximum number of doctor-* backup directories to keep in ~/.dsh/backups/. */
+const MAX_RETAINED_DOCTOR_BACKUPS = 5
+
+async function pruneDoctorBackups(backupsRoot: string): Promise<void> {
+  let entries: string[]
+  try {
+    entries = await readdir(backupsRoot)
+  } catch {
+    return // backups dir doesn't exist yet — nothing to prune
+  }
+  const doctorDirs = entries
+    .filter(name => name.startsWith('doctor-'))
+    .sort() // lexicographic = chronological for YYYYMMDD-HHmmss
+  if (doctorDirs.length <= MAX_RETAINED_DOCTOR_BACKUPS) return
+  const toRemove = doctorDirs.slice(0, doctorDirs.length - MAX_RETAINED_DOCTOR_BACKUPS)
+  await Promise.all(toRemove.map(name =>
+    rm(join(backupsRoot, name), { recursive: true, force: true }),
+  ))
 }
