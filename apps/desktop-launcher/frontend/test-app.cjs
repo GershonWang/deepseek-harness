@@ -268,18 +268,24 @@ function baseStatus(over) {
   };
 }
 
-function makeWails(runCalls) {
+function makeWails(runCalls, overrides = {}) {
   const events = {};
   const app = {
-    RunDoctor: async () => {
+    RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
       return fakeReport();
-    },
+    }),
     Status: async () => baseStatus(),
-    StartServer: async () => baseStatus(),
+    StartServer: overrides.StartServer ?? (async () => {
+      runCalls.push("start");
+      return baseStatus();
+    }),
     StopServer: async () => baseStatus(),
     StartSafeMode: async () => baseStatus(),
-    ExitSafeMode: async () => baseStatus(),
+    ExitSafeMode: overrides.ExitSafeMode ?? (async () => {
+      runCalls.push("exit-safe");
+      return baseStatus();
+    }),
     ConnectExternal: async () => "",
     DisconnectExternal: async () => baseStatus(),
     RefreshTools: async () => ({}),
@@ -309,12 +315,12 @@ function makeWails(runCalls) {
 
 /* 在独立 vm 上下文加载 app.js 并运行 init()；返回驱动句柄。
  * 末尾追加一行把模块级 applyStatus 暴露到 sandbox，供预览分支直接调用。 */
-function loadApp({ hasWails = true } = {}) {
+function loadApp({ hasWails = true, overrides = {} } = {}) {
   const runCalls = [];
   const { document, registry } = makeDocument();
   buildHtml(document);
   const { window, events } = hasWails
-    ? makeWails(runCalls)
+    ? makeWails(runCalls, overrides)
     : { window: { addEventListener() {} }, events: {} };
 
   const sandbox = {
@@ -327,9 +333,9 @@ function loadApp({ hasWails = true } = {}) {
     navigator: {},
   };
   vm.createContext(sandbox);
-  const code = hasWails
-    ? APP_CODE
-    : APP_CODE + "\n;globalThis.__testApplyStatus = applyStatus;";
+  // 加一行暴露模块级绑定供测试直接调用（函数声明提升，运行前已定义）
+  const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
+    + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
   return {
@@ -337,6 +343,7 @@ function loadApp({ hasWails = true } = {}) {
     document,
     registry,
     runCalls,
+    overrides,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -474,4 +481,20 @@ test("失败页「诊断问题」按钮仍可手动打开弹窗并运行诊断",
     h.document.getElementById("doctor-modal").classList.contains("hidden"),
     false, "手动点击应打开诊断弹窗");
   assert.equal(h.runCalls.length, 1, "手动点击应运行诊断");
+});
+
+test("maybeAutoStartAfterRepair：全绿报告触发自动启动，非全绿不触发", () => {
+  const h = loadApp();
+  const fn = h.sandbox.__testMaybeAutoStart;
+  assert.equal(typeof fn, "function", "应暴露 maybeAutoStartAfterRepair");
+
+  // 全绿：无 Error、无失败 → 自动启动
+  assert.equal(fn({ Error: "", Failed: 0, Checks: [] }), true);
+  // 仍有失败项 → 不自动启动（等用户决定）
+  assert.equal(fn({ Error: "", Failed: 1, Checks: [] }), false);
+  // 诊断命令本身失败 → 不自动启动
+  assert.equal(fn({ Error: "exit status 1", Failed: 0, Checks: [] }), false);
+  // 空报告（诊断抛出）→ 不自动启动
+  assert.equal(fn(null), false);
+  assert.equal(fn(undefined), false);
 });

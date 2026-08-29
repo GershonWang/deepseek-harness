@@ -11,6 +11,12 @@ let runDoctor = null;
 
 const $ = (sel) => document.querySelector(sel);
 
+// 修复后是否自动启动：复检报告无 Error 且无失败项（诊断全绿）时，说明修复
+// 已消除问题，应自动用正常配置重启应用，免去用户手动点击"启动"。
+function maybeAutoStartAfterRepair(report) {
+  return !!report && report.Error === "" && report.Failed === 0;
+}
+
 function api() {
   return window.go.app.App;
 }
@@ -548,9 +554,11 @@ function init() {
     try {
       const r = await api().RunDoctor();
       renderDoctorReport(r);
+      return r;
     } catch (e) {
       $("#doctor-summary").textContent = "诊断失败: " + e.message;
       $("#doctor-start").classList.remove("hidden");
+      return null;
     }
   };
 
@@ -686,7 +694,21 @@ function init() {
       const result = await api().RunDoctorRepair(level);
       $("#doctor-repair-output").textContent = result;
       // 修复后重新诊断
-      await runDoctor();
+      const report = await runDoctor();
+      // 诊断全绿 → 自动启动应用：安全模式下先退出安全模式再用正常配置重启，
+      // 免去用户手动到服务器弹框里点"启动"。
+      if (maybeAutoStartAfterRepair(report)) {
+        $("#doctor-repair-output").textContent += "\n\n修复成功，正在启动应用…";
+        try {
+          if (state.status && state.status.SafeMode) {
+            applyStatus(await api().ExitSafeMode());
+          } else {
+            applyStatus(await api().StartServer());
+          }
+        } catch (e) {
+          $("#doctor-repair-output").textContent += "\n自动启动失败: " + e.message;
+        }
+      }
     } catch (e) {
       $("#doctor-repair-output").textContent = "修复失败: " + e.message;
     }
