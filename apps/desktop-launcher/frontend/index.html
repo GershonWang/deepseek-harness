@@ -23,8 +23,8 @@
       <button id="btn-tools" class="icon-btn" title="工具链">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       </button>
-      <button id="btn-doctor" class="icon-btn" title="诊断与修复">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.43 12.98c.09.33.07.69-.06 1A8.03 8.03 0 0 1 3 12 8 8 0 0 1 14.07 2.54"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 10v4"/><path d="M10 12h4"/></svg>
+      <button id="btn-doctor" class="icon-btn doctor-icon" title="诊断与修复">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v6"/><path d="M9 11h6"/></svg>
       </button>
       <button id="btn-about" class="icon-btn" title="关于">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v3.4M8 4.8v.2"/></svg>
@@ -210,7 +210,16 @@
       <div id="doctor-content" class="doctor-content hidden">
         <div id="doctor-checks" class="doctor-checks"></div>
         <div id="repair-plans" class="repair-plans hidden"></div>
-        <div id="doctor-repair-output" class="doctor-repair-output hidden"></div>
+        <div id="doctor-repair-output" class="doctor-repair-output hidden">
+          <div class="repair-panel">
+            <div class="repair-panel-head">
+              <span class="repair-panel-title">修复结果</span>
+              <span id="repair-panel-status" class="repair-panel-status"></span>
+            </div>
+            <div id="repair-panel-body" class="repair-panel-body"></div>
+            <div id="repair-panel-backup" class="repair-panel-backup hidden"></div>
+          </div>
+        </div>
       </div>
       <div class="doctor-actions-start">
         <button id="doctor-start" class="btn btn-primary">开始诊断</button>

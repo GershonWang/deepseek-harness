@@ -48,7 +48,6 @@ class El {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
     this.id = "";
-    this.className = "";
     this._classList = new ClassList();
     this._text = "";
     this._html = "";
@@ -63,6 +62,17 @@ class El {
   }
   get classList() {
     return this._classList;
+  }
+  // className 与 classList 同步（与真实 DOM 一致：设置整个 className 字符串
+  // 会重建 classList 内容）。
+  get className() {
+    return [...this._classList._set].join(" ");
+  }
+  set className(v) {
+    this._classList._set.clear();
+    for (const c of String(v || "").split(/\s+/)) {
+      if (c) this._classList._set.add(c);
+    }
   }
   get textContent() {
     return this._text;
@@ -196,6 +206,7 @@ function buildHtml(document) {
     "btn-server", "btn-tools", "btn-about", "btn-doctor",
     "doctor-content", "doctor-checks", "doctor-start",
     "repair-plans", "doctor-repair-output",
+    "repair-panel-status", "repair-panel-body", "repair-panel-backup",
     "ext-url", "tools-refresh", "host-add", "host-path", "host-name",
     "btn-safe-mode", "btn-exit-safe-mode",
   ];
@@ -353,6 +364,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   vm.createContext(sandbox);
   // 加一行暴露模块级绑定供测试直接调用（函数声明提升，运行前已定义）
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
+    + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
@@ -547,4 +559,43 @@ test("诊断进行中再次触发 runDoctor 复用同一次检测，不重复调
   resolveRun();
   await flush();
   await flush();
+});
+
+test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
+  const h = loadApp();
+  const fn = h.sandbox.__testRenderRepairOutput;
+  assert.equal(typeof fn, "function", "应暴露 renderRepairOutput");
+
+  const cliOutput = [
+    "Repair level 2 complete.",
+    "  Applied: 1",
+    "  Skipped: 0",
+    "  Backups: /home/u/.dsh/backups/doctor-123",
+    "",
+    "Applied repairs:",
+    "  ✓ plugin-dynamic-load: 已从 profile bundles 移除导致加载失败的插件：test-bad（原 manifest 已备份）",
+  ].join("\n");
+  fn(cliOutput);
+
+  const status = h.document.getElementById("repair-panel-status");
+  assert.equal(status.textContent, "✓ 修复成功");
+  assert.ok(status.classList.contains("ok"));
+  const body = h.document.getElementById("repair-panel-body");
+  assert.match(body.innerHTML, /应用/g, "应显示应用计数");
+  assert.match(body.innerHTML, /已从 profile bundles 移除/, "应显示执行项消息");
+  const backup = h.document.getElementById("repair-panel-backup");
+  assert.equal(backup.classList.contains("hidden"), false);
+  assert.match(backup.textContent, /doctor-123/);
+
+  // 失败输出：Applied 0，Skipped 1 → 未完成
+  fn([
+    "Repair level 2 complete.",
+    "  Applied: 0",
+    "  Skipped: 1",
+    "Skipped:",
+    "  - plugin-dynamic-load: 已移除 6 个插件仍无法加载，已还原 manifest",
+  ].join("\n"));
+  assert.equal(status.textContent, "⚠ 未完成");
+  assert.ok(status.classList.contains("error"));
+  assert.match(body.innerHTML, /已移除 6 个插件/, "应显示跳过原因");
 });

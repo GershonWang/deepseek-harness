@@ -15,6 +15,12 @@ let runDoctor = null;
 
 const $ = (sel) => document.querySelector(sel);
 
+// HTML 转义（模块级：渲染函数与 init 内都使用）。
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
 // 修复后是否自动启动：复检报告无 Error 且无失败项（诊断全绿）时，说明修复
 // 已消除问题，应自动用正常配置重启应用，免去用户手动点击"启动"。
 function maybeAutoStartAfterRepair(report) {
@@ -250,6 +256,92 @@ function showRepairToast(text, kind) {
   toast.classList.remove("hidden");
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => toast.classList.add("hidden"), 6000);
+}
+
+// 修复结果面板：把 `dsh doctor --repair` 的人类可读输出解析为结构化展示。
+// 输入形如：
+//   Repair level 2 complete.
+//     Applied: 1
+//     Skipped: 0
+//     Backups: /path
+//   Applied repairs:
+//     ✓ plugin-dynamic-load: 已从 profile bundles 移除...
+function renderRepairOutput(raw) {
+  const output = $("#doctor-repair-output");
+  if (!output) return;
+  output.classList.remove("hidden");
+
+  const statusEl = $("#repair-panel-status");
+  const bodyEl = $("#repair-panel-body");
+  const backupEl = $("#repair-panel-backup");
+
+  const text = String(raw || "");
+
+  // 状态：Applied > 0 → 成功；有 Skipped 且 Applied=0(失败信息) → 部分/失败。
+  const appliedMatch = text.match(/Applied:\s*(\d+)/);
+  const skippedMatch = text.match(/Skipped:\s*(\d+)/);
+  const appliedCount = appliedMatch ? Number(appliedMatch[1]) : 0;
+  const skippedCount = skippedMatch ? Number(skippedMatch[1]) : 0;
+  const backupsMatch = text.match(/Backups:\s*(.+)/);
+  const backupPath = backupsMatch ? backupsMatch[1].trim() : "";
+
+  // 提取执行项："✓ id: message"（Applied repairs 之后）与跳过项 "- id: reason"。
+  const appliedRows = [];
+  const skippedRows = [];
+  const lines = text.split("\n");
+  let inApplied = false;
+  let inSkipped = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (/^Applied repairs:/.test(t)) { inApplied = true; inSkipped = false; continue; }
+    if (/^Skipped:/.test(t)) { inSkipped = true; inApplied = false; continue; }
+    if (/^Repair level/.test(t)) { continue; }
+    if (t === "") { continue; }
+    if (/^Applied:|^Skipped:|^Backups:/.test(t)) { continue; }
+    if (inApplied && /^✓/.test(t)) {
+      const msg = t.replace(/^✓\s*/, "").replace(/^[^:]+:\s*/, "");
+      appliedRows.push(msg || t);
+    } else if (inSkipped && /^-/.test(t)) {
+      const msg = t.replace(/^-\s*/, "").replace(/^[^:]+:\s*/, "");
+      skippedRows.push(msg || t);
+    }
+  }
+
+  // 状态徽章 + 摘要行
+  if (appliedCount > 0) {
+    statusEl.textContent = "✓ 修复成功";
+    statusEl.className = "repair-panel-status ok";
+  } else if (skippedCount > 0 && appliedCount === 0) {
+    statusEl.textContent = "⚠ 未完成";
+    statusEl.className = "repair-panel-status error";
+  } else {
+    statusEl.textContent = "— 无操作";
+    statusEl.className = "repair-panel-status";
+  }
+
+  const rows = [];
+  rows.push(`
+    <div class="rp-summary">
+      <span class="rp-row"><span class="rp-badge">应用</span>${appliedCount} 项</span>
+      <span class="rp-row"><span class="rp-badge">跳过</span>${skippedCount} 项</span>
+    </div>`);
+  for (const m of appliedRows) {
+    rows.push(`<div class="rp-row ok"><span class="rp-badge">已执行</span>${escapeHtml(m)}</div>`);
+  }
+  for (const m of skippedRows) {
+    rows.push(`<div class="rp-row warn"><span class="rp-badge">跳过</span>${escapeHtml(m)}</div>`);
+  }
+  if (appliedRows.length + skippedRows.length === 0) {
+    rows.push(`<div class="rp-row">${escapeHtml(text.trim() || "无输出")}</div>`);
+  }
+  bodyEl.innerHTML = rows.join("");
+
+  if (backupPath) {
+    backupEl.textContent = "备份目录: " + backupPath;
+    backupEl.classList.remove("hidden");
+  } else {
+    backupEl.classList.add("hidden");
+  }
 }
 
 // 自动诊断状态处理：失败页提示诊断中/完成；StartupDoctorReady 首次变 true 时
@@ -758,11 +850,6 @@ function init() {
     });
   }
 
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, (m) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
-  }
-
   $("#doctor-start").addEventListener("click", runDoctor);
   $("#doctor-refresh").addEventListener("click", runDoctor);
 
@@ -771,17 +858,25 @@ function init() {
     if (diagnosisState.repairing) return;
     diagnosisState.repairing = true;
     setRepairButtonsBusy(true);
+    // 修复面板：显示进行中状态
+    const statusEl = $("#repair-panel-status");
+    const bodyEl = $("#repair-panel-body");
+    if (statusEl) { statusEl.textContent = "修复中…"; statusEl.className = "repair-panel-status running"; }
+    if (bodyEl) bodyEl.innerHTML = '<div class="rp-row">正在执行修复，请稍候…</div>';
     $("#doctor-repair-output").classList.remove("hidden");
-    $("#doctor-repair-output").textContent = "正在修复…";
     try {
       const result = await api().RunDoctorRepair(level);
-      $("#doctor-repair-output").textContent = result;
+      renderRepairOutput(result);
       // 修复后重新诊断
-      const report = await runDoctor();
+      const report = await runDoctor("修复完成，正在复查…");
       // 诊断全绿 → 自动启动应用：安全模式下先退出安全模式再用正常配置重启，
       // 免去用户手动到服务器弹框里点"启动"。
       if (maybeAutoStartAfterRepair(report)) {
-        $("#doctor-repair-output").textContent += "\n\n修复成功，正在启动应用…";
+        if (statusEl) { statusEl.textContent = "✓ 修复成功"; statusEl.className = "repair-panel-status ok"; }
+        const msg = document.createElement("div");
+        msg.className = "rp-row ok";
+        msg.textContent = "修复成功，正在启动应用…";
+        bodyEl.appendChild(msg);
         try {
           if (state.status && state.status.SafeMode) {
             applyStatus(await api().ExitSafeMode());
@@ -797,12 +892,12 @@ function init() {
             showRepairToast(`${reason}，已自动移除/修复并恢复启动。`, "ok");
           }, 1500);
         } catch (e) {
-          $("#doctor-repair-output").textContent += "\n自动启动失败: " + e.message;
           showRepairToast("自动启动失败，请稍后手动点「启动」重试。", "warn");
         }
       }
     } catch (e) {
-      $("#doctor-repair-output").textContent = "修复失败: " + e.message;
+      if (statusEl) { statusEl.textContent = "✗ 修复失败"; statusEl.className = "repair-panel-status error"; }
+      bodyEl.innerHTML = `<div class="rp-row error">${escapeHtml(e.message)}</div>`;
       showRepairToast("修复失败：" + e.message, "warn");
     } finally {
       diagnosisState.repairing = false;

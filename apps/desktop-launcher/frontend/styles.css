@@ -127,6 +127,11 @@ body {
 .icon-btn:hover { background: var(--bg-hover); color: var(--fg-strong); }
 .icon-btn:active { background: var(--bg-input); }
 
+/* 诊断与修复：品牌色图标，与"关于"等普通灰图标明显区分 */
+.icon-btn.doctor-icon { color: var(--accent); }
+.icon-btn.doctor-icon:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.icon-btn.doctor-icon:active { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
 /* 窗口控制（最小化/最大化/关闭，VS Code 风格） */
 .titlebar-window {
   display: flex;
@@ -745,11 +750,53 @@ body {
   display: flex; justify-content: center; margin-top: 16px;
 }
 .doctor-repair-output {
-  margin-top: 12px; padding: 10px 12px;
-  background: var(--bg); border-radius: 8px;
-  font-family: var(--mono, monospace); font-size: 12px;
-  white-space: pre-wrap; color: var(--fg-dim);
-  max-height: 160px; overflow: auto;
+  margin-top: 14px;
+}
+.repair-panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-panel);
+}
+.repair-panel-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-toolbar, var(--bg-panel));
+}
+.repair-panel-title {
+  font-size: 12px; font-weight: 600; color: var(--fg-strong);
+}
+.repair-panel-status {
+  font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+  background: var(--bg); color: var(--fg-dim);
+  white-space: nowrap;
+}
+.repair-panel-status.running { color: var(--warn); }
+.repair-panel-status.ok { color: var(--ok); }
+.repair-panel-status.error { color: var(--danger); }
+.repair-panel-body {
+  padding: 10px 12px;
+  font-size: 12.5px; line-height: 1.7; color: var(--fg);
+}
+.repair-panel-body .rp-summary {
+  display: flex; flex-wrap: wrap; gap: 6px 10px;
+  margin-bottom: 4px;
+}
+.repair-panel-body .rp-row { display: flex; gap: 8px; align-items: baseline; }
+.repair-panel-body .rp-row.ok { color: var(--ok); }
+.repair-panel-body .rp-row.warn { color: var(--warn); }
+.repair-panel-body .rp-row.error { color: var(--danger); }
+.repair-panel-body .rp-badge {
+  font-size: 11px; font-weight: 600;
+  padding: 1px 8px; border-radius: 999px; background: var(--bg); flex-shrink: 0;
+}
+.repair-panel-backup {
+  padding: 8px 12px;
+  border-top: 1px dashed var(--border);
+  font-size: 11.5px; color: var(--fg-dim);
+  font-family: var(--mono, monospace);
+  word-break: break-all;
 }
 .btn-warn { background: var(--warn); color: #1a1a1a; border-color: transparent; }
 .btn-warn:hover { opacity: 0.9; }
