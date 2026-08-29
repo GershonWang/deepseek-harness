@@ -850,8 +850,8 @@ function init() {
     });
   }
 
-  $("#doctor-start").addEventListener("click", runDoctor);
-  $("#doctor-refresh").addEventListener("click", runDoctor);
+  $("#doctor-start").addEventListener("click", () => runDoctor());
+  $("#doctor-refresh").addEventListener("click", () => runDoctor());
 
   async function runRepair(level) {
     // 修复进行中：按钮已禁用，重复点击直接忽略。
