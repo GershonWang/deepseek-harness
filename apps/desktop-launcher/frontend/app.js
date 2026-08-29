@@ -213,6 +213,16 @@ function hideDoctorAutoBanner() {
   if (el) el.classList.add("hidden");
 }
 
+// 更新诊断摘要栏：只改写文本 span（保留行内的"重新诊断"按钮不被整体重写冲掉），
+// 并控制按钮显隐 —— 诊断中/失败时隐藏，结果就绪时显示。
+function setDoctorSummary(htmlOrText, showRefresh) {
+  const text = $("#doctor-summary-text");
+  if (!text) return; // 结构未就绪（预览分支）
+  text.innerHTML = htmlOrText;
+  const btn = $("#doctor-refresh");
+  btn.classList.toggle("hidden", !showRefresh);
+}
+
 // 自动诊断状态处理：失败页提示诊断中/完成；StartupDoctorReady 首次变 true 时
 // 自动打开诊断弹窗并运行一次诊断。state._startupDoctorShown 保证每个失败周期
 // 只自动弹窗一次，退出失败态（用户手动重启/安全模式）后重置，下一周期可再触发。
@@ -548,7 +558,7 @@ function init() {
   });
 
   runDoctor = async function () {
-    $("#doctor-summary").textContent = "正在诊断…";
+    setDoctorSummary("正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
     try {
@@ -556,7 +566,7 @@ function init() {
       renderDoctorReport(r);
       return r;
     } catch (e) {
-      $("#doctor-summary").textContent = "诊断失败: " + e.message;
+      setDoctorSummary("诊断失败: " + e.message, false);
       $("#doctor-start").classList.remove("hidden");
       return null;
     }
@@ -564,7 +574,7 @@ function init() {
 
   function renderDoctorReport(r) {
     if (r.Error) {
-      $("#doctor-summary").textContent = "诊断失败: " + r.Error;
+      setDoctorSummary("诊断失败: " + r.Error, false);
       $("#doctor-start").classList.remove("hidden");
       $("#doctor-content").classList.add("hidden");
       return;
@@ -573,19 +583,32 @@ function init() {
     const sevColor = { fatal: "#f48771", error: "#f48771", warning: "#cca700", info: "#75beff" };
     const statusColor = (ok, sev) => ok ? "#89d185" : (sevColor[sev] || "#ccc");
 
+    setDoctorSummary(
+      `<strong>共 ${r.Total} 项</strong>：` +
+      `<span style="color:#89d185">✓ ${r.OK} 通过</span>，` +
+      `<span style="color:#f48771">✗ ${r.Failed} 失败</span>` +
+      (r.Fatal > 0 ? `（<span style="color:#f48771">${r.Fatal} 严重</span>）` : "") +
+      (r.Fixable > 0 ? `，<span style="color:#cca700">${r.Fixable} 项可自动修复</span>` : ""),
+      true,
+    );
+
     // 安全模式提示：安全模式下第三方插件被跳过，诊断看到的是不完整的安装
     // 状态（可能误报"无第三方插件"并漏掉插件问题），提示用户先退出安全模式。
     const safeModeNotice = state.status && state.status.SafeMode
       ? '<div class="doctor-auto-hint">当前以安全模式运行（已跳过第三方插件），诊断结果不完整。请先退出安全模式再重新诊断。</div>'
       : "";
-
-    $("#doctor-summary").innerHTML =
-      safeModeNotice +
-      `<strong>共 ${r.Total} 项</strong>：` +
-      `<span style="color:#89d185">✓ ${r.OK} 通过</span>，` +
-      `<span style="color:#f48771">✗ ${r.Failed} 失败</span>` +
-      (r.Fatal > 0 ? `（<span style="color:#f48771">${r.Fatal} 严重</span>）` : "") +
-      (r.Fixable > 0 ? `，<span style="color:#cca700">${r.Fixable} 项可自动修复</span>` : "");
+    // 提示条插在摘要栏上方（不影响"共 N 项 + 重新诊断"行的布局）。
+    const hintId = "doctor-safe-hint";
+    const existingHint = document.getElementById(hintId);
+    if (existingHint) existingHint.remove();
+    if (safeModeNotice) {
+      const hint = document.createElement("div");
+      hint.id = hintId;
+      hint.className = "doctor-summary-safe-hint";
+      hint.innerHTML = safeModeNotice;
+      const box = $("#doctor-summary").parentNode;
+      box.insertBefore(hint, $("#doctor-summary"));
+    }
 
     const checksHtml = r.Checks.map((c) => {
       const icon = c.OK ? "✓" : "✗";

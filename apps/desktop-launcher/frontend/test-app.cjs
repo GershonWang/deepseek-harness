@@ -120,6 +120,9 @@ class El {
     else this.children.splice(i, 0, child);
     return child;
   }
+  remove() {
+    if (this.parentNode) this.parentNode.removeChild(this);
+  }
 }
 
 /* 覆盖 app.js 用到的选择器：`#id`、`input[name="mode"]:checked`、
@@ -128,6 +131,8 @@ function matchesSelector(el, sel) {
   sel = sel.trim();
   const byId = sel.match(/^#([\w-]+)/);
   if (byId) return el.id === byId[1];
+  const byClass = sel.match(/^\.([\w-]+)/);
+  if (byClass) return el.classList.contains(byClass[1]);
   if (sel === "[data-close]") return "close" in el.dataset;
   if (sel.startsWith("[") && sel.endsWith("]")) {
     const inner = sel.slice(1, -1);
@@ -189,8 +194,8 @@ function buildHtml(document) {
     "card-hosts", "host-list", "host-hint",
     "about-repo", "about-version", "win-min", "win-max", "win-close", "titlebar",
     "btn-server", "btn-tools", "btn-about", "btn-doctor",
-    "doctor-summary", "doctor-content", "doctor-checks", "doctor-start",
-    "doctor-refresh", "repair-plans", "doctor-repair-output",
+    "doctor-content", "doctor-checks", "doctor-start",
+    "repair-plans", "doctor-repair-output",
     "ext-url", "tools-refresh", "host-add", "host-path", "host-name",
     "btn-safe-mode", "btn-exit-safe-mode",
   ];
@@ -199,6 +204,19 @@ function buildHtml(document) {
     el.id = id;
     document.body.appendChild(el);
   }
+  // 诊断摘要栏：行内含文本 span 与"重新诊断"按钮（按钮默认隐藏）
+  const summary = document.createElement("div");
+  summary.id = "doctor-summary";
+  summary.classList.add("doctor-summary");
+  const summaryText = document.createElement("span");
+  summaryText.id = "doctor-summary-text";
+  summaryText.className = "doctor-summary-text";
+  summary.appendChild(summaryText);
+  const refreshBtn = document.createElement("button");
+  refreshBtn.id = "doctor-refresh";
+  refreshBtn.classList.add("hidden");
+  summary.appendChild(refreshBtn);
+  document.body.appendChild(summary);
   // 与 index.html 一致的初始 hidden 态
   for (const id of [
     "harness", "loading-page", "failed-page",
@@ -396,8 +414,12 @@ test("StartupDoctorReady 自动弹窗并运行诊断，同周期只触发一次"
   assert.equal(banner.classList.contains("hidden"), false);
   assert.equal(banner.textContent, "检测到启动失败，已为你自动诊断");
 
-  const summary = h.document.getElementById("doctor-summary");
-  assert.match(summary.innerHTML, /共 3 项/, "摘要应渲染出诊断报告");
+  assert.match(
+    h.document.getElementById("doctor-summary-text").innerHTML,
+    /共 3 项/, "摘要应渲染出诊断报告");
+  assert.equal(
+    h.document.getElementById("doctor-refresh").classList.contains("hidden"),
+    false, "诊断就绪后应显示重新诊断按钮");
   assert.equal(
     h.document.getElementById("doctor-content").classList.contains("hidden"),
     false, "报告内容区应可见");

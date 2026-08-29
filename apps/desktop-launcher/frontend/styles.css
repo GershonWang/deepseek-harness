@@ -619,11 +619,16 @@ body {
   border: 1px solid rgba(204, 167, 0, 0.4);
   border-radius: 8px;
 }
+.doctor-summary-safe-hint { margin-bottom: 8px; }
+.doctor-summary-safe-hint > .doctor-auto-hint { margin-bottom: 0; }
 .doctor-summary {
+  display: flex; align-items: center; gap: 10px;
   padding: 12px 16px; margin-bottom: 12px;
   background: var(--bg-panel); border-radius: 8px;
   font-size: 13px;
 }
+.doctor-summary-text { flex: 1; min-width: 0; }
+.doctor-summary #doctor-refresh { flex-shrink: 0; }
 .doctor-content { max-height: 50vh; overflow-y: auto; }
 .doctor-checks { display: flex; flex-direction: column; gap: 6px; }
 .doctor-check-row {

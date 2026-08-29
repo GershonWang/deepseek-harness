@@ -204,15 +204,13 @@
     </div>
     <div class="modal-body">
       <div id="doctor-summary" class="doctor-summary">
-        点击"开始诊断"检查环境、配置、插件和会话数据。
+        <span id="doctor-summary-text" class="doctor-summary-text">点击"开始诊断"检查环境、配置、插件和会话数据。</span>
+        <button id="doctor-refresh" class="btn hidden">重新诊断</button>
       </div>
       <div id="doctor-content" class="doctor-content hidden">
         <div id="doctor-checks" class="doctor-checks"></div>
         <div id="repair-plans" class="repair-plans hidden"></div>
         <div id="doctor-repair-output" class="doctor-repair-output hidden"></div>
-        <div class="doctor-actions">
-          <button id="doctor-refresh" class="btn">重新诊断</button>
-        </div>
       </div>
       <div class="doctor-actions-start">
         <button id="doctor-start" class="btn btn-primary">开始诊断</button>
