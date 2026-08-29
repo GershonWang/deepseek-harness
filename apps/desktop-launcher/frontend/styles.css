@@ -239,13 +239,13 @@ body {
 
 .card-wide { grid-column: 1 / -1; }
 
-.card h1 { font-size: 20px; color: var(--fg-strong); margin-bottom: 6px; }
-.card h2 { font-size: 13px; color: var(--fg-strong); margin-bottom: 8px; }
-.card p.intro { font-size: 13px; line-height: 1.7; color: var(--fg-dim); }
-.card ol { margin: 0; padding-left: 18px; }
-.card li { font-size: 12px; line-height: 1.9; }
-.card code { font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace; font-size: 11px; background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; }
-.card .hint { font-size: 11px; line-height: 1.7; color: var(--fg-dim); margin-top: 8px; }
+.card h1, .card-wide h1 { font-size: 20px; color: var(--fg-strong); margin-bottom: 6px; }
+.card h2, .card-wide h2 { font-size: 13px; color: var(--fg-strong); margin-bottom: 8px; }
+.card p.intro, .card-wide p.intro { font-size: 13px; line-height: 1.7; color: var(--fg-dim); }
+.card ol, .card-wide ol { margin: 0; padding-left: 18px; }
+.card li, .card-wide li { font-size: 12px; line-height: 1.9; }
+.card code, .card-wide code { font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace; font-size: 11px; background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; }
+.card .hint, .card-wide .hint { font-size: 11px; line-height: 1.7; color: var(--fg-dim); margin-top: 8px; }
 
 /* ---------- 启动加载页 ---------- */
 .loading-page {
