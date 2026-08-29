@@ -273,7 +273,7 @@ func (a *App) startStartupDoctor() {
 
 	go func() {
 		defer close(done)
-		report := a.RunDoctor(ctx)
+		report := a.runDoctor(ctx)
 		a.mu.Lock()
 		// 只有当本次诊断仍是"当前"的那次时才清理资源引用。
 		// 如果已经被 reset 或新的诊断覆盖，不要动外部状态。
@@ -465,7 +465,36 @@ func (a *App) doctorEnv() []string {
 // 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
 // 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
 // stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
-func (a *App) RunDoctor(ctx context.Context) DoctorReport {
+func (a *App) RunDoctor() DoctorReport {
+	// 用户手动触发的诊断：用后台 context，shutdown 时会被 stopDoctor 取消。
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	// 取消上一次诊断（如果有）
+	if a.doctorCancel != nil {
+		a.doctorCancel()
+	}
+	a.doctorCancel = cancel
+	a.doctorDone = make(chan struct{})
+	a.doctorEpoch++
+	myEpoch := a.doctorEpoch
+	done := a.doctorDone
+	a.mu.Unlock()
+
+	defer func() {
+		close(done)
+		a.mu.Lock()
+		if a.doctorEpoch == myEpoch {
+			a.doctorCancel = nil
+			a.doctorDone = nil
+		}
+		a.mu.Unlock()
+		cancel()
+	}()
+	return a.runDoctor(ctx)
+}
+
+// runDoctor 是内部实现，接收 ctx 以便上层控制生命周期（shutdown / 失败周期重置）。
+func (a *App) runDoctor(ctx context.Context) DoctorReport {
 	args := []string{}
 	if a.dshScript != "" {
 		args = append(args, a.dshScript)
