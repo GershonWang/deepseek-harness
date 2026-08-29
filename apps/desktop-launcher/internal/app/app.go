@@ -4,6 +4,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -414,6 +415,10 @@ func (a *App) doctorEnv() []string {
 }
 
 // RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
+//
+// 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
+// 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
+// stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
 func (a *App) RunDoctor() DoctorReport {
 	args := []string{}
 	if a.dshScript != "" {
@@ -423,9 +428,14 @@ func (a *App) RunDoctor() DoctorReport {
 
 	cmd := exec.Command(a.dshCmd, args...)
 	cmd.Env = a.doctorEnv()
-	out, err := cmd.Output()
-	if err != nil {
-		return DoctorReport{Error: err.Error()}
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	_ = cmd.Run() // 退出码非零是"发现 fatal 问题"，不是命令失败
+
+	out := outBuf.Bytes()
+	if len(bytes.TrimSpace(out)) == 0 {
+		return DoctorReport{Error: "doctor 无输出: exit status " + exitCodeText(cmd)}
 	}
 
 	// 用 json.RawMessage 先解一层结构
@@ -484,7 +494,19 @@ func (a *App) RunDoctor() DoctorReport {
 	}
 }
 
+// exitCodeText 提取命令的退出码文本，供"无输出时"的错误信息使用。
+func exitCodeText(cmd *exec.Cmd) string {
+	if cmd.ProcessState == nil {
+		return "unknown"
+	}
+	return cmd.ProcessState.String()
+}
+
 // RunDoctorRepair 运行指定级别的修复，返回修复结果摘要。
+//
+// 同 RunDoctor：dsh doctor --repair 的退出码表达修复结论（1 = 仍有未完成
+// 的修复项），非零退出码不代表命令失败。CombinedOutput 保留完整输出，
+// 直接返回它；只有输出为空才视为命令本身失败。
 func (a *App) RunDoctorRepair(level int) string {
 	args := []string{}
 	if a.dshScript != "" {
@@ -501,8 +523,8 @@ func (a *App) RunDoctorRepair(level int) string {
 	cmd := exec.Command(a.dshCmd, args...)
 	cmd.Env = a.doctorEnv()
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "修复失败: " + err.Error() + "\n" + string(out)
+	if err != nil && len(bytes.TrimSpace(out)) == 0 {
+		return "修复失败: " + err.Error()
 	}
 	return string(out)
 }

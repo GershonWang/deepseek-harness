@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -134,5 +136,34 @@ func TestDoctorEnv_StripsSafeModeAndPointsDshHome(t *testing.T) {
 	}
 	if got := env["DSH_HOME"]; got != "/home/tester/.dsh" {
 		t.Fatalf("DSH_HOME 应指向 a.home/.dsh, got %q", got)
+	}
+}
+
+func TestRunDoctor_ParsesOutputDespiteNonZeroExit(t *testing.T) {
+	// dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题）。
+	// RunDoctor 必须解析 stdout 的 JSON，即使命令退出码非零——这是"发现问题"
+	// 而不是"命令失败"。用 sh 模拟：打印合法 JSON 后以退出码 1 退出。
+	dir := t.TempDir()
+	script := filepath.Join(dir, "mock-doctor-exit1.sh")
+	body := `#!/bin/sh
+echo '{"dshHome":"/tmp/fake","generatedAt":"x","summary":{"total":1,"ok":0,"failed":1,"fatal":1,"fixable":1},"checks":[{"id":"plugin-dynamic-load","name":"n","category":"plugin","severity":"fatal","result":{"ok":false,"message":"bad plugin","fixable":true,"suggestedLevel":2}}]}'
+exit 1
+`
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// dshScript 指向 mock；dshCmd 是 sh。dshScript 需要 .js 后缀判断在 New() 里，
+	// 这里直接构造 App 用 exec.Command(dshCmd, dshScript, ...) 路径。
+	a := &App{dshCmd: "sh", dshScript: script, home: t.TempDir()}
+	report := a.RunDoctor()
+	if report.Error != "" {
+		t.Fatalf("不应报 Error（退出码非零但 JSON 可解析）, got %q", report.Error)
+	}
+	if report.Fatal != 1 || report.Failed != 1 || len(report.Checks) != 1 {
+		t.Fatalf("应解析出 1 个 fatal 失败项, got Fatal=%d Failed=%d checks=%d",
+			report.Fatal, report.Failed, len(report.Checks))
+	}
+	if report.Checks[0].ID != "plugin-dynamic-load" || !report.Checks[0].Fixable {
+		t.Fatalf("检查项解析错误: %+v", report.Checks[0])
 	}
 }
