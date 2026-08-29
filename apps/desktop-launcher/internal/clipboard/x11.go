@@ -597,6 +597,11 @@ func (x *xconn) setDeadline(d time.Duration) error { return x.c.SetReadDeadline(
 // installWindow creates one tiny requestor window used as the ConvertSelection
 // destination (the requestor must exist server-side). The window id derives
 // from the resource base reported during setup.
+//
+// The window is intentionally left unmapped: X11 selection transfer only
+// requires the requestor to exist as a resource, not to be visible. Mapping it
+// (a mapped InputOutput window at screen origin (0,0)) made a small window
+// flash in the top-left corner of the screen on every clipboard read.
 func (x *xconn) installWindow() error {
 	wid := x.resourceBase + 1
 	payload := make([]byte, 28)
@@ -610,11 +615,7 @@ func (x *xconn) installWindow() error {
 	if err := x.send(1, payload); err != nil {       // CreateWindow (depth 0)
 		return err
 	}
-	payload = make([]byte, 4)
-	binary.LittleEndian.PutUint32(payload, wid)
-	if err := x.send(8, payload); err != nil { // MapWindow
-		return err
-	}
+	// Deliberately no MapWindow: the requestor stays unmapped (see above).
 	x.requesterWindow = wid
 	return nil
 }
