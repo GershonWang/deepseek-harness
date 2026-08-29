@@ -11,16 +11,18 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, renameSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as yaml from 'js-yaml'
 import {
   loadProfile,
   composeEntries,
   readProfileManifest,
   resolveProfileDir,
   writeProfileManifest,
+  PROFILE_PATCH_FILENAME,
 } from '@deepseek-ai/dsh-app-boot'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { bisectBy } from '../bisect-by.js'
@@ -113,6 +115,25 @@ const pluginPatchComposable: DoctorCheck = {
       }
     }
   },
+  fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
+    const profileDir = resolveProfileDir('web', dshHome)
+    const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+    const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
+    const content = readFileSync(patchPath, 'utf8')
+    await writeFileAtomic(backupPath, content, { mode: 0o600, dirMode: 0o700 })
+    // Rename to .disabled so the profile loader skips it entirely.
+    // This is the safest fix for compose warnings: user patches are often
+    // written for an older harness version and reference entries that were
+    // renamed or removed in an upgrade; disabling all of them guarantees a
+    // clean compose.
+    const disabledPath = join(profileDir, `${PROFILE_PATCH_FILENAME}.disabled`)
+    renameSync(patchPath, disabledPath)
+    return {
+      ok: true,
+      message: `User patch file disabled (renamed to ${PROFILE_PATCH_FILENAME}.disabled)`,
+      backupPath,
+    }
+  },
 }
 
 const pluginThirdPartyList: DoctorCheck = {
@@ -198,6 +219,40 @@ const pluginPatchTargets: DoctorCheck = {
         fixable: false,
         suggestedLevel: 2,
       }
+    }
+  },
+  fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
+    const profileDir = resolveProfileDir('web', dshHome)
+    const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+    const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
+    const original = readFileSync(patchPath, 'utf8')
+    await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
+
+    // Re-derive the missing target ids
+    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+    const baselineEntries = composeEntries(profile.layers.map(l => l.patches))
+    const baselineIds = new Set(baselineEntries.map(e => e.id).filter(Boolean) as string[])
+
+    // Parse the patch YAML, filter out patches whose id is missing, write back.
+    const patches = (yaml.load(original) ?? []) as Array<{ id?: string | number }>
+    const removed: string[] = []
+    const kept = patches.filter((p) => {
+      if (p.id === undefined) return true // patches without id (e.g. imports) stay
+      if (baselineIds.has(String(p.id))) return true
+      removed.push(String(p.id))
+      return false
+    })
+
+    if (removed.length === 0) {
+      return { ok: true, message: 'No orphaned patches to remove' }
+    }
+
+    const output = yaml.dump(kept, { noRefs: true, lineWidth: -1 })
+    await writeFileAtomic(patchPath, output, { mode: 0o600 })
+    return {
+      ok: true,
+      message: `Removed ${removed.length} orphaned patch(es): ${removed.slice(0, 3).join(', ')}${removed.length > 3 ? '...' : ''}`,
+      backupPath,
     }
   },
 }
