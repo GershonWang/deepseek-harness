@@ -416,7 +416,12 @@ func (x *xconn) readReply() ([]byte, []byte, error) {
 			hdr[1], binary.LittleEndian.Uint16(hdr[10:12]), binary.LittleEndian.Uint16(hdr[8:10]),
 			binary.LittleEndian.Uint32(hdr[4:8]), binary.LittleEndian.Uint16(hdr[2:4]))
 	case 1:
-		length := int(binary.LittleEndian.Uint16(hdr[4:6]))
+		// The reply header's length field is a CARD32 (bytes 4-7) counting
+		// 4-byte words. Reading only the low 16 bits truncated every reply
+		// larger than 65535 words (262,140 bytes): large clipboard images
+		// (e.g. pasted screenshots) were silently cut, yielding a corrupt
+		// image in the composer.
+		length := int(binary.LittleEndian.Uint32(hdr[4:8]))
 		if length == 0 {
 			return hdr, nil, nil
 		}
