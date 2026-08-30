@@ -163,21 +163,67 @@ func readX11UriListImage() []byte {
 
 // uriToPath converts a file:// URI to a local filesystem path. Returns an
 // empty string for non-file URIs or unparseable input.
+//
+// The path portion is percent-decoded: file managers (e.g. DDE) encode spaces
+// and other reserved characters in file names as %XX (a space becomes %20), so
+// a URI like file:///home/user/My%20Image%20(1).png must decode before the
+// filesystem can be asked. Only %XX sequences are decoded; a literal '+' stays
+// a '+', because file paths are not application/x-www-form-urlencoded.
 func uriToPath(uri string) string {
 	uri = strings.TrimSpace(uri)
 	if !strings.HasPrefix(uri, "file://") {
 		return ""
 	}
 	path := strings.TrimPrefix(uri, "file://")
-	// file:///path → /path (three slashes for local files with no host)
-	// file://localhost/path → /path (localhost is special-cased)
-	if strings.HasPrefix(path, "//localhost/") {
-		path = strings.TrimPrefix(path, "//localhost")
-	} else if strings.HasPrefix(path, "//") {
-		// Non-localhost host — not a local file.
-		return ""
+	// Strip or reject the authority part: file:///path has an empty host and
+	// the path already starts with /; file://localhost/path carries the local
+	// host explicitly; any other host is a remote file and is rejected.
+	switch {
+	case strings.HasPrefix(path, "/"):
+		// empty host, local path — keep as-is
+	case strings.HasPrefix(path, "localhost/"):
+		path = strings.TrimPrefix(path, "localhost") // → /path
+	default:
+		return "" // non-local host (e.g. file://otherhost/path)
 	}
-	return path
+	return percentDecode(path)
+}
+
+// percentDecode decodes RFC 3986 %XX escapes in s in place of writing them
+// back. It leaves every other byte untouched, including '+' (which only means
+// space in form encoding, not in file paths). Returns s unchanged when no
+// escapes are present.
+func percentDecode(s string) string {
+	if !strings.ContainsRune(s, '%') {
+		return s
+	}
+	out := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			hi, ok1 := hexVal(s[i+1])
+			lo, ok2 := hexVal(s[i+2])
+			if ok1 && ok2 {
+				out = append(out, hi<<4|lo)
+				i += 2
+				continue
+			}
+		}
+		out = append(out, s[i])
+	}
+	return string(out)
+}
+
+// hexVal decodes one hexadecimal digit.
+func hexVal(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	case c >= 'A' && c <= 'F':
+		return c - 'A' + 10, true
+	}
+	return 0, false
 }
 
 // imageExtensions lists the file extensions we consider valid image inputs

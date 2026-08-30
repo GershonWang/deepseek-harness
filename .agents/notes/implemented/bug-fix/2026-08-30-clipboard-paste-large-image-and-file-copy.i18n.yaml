@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-clipboard-paste-large-image-and-file-copy.md
-2026-08-30-clipboard-paste-large-image-and-file-copy.md: e7fe5204e6b54e52e3275557d39bd5f1002b47ea
-2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md: 1d0f3e4751cf04dd814e25b6d8de648b56a31e89
+2026-08-30-clipboard-paste-large-image-and-file-copy.md: 7998fd20bfc730a2149a36533cb2adba3cb45d02
+2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md: 51465200ee2d3edf84ef90610f658fa72d67aee1

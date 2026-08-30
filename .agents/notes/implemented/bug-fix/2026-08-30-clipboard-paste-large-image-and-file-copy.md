@@ -6,13 +6,15 @@ English | [中文](2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md)
 
 ## Problem
 
-Two clipboard paste paths in the packaged dsh-desktop-launcher produced wrong output:
+Three clipboard paste paths in the packaged dsh-desktop-launcher produced wrong output:
 
 1. **Large images pasted blank.** An image copied from a chat app (e.g. WeChat, right-click "copy image") reached the composer as a blank grey placeholder. The X11 clipboard bridge read the selection into a corrupt, truncated buffer: a 537,485-byte PNG came back as 13,200 bytes with no IEND chunk, so the browser could not decode it.
 
 2. **Copying an image file did nothing.** Copying an image file in the file manager (right-click copy or Ctrl+C, which puts a `text/uri-list` on the X11 CLIPBOARD) and pasting into the composer had no effect: no attachment, no text, no error.
 
-The clipboard bridge is the only channel for pasted images in the WebKitGTK shell — the engine never surfaces clipboard bitmaps to the page — so both defects were in that path.
+3. **Copying an image file with special characters did nothing.** Even after the bridge was consulted, files whose names contain spaces or parentheses (e.g. `火山引擎邀请海报 (1).png`) still did not paste. The DDE file manager percent-encodes such names in the `text/uri-list` (space becomes `%20`, parentheses `%28`/`%29`), and the bridge treated the encoded path as the literal filename, so `os.Stat` failed and the read returned nothing.
+
+The clipboard bridge is the only channel for pasted images in the WebKitGTK shell — the engine never surfaces clipboard bitmaps to the page — so these defects were all in that path.
 
 ## Decision
 
@@ -20,9 +22,11 @@ The clipboard bridge is the only channel for pasted images in the WebKitGTK shel
 
 **Consult the shell bridge before file items.** The web composer's capture-phase paste handler short-circuited whenever the paste event carried a `kind: 'file'` item with an `image/*` type, letting Lexical handle it natively. WebKitGTK exposes file items for a file-copy paste (a `text/uri-list` selection), but the container-side engine cannot provide the file bytes, so Lexical inserted nothing. The handler now always asks the shell bridge first — the bridge reads both a bitmap selection and a `text/uri-list` pointing at a readable image file — and only falls back to the delivered file items or plain text when the bridge has no image. This makes file-manager copies land as attachments.
 
+**Decode percent-escapes in file URIs.** `uriToPath` now percent-decodes the path portion of a `file://` URI (RFC 3986 `%XX`), so names containing spaces, parentheses, or other reserved characters resolve to the real filesystem path. Only `%XX` escapes are decoded; a literal `+` stays `+` because file paths are not form-encoded. The dead hostname branches were also corrected: `file:///path` keeps its path, `file://localhost/path` strips the local host, and any other host is rejected.
+
 ## Testing
 
-The Go change is verified against the live X11 server: reading a 537,485-byte PNG from the real clipboard returns the complete buffer ending in IEND, where it previously returned 13,200 truncated bytes. The existing protocol tests (fake server) pass. The web change is covered by the existing ui-conversation suite (349 tests, including `desktop-clipboard` and the composer paste path) plus a clean typecheck.
+The Go changes are verified against the live X11 server: reading a 537,485-byte PNG from the real clipboard returns the complete buffer ending in IEND, where it previously returned 13,200 truncated bytes, and reading the percent-encoded `file://` URI of `火山引擎邀请海报 (1).png` returns the full 316,319-byte file. Unit tests pin `uriToPath` decoding (spaces, parentheses, `%` itself, invalid escapes, `+` preserved, host handling). The existing protocol tests (fake server) pass. The web change is covered by the existing ui-conversation suite (349 tests, including `desktop-clipboard` and the composer paste path) plus a clean typecheck.
 
 ## Alternatives considered
 
@@ -30,6 +34,8 @@ The Go change is verified against the live X11 server: reading a 537,485-byte PN
 
 **Keep the file-item early return and only widen its condition.** Rejected because the container cannot rely on WebKitGTK to deliver usable file bytes from a selection it withholds; the shell bridge is the only reliable reader for both bitmap and uri-list clipboard contents.
 
+**Decode with `net/url`'s form decoder.** Rejected because `url.QueryUnescape` would turn `+` into a space, corrupting filenames that legitimately contain `+`. The hand-rolled `percentDecode` decodes only `%XX` and preserves everything else.
+
 ## Consequences
 
-Pasting large images (screenshots, chat images over 262 KB) works and renders fully. Copying an image file in the file manager and pasting it lands as an attachment when the container can read the file path (typically the mounted home directory). Pastes whose file path the container cannot read fall back to the delivered file items, matching the previous no-op rather than regressing text paste. Text-only pastes are unchanged.
+Pasting large images (screenshots, chat images over 262 KB) works and renders fully. Copying an image file in the file manager and pasting it lands as an attachment when the container can read the file path (typically the mounted home directory), including names with spaces, parentheses, or non-ASCII characters. Pastes whose file path the container cannot read fall back to the delivered file items, matching the previous no-op rather than regressing text paste. Text-only pastes are unchanged.
