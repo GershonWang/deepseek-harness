@@ -254,8 +254,10 @@ export function InputBar({
   // window so we catch it before Lexical's PASTE_COMMAND, regardless of which
   // element in the editor tree was the original target. WebKitGTK withholds
   // file items from the paste event even when the X11 CLIPBOARD selection
-  // holds an image, so we ask the host shell for the bitmap instead. When the
-  // shell has no image we resume normal text paste.
+  // holds an image, so we ask the host shell for the bitmap instead; the shell
+  // also reads a file:// uri-list when the selection holds one, which is why
+  // the bridge is consulted before any file items we can see. When the shell
+  // has no image we resume with the delivered file items or the plain text.
   //
   // We listen on window (not editor.getRootElement()) because the Lexical
   // editor's DOM structure changed in v0.1.2-alpha.1 and paste events do not
@@ -271,13 +273,6 @@ export function InputBar({
       if (target === null || !root.contains(target)) return
       const items = e.clipboardData?.items
       if (items === undefined) return
-      // If the event already carries a real image file, let Lexical handle it.
-      // (WebKitGTK usually withholds these, but in some paste paths they do
-      // show up — e.g. dragging a file in triggers a different flow.)
-      const hasImageFile = Array.from(items).some(
-        item => item.kind === 'file' && item.type.startsWith('image/'),
-      )
-      if (hasImageFile) return
       const text = e.clipboardData?.getData('text/plain') ?? ''
       e.preventDefault()
       e.stopPropagation()
@@ -285,6 +280,18 @@ export function InputBar({
         const file = data === null ? null : base64ToImageFile(data)
         if (file !== null) {
           gate.current.intakeImages([file])
+          return
+        }
+        // The shell had no image. Resume with whatever WebKitGTK delivered:
+        // a file:// uri-list the container could not read still surfaces as
+        // file items here, so hand them to the rail before falling back to
+        // plain-text paste.
+        const files = Array.from(items)
+          .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+          .map(item => item.getAsFile())
+          .filter((f): f is File => f !== null)
+        if (files.length > 0) {
+          gate.current.intakeImages(files)
           return
         }
         if (text !== '' && !gate.current.machineBusy && !gate.current.locked) {
