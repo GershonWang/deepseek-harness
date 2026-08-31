@@ -822,6 +822,40 @@ func (a *App) ApplyProjectToolchain(projectDir string) ProjectToolchainResult {
 	return res
 }
 
+// HostToolScanEntry 是宿主导入向导扫描结果的一行。
+type HostToolScanEntry struct {
+	Name     string
+	Source   string
+	Tool     string
+	Version  string
+	Conflict bool // 与已装 L2 工具提供的命令重名（宿主挂载优先级更高）
+}
+
+// ScanHostTools 扫描常见宿主工具链根目录，返回发现列表及与已装 L2 工具的
+// 重名标记，供导入向导展示。导入动作复用 AddHostTool。
+func (a *App) ScanHostTools() []HostToolScanEntry {
+	discovered := hosttools.Discover(hosttools.DefaultRootDirs(a.home))
+	provided := map[string]bool{}
+	for _, ts := range toolchain.ToolStatuses(toolchain.InstallDir(a.home)) {
+		if ts.Installed {
+			for _, p := range ts.Provides {
+				provided[p] = true
+			}
+		}
+	}
+	out := make([]HostToolScanEntry, 0, len(discovered))
+	for _, d := range discovered {
+		out = append(out, HostToolScanEntry{
+			Name:     d.Name,
+			Source:   d.Source,
+			Tool:     d.Tool,
+			Version:  d.Version,
+			Conflict: provided[d.Tool],
+		})
+	}
+	return out
+}
+
 // AddHostTool 把宿主命令路径挂载进沙箱（写 linglong config.d），返回冲突提示。
 func (a *App) AddHostTool(source, name string) HostToolResult {
 	if !a.sandboxed() {
