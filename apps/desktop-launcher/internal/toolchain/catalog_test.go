@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func TestCatalog_Lookup(t *testing.T) {
-	if _, ok := Lookup("go"); !ok {
+func TestLookupTool(t *testing.T) {
+	if _, ok := LookupTool("go"); !ok {
 		t.Fatal("catalog 应含 go")
 	}
-	if it, ok := Lookup("jdk21"); !ok || it.SHA256 == "" {
+	if it, ok := LookupTool("jdk21"); !ok || it.LatestVersion().SHA256 == "" {
 		t.Fatalf("jdk21 应已填实 sha256: %+v", it)
 	}
-	if _, ok := Lookup("nonexistent"); ok {
+	if _, ok := LookupTool("nonexistent"); ok {
 		t.Fatal("未知项不应命中")
 	}
 }
@@ -25,36 +25,6 @@ func TestCatalog_NoDuplicatedBundledTools(t *testing.T) {
 		if bundled[it.Name] {
 			t.Errorf("catalog 不应收录容器已内置的 %s", it.Name)
 		}
-	}
-}
-
-func TestLinkBin_LinksExecutables(t *testing.T) {
-	dir := t.TempDir()
-	root := filepath.Join(dir, "current", "go")
-	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// 可执行 go/go fmt 与不可执行 README
-	if err := os.WriteFile(filepath.Join(root, "bin", "go"), []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "bin", "gofmt"), []byte("x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "bin", "README"), []byte("x"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	it := CatalogItem{Name: "go", BinRel: "bin"}
-	if err := LinkBin(dir, it); err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"go", "gofmt"} {
-		if _, err := os.Lstat(filepath.Join(dir, "bin", want)); err != nil {
-			t.Errorf("bin 缺软链 %s: %v", want, err)
-		}
-	}
-	if _, err := os.Lstat(filepath.Join(dir, "bin", "README")); !os.IsNotExist(err) {
-		t.Errorf("README 不应被软链: %v", err)
 	}
 }
 
@@ -116,7 +86,7 @@ func TestReconcileBinLinks_RebuildsAndCleansStale(t *testing.T) {
 	}
 }
 
-func TestCatalogStatuses(t *testing.T) {
+func TestToolStatuses(t *testing.T) {
 	dir := t.TempDir()
 	// 预置一个已安装的 go: current/go -> go-1.23.2
 	root := filepath.Join(dir, "go-1.23.2")
@@ -129,33 +99,34 @@ func TestCatalogStatuses(t *testing.T) {
 	if err := os.Symlink(root, filepath.Join(dir, "current", "go")); err != nil {
 		t.Fatal(err)
 	}
-	byName := map[string]CatalogStatus{}
-	for _, cs := range CatalogStatuses(dir) {
-		byName[cs.Name] = cs
+	byID := map[string]ToolStatus{}
+	for _, cs := range ToolStatuses(dir) {
+		byID[cs.ID] = cs
 	}
-	if cs := byName["go"]; cs.State != "installed" || cs.InstalledVersion != "1.23.2" {
+	if cs := byID["go"]; !cs.Installed || cs.ActiveVersion != "1.23.2" {
 		t.Fatalf("go 应已安装且版本 1.23.2: %+v", cs)
 	}
-	if cs := byName["jdk21"]; cs.State != "installable" || !cs.Pinned {
-		t.Fatalf("jdk21 应可安装且已填 sha256: %+v", cs)
+	if cs := byID["jdk21"]; cs.Installed || cs.AvailableVersion == "" {
+		t.Fatalf("jdk21 应未安装且已给出推荐版本: %+v", cs)
 	}
 }
 
 func TestCatalog_Uv(t *testing.T) {
-	it, ok := Lookup("uv")
+	it, ok := LookupTool("uv")
 	if !ok {
 		t.Fatal("catalog 应含 uv")
 	}
-	if it.SHA256 == "" {
+	v := it.LatestVersion()
+	if v.SHA256 == "" {
 		t.Fatal("uv 应已填实 sha256")
 	}
-	if it.URL != "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz" {
-		t.Fatalf("uv URL 应指向官方 0.12.6 gnu tarball: %+v", it)
+	if v.URL != "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz" {
+		t.Fatalf("uv URL 应指向官方 0.12.6 gnu tarball: %+v", v)
 	}
-	if it.BinRel != "." {
-		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根: BinRel 应为 .: %+v", it)
+	if v.BinRel != "." {
+		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根: BinRel 应为 .: %+v", v)
 	}
-	if it.Version != "0.12.6" {
-		t.Fatalf("uv 版本应为 0.12.6: %+v", it)
+	if v.Version != "0.12.6" {
+		t.Fatalf("uv 版本应为 0.12.6: %+v", v)
 	}
 }
