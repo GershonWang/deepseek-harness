@@ -156,34 +156,46 @@
   </div>
 </div>
 
-<!-- 工具链弹框 -->
+<!-- 工具链市场弹框 -->
 <div id="tools-modal" class="modal hidden">
   <div class="modal-card modal-tools">
     <div class="modal-head">
-      <span class="modal-title"><span class="brand-dot"></span>工具链</span>
+      <span class="modal-title"><span class="brand-dot"></span>工具链市场</span>
       <button class="modal-close" data-close="tools-modal" aria-label="关闭">×</button>
     </div>
-    <div class="modal-body">
-      <div id="tool-summary" class="tool-summary" role="status"></div>
+    <div class="modal-body market-body">
+      <!-- 分类页签 + 搜索 + 刷新索引 -->
+      <div class="market-toolbar">
+        <div id="market-tabs" class="market-tabs">
+          <button class="market-tab active" data-cat="all">全部</button>
+          <button class="market-tab" data-cat="language-sdk">语言 SDK</button>
+          <button class="market-tab" data-cat="compiler">编译器</button>
+          <button class="market-tab" data-cat="modern-cli">现代 CLI</button>
+        </div>
+        <input id="market-search" type="text" placeholder="搜索工具…" spellcheck="false" aria-label="搜索工具">
+        <button id="market-refresh" class="btn btn-quiet" title="刷新远程索引">刷新索引</button>
+      </div>
 
-      <section class="tool-card tool-card-live" aria-label="随包工具">
-        <h3 class="section-title">随包工具</h3>
-        <div id="bundled-list" class="tool-list"></div>
-      </section>
+      <!-- 一键工具集 -->
+      <div id="bundle-row" class="bundle-row" aria-label="工具集"></div>
 
-      <section class="tool-card" aria-label="一键安装">
-        <h3 class="section-title">一键安装</h3>
-        <div id="catalog-list" class="tool-list"></div>
-        <div id="toolchain-notice" class="hint"></div>
-      </section>
+      <!-- 工具卡片网格 -->
+      <div id="market-grid" class="market-grid" aria-label="工具列表"></div>
 
-      <section id="card-hosts" class="tool-card" aria-label="宿主挂载">
-        <h3 class="section-title">宿主挂载</h3>
+      <!-- 状态栏 + 通知 -->
+      <div id="market-statusbar" class="market-statusbar" role="status"></div>
+      <div id="toolchain-notice" class="hint"></div>
+
+      <!-- 宿主导入向导 -->
+      <section id="card-hosts" class="tool-card" aria-label="宿主导入">
+        <h3 class="section-title">宿主导入（玲珑沙箱，重启应用生效）</h3>
         <div class="host-row">
-          <input id="host-path" type="text" placeholder="宿主路径，如 /usr/lib/jvm/java-21-openjdk-amd64" spellcheck="false">
+          <button id="host-scan" class="btn btn-quiet">扫描宿主</button>
+          <input id="host-path" type="text" placeholder="宿主工具链目录，如 /usr/lib/jvm/java-21" spellcheck="false">
           <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
           <button id="host-add" class="btn btn-primary">挂载</button>
         </div>
+        <div id="host-scan-list" class="host-scan-list"></div>
         <div id="host-list" class="host-list"></div>
         <div id="host-hint" class="hint"></div>
       </section>

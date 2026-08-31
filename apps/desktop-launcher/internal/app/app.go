@@ -66,10 +66,11 @@ type ToolStatus struct {
 	Installed   string
 	Installable string
 	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
+	Bundles     []toolchain.ToolBundle // 一键工具集
 	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
 	Notice      string                 // 一次性提示（安装结果等）
-	Installing  string                 // 正在安装的工具链名称（空串=无）
+	Installing  string                 // 正在安装的工具链 ID（空串=无）
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -743,6 +744,7 @@ func (a *App) collectTools() ToolStatus {
 		Installed:   joinOrNone(installed),
 		Installable: catalogInstallable(),
 		Catalog:     toolchain.ToolStatuses(dir),
+		Bundles:     toolchain.Bundles(),
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
 	}
@@ -762,22 +764,46 @@ func catalogInstallable() string {
 	return strings.Join(ids, ",")
 }
 
-// InstallToolchain 一键安装内置工具链。异步执行，结果经 toolchain 事件推送。
+// InstallToolchain 一键安装内置工具链（推荐版本）。异步执行，结果经 toolchain
+// 事件推送。
 func (a *App) InstallToolchain(id string) string {
 	tool, ok := toolchain.LookupTool(id)
 	if !ok {
 		return "未知工具链: " + id
 	}
+	a.installToolAsync(tool, "")
+	return ""
+}
+
+// InstallToolVersion 安装指定工具的指定版本。异步执行，结果经事件推送。
+func (a *App) InstallToolVersion(id, version string) string {
+	tool, ok := toolchain.LookupTool(id)
+	if !ok {
+		return "未知工具链: " + id
+	}
+	if _, found := tool.FindVersion(version); !found {
+		return "工具链 " + id + " 无版本 " + version
+	}
+	a.installToolAsync(tool, version)
+	return ""
+}
+
+// installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
+func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 	// 立即推送"正在安装"状态，让前端实时显示。
 	st := a.collectTools()
-	st.Installing = tool.Name
+	st.Installing = tool.ID
 	a.emitToolchain(st)
 	go func() {
 		dir := toolchain.InstallDir(a.home)
-		err := toolchain.InstallTool(dir, tool.ID, "", nil)
-		notice := "工具链 " + tool.Name + " 安装成功"
+		err := toolchain.InstallTool(dir, tool.ID, version, nil)
+		label := tool.Name
+		if version != "" {
+			label += " " + version
+		}
+		notice := "工具链 " + label + " 安装成功"
 		if err != nil {
-			notice = "工具链 " + tool.Name + " 安装失败: " + err.Error()
+			notice = "工具链 " + label + " 安装失败: " + err.Error()
 		} else {
 			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
 			appenv.ConfigureChildEnv(a.home)
@@ -787,6 +813,27 @@ func (a *App) InstallToolchain(id string) string {
 		st.Installing = ""
 		a.emitToolchain(st)
 	}()
+}
+
+// SetActiveToolVersion 切换某工具已安装版本的激活状态。返回错误文本（空=成功）。
+func (a *App) SetActiveToolVersion(id, version string) string {
+	dir := toolchain.InstallDir(a.home)
+	if err := toolchain.SetActiveVersion(dir, id, version); err != nil {
+		return "切换失败: " + err.Error()
+	}
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
+	return ""
+}
+
+// UninstallTool 卸载某工具的某个版本（卸载激活版本时自动切到最新剩余版本）。
+func (a *App) UninstallTool(id, version string) string {
+	dir := toolchain.InstallDir(a.home)
+	if err := toolchain.Uninstall(dir, id, version); err != nil {
+		return "卸载失败: " + err.Error()
+	}
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
 	return ""
 }
 
