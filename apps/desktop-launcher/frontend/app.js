@@ -443,107 +443,211 @@ function renderServerDialog(s) {
   }
 }
 
-/* ---------- 工具 / 凭据 ---------- */
+/* ---------- 工具链市场 ---------- */
 
-const TOOL_DETAILS = {
-  node: "npm · npx · corepack · pnpm",
-  python3: "pip · pip3",
-  git: "git-lfs",
-};
+// marketState 缓存最近一次工具链状态，供分类/搜索过滤与卡片渲染。
+const marketState = { category: "all", search: "", catalog: [], bundles: [], installing: "" };
 
-function pill(cls, text) {
-  return "<span class='pill " + cls + "'>" + esc(text) + "</span>";
+// fmtSize 把字节数格式化为 "1.6 MB" 之类的可读文本；0/空返回空串。
+function fmtSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n <= 0) return "";
+  const units = ["B", "KB", "MB", "GB"];
+  let v = n, i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return (i === 0 ? String(v) : v.toFixed(1)) + " " + units[i];
 }
 
-function dot(cls) {
-  return "<span class='state-dot " + cls + "'></span>";
+// categoryLabel 分类 ID → 中文标签；未知分类原样返回。
+function categoryLabel(cat) {
+  return ({ "language-sdk": "语言 SDK", "compiler": "编译器", "modern-cli": "现代 CLI", "code-quality": "代码质量", "debug": "调试" })[cat] || cat;
 }
 
 function renderTools(t) {
-  // ------ 摘要条 ------
-  const sum = $("#tool-summary");
-  sum.innerHTML = "";
-  const rows = t.Rows || [];
-  const cats = t.Catalog || [];
-  const chips = [];
-  if (rows.length > 0) {
-    const ok = rows.filter((r) => r.State === "installed").length;
-    const all = ok === rows.length;
-    chips.push("<span class='chip " + (all ? "chip-ok" : "chip-warn") + "'>随包 " + ok + "/" + rows.length + " ✓</span>");
-  }
-  if (cats.length > 0) {
-    const installed = cats.filter((c) => c.State === "installed").length;
-    const all = installed === cats.length;
-    chips.push("<span class='chip " + (all ? "chip-ok" : "chip-brand") + "'>可安装 " + installed + "/" + cats.length + " ✓</span>");
-  }
-  if (t.Sandboxed && (t.HostTools || []).length > 0) {
-    chips.push("<span class='chip'>挂载 " + t.HostTools.length + " 项</span>");
-  }
-  sum.innerHTML = chips.join("");
-
-  // ------ 随包工具 ------
-  const bl = $("#bundled-list");
-  bl.innerHTML = "";
-  if (rows.length === 0) bl.innerHTML = "<div class='empty'>无结果</div>";
-  for (const row of rows) {
-    const ok = row.State === "installed";
-    const el = document.createElement("div");
-    el.className = "tool-row";
-    el.innerHTML =
-      (ok ? dot("ok") : dot("missing")) +
-      "<span class='tool-name'>" + esc(row.Name) + "</span>" +
-      "<span class='tool-version'>" + (ok ? esc(row.Version) : "—") + "</span>" +
-      (ok ? pill("ok", "✓ 已安装") : pill("danger", "✗ 缺失"));
-    bl.appendChild(el);
-    if (TOOL_DETAILS[row.Name]) {
-      const d = document.createElement("div");
-      d.className = "tool-detail";
-      d.textContent = TOOL_DETAILS[row.Name];
-      bl.appendChild(d);
-    }
-  }
-
-  // ------ 一键安装 ------
-  const cl = $("#catalog-list");
-  cl.innerHTML = "";
-  if (cats.length === 0) cl.innerHTML = "<div class='empty'>无结果</div>";
-  for (const c of cats) {
-    const installed = c.State === "installed";
-    const installing = !installed && t.Installing === c.Name;
-    let statusPill = "";
-    if (installed) statusPill = pill("ok", "✓ 已安装");
-    else if (installing) statusPill = pill("warn", "安装中…");
-    else if (c.Pinned) statusPill = pill("brand", "可安装");
-    else statusPill = pill("warn", "待配置");
-    const version = installed ? (c.InstalledVersion || c.Version) : c.Version;
-    const el = document.createElement("div");
-    el.className = "tool-row";
-    el.innerHTML =
-      (installed ? dot("ok") : dot("brand")) +
-      "<span class='tool-name'>" + esc(c.Label) + "</span>" +
-      "<span class='tool-version'>" + esc(version) + "</span>" +
-      statusPill;
-    if (!installed && c.Pinned) {
-      const b = document.createElement("button");
-      b.className = "btn btn-primary";
-      b.textContent = installing ? "安装中…" : "安装";
-      b.disabled = installing;
-      b.addEventListener("click", () => {
-        b.disabled = true;
-        b.textContent = "安装中…";
-        api().InstallToolchain(c.Name);
-      });
-      el.appendChild(b);
-    }
-    cl.appendChild(el);
-  }
+  marketState.catalog = t.Catalog || [];
+  marketState.bundles = t.Bundles || [];
+  marketState.installing = t.Installing || "";
+  renderBundles();
+  renderMarketGrid();
+  renderStatusbar(t);
+  renderHostTools(t);
   $("#toolchain-notice").textContent = t.Notice || "";
+}
 
-  // ------ 宿主挂载 ------
+// renderBundles 渲染一键工具集卡片；无工具集时隐藏该区。
+function renderBundles() {
+  const box = $("#bundle-row");
+  box.innerHTML = "";
+  const bundles = marketState.bundles;
+  if (!bundles || bundles.length === 0) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  for (const b of bundles) {
+    const el = document.createElement("button");
+    el.className = "bundle-card";
+    el.title = b.Description || "";
+    const name = document.createElement("div");
+    name.className = "bundle-name";
+    name.textContent = b.Name;
+    const desc = document.createElement("div");
+    desc.className = "bundle-desc";
+    desc.textContent = (b.ToolIDs || []).length + " 个工具";
+    el.append(name, desc);
+    el.addEventListener("click", async () => {
+      el.disabled = true;
+      el.classList.add("busy");
+      for (const id of b.ToolIDs || []) {
+        await api().InstallToolchain(id);
+      }
+      el.disabled = false;
+      el.classList.remove("busy");
+      api().RefreshTools();
+    });
+    box.appendChild(el);
+  }
+}
+
+// filteredCatalog 按当前分类 + 搜索词过滤目录。
+function filteredCatalog() {
+  const q = marketState.search.trim().toLowerCase();
+  return marketState.catalog.filter((c) => {
+    if (marketState.category !== "all" && c.Category !== marketState.category) return false;
+    if (!q) return true;
+    const hay = (c.Name + " " + c.Description + " " + (c.Provides || []).join(" ")).toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+// renderMarketGrid 渲染工具卡片网格（分类 + 搜索过滤后）。
+function renderMarketGrid() {
+  const grid = $("#market-grid");
+  grid.innerHTML = "";
+  const list = filteredCatalog();
+  if (list.length === 0) {
+    grid.innerHTML = "<div class='empty'>没有匹配的工具</div>";
+    return;
+  }
+  for (const c of list) grid.appendChild(toolCard(c));
+}
+
+// toolCard 渲染单个工具卡片；已装与未装分支的动作不同。
+function toolCard(c) {
+  const el = document.createElement("div");
+  el.className = "tool-card-item" + (c.Installed ? " installed" : "");
+  const installing = marketState.installing === c.ID;
+
+  const head = document.createElement("div");
+  head.className = "tool-card-head";
+  const name = document.createElement("span");
+  name.className = "tool-card-name";
+  name.textContent = c.Name;
+  const status = document.createElement("span");
+  if (c.Installed) { status.className = "pill ok"; status.textContent = "✓ 已安装"; }
+  else if (installing) { status.className = "pill warn"; status.textContent = "安装中…"; }
+  else { status.className = "pill brand"; status.textContent = "可安装"; }
+  head.append(name, status);
+
+  const desc = document.createElement("div");
+  desc.className = "tool-card-desc";
+  desc.textContent = c.Description || "";
+
+  const meta = document.createElement("div");
+  meta.className = "tool-card-meta";
+  meta.textContent = [categoryLabel(c.Category), (c.Provides || []).join(" "), fmtSize(c.Size)].filter(Boolean).join(" · ");
+
+  const actions = document.createElement("div");
+  actions.className = "tool-card-actions";
+
+  if (c.Installed) {
+    // 已装：版本切换下拉（只列已装版本）+ 两击确认卸载。
+    const sel = document.createElement("select");
+    sel.className = "version-select";
+    sel.title = "切换激活版本";
+    for (const v of c.InstalledVersions || []) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = "v" + v + (v === c.ActiveVersion ? " · 当前" : "");
+      if (v === c.ActiveVersion) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.addEventListener("change", async () => {
+      const err = await api().SetActiveToolVersion(c.ID, sel.value);
+      if (err) { $("#toolchain-notice").textContent = err; }
+      api().RefreshTools();
+    });
+    actions.appendChild(sel);
+
+    const un = document.createElement("button");
+    un.className = "btn btn-danger";
+    un.textContent = "卸载";
+    un.addEventListener("click", async () => {
+      if (un.dataset.armed !== "1") {
+        un.dataset.armed = "1";
+        un.textContent = "确认卸载?";
+        setTimeout(() => { if (un.dataset.armed === "1") { un.dataset.armed = "0"; un.textContent = "卸载"; } }, 2500);
+        return;
+      }
+      const err = await api().UninstallTool(c.ID, sel.value);
+      if (err) { $("#toolchain-notice").textContent = err; }
+      api().RefreshTools();
+    });
+    actions.appendChild(un);
+  } else {
+    // 未装：可选版本（多版本时给下拉，默认推荐）+ 安装按钮。
+    const vers = c.AvailableVersions || [];
+    let sel = null;
+    if (vers.length > 1) {
+      sel = document.createElement("select");
+      sel.className = "version-select";
+      for (const v of vers) {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = "v" + v;
+        sel.appendChild(opt);
+      }
+      actions.appendChild(sel);
+    }
+    const b = document.createElement("button");
+    b.className = "btn btn-primary";
+    b.textContent = installing ? "安装中…" : "安装" + (fmtSize(c.Size) ? " (" + fmtSize(c.Size) + ")" : "");
+    b.disabled = installing;
+    b.addEventListener("click", () => {
+      b.disabled = true;
+      b.textContent = "安装中…";
+      api().InstallToolVersion(c.ID, sel ? sel.value : c.AvailableVersion);
+    });
+    actions.appendChild(b);
+  }
+
+  el.append(head, desc, meta, actions);
+  return el;
+}
+
+// renderStatusbar 渲染底部状态栏：随包 + 已装 L2 + 总大小 + 宿主挂载数。
+function renderStatusbar(t) {
+  const sb = $("#market-statusbar");
+  const rows = t.Rows || [];
+  const ok = rows.filter((r) => r.State === "installed").length;
+  const cats = marketState.catalog;
+  const installed = cats.filter((c) => c.Installed).length;
+  let total = 0;
+  for (const c of cats) if (c.Installed) total += Number(c.Size) || 0;
+  const parts = [];
+  if (rows.length > 0) parts.push("随包 " + ok + "/" + rows.length);
+  parts.push("已装 " + installed + "/" + cats.length + " 个工具");
+  if (total > 0) parts.push("总大小 " + fmtSize(total));
+  if (t.Sandboxed && (t.HostTools || []).length > 0) parts.push("宿主挂载 " + t.HostTools.length + " 项");
+  sb.textContent = parts.join("　·　");
+}
+
+// renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区。
+function renderHostTools(t) {
   const hostBox = $("#card-hosts");
   if (!t.Sandboxed) {
     hostBox.classList.add("hidden");
-    const devMsg = "开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。";
+    const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
     $("#toolchain-notice").textContent = t.Notice ? devMsg + " " + t.Notice : devMsg;
     return;
   }
@@ -567,10 +671,37 @@ function renderTools(t) {
     row.appendChild(rm);
     hl.appendChild(row);
   }
-  const hint = $("#host-hint");
-  hint.textContent =
-    "挂载为只读（工具箱需自写安装目录时不可用）；非家目录路径在部分系统环境可能挂载失败，" +
-    "建议优先用上方一键安装或把工具放入家目录后再挂载；改动需重启应用生效。";
+}
+
+// renderHostScan 渲染宿主导入扫描结果（名称 + 版本 + 挂载按钮 + 冲突标记）。
+function renderHostScan(entries) {
+  const box = $("#host-scan-list");
+  box.innerHTML = "";
+  if (!entries || entries.length === 0) {
+    box.innerHTML = "<div class='empty'>未发现可导入的宿主工具链（可在 /opt、/usr/local、~/tools 等放工具目录后重扫）</div>";
+    return;
+  }
+  for (const e of entries) {
+    const row = document.createElement("div");
+    row.className = "host-item";
+    const add = document.createElement("button");
+    add.className = "btn btn-primary";
+    add.textContent = "挂载";
+    add.addEventListener("click", async () => {
+      const res = await api().AddHostTool(e.Source, e.Name);
+      const hint = $("#host-hint");
+      if (res.Error) { hint.className = "error"; hint.textContent = "挂载失败: " + res.Error; }
+      else { hint.className = "hint"; hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效"; }
+      api().RefreshTools();
+    });
+    row.innerHTML =
+      "<span class='selectable host-name'>" + esc(e.Name) + "</span>" +
+      "<span class='hint selectable'>" + esc(e.Tool) + (e.Version ? " " + esc(e.Version) : "") + "</span>" +
+      "<span class='hint selectable'>" + esc(e.Source) + "</span>" +
+      (e.Conflict ? "<span class='pill warn'>与已装重名</span>" : "");
+    row.appendChild(add);
+    box.appendChild(row);
+  }
 }
 
 
@@ -643,6 +774,45 @@ function bindUI() {
   $("#ext-disconnect").addEventListener("click", () => api().DisconnectExternal());
 
   $("#tools-refresh").addEventListener("click", () => api().RefreshTools());
+
+  // 分类页签：切换后高亮并重渲染网格。
+  document.querySelectorAll("#market-tabs .market-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#market-tabs .market-tab").forEach((x) => x.classList.remove("active"));
+      tab.classList.add("active");
+      marketState.category = tab.dataset.cat || "all";
+      renderMarketGrid();
+    });
+  });
+
+  // 搜索：输入即过滤（防抖可省，目录规模小）。
+  $("#market-search").addEventListener("input", () => {
+    marketState.search = $("#market-search").value;
+    renderMarketGrid();
+  });
+
+  // 刷新远程索引：异步拉取，完成后推送一次状态。
+  $("#market-refresh").addEventListener("click", async () => {
+    const btn = $("#market-refresh");
+    btn.disabled = true;
+    btn.textContent = "刷新中…";
+    await api().RefreshToolIndex();
+    btn.disabled = false;
+    btn.textContent = "刷新索引";
+  });
+
+  // 宿主导入向导：扫描常见宿主工具链根目录。
+  $("#host-scan").addEventListener("click", async () => {
+    const btn = $("#host-scan");
+    btn.disabled = true;
+    btn.textContent = "扫描中…";
+    try {
+      renderHostScan(await api().ScanHostTools());
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "扫描宿主";
+    }
+  });
 
   $("#host-add").addEventListener("click", async () => {
     const src = $("#host-path").value.trim();

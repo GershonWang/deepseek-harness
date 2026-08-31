@@ -416,7 +416,8 @@ type ToolStatus struct {
 	Description       string   `json:"description"`
 	Provides          []string `json:"provides"`
 	Dependencies      []string `json:"dependencies"`
-	AvailableVersion  string   `json:"available_version"` // 推荐版本
+	AvailableVersion  string   `json:"available_version"`  // 推荐版本
+	AvailableVersions []string `json:"available_versions"` // 全部可装版本
 	Installed         bool     `json:"installed"`
 	ActiveVersion     string   `json:"active_version"`     // 当前激活版本
 	InstalledVersions []string `json:"installed_versions"` // 所有已装版本
@@ -439,6 +440,9 @@ func ToolStatuses(dir string) []ToolStatus {
 			Size:              t.LatestVersion().Size,
 			InstalledVersions: ListVersions(dir, t.ID),
 			ActiveVersion:     ActiveVersion(dir, t.ID),
+		}
+		for _, v := range t.Versions {
+			ts.AvailableVersions = append(ts.AvailableVersions, v.Version)
 		}
 		ts.Installed = len(ts.InstalledVersions) > 0
 		out = append(out, ts)
