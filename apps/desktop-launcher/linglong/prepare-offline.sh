@@ -28,6 +28,20 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
+# 2.0.5 生产闭包瘦身：删掉确定不是 runtime 依赖的大包。
+#    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）
+#    @img/sharp：图像处理库，CLI 模式不需要（~19 MB）。如果后续 GUI
+#    端确认需要再加回来（目前 GUI 在 webpack 构建时已处理完图片）。
+echo "prepare-offline: 生产闭包瘦身..."
+if [ -d "$STAGE/harness/node_modules/typescript" ]; then
+  rm -rf "$STAGE/harness/node_modules/typescript"
+  echo "  - 已删除 typescript"
+fi
+if [ -d "$STAGE/harness/node_modules/@img" ]; then
+  rm -rf "$STAGE/harness/node_modules/@img"
+  echo "  - 已删除 @img (sharp 系列)"
+fi
+
 # 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
 #     v0.1.2-alpha.1 起大量包改为 peerDependency + devDependency 模式，
 #     deploy --prod 闭包里缺失。遍历 packages/ 和 vendor/ 下所有已构建的
