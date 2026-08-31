@@ -108,6 +108,49 @@ func TestInstallVersion_ShaMismatch(t *testing.T) {
 	}
 }
 
+// singleFileTar 构建根目录直接是单个可执行文件的 tar.gz（fzf/lazygit 风格）。
+func singleFileTar(t *testing.T, name string) ([]byte, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	content := []byte("#!/bin/sh\necho fake-" + name + "\n")
+	_ = tw.WriteHeader(&tar.Header{
+		Name: name, Mode: 0o755, Size: int64(len(content)), Typeflag: tar.TypeReg,
+	})
+	_, _ = tw.Write(content)
+	_ = tw.Close()
+	_ = gz.Close()
+	sum := sha256.Sum256(buf.Bytes())
+	return buf.Bytes(), hex.EncodeToString(sum[:])
+}
+
+func TestInstallVersion_SingleFileTarball(t *testing.T) {
+	home := t.TempDir()
+	dir := InstallDir(home)
+	blob, sum := singleFileTar(t, "fzf")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(blob)
+	}))
+	defer srv.Close()
+	tv := ToolVersion{Version: "0.55.0", URL: srv.URL + "/fzf.tar.gz", SHA256: sum, BinRel: "."}
+	if err := installVersion(dir, "fzf", tv, noopProgress, false); err != nil {
+		t.Fatalf("单文件 tarball 安装: %v", err)
+	}
+	// 可执行文件应在 <dir>/fzf-0.55.0/fzf，且 bin/fzf 软链已建立。
+	if !isExecutableFile(filepath.Join(dir, "fzf-0.55.0", "fzf")) {
+		t.Fatal("单文件 tarball 未正确归一到版本目录")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "fzf")); err != nil {
+		t.Fatalf("bin/fzf 软链缺失: %v", err)
+	}
+}
+
+func isExecutableFile(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
+}
+
 func TestUninstall(t *testing.T) {
 	home := t.TempDir()
 	dir := InstallDir(home)

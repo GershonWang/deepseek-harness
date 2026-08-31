@@ -197,18 +197,31 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 		return "", fmt.Errorf("extract %s: %w", toolID, err)
 	}
 
-	// tar 顶层目录剥离：解包出的唯一目录上移一层。
+	// 顶层目录剥离：多数 tarball 解出唯一顶层目录，上移一层作为工具根；
+	// 少数（如 fzf、lazygit）直接解出单个可执行文件或散文件，此时以解压
+	// 目录本身为根。两种布局都归一到 <id>-<version> 目录。
 	entries, err := os.ReadDir(tmp)
-	if err != nil || len(entries) != 1 || !entries[0].IsDir() {
-		return "", fmt.Errorf("unexpected tarball layout for %s", toolID)
+	if err != nil {
+		return "", fmt.Errorf("read extracted %s: %w", toolID, err)
+	}
+	if len(entries) == 0 {
+		return "", fmt.Errorf("empty tarball for %s", toolID)
 	}
 
 	root := versionDir(dir, toolID, tv.Version)
 	if err := os.RemoveAll(root); err != nil {
 		return "", err
 	}
-	if err := os.Rename(filepath.Join(tmp, entries[0].Name()), root); err != nil {
-		return "", err
+	if len(entries) == 1 && entries[0].IsDir() {
+		// 唯一顶层目录：上移一层。
+		if err := os.Rename(filepath.Join(tmp, entries[0].Name()), root); err != nil {
+			return "", err
+		}
+	} else {
+		// 单文件/多文件：直接以解压目录为根。
+		if err := os.Rename(tmp, root); err != nil {
+			return "", err
+		}
 	}
 
 	// 保存 tool.yml 元数据到安装目录（方便后续读取）

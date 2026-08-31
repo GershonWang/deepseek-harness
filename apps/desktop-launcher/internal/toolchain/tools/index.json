@@ -36,6 +36,41 @@
       ]
     },
     {
+      "id": "python",
+      "name": "Python 3.12",
+      "category": "language-sdk",
+      "description": "CPython 3.12 独立构建（含 pip）",
+      "provides": ["python3", "python", "pip3", "pip"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "3.12.14",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.12.14%2B20260825-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "sha256": "cbdd2f0cf02f941bc5c81e546f377275e322733abffe805ac29d2b7e8a58f7e3",
+          "size": 109290197,
+          "bin_rel": "bin",
+          "lib_rel": "lib"
+        }
+      ]
+    },
+    {
+      "id": "cmake",
+      "name": "CMake",
+      "category": "compiler",
+      "description": "跨平台构建系统（含 ctest/cpack）",
+      "provides": ["cmake", "ctest", "cpack"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "3.30.3",
+          "url": "https://github.com/Kitware/CMake/releases/download/v3.30.3/cmake-3.30.3-linux-x86_64.tar.gz",
+          "sha256": "4a5864e9ff0d7945731fe6d14afb61490bf0ec154527bc3af0456bd8fa90decb",
+          "size": 53648385,
+          "bin_rel": "bin"
+        }
+      ]
+    },
+    {
       "id": "ripgrep",
       "name": "ripgrep (rg)",
       "category": "modern-cli",
@@ -48,6 +83,244 @@
           "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
           "sha256": "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7",
           "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "fd",
+      "name": "fd",
+      "category": "modern-cli",
+      "description": "简单快速的 find 替代品",
+      "provides": ["fd"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "10.2.0",
+          "url": "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "d9bfa25ec28624545c222992e1b00673b7c9ca5eb15393c40369f10b28f9c932",
+          "size": 1681679,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "bat",
+      "name": "bat",
+      "category": "modern-cli",
+      "description": "带语法高亮的 cat 替代品",
+      "provides": ["bat"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.24.0",
+          "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "d39a21e3da57fe6a3e07184b3c1dc245f8dba379af569d3668b6dcdfe75e3052",
+          "size": 3038788,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "sd",
+      "name": "sd",
+      "category": "modern-cli",
+      "description": "直观的 sed 替代品",
+      "provides": ["sd"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "url": "https://github.com/chmln/sd/releases/download/v1.0.0/sd-v1.0.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "9f42e4fec7848fa8d6eeab7b1090f5c9c9e374c94a9974db6ff33df052c9e132",
+          "size": 1048508,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "eza",
+      "name": "eza",
+      "category": "modern-cli",
+      "description": "功能丰富的 ls 替代品",
+      "provides": ["eza"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.20.1",
+          "url": "https://github.com/eza-community/eza/releases/download/v0.20.1/eza_x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "3afbd0036da94cb5990c225d99da4921081854f6c8841249ee71464dd67725dd",
+          "size": 1156482,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "fzf",
+      "name": "fzf",
+      "category": "modern-cli",
+      "description": "命令行模糊查找器",
+      "provides": ["fzf"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.55.0",
+          "url": "https://github.com/junegunn/fzf/releases/download/v0.55.0/fzf-0.55.0-linux_amd64.tar.gz",
+          "sha256": "4df2393776942780ddab2cea713ddaac06cd5c3886cd23bc9119a6d3aa1e02bd",
+          "size": 1556217,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "delta",
+      "name": "delta",
+      "category": "modern-cli",
+      "description": "git diff 语法高亮查看器",
+      "provides": ["delta"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.18.2",
+          "url": "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "b7ea845004762358a00ef9127dd9fd723e333c7e4b9cb1da220c3909372310ee",
+          "size": 3301354,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "zoxide",
+      "name": "zoxide",
+      "category": "modern-cli",
+      "description": "更聪明的 cd，基于目录访问频率",
+      "provides": ["zoxide"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.10.0",
+          "url": "https://github.com/ajeetdsouza/zoxide/releases/download/v0.10.0/zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae",
+          "size": 591384,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "bottom",
+      "name": "bottom (btm)",
+      "category": "modern-cli",
+      "description": "图形化系统监视器（终端）",
+      "provides": ["btm"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.14.9",
+          "url": "https://github.com/ClementTsang/bottom/releases/download/0.14.9/bottom_x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "b4bee5b193e7d3f6e090ac14f0ca15acec2e7fe4ef64988e0bfc492e16c28c9a",
+          "size": 2126967,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "hyperfine",
+      "name": "hyperfine",
+      "category": "modern-cli",
+      "description": "命令行基准测试工具",
+      "provides": ["hyperfine"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.18.0",
+          "url": "https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine-v1.18.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "ef3855ad6a1bf97055a90dc3dfc5d4a48494cb80344027db932a96341d415193",
+          "size": 694152,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "dust",
+      "name": "dust",
+      "category": "modern-cli",
+      "description": "磁盘用量分析（比 du 更直观）",
+      "provides": ["dust"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.1.1",
+          "url": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "4d0e7f3e39ce85e98cc69260ab6f40e460a455cd8575af1ba70d14a2940ae553",
+          "size": 1259970,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "duf",
+      "name": "duf",
+      "category": "modern-cli",
+      "description": "磁盘使用情况查看器（比 df 更好用）",
+      "provides": ["duf"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.8.1",
+          "url": "https://github.com/muesli/duf/releases/download/v0.8.1/duf_0.8.1_linux_x86_64.tar.gz",
+          "sha256": "a8343eed730df04acfc0ba1553b99b4ef91d5122cab58ee241ea8196948408d7",
+          "size": 919990,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "xh",
+      "name": "xh",
+      "category": "modern-cli",
+      "description": "友好的 HTTP 请求工具",
+      "provides": ["xh"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.23.0",
+          "url": "https://github.com/ducaale/xh/releases/download/v0.23.0/xh-v0.23.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "79fb00506a53ae2bbc490e4690c75d488ff029e06f8e7835095d1c680103488a",
+          "size": 3334691,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "lazygit",
+      "name": "lazygit",
+      "category": "modern-cli",
+      "description": "终端 Git UI",
+      "provides": ["lazygit"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.64.1",
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.64.1/lazygit_0.64.1_linux_x86_64.tar.gz",
+          "sha256": "f8ea237c41f194cd799b48505518bfdaae4edf5a2ad6bd3d898e939785ee4532",
+          "size": 6946700,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "gh",
+      "name": "GitHub CLI",
+      "category": "modern-cli",
+      "description": "GitHub 官方命令行工具",
+      "provides": ["gh"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "2.98.0",
+          "url": "https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_linux_amd64.tar.gz",
+          "sha256": "3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de",
+          "size": 14863663,
+          "bin_rel": "bin"
         }
       ]
     },
@@ -72,8 +345,14 @@
     {
       "id": "modern-cli",
       "name": "现代 CLI 套装",
-      "description": "ripgrep + uv",
-      "tool_ids": ["ripgrep", "uv"]
+      "description": "ripgrep + fd + bat + fzf + eza + zoxide",
+      "tool_ids": ["ripgrep", "fd", "bat", "fzf", "eza", "zoxide"]
+    },
+    {
+      "id": "dev-essentials",
+      "name": "开发必备",
+      "description": "Go + Python + CMake + GitHub CLI",
+      "tool_ids": ["go", "python", "cmake", "gh"]
     }
   ]
 }
