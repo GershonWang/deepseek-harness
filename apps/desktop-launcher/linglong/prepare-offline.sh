@@ -35,6 +35,14 @@ node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 #     跳过 test-support 与 typert-generator（仅开发/构建期用）。
 inject_workspace_pkg() {
   pkgdir=$1
+  # 跳过 experimental 包（AGENTS.md: excluded from official releases）
+  case "$pkgdir" in
+    packages/experimental/*|vendor/experimental/*) return 0 ;;
+  esac
+  # 跳过 test-support / typert-generator 等仅开发/构建期用的包
+  case "$pkgdir" in
+    */test-support/*|*/typert/generator/) return 0 ;;
+  esac
   pkgname=$(node -e "console.log(require('./$pkgdir/package.json').name)" 2>/dev/null)
   [ -z "$pkgname" ] && return 0
   # 跳过非 @deepseek-ai 域的包
@@ -43,8 +51,15 @@ inject_workspace_pkg() {
   dest="$STAGE/harness/node_modules/@deepseek-ai/$short"
   if [ ! -d "$dest" ] && [ -d "$pkgdir/lib" ]; then
     echo "prepare-offline: injecting $pkgname from $pkgdir"
-    mkdir -p "$(dirname "$dest")"
-    cp -a "$pkgdir" "$dest"
+    mkdir -p "$dest"
+    # 只拷运行时需要的：lib/ + bin/ + package.json + README*
+    # 不拷 src/ tests/ tsconfig*.json tsdown.config.* 等开发文件
+    cp -a "$pkgdir/lib" "$dest/lib"
+    [ -d "$pkgdir/bin" ] && cp -a "$pkgdir/bin" "$dest/bin" 2>/dev/null || true
+    cp "$pkgdir/package.json" "$dest/package.json" 2>/dev/null || true
+    for f in README*; do
+      [ -f "$pkgdir/$f" ] && cp "$pkgdir/$f" "$dest/$f" 2>/dev/null || true
+    done
   fi
 }
 
@@ -116,6 +131,20 @@ if [ -d "$STAGE/harness/node_modules/node-pty" ]; then
   NODE_GYP="$ROOT/$STAGE/node/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
   ( cd "$ROOT/$STAGE/harness" && "$ROOT/$STAGE/node/bin/node" "$NODE_GYP" rebuild \
       --nodedir="$ROOT/$STAGE/node" --directory=node_modules/node-pty )
+fi
+
+# 6. 体积瘦身：node-pty 编译完后，运行时不需要的东西统统删掉。
+#    - include/ 头文件：运行时用不到，省 ~67 MB
+#    - strip node 二进制：剥调试符号，省 ~20-40 MB
+#    - node 自带的 npm 文档/测试（如果有明显冗余的话）
+echo "prepare-offline: 精简 Node 运行时..."
+if [ -d "$STAGE/node/include" ]; then
+  rm -rf "$STAGE/node/include"
+  echo "  - 已删除 node/include/"
+fi
+if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
+  strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
+  echo "  - 已 strip node 二进制 ($(du -h "$STAGE/node/bin/node" | cut -f1))"
 fi
 
 echo "prepare-offline: 产物已暂存到 $STAGE"

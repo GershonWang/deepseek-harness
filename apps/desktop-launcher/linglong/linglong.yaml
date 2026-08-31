@@ -54,6 +54,14 @@ build: |
       'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' > "$STAGE/node/bin/pnpm"
     chmod +x "$STAGE/node/bin/pnpm"
   fi
+  # Node 运行时瘦身：删掉运行时不需要的头文件，strip 二进制剥符号。
+  # 容器内 fallback 下载的 node 也做同样处理，保证 stage 有或没有都一致。
+  if [ -d "$STAGE/node/include" ]; then
+    rm -rf "$STAGE/node/include"
+  fi
+  if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
+    strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
+  fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
   # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
