@@ -63,12 +63,14 @@
 |------|------|------|
 | toolchain/catalog.go | Go | 工具清单 · 多版本管理 · 安装/卸载 · 软链自愈 |
 | toolchain/install.go | Go | 下载 · sha256 校验 · tar.gz 解包 · 原子安装 |
-| toolchain/catalog.go Catalog() | Go | 内置工具清单（从 tools.yaml 生成） |
+| toolchain/remote.go | Go | 远程索引拉取 · 24h 缓存 · 内置兜底 |
+| toolchain/project.go | Go | 项目级 .dsh-toolchain.yml 查找/解析/应用 |
+| toolchain/tools/index.json | 数据 | 工具清单单一数据源（go:embed 内置 + 远程同源） |
+| hosttools/discover.go | Go | 宿主工具链扫描 · 版本探测 |
 | appenv/env.go | Go | PATH & LD_LIBRARY_PATH 注入 · 三级优先级排序 |
 | hosttools/hosttools.go | Go | config.d 挂载管理 · 冲突检测 |
 | app/app.go | Go | Wails 绑定层 · 市场 UI 接口 |
 | frontend/app.js | JS | 工具市场弹框 UI · 安装进度 · 版本切换 |
-| tools.yaml | 配置 | 工具清单单一数据源 |
 
 ---
 
@@ -231,7 +233,7 @@ sha256 校验 ──失败──→ 报错 + 清缓存 + 重试按钮
 1. 应用启动时**异步**拉取远程索引（不阻塞 UI）
 2. 拉取成功 → 存入本地缓存（`~/.dsh-tools/index.json`）
 3. 拉取失败 → 使用上次缓存
-4. 缓存也没有 → 使用**内置的 tools.yaml**（兜底）
+4. 缓存也没有 → 使用**内置的 tools/index.json**（go:embed 兜底，与远程索引同源）
 5. 缓存有效期 24 小时，过期自动刷新
 
 ### 下载缓存
@@ -314,7 +316,7 @@ auto_prompt: true
 - 多版本切换 → 软链正确性
 - 依赖解析 → 单层依赖、循环检测
 - ReconcileBinLinks → 各种脏状态恢复
-- tools.yaml 解析
+- tools/index.json 解析
 - 项目级配置解析
 - 远程索引缓存逻辑
 - hosttools 冲突检测
@@ -340,28 +342,17 @@ auto_prompt: true
 
 ---
 
-## 实施里程碑
+## 实施计划（单期交付）
 
-### M1：体积瘦身 + 框架基础（优先）
-- 全部 7 项体积瘦身
-- tools.yaml 单源化 + catalog 自动生成
-- 卸载功能
-- 多版本管理 + 切换激活
+全部功能在一个开发分支内整体实现并一起交付，不分里程碑。落地顺序以依赖关系为准：
 
-### M2：依赖 + 远程索引 + 项目级配置
-- 单层依赖解析
-- 远程索引（混合模式）
-- 项目级工具配置
-- 下载缓存
-
-### M3：工具市场 UI
-- 市场弹框（分类 + 搜索 + 卡片 + 详情）
-- 安装进度 + 版本切换 UI
-- 工具集一键安装
-- 宿主导入向导化
-
-### M4：联调 + 测试 + 文档
-- 端到端集成测试
-- 手工验证全过
-- 用户文档
-- Bug 修复
+1. 体积瘦身：全部 7 项裁剪，使包体从约 431 MB 降到约 150 MB 目标。
+2. L2 工具链后端：单源 `tools/index.json`（go:embed 内置 + 远程拉取同源），
+   多版本安装、sha256 校验、原子解压、下载缓存、卸载、版本切换激活、
+   单层依赖解析。
+3. 远程索引：混合模式加载（远程 → 缓存 → 内置兜底，24 小时缓存）。
+4. 项目级 `.dsh-toolchain.yml`：向上查找、解析、缺工具提示、自动切换已装版本。
+5. 宿主导入：扫描常见宿主工具链根目录，探测版本，一键写 config.d 挂载。
+6. 工具市场 UI：分类页签 + 搜索 + 工具集卡片 + 工具卡片网格（大小/进度/
+   版本切换/两击卸载）+ 宿主导入向导 + 索引刷新。
+7. 联调测试：Go 单元测试 + 集成测试 + 手工验证清单全过 + 用户文档。
