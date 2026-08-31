@@ -1,9 +1,11 @@
 package toolchain
 
 import (
+	_ "embed"
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 )
 
 // ToolVersion 描述一个工具的某个具体版本。
@@ -53,99 +55,60 @@ type ToolBundle struct {
 	ToolIDs     []string `json:"tool_ids"`
 }
 
-// catalogData 内置工具清单（单源）。
-// 真实项目中这个列表由 tools.yaml 构建生成，这里先用代码写死。
-var builtinTools = []Tool{
-	{
-		ID:           "go",
-		Name:         "Go",
-		Category:     "language-sdk",
-		Description:  "Go 编程语言工具链",
-		Provides:     []string{"go", "gofmt"},
-		Dependencies: []string{},
-		Versions: []ToolVersion{
-			{
-				Version: "1.23.2",
-				URL:     "https://go.dev/dl/go1.23.2.linux-amd64.tar.gz",
-				SHA256:  "542d3c1705f1c6a1c5a80d5dc62e2e45171af291e755d591c5e6531ef63b454e",
-				BinRel:  "bin",
-			},
-		},
-	},
-	{
-		ID:           "jdk21",
-		Name:         "JDK 21 (Temurin)",
-		Category:     "language-sdk",
-		Description:  "Eclipse Temurin OpenJDK 21",
-		Provides:     []string{"java", "javac", "jdb", "jar"},
-		Dependencies: []string{},
-		Versions: []ToolVersion{
-			{
-				Version: "21.0.12.1",
-				URL:     "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
-				SHA256:  "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
-				BinRel:  "bin",
-				LibRel:  "lib",
-			},
-		},
-	},
-	{
-		ID:           "ripgrep",
-		Name:         "ripgrep (rg)",
-		Category:     "modern-cli",
-		Description:  "更快的 grep，递归搜索目录",
-		Provides:     []string{"rg"},
-		Dependencies: []string{},
-		Versions: []ToolVersion{
-			{
-				Version: "14.1.0",
-				URL:     "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
-				SHA256:  "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7",
-				BinRel:  ".",
-			},
-		},
-	},
-	{
-		ID:           "uv",
-		Name:         "uv",
-		Category:     "modern-cli",
-		Description:  "极快的 Python 包管理和 Python 版本管理工具",
-		Provides:     []string{"uv"},
-		Dependencies: []string{},
-		Versions: []ToolVersion{
-			{
-				Version: "0.12.6",
-				URL:     "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz",
-				SHA256:  "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477",
-				BinRel:  ".",
-			},
-		},
-	},
+// indexJSON 是内置工具清单（单源）：与远程索引同构，编译期嵌入。
+// 有效目录初始化为它，运行时被远程索引覆盖（见 remote.go LoadIndex）。
+//
+//go:embed tools/index.json
+var indexJSON []byte
+
+var (
+	catalogMu        sync.RWMutex
+	effectiveTools   []Tool
+	effectiveBundles []ToolBundle
+)
+
+// init 解析嵌入的单源索引作为内置兜底；索引非法则立即失败（打包期应被
+// verify 捕获，运行期 panic 属不可恢复配置错误）。
+func init() {
+	idx, err := ParseIndex(indexJSON)
+	if err != nil {
+		panic("builtin tools index is invalid: " + err.Error())
+	}
+	effectiveTools = idx.Tools
+	effectiveBundles = idx.Bundles
 }
 
-var builtinBundles = []ToolBundle{
-	{
-		ID:          "modern-cli",
-		Name:        "现代 CLI 套装",
-		Description: "fd + bat + ripgrep + sd + fzf + eza",
-		ToolIDs:     []string{"ripgrep", "uv"},
-	},
+// setCatalog 用远程索引覆盖有效目录（remote.go 调用）。
+func setCatalog(tools []Tool, bundles []ToolBundle) {
+	catalogMu.Lock()
+	effectiveTools = tools
+	effectiveBundles = bundles
+	catalogMu.Unlock()
 }
 
-// Catalog 返回内置工具清单。
-// 后续可被远程索引覆盖（remote.go）。
+// Catalog 返回当前有效的工具清单快照。
 func Catalog() []Tool {
-	return builtinTools
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	out := make([]Tool, len(effectiveTools))
+	copy(out, effectiveTools)
+	return out
 }
 
-// Bundles 返回内置工具集。
+// Bundles 返回当前有效的工具集快照。
 func Bundles() []ToolBundle {
-	return builtinBundles
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	out := make([]ToolBundle, len(effectiveBundles))
+	copy(out, effectiveBundles)
+	return out
 }
 
 // LookupTool 按 ID 查找工具；未命中返回 false。
 func LookupTool(id string) (Tool, bool) {
-	for _, t := range builtinTools {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	for _, t := range effectiveTools {
 		if t.ID == id {
 			return t, true
 		}
@@ -155,7 +118,9 @@ func LookupTool(id string) (Tool, bool) {
 
 // LookupBundle 按 ID 查找工具集。
 func LookupBundle(id string) (ToolBundle, bool) {
-	for _, b := range builtinBundles {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	for _, b := range effectiveBundles {
 		if b.ID == id {
 			return b, true
 		}
@@ -166,7 +131,7 @@ func LookupBundle(id string) (ToolBundle, bool) {
 // ToolsByCategory 按分类分组返回工具 ID 列表。
 func ToolsByCategory() map[string][]string {
 	m := map[string][]string{}
-	for _, t := range builtinTools {
+	for _, t := range Catalog() {
 		m[t.Category] = append(m[t.Category], t.ID)
 	}
 	return m
@@ -460,8 +425,9 @@ type ToolStatus struct {
 
 // ToolStatuses 组装所有工具的状态列表。
 func ToolStatuses(dir string) []ToolStatus {
-	out := make([]ToolStatus, 0, len(builtinTools))
-	for _, t := range builtinTools {
+	tools := Catalog()
+	out := make([]ToolStatus, 0, len(tools))
+	for _, t := range tools {
 		ts := ToolStatus{
 			ID:                t.ID,
 			Name:              t.Name,

@@ -193,6 +193,11 @@ func (a *App) stopDoctor() {
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
 	go a.tick(ctx)
+	// 异步加载远程工具索引（不阻塞 UI）；加载完推送一次工具链状态。
+	go func() {
+		toolchain.LoadIndex(toolchain.InstallDir(a.home))
+		a.RefreshTools()
+	}()
 }
 
 // OnShutdown 在窗口关闭时停止 harness 子进程和后台 doctor，避免子进程残留。
@@ -701,6 +706,14 @@ func (a *App) RefreshTools() {
 	go func() {
 		toolStatus := a.collectTools()
 		a.emitToolchain(toolStatus)
+	}()
+}
+
+// RefreshToolIndex 强制刷新远程工具索引并推送一次工具链状态。异步执行。
+func (a *App) RefreshToolIndex() {
+	go func() {
+		toolchain.RefreshIndex(toolchain.InstallDir(a.home))
+		a.RefreshTools()
 	}()
 }
 
