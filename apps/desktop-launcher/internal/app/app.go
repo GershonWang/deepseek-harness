@@ -65,11 +65,11 @@ type ToolStatus struct {
 	Rows        []ToolRow
 	Installed   string
 	Installable string
-	Catalog     []toolchain.CatalogStatus // 内置一键安装清单状态
-	HostTools   []HostToolEntry           // 宿主命令挂载列表（仅沙箱环境）
-	Sandboxed   bool                      // 是否玲珑打包（沙箱）环境
-	Notice      string                    // 一次性提示（安装结果等）
-	Installing  string                    // 正在安装的工具链名称（空串=无）
+	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
+	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
+	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
+	Notice      string                 // 一次性提示（安装结果等）
+	Installing  string                 // 正在安装的工具链名称（空串=无）
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -709,7 +709,7 @@ func (a *App) collectTools() ToolStatus {
 		Rows:        rows,
 		Installed:   joinOrNone(installed),
 		Installable: catalogInstallable(),
-		Catalog:     toolchain.CatalogStatuses(dir),
+		Catalog:     toolchain.ToolStatuses(dir),
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
 	}
@@ -722,29 +722,29 @@ func (a *App) sandboxed() bool {
 }
 
 func catalogInstallable() string {
-	names := []string{}
+	ids := []string{}
 	for _, it := range toolchain.Catalog() {
-		names = append(names, it.Name)
+		ids = append(ids, it.ID)
 	}
-	return strings.Join(names, ",")
+	return strings.Join(ids, ",")
 }
 
 // InstallToolchain 一键安装内置工具链。异步执行，结果经 toolchain 事件推送。
-func (a *App) InstallToolchain(name string) string {
-	item, ok := toolchain.Lookup(name)
+func (a *App) InstallToolchain(id string) string {
+	tool, ok := toolchain.LookupTool(id)
 	if !ok {
-		return "未知工具链: " + name
+		return "未知工具链: " + id
 	}
 	// 立即推送"正在安装"状态，让前端实时显示。
 	st := a.collectTools()
-	st.Installing = name
+	st.Installing = tool.Name
 	a.emitToolchain(st)
 	go func() {
 		dir := toolchain.InstallDir(a.home)
-		err := toolchain.InstallFromCatalog(dir, item)
-		notice := "工具链 " + name + " 安装成功"
+		err := toolchain.InstallTool(dir, tool.ID, "", nil)
+		notice := "工具链 " + tool.Name + " 安装成功"
 		if err != nil {
-			notice = "工具链 " + name + " 安装失败: " + err.Error()
+			notice = "工具链 " + tool.Name + " 安装失败: " + err.Error()
 		} else {
 			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
 			appenv.ConfigureChildEnv(a.home)

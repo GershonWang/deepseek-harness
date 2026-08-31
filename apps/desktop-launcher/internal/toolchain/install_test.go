@@ -30,81 +30,98 @@ func fakeTar(t *testing.T, dir, name string) ([]byte, string) {
 	return buf.Bytes(), hex.EncodeToString(sum[:])
 }
 
-func TestInstall_AtomicAndListed(t *testing.T) {
+func TestInstallVersion_AtomicAndListed(t *testing.T) {
 	home := t.TempDir()
+	dir := InstallDir(home)
 	blob, sum := fakeTar(t, "go", "go")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(blob)
 	}))
 	defer srv.Close()
 
-	if err := Install(InstallDir(home), "go", "1.23.2", srv.URL+"/go.tar.gz", sum); err != nil {
-		t.Fatalf("Install: %v", err)
+	tv := ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}
+	if err := installVersion(dir, "go", tv, noopProgress, false); err != nil {
+		t.Fatalf("installVersion: %v", err)
 	}
-	root := filepath.Join(InstallDir(home), "go-1.23.2")
+	root := filepath.Join(dir, "go-1.23.2")
 	if _, err := os.Stat(filepath.Join(root, "bin", "go")); err != nil {
 		t.Fatalf("extracted binary missing: %v", err)
 	}
-	current, err := os.Readlink(filepath.Join(InstallDir(home), "current", "go"))
+	current, err := os.Readlink(filepath.Join(dir, "current", "go"))
 	if err != nil || current != root {
 		t.Fatalf("current symlink: %v -> %q", err, current)
 	}
-	names := ListInstalled(InstallDir(home))
+	names := ListInstalled(dir)
 	if len(names) != 1 || names[0] != "go" {
 		t.Fatalf("ListInstalled: got %v", names)
 	}
 }
 
-func TestInstall_ReinstallReplacesSymlink(t *testing.T) {
+func TestInstallVersion_SecondVersionKeepsActive(t *testing.T) {
 	home := t.TempDir()
+	dir := InstallDir(home)
 	blob, sum := fakeTar(t, "go", "go")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(blob)
 	}))
 	defer srv.Close()
 
-	if err := Install(InstallDir(home), "go", "1.23.2", srv.URL+"/go.tar.gz", sum); err != nil {
+	// 首次安装：无其他版本，自动激活 1.23.2。
+	if err := installVersion(dir, "go", ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}, noopProgress, false); err != nil {
 		t.Fatal(err)
 	}
-	// 同工具升级重装：旧 current 软链已存在，不应 EEXIST 失败。
-	if err := Install(InstallDir(home), "go", "1.24.0", srv.URL+"/go.tar.gz", sum); err != nil {
-		t.Fatalf("reinstall: %v", err)
+	// 同工具加装 1.24.0（activate=false）：不应覆盖当前激活。
+	if err := installVersion(dir, "go", ToolVersion{Version: "1.24.0", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}, noopProgress, false); err != nil {
+		t.Fatalf("install second version: %v", err)
 	}
-	current, err := os.Readlink(filepath.Join(InstallDir(home), "current", "go"))
-	if err != nil || current != filepath.Join(InstallDir(home), "go-1.24.0") {
-		t.Fatalf("current symlink after reinstall: %v -> %q", err, current)
+	if got := ActiveVersion(dir, "go"); got != "1.23.2" {
+		t.Fatalf("当前激活应保持 1.23.2, got %q", got)
+	}
+	// 显式 activate=true 才能切到 1.24.0。
+	if err := SetActiveVersion(dir, "go", "1.24.0"); err != nil {
+		t.Fatalf("切换激活: %v", err)
+	}
+	if got := ActiveVersion(dir, "go"); got != "1.24.0" {
+		t.Fatalf("切换后应激活 1.24.0, got %q", got)
 	}
 }
 
-func TestInstall_ShaMismatch(t *testing.T) {
+func TestInstallVersion_ShaMismatch(t *testing.T) {
 	home := t.TempDir()
+	dir := InstallDir(home)
 	blob, _ := fakeTar(t, "go", "go")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(blob)
 	}))
 	defer srv.Close()
-	err := Install(InstallDir(home), "go", "1.23.2", srv.URL+"/go.tar.gz", "0000000000000000000000000000000000000000000000000000000000000000")
-	if err == nil {
+	tv := ToolVersion{
+		Version: "1.23.2",
+		URL:     srv.URL + "/go.tar.gz",
+		SHA256:  "0000000000000000000000000000000000000000000000000000000000000000",
+		BinRel:  "bin",
+	}
+	if err := installVersion(dir, "go", tv, noopProgress, false); err == nil {
 		t.Fatal("expected sha256 mismatch error")
 	}
-	if _, statErr := os.Stat(InstallDir(home)); statErr == nil {
+	if _, statErr := os.Stat(dir); statErr == nil {
 		t.Fatal("failed install must leave no install dir")
 	}
 }
 
-func TestRemove(t *testing.T) {
+func TestUninstall(t *testing.T) {
 	home := t.TempDir()
+	dir := InstallDir(home)
 	blob, sum := fakeTar(t, "rg", "rg")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(blob)
 	}))
 	defer srv.Close()
-	dir := InstallDir(home)
-	if err := Install(dir, "rg", "14.1.0", srv.URL+"/rg.tar.gz", sum); err != nil {
-		t.Fatalf("Install: %v", err)
+	tv := ToolVersion{Version: "14.1.0", URL: srv.URL + "/rg.tar.gz", SHA256: sum, BinRel: "bin"}
+	if err := installVersion(dir, "rg", tv, noopProgress, false); err != nil {
+		t.Fatalf("installVersion: %v", err)
 	}
-	if err := Remove(dir, "rg"); err != nil {
-		t.Fatalf("Remove: %v", err)
+	if err := Uninstall(dir, "rg", "14.1.0"); err != nil {
+		t.Fatalf("Uninstall: %v", err)
 	}
 	if names := ListInstalled(dir); len(names) != 0 {
 		t.Fatalf("after remove, ListInstalled: %v", names)
