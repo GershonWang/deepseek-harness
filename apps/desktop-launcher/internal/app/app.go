@@ -86,6 +86,26 @@ type HostToolResult struct {
 	Error   string
 }
 
+// ProjectPinView 是项目级工具配置中单个 pin 的前端视图。
+type ProjectPinView struct {
+	ID        string
+	Version   string
+	Installed bool
+	Active    bool
+}
+
+// ProjectToolchainResult 是 ApplyProjectToolchain 的返回。
+type ProjectToolchainResult struct {
+	ProjectPath string
+	Found       bool
+	AutoSwitch  bool
+	AutoPrompt  bool
+	Switched    []string
+	Missing     []string // 未安装的工具 ID，供前端提示安装
+	Pins        []ProjectPinView
+	Error       string
+}
+
 // AboutInfo 是"关于"弹框的内容。
 type AboutInfo struct {
 	Program        string
@@ -755,6 +775,38 @@ func (a *App) InstallToolchain(id string) string {
 		a.emitToolchain(st)
 	}()
 	return ""
+}
+
+// ApplyProjectToolchain 检测并应用项目级 .dsh-toolchain.yml：向上查找配置，
+// 对已装但未激活的工具按配置切换版本，未装的列入 Missing 供前端提示安装。
+func (a *App) ApplyProjectToolchain(projectDir string) ProjectToolchainResult {
+	res := ProjectToolchainResult{ProjectPath: projectDir}
+	cfg, pins, err := toolchain.ResolveProject(projectDir, a.home)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if cfg == nil {
+		return res
+	}
+	res.Found = true
+	res.AutoSwitch = cfg.AutoSwitch
+	res.AutoPrompt = cfg.AutoPrompt
+	for _, p := range pins {
+		res.Pins = append(res.Pins, ProjectPinView{ID: p.ID, Version: p.Version, Installed: p.Installed, Active: p.Active})
+		if !p.Installed {
+			res.Missing = append(res.Missing, p.ID)
+		}
+	}
+	switched, err := toolchain.ApplyProject(projectDir, a.home, cfg.AutoSwitch)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	res.Switched = switched
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
+	return res
 }
 
 // AddHostTool 把宿主命令路径挂载进沙箱（写 linglong config.d），返回冲突提示。
