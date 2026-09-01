@@ -28,10 +28,10 @@ var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 // Entry 是一条宿主工具链挂载配置。
 type Entry struct {
-	Name   string // 标识（配置文件与挂载目录名）
-	Source string // 宿主路径
-	Target string // 容器内挂载路径 /opt/host-tools/<name>
-	Mounted bool // 本次实例启动时挂载是否已生效（容器内 /opt/host-tools/<name> 是否存在）
+	Name    string // 标识（配置文件与挂载目录名）
+	Source  string // 宿主路径
+	Target  string // 容器内挂载路径 /opt/host-tools/<name>
+	Mounted bool   // 本次实例启动时挂载是否已生效（容器内 /opt/host-tools/<name> 是否存在）
 }
 
 // mountJSON 与 linglong config.d 的挂载配置格式一致。
