@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md
-2026-08-19-linglong-container-toolchain.md: 91c7761429e1ca51a6dc99431cccc06fe22d2a5f
-2026-08-19-linglong-container-toolchain.zh.md: 696af8fb72475996b755508cffc8e68e0af75be0
+2026-08-19-linglong-container-toolchain.md: 381c4f48bc7425375d4bf6cd0a65478d837486c1
+2026-08-19-linglong-container-toolchain.zh.md: bf29897f10c10bfd85cba04e8197e54ee1e89a79

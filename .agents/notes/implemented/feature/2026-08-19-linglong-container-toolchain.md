@@ -47,3 +47,5 @@ The package grows: python3 plus pip add roughly 100 MB and git drags in the perl
 ## Related
 
 Later fixes for the same subsystem — bundled-git exec-path wrapping, bundled pnpm, git-lfs, and the pre-push hook running through npm: [Portability fixes for the Linglong-packaged desktop client](../bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md).
+
+The externalized three-layer toolchain architecture that supersedes the on-demand layer above: [Externalize toolchains into three pluggable layers in the Linglong client](2026-08-31-linglong-three-layer-toolchain.md).

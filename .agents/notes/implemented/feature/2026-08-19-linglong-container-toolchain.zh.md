@@ -47,3 +47,5 @@ Status: implemented
 ## Related
 
 同一子系统的后续修复——随包 git 的 exec-path 包装、捆绑 pnpm、git-lfs、pre-push 钩子改走 npm： [玲珑打包桌面客户端的可移植性修复](../bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md)。
+
+取代上述按需层的外置三层工具链架构：[在玲珑客户端中把工具链外置为三层可插拔结构](2026-08-31-linglong-three-layer-toolchain.zh.md)。
