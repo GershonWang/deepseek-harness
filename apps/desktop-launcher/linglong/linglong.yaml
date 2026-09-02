@@ -62,13 +62,9 @@ build: |
   if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
     strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
   fi
-  # npm 瘦身：Node 发行版自带 npm（~20 MB），包管理器统一用出厂内置 pnpm。
-  # 删 npm 目录与其 bin 软链（避免悬空）；需要 npm/npx 时走 L2 工具链
-  # （~/.dsh-tools 热插拔 node）。corepack 保留（pnpm 的 fallback 分发器）。
-  if [ -d "$STAGE/node/lib/node_modules/npm" ]; then
-    rm -rf "$STAGE/node/lib/node_modules/npm"
-    rm -f "$STAGE/node/bin/npm" "$STAGE/node/bin/npx"
-  fi
+  # 保留 Node 自带的 npm/npx：npm 是 Node 官方发行版标准组件，删掉后 lefthook
+  # pre-push 的 typecheck（npm run）与用户习惯的 npm/npx 都会失效，省 20 MB
+  # 不值这些副作用。pnpm 仍是主力包管理器，两者共存；corepack 保留作为兜底分发器。
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
   # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
@@ -84,11 +80,13 @@ build: |
   cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
         ${PREFIX}/harness/config/agent-presets/
   cp -a "$STAGE/node/." ${PREFIX}/node/
-  # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
-  # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的
-  # node/corepack(pnpm);软链进 $PREFIX/bin 后容器内任何进程都能直接调用。
-  # npm/npx 已在上方瘦身段删除，不再软链。
+  # node/npm/npx/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH
+  # ($PREFIX/node/bin 不在)。harness 自身经 $PREFIX/node/bin/node 绝对路径启动,
+  # 但模型 bash 工具需要 PATH 上的 node/npm/corepack(pnpm);软链进 $PREFIX/bin 后
+  # 容器内任何进程都能直接调用。
   ln -sf ../node/bin/node ${PREFIX}/bin/node
+  ln -sf ../node/bin/npm ${PREFIX}/bin/npm
+  ln -sf ../node/bin/npx ${PREFIX}/bin/npx
   ln -sf ../node/bin/corepack ${PREFIX}/bin/corepack
   # pnpm 上 PATH：优先出厂内置 CLI（离线可用）；无内置时退回 corepack
   # 薄包装（首次调用需联网下载 pnpm）。
