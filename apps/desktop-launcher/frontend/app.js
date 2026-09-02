@@ -467,23 +467,24 @@ function categoryLabel(cat) {
 
 function renderTools(t) {
   marketState.catalog = t.Catalog || [];
-  renderBuiltin(t.Rows || []);
+  // 缓存 Rows，供点击"内置"按钮时动态渲染
+  marketState.builtinRows = t.Rows || [];
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
   $("#toolchain-notice").textContent = t.Notice || "";
 }
 
-// renderBuiltin 渲染"内置工具"区：随包工具不可卸载，只展示名称/版本/可用状态。
-// 数据来自后端 ToolStatus.Rows（DefaultSpecs 探测结果，与 tools.yaml 的 tools 段同步）。
-function renderBuiltin(rows) {
-  const box = $("#builtin-tools");
+// renderBuiltin 渲染内置工具收纳盒（#builtin-panel）：随包工具不可卸载，
+// 只展示名称/版本/可用状态。由"内置"按钮点击触发，非自动渲染。
+function renderBuiltin() {
+  const box = $("#builtin-panel");
+  const rows = marketState.builtinRows || [];
   box.innerHTML = "";
   if (!rows || rows.length === 0) {
-    box.classList.add("hidden");
+    box.innerHTML = '<span class="builtin-empty">暂无内置工具信息</span>';
     return;
   }
-  box.classList.remove("hidden");
   for (const r of rows) {
     const chip = document.createElement("span");
     chip.className = "builtin-chip" + (r.State === "installed" ? " ok" : " missing");
@@ -500,6 +501,18 @@ function renderBuiltin(rows) {
     }
     box.appendChild(chip);
   }
+}
+
+// 内置工具按钮 toggle：点击展开/折叠收纳盒
+function setupBuiltinToggle() {
+  const btn = $("#builtin-toggle");
+  const panel = $("#builtin-panel");
+  if (!btn || !panel) return;
+  btn.addEventListener("click", () => {
+    const open = panel.classList.toggle("hidden");
+    btn.classList.toggle("active", !open);
+    if (!open) renderBuiltin();
+  });
 }
 
 // renderProgress 处理 toolchain:progress 事件：更新进度表，并定向刷新对应
@@ -880,6 +893,7 @@ function init() {
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
   window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
+  setupBuiltinToggle();
 
   // 诊断与修复
   $("#btn-doctor").addEventListener("click", () => {
