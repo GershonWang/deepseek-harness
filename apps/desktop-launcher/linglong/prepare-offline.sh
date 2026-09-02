@@ -29,17 +29,17 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
 # 2.0.5 生产闭包瘦身：删掉确定不是 runtime 依赖的大包。
-#    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）
-#    @img/sharp：图像处理库，CLI 模式不需要（~19 MB）。如果后续 GUI
-#    端确认需要再加回来（目前 GUI 在 webpack 构建时已处理完图片）。
+#    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）。
+#    注意：不要删 @img —— sharp 是 @deepseek-ai/dsh-attachment-local 的
+#    硬依赖（静态 import sharp），而 sharp 的 dist/colour.mjs 运行时静态
+#    import '@img/colour'；@img 下只有 colour + linux-x64 原生包（libvips
+#    约 18 MB），全部是 linux x64 运行必需，没有可裁的多余平台包。
+#    历史教训：曾 rm -rf @img 省 19 MB，结果 harness 启动即
+#    ERR_MODULE_NOT_FOUND @img/colour，插件树加载失败（见 harness.log）。
 echo "prepare-offline: 生产闭包瘦身..."
 if [ -d "$STAGE/harness/node_modules/typescript" ]; then
   rm -rf "$STAGE/harness/node_modules/typescript"
   echo "  - 已删除 typescript"
-fi
-if [ -d "$STAGE/harness/node_modules/@img" ]; then
-  rm -rf "$STAGE/harness/node_modules/@img"
-  echo "  - 已删除 @img (sharp 系列)"
 fi
 
 # 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
