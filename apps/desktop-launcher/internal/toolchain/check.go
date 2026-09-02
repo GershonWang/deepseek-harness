@@ -13,19 +13,28 @@ import (
 
 // Spec 声明一个可探测工具。
 type Spec struct {
-	Name    string
-	Command []string // 探测命令，如 {"git","--version"}
+	Name      string
+	Command   []string // 探测命令，如 {"git","--version"}
+	NoVersion bool     // true=仅存在性探测（如 xdg-open），成功即视为可用，不提取版本号
 }
 
-// DefaultSpecs 返回自检面板覆盖的关键工具。
+// DefaultSpecs 返回随包内置的关键工具清单（与 linglong/tools.yaml 的 tools
+// 段保持同步），供自检面板与工具市场的"内置工具"区展示。xdg-open 没有
+// 安全的版本探测命令（见 tools.yaml 注释），用存在性探测。
 func DefaultSpecs() []Spec {
 	return []Spec{
 		{Name: "git", Command: []string{"git", "--version"}},
+		{Name: "git-lfs", Command: []string{"git", "lfs", "version"}},
 		{Name: "python3", Command: []string{"python3", "--version"}},
-		{Name: "node", Command: []string{"node", "--version"}},
 		{Name: "curl", Command: []string{"curl", "--version"}},
+		{Name: "wget", Command: []string{"wget", "--version"}},
 		{Name: "jq", Command: []string{"jq", "--version"}},
+		{Name: "unzip", Command: []string{"unzip", "-v"}},
+		{Name: "xxd", Command: []string{"xxd", "--version"}},
+		{Name: "node", Command: []string{"node", "--version"}},
 		{Name: "pnpm", Command: []string{"pnpm", "--version"}},
+		{Name: "dsh", Command: []string{"dsh", "--version"}},
+		{Name: "xdg-open", Command: []string{"command", "-v", "xdg-open"}, NoVersion: true},
 	}
 }
 
@@ -45,7 +54,12 @@ func Check(specs []Spec) []domain.ToolCheck {
 			c.Err = err.Error()
 		} else {
 			c.OK = true
-			c.Version = firstLine(buf.String())
+			if s.NoVersion {
+				// 仅存在性探测（如 xdg-open）：版本号无意义，标记为"内置"。
+				c.Version = "内置"
+			} else {
+				c.Version = firstLine(buf.String())
+			}
 		}
 		out = append(out, c)
 	}

@@ -11,11 +11,12 @@ import (
 )
 
 // Index 是远程工具索引的完整结构（与 tools/index.json 同构）。
+// Bundles（一键工具集）已从产品中移除：索引文件里若还残留 bundles 字段，
+// json.Unmarshal 会按未知字段忽略，不影响解析。
 type Index struct {
-	Version   int          `json:"version"`
-	UpdatedAt string       `json:"updated_at"`
-	Tools     []Tool       `json:"tools"`
-	Bundles   []ToolBundle `json:"bundles"`
+	Version   int    `json:"version"`
+	UpdatedAt string `json:"updated_at"`
+	Tools     []Tool `json:"tools"`
 }
 
 // indexCacheTTL 是远程索引缓存有效期。超过后下次加载会尝试重新拉取。
@@ -118,7 +119,7 @@ func fetchIndex(url string) ([]byte, error) {
 func LoadIndex(dir string) (source string, err error) {
 	if cacheFresh(dir) {
 		if idx := loadCachedIndex(dir); idx != nil {
-			setCatalog(idx.Tools, idx.Bundles)
+			setCatalog(idx.Tools)
 			return "cache", nil
 		}
 	}
@@ -149,14 +150,14 @@ func loadRemote(dir string) (string, error) {
 		return "", err
 	}
 	_ = storeIndex(dir, data) // 缓存写失败不阻断生效
-	setCatalog(idx.Tools, idx.Bundles)
+	setCatalog(idx.Tools)
 	return "remote", nil
 }
 
 // fallback 回退到缓存（即使过期），否则保持内置兜底。返回生效来源。
 func fallback(dir string) string {
 	if idx := loadCachedIndex(dir); idx != nil {
-		setCatalog(idx.Tools, idx.Bundles)
+		setCatalog(idx.Tools)
 		return "cache"
 	}
 	return "builtin"

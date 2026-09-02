@@ -29,9 +29,20 @@ import (
 
 // 事件名（前端监听）。
 const (
-	StatusEvent    = "harness:status"
-	ToolchainEvent = "toolchain:status"
+	StatusEvent            = "harness:status"
+	ToolchainEvent         = "toolchain:status"
+	ToolchainProgressEvent = "toolchain:progress" // 单个工具链安装的实时进度
 )
+
+// ProgressEvent 是 toolchain:progress 事件的载荷：描述某个工具链安装的
+// 当前阶段与百分比。前端据此在工具卡片上渲染进度条，支持多工具并发安装
+// （每个事件按 ID 定向更新对应卡片，避免重渲染整个网格）。
+type ProgressEvent struct {
+	ID      string // 工具链 ID
+	Phase   string // queued / downloading / extracting / verifying / linking / done / error
+	Percent int    // 0-100
+	Message string // 人类可读描述（如"下载中 45%"）
+}
 
 // FrontendStatus 是 Web 壳每次状态刷新收到的快照。
 type FrontendStatus struct {
@@ -66,11 +77,9 @@ type ToolStatus struct {
 	Installed   string
 	Installable string
 	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
-	Bundles     []toolchain.BundleView // 一键工具集（前端视图，PascalCase）
 	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
 	Notice      string                 // 一次性提示（安装结果等）
-	Installing  string                 // 正在安装的工具链 ID（空串=无）
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -239,6 +248,21 @@ func (a *App) emitToolchain(s ToolStatus) {
 		return
 	}
 	runtime.EventsEmit(a.ctx, ToolchainEvent, s)
+}
+
+// emitProgress 推送单个工具链安装的实时进度（下载/解压/校验百分比）。
+// 下载进度回调频率高（io.Copy 每读一块触发一次），这里直接事件发射，
+// 前端按 ID 定向更新对应卡片的进度条，不重渲染整个网格，避免卡顿。
+func (a *App) emitProgress(id, phase string, percent int, message string) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, ToolchainProgressEvent, ProgressEvent{
+		ID:      id,
+		Phase:   phase,
+		Percent: percent,
+		Message: message,
+	})
 }
 
 func (a *App) setBusy(b bool) {
@@ -744,7 +768,6 @@ func (a *App) collectTools() ToolStatus {
 		Installed:   joinOrNone(installed),
 		Installable: catalogInstallable(),
 		Catalog:     toolchain.ToolStatuses(dir),
-		Bundles:     toolchain.Bundles(),
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
 	}
@@ -789,14 +812,21 @@ func (a *App) InstallToolVersion(id, version string) string {
 }
 
 // installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
+// 安装进度通过 toolchain:progress 事件实时推给前端（下载百分比等），
+// 结束后通过 toolchain:status 推送最终状态与结果通知。
 func (a *App) installToolAsync(tool toolchain.Tool, version string) {
-	// 立即推送"正在安装"状态，让前端实时显示。
-	st := a.collectTools()
-	st.Installing = tool.ID
-	a.emitToolchain(st)
+	// 立即推送"排队中"进度，前端据此把卡片切到"安装中"并显示进度条。
+	a.emitProgress(tool.ID, "queued", 0, "等待下载")
 	go func() {
 		dir := toolchain.InstallDir(a.home)
-		err := toolchain.InstallTool(dir, tool.ID, version, nil)
+		// 把安装器内部的阶段回调转发成前端进度事件；下载回调频率高，
+		// 前端按 ID 定向更新进度条（见 emitProgress 注释）。
+		opts := &toolchain.InstallOptions{
+			Progress: func(phase string, percent int, message string) {
+				a.emitProgress(tool.ID, phase, percent, message)
+			},
+		}
+		err := toolchain.InstallTool(dir, tool.ID, version, opts)
 		label := tool.Name
 		if version != "" {
 			label += " " + version
@@ -810,7 +840,6 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		}
 		st := a.collectTools()
 		st.Notice = notice
-		st.Installing = ""
 		a.emitToolchain(st)
 	}()
 }
