@@ -176,14 +176,15 @@
         <button id="market-refresh" class="btn btn-quiet" title="刷新远程索引">刷新索引</button>
       </div>
 
-      <!-- 内置工具（随包，不可卸载，仅展示可用状态） -->
-      <div id="builtin-tools" class="builtin-tools" aria-label="内置工具"></div>
-
       <!-- 工具卡片网格 -->
       <div id="market-grid" class="market-grid" aria-label="工具列表"></div>
 
-      <!-- 状态栏 + 通知 -->
-      <div id="market-statusbar" class="market-statusbar" role="status"></div>
+      <!-- 状态栏 + 内置按钮（footer 布局：statusbar 文本 + 右侧按钮） -->
+      <div class="market-footer">
+        <div id="market-statusbar" class="market-statusbar" role="status"></div>
+        <button id="builtin-toggle" class="builtin-toggle">内置</button>
+      </div>
+      <div id="builtin-panel" class="builtin-panel hidden" aria-label="内置工具清单"></div>
       <div id="toolchain-notice" class="hint"></div>
 
       <!-- 宿主导入向导 -->
