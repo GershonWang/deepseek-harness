@@ -446,7 +446,9 @@ function renderServerDialog(s) {
 /* ---------- 工具链市场 ---------- */
 
 // marketState 缓存最近一次工具链状态，供分类/搜索过滤与卡片渲染。
-const marketState = { category: "all", search: "", catalog: [], bundles: [], installing: "" };
+// progress 记录各工具链安装的实时进度：id → {Phase, Percent, Message}。
+// 由 toolchain:progress 事件驱动；done/error 阶段会删除对应条目。支持多工具并发。
+const marketState = { category: "all", search: "", catalog: [], progress: {} };
 
 // fmtSize 把字节数格式化为 "1.6 MB" 之类的可读文本；0/空返回空串。
 function fmtSize(bytes) {
@@ -465,48 +467,62 @@ function categoryLabel(cat) {
 
 function renderTools(t) {
   marketState.catalog = t.Catalog || [];
-  marketState.bundles = t.Bundles || [];
-  marketState.installing = t.Installing || "";
-  renderBundles();
+  renderBuiltin(t.Rows || []);
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
   $("#toolchain-notice").textContent = t.Notice || "";
 }
 
-// renderBundles 渲染一键工具集卡片；无工具集时隐藏该区。
-function renderBundles() {
-  const box = $("#bundle-row");
+// renderBuiltin 渲染"内置工具"区：随包工具不可卸载，只展示名称/版本/可用状态。
+// 数据来自后端 ToolStatus.Rows（DefaultSpecs 探测结果，与 tools.yaml 的 tools 段同步）。
+function renderBuiltin(rows) {
+  const box = $("#builtin-tools");
   box.innerHTML = "";
-  const bundles = marketState.bundles;
-  if (!bundles || bundles.length === 0) {
+  if (!rows || rows.length === 0) {
     box.classList.add("hidden");
     return;
   }
   box.classList.remove("hidden");
-  for (const b of bundles) {
-    const el = document.createElement("button");
-    el.className = "bundle-card";
-    el.title = b.Description || "";
-    const name = document.createElement("div");
-    name.className = "bundle-name";
-    name.textContent = b.Name;
-    const desc = document.createElement("div");
-    desc.className = "bundle-desc";
-    desc.textContent = (b.ToolIDs || []).length + " 个工具";
-    el.append(name, desc);
-    el.addEventListener("click", async () => {
-      el.disabled = true;
-      el.classList.add("busy");
-      for (const id of b.ToolIDs || []) {
-        await api().InstallToolchain(id);
-      }
-      el.disabled = false;
-      el.classList.remove("busy");
-      api().RefreshTools();
-    });
-    box.appendChild(el);
+  for (const r of rows) {
+    const chip = document.createElement("span");
+    chip.className = "builtin-chip" + (r.State === "installed" ? " ok" : " missing");
+    chip.title = r.State === "installed" ? "已随包内置" : "内置工具缺失";
+    const nm = document.createElement("span");
+    nm.className = "builtin-name";
+    nm.textContent = r.Name;
+    chip.appendChild(nm);
+    if (r.Version) {
+      const ver = document.createElement("span");
+      ver.className = "builtin-ver";
+      ver.textContent = r.Version;
+      chip.appendChild(ver);
+    }
+    box.appendChild(chip);
   }
+}
+
+// renderProgress 处理 toolchain:progress 事件：更新进度表，并定向刷新对应
+// 卡片的进度条（不做整网格重渲染，下载回调高频时保持 UI 响应）。
+function renderProgress(ev) {
+  if (!ev || !ev.ID) return;
+  if (ev.Phase === "done" || ev.Phase === "error") {
+    delete marketState.progress[ev.ID];
+    updateProgressBar(ev.ID, null);
+    return;
+  }
+  marketState.progress[ev.ID] = ev;
+  updateProgressBar(ev.ID, ev);
+}
+
+// updateProgressBar 定向更新某卡片的状态徽标与进度条；ev 为 null 表示清除进度。
+function updateProgressBar(id, ev) {
+  const card = document.querySelector('.tool-card-item[data-tool-id="' + id + '"]');
+  if (!card) return;
+  const bar = card.querySelector(".tool-progress-fill");
+  const label = card.querySelector(".tool-progress-label");
+  if (bar) bar.style.width = (ev ? ev.Percent || 0 : 0) + "%";
+  if (label) label.textContent = ev ? (ev.Percent || 0) + "%" : "";
 }
 
 // filteredCatalog 按当前分类 + 搜索词过滤目录。
@@ -536,7 +552,9 @@ function renderMarketGrid() {
 function toolCard(c) {
   const el = document.createElement("div");
   el.className = "tool-card-item" + (c.Installed ? " installed" : "");
-  const installing = marketState.installing === c.ID;
+  el.dataset.toolId = c.ID; // 供进度事件定向更新
+  const prog = marketState.progress[c.ID];
+  const installing = !!prog && prog.Phase !== "done" && prog.Phase !== "error";
 
   const head = document.createElement("div");
   head.className = "tool-card-head";
@@ -545,7 +563,7 @@ function toolCard(c) {
   name.textContent = c.Name;
   const status = document.createElement("span");
   if (c.Installed) { status.className = "pill ok"; status.textContent = "✓ 已安装"; }
-  else if (installing) { status.className = "pill warn"; status.textContent = "安装中…"; }
+  else if (installing) { status.className = "pill warn"; status.textContent = "安装中 " + (prog.Percent || 0) + "%"; }
   else { status.className = "pill brand"; status.textContent = "可安装"; }
   head.append(name, status);
 
@@ -556,6 +574,17 @@ function toolCard(c) {
   const meta = document.createElement("div");
   meta.className = "tool-card-meta";
   meta.textContent = [categoryLabel(c.Category), (c.Provides || []).join(" "), fmtSize(c.Size)].filter(Boolean).join(" · ");
+
+  // 安装中的进度条：toolchain:progress 事件按 data-tool-id 定向更新宽度。
+  const progress = document.createElement("div");
+  progress.className = "tool-progress";
+  const fill = document.createElement("div");
+  fill.className = "tool-progress-fill";
+  fill.style.width = (prog ? prog.Percent || 0 : 0) + "%";
+  progress.appendChild(fill);
+  const pctLabel = document.createElement("div");
+  pctLabel.className = "tool-progress-label";
+  pctLabel.textContent = prog ? (prog.Percent || 0) + "%" : "";
 
   const actions = document.createElement("div");
   actions.className = "tool-card-actions";
@@ -621,7 +650,11 @@ function toolCard(c) {
     actions.appendChild(b);
   }
 
-  el.append(head, desc, meta, actions);
+  if (installing) {
+    el.append(head, desc, meta, progress, pctLabel, actions);
+  } else {
+    el.append(head, desc, meta, actions);
+  }
   return el;
 }
 
@@ -846,6 +879,7 @@ function init() {
 
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
+  window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
 
   // 诊断与修复
   $("#btn-doctor").addEventListener("click", () => {

@@ -17,7 +17,7 @@ func restoreBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setCatalog(idx.Tools, idx.Bundles)
+	setCatalog(idx.Tools)
 }
 
 // testIndex 返回一份含自定义工具 ID 的索引 JSON，用于区分远程与内置。

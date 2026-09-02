@@ -2,6 +2,7 @@ package toolchain
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -13,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ulikunitz/xz"
 )
 
 // downloadTimeout 覆盖"下载挂起"场景：超时后放弃整个安装。
@@ -109,37 +112,34 @@ func installVersion(dir, toolID string, tv ToolVersion, progress InstallProgress
 	return nil
 }
 
-// InstallBundle 安装工具集（一键装一组）。
-func InstallBundle(dir string, bundleID string, progress InstallProgress) error {
-	bundle, ok := LookupBundle(bundleID)
-	if !ok {
-		return fmt.Errorf("unknown bundle: %s", bundleID)
+// archiveFormat 根据下载 URL 后缀推断归档格式，返回 "tar.gz" / "zip" / "tar.xz"。
+// 未知后缀兜底为 tar.gz（历史工具全部是 tar.gz）。查询参数会先剥离。
+func archiveFormat(url string) string {
+	u := url
+	if i := strings.IndexByte(u, '?'); i >= 0 {
+		u = u[:i]
 	}
-	if progress == nil {
-		progress = noopProgress
+	switch {
+	case strings.HasSuffix(u, ".tar.xz"):
+		return "tar.xz"
+	case strings.HasSuffix(u, ".zip"):
+		return "zip"
+	default:
+		return "tar.gz"
 	}
-
-	total := len(bundle.ToolIDs)
-	for i, tid := range bundle.ToolIDs {
-		pct := int(float64(i) / float64(total) * 100)
-		progress("downloading", pct, fmt.Sprintf("安装 %s (%d/%d)", tid, i+1, total))
-		if err := InstallTool(dir, tid, "", &InstallOptions{Progress: progress}); err != nil {
-			return fmt.Errorf("bundle %s: %w", bundleID, err)
-		}
-	}
-	progress("done", 100, fmt.Sprintf("工具集安装完成: %s", bundle.Name))
-	return nil
 }
 
-// downloadAndExtract 下载 tar.gz，校验 sha256，原子解包到 <dir>/<id>-<version>。
+// downloadAndExtract 下载归档（tar.gz / zip / tar.xz），校验 sha256，
+// 原子解包到 <dir>/<id>-<version>。
 // 返回最终目录路径。
 func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress InstallProgress) (string, error) {
 	if tv.SHA256 == "" {
 		return "", fmt.Errorf("tool %s version %s: sha256 not pinned", toolID, tv.Version)
 	}
 
-	// 检查下载缓存
-	cachePath := filepath.Join(cacheDir(dir), tv.SHA256+".tar.gz")
+	// 检查下载缓存：文件名带归档后缀，便于区分与人工排查。
+	format := archiveFormat(tv.URL)
+	cachePath := filepath.Join(cacheDir(dir), tv.SHA256+"."+format)
 	var data []byte
 	var cacheErr error
 
@@ -192,7 +192,7 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := extractTarGz(data, tmp); err != nil {
+	if err := extractArchive(format, data, tmp); err != nil {
 		progress("error", 0, fmt.Sprintf("解压失败: %s", err))
 		return "", fmt.Errorf("extract %s: %w", toolID, err)
 	}
@@ -337,6 +337,18 @@ func pruneCache(dir string, maxSize int64) {
 	}
 }
 
+// extractArchive 按归档格式分发解压到 dest。支持的格式由 archiveFormat 决定。
+func extractArchive(format string, data []byte, dest string) error {
+	switch format {
+	case "zip":
+		return extractZip(data, dest)
+	case "tar.xz":
+		return extractTarXz(data, dest)
+	default:
+		return extractTarGz(data, dest)
+	}
+}
+
 // extractTarGz 从字节数据解压 tar.gz 到 dest。
 func extractTarGz(data []byte, dest string) error {
 	gz, err := gzip.NewReader(bytes.NewReader(data))
@@ -344,7 +356,20 @@ func extractTarGz(data []byte, dest string) error {
 		return err
 	}
 	defer gz.Close()
-	tr := tar.NewReader(gz)
+	return extractTar(tar.NewReader(gz), dest)
+}
+
+// extractTarXz 从字节数据解压 tar.xz 到 dest（flutter 等使用 xz 压缩的发行包）。
+func extractTarXz(data []byte, dest string) error {
+	xr, err := xz.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	return extractTar(tar.NewReader(xr), dest)
+}
+
+// extractTar 解压 tar 流到 dest，统一做路径逃逸与符号链接越界防护。
+func extractTar(tr *tar.Reader, dest string) error {
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -395,6 +420,47 @@ func extractTarGz(data []byte, dest string) error {
 			}
 		}
 	}
+}
+
+// extractZip 从字节数据解压 zip 到 dest（bun/deno/kotlin/dart 使用 zip 发行包）。
+func extractZip(data []byte, dest string) error {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return err
+	}
+	for _, f := range zr.File {
+		// 防路径逃逸（zip 内条目名可能是绝对路径或 ..）。
+		clean := filepath.Clean(f.Name)
+		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+			return fmt.Errorf("unsafe zip path: %s", f.Name)
+		}
+		target := filepath.Join(dest, clean)
+		if f.FileInfo().IsDir() {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, f.Mode()&0o777)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		rc.Close()
+		out.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+	}
+	return nil
 }
 
 // InstallDir 返回按需安装根目录（home 下 .dsh-tools）。

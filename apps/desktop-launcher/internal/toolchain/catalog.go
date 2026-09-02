@@ -16,6 +16,10 @@ type ToolVersion struct {
 	Size    int64  `json:"size,omitempty"` // 字节数，可选
 	BinRel  string `json:"bin_rel"`        // 包内二进制目录相对路径
 	LibRel  string `json:"lib_rel"`        // 包内库目录相对路径（可选，进 LD_LIBRARY_PATH）
+	// BinDirs 多个二进制目录（相对路径），用于 bin 分散在多个子目录的发行包
+	// （如 Rust：cargo/bin 与 rustc/bin）。非空时优先于 BinRel；为空走默认
+	// 布局探测（bin/ 子目录，否则工具根目录）。
+	BinDirs []string `json:"bin_dirs,omitempty"`
 }
 
 // Tool 描述一个可安装的工具链。
@@ -47,27 +51,6 @@ func (t Tool) FindVersion(ver string) (ToolVersion, bool) {
 	return ToolVersion{}, false
 }
 
-// ToolBundle 工具集：一组可一键安装的工具组合。
-// 该结构体保留 snake_case tag，因为它直接解析 index.json / 远程索引（文件
-// 格式约定为 tool_ids 等）。输出给前端时不要直接用本类型（见 BundleView）。
-type ToolBundle struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	ToolIDs     []string `json:"tool_ids"`
-}
-
-// BundleView 是工具集的前端视图：字段不带 JSON tag（PascalCase），与
-// ToolStatus 及前端 renderBundles 的读取（b.Name / b.ToolIDs）一致。ToolBundle
-// 因要解析 index.json 而保留 snake_case tag，故给前端单独用本视图类型，避免
-// 字段名不匹配导致工具集卡片空白。
-type BundleView struct {
-	ID          string
-	Name        string
-	Description string
-	ToolIDs     []string
-}
-
 // indexJSON 是内置工具清单（单源）：与远程索引同构，编译期嵌入。
 // 有效目录初始化为它，运行时被远程索引覆盖（见 remote.go LoadIndex）。
 //
@@ -75,9 +58,8 @@ type BundleView struct {
 var indexJSON []byte
 
 var (
-	catalogMu        sync.RWMutex
-	effectiveTools   []Tool
-	effectiveBundles []ToolBundle
+	catalogMu      sync.RWMutex
+	effectiveTools []Tool
 )
 
 // init 解析嵌入的单源索引作为内置兜底；索引非法则立即失败（打包期应被
@@ -88,14 +70,12 @@ func init() {
 		panic("builtin tools index is invalid: " + err.Error())
 	}
 	effectiveTools = idx.Tools
-	effectiveBundles = idx.Bundles
 }
 
 // setCatalog 用远程索引覆盖有效目录（remote.go 调用）。
-func setCatalog(tools []Tool, bundles []ToolBundle) {
+func setCatalog(tools []Tool) {
 	catalogMu.Lock()
 	effectiveTools = tools
-	effectiveBundles = bundles
 	catalogMu.Unlock()
 }
 
@@ -105,17 +85,6 @@ func Catalog() []Tool {
 	defer catalogMu.RUnlock()
 	out := make([]Tool, len(effectiveTools))
 	copy(out, effectiveTools)
-	return out
-}
-
-// Bundles 返回当前有效的工具集前端视图（PascalCase，见 BundleView）。
-func Bundles() []BundleView {
-	catalogMu.RLock()
-	defer catalogMu.RUnlock()
-	out := make([]BundleView, 0, len(effectiveBundles))
-	for _, b := range effectiveBundles {
-		out = append(out, BundleView{ID: b.ID, Name: b.Name, Description: b.Description, ToolIDs: b.ToolIDs})
-	}
 	return out
 }
 
@@ -129,18 +98,6 @@ func LookupTool(id string) (Tool, bool) {
 		}
 	}
 	return Tool{}, false
-}
-
-// LookupBundle 按 ID 查找工具集。
-func LookupBundle(id string) (ToolBundle, bool) {
-	catalogMu.RLock()
-	defer catalogMu.RUnlock()
-	for _, b := range effectiveBundles {
-		if b.ID == id {
-			return b, true
-		}
-	}
-	return ToolBundle{}, false
 }
 
 // ToolsByCategory 按分类分组返回工具 ID 列表。
@@ -274,6 +231,20 @@ func Uninstall(dir, id, version string) error {
 
 // —— 软链与自愈 ——
 
+// toolBinDirs 返回工具已激活版本显式声明的多 bin 目录（相对路径，见
+// ToolVersion.BinDirs）。清单未声明或版本不存在时返回空，调用方走默认布局探测。
+func toolBinDirs(id, dir string) []string {
+	tool, ok := LookupTool(id)
+	if !ok {
+		return nil
+	}
+	tv, ok := tool.FindVersion(ActiveVersion(dir, id))
+	if !ok {
+		return nil
+	}
+	return tv.BinDirs
+}
+
 // ReconcileBinLinks 自愈：扫描 <dir>/current 下已装工具，在 <dir>/bin 重建其
 // 可执行文件软链，在 <dir>/lib 重建库目录绑定（如有 LibRel），并清理失效软链。
 // 启动时调用，保证重装、更新、HOME 迁移后工具链仍自动可用。
@@ -310,8 +281,16 @@ func ReconcileBinLinks(dir string) error {
 			}
 		}
 
-		// 尝试已知布局：bin/ 子目录
-		if info, err := os.Stat(filepath.Join(root, "bin")); err == nil && info.IsDir() {
+		// 优先用清单里显式声明的多 bin 目录（如 Rust 的 cargo/bin + rustc/bin）；
+		// 未声明时走默认布局探测：bin/ 子目录，否则工具根目录（单文件发行包）。
+		binDirs := toolBinDirs(e.Name(), dir)
+		if len(binDirs) > 0 {
+			for _, rel := range binDirs {
+				if info, err := os.Stat(filepath.Join(root, rel)); err == nil && info.IsDir() {
+					linkExecutables(filepath.Join(root, rel), linkDir, seenBins)
+				}
+			}
+		} else if info, err := os.Stat(filepath.Join(root, "bin")); err == nil && info.IsDir() {
 			linkExecutables(filepath.Join(root, "bin"), linkDir, seenBins)
 		} else if info, err := os.Stat(root); err == nil && info.IsDir() {
 			// 根目录直接含可执行
