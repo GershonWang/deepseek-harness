@@ -616,13 +616,15 @@ body {
 /* 固定高度：筛选分类后内容变少时弹框不来回伸缩。用 min-height + flex-shrink:0
    而非纯 height，因为父容器 .modal-body 的 min-height:0 允许 flex 收缩，
    纯 height 会被忽略。72vh 为最大内容区高度，超过后滚动。 */
+/* 弹框内容区：flex column，内部滚动交给 .market-grid（grid 单独滚动），
+   其他子元素固定高度不滚动（toolbar/footer/notice/card-hosts） */
 .market-body {
   display: flex; flex-direction: column; gap: 10px;
   min-height: 72vh; flex-shrink: 0;
-  overflow-y: auto;
+  overflow: hidden; /* 整体不滚动，由 grid 内部滚动 */
 }
 
-.market-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.market-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
 .market-tabs { display: flex; gap: 4px; }
 .market-tab {
   font-size: 12px; padding: 5px 12px; border-radius: 99px; cursor: pointer;
@@ -644,11 +646,11 @@ body {
 }
 .builtin-toggle:hover { border-color: var(--accent); color: var(--fg); }
 .builtin-toggle.active { border-color: var(--brand); color: var(--brand-text); background: color-mix(in srgb, var(--brand) 8%, transparent); }
-/* 内置工具收纳盒：点击"内置"按钮展开，折叠时隐藏 */
+/* 内置工具收纳盒：点击"内置"按钮展开，折叠时隐藏；flex-shrink:0 防止被 grid 挤压 */
 .builtin-panel {
   display: flex; flex-wrap: wrap; gap: 6px;
   padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--bg-panel);
+  background: var(--bg-panel); flex-shrink: 0;
 }
 .builtin-panel.hidden { display: none; }
 .builtin-chip {
@@ -662,7 +664,11 @@ body {
 .builtin-ver { color: var(--fg-dim); }
 .builtin-empty { font-size: 11px; color: var(--fg-dim); padding: 4px 0; }
 
-.market-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+/* 工具列表：flex:1 占剩余空间，overflow-y:auto 让 grid 内部滚动（而非整个弹框滚动） */
+.market-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  flex: 1; min-height: 0; overflow-y: auto;
+}
 @media (max-width: 760px) { .market-grid { grid-template-columns: repeat(2, 1fr); } }
 .tool-card-item {
   border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
@@ -691,7 +697,9 @@ body {
 .version-select:focus { border-color: var(--accent); }
 
 /* statusbar + "内置"按钮并排（footer flex） */
-.market-footer { display: flex; align-items: center; border-top: 1px solid var(--border); padding-top: 4px; }
+/* 弹框底部固定区：statusbar + 内置按钮（flex 布局）+ 通知 + 宿主导入，均不缩 */
+.market-footer { display: flex; align-items: center; border-top: 1px solid var(--border); padding-top: 4px; flex-shrink: 0; }
+#toolchain-notice, #card-hosts { flex-shrink: 0; }
 .market-statusbar { font-size: 11.5px; color: var(--fg-dim); flex: 1; min-width: 0; }
 .builtin-toggle { flex-shrink: 0; }
 .host-scan-list { display: flex; flex-direction: column; }
