@@ -66,7 +66,7 @@ type ToolStatus struct {
 	Installed   string
 	Installable string
 	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
-	Bundles     []toolchain.ToolBundle // 一键工具集
+	Bundles     []toolchain.BundleView // 一键工具集（前端视图，PascalCase）
 	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
 	Notice      string                 // 一次性提示（安装结果等）

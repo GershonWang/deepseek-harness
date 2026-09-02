@@ -48,11 +48,24 @@ func (t Tool) FindVersion(ver string) (ToolVersion, bool) {
 }
 
 // ToolBundle 工具集：一组可一键安装的工具组合。
+// 该结构体保留 snake_case tag，因为它直接解析 index.json / 远程索引（文件
+// 格式约定为 tool_ids 等）。输出给前端时不要直接用本类型（见 BundleView）。
 type ToolBundle struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
 	ToolIDs     []string `json:"tool_ids"`
+}
+
+// BundleView 是工具集的前端视图：字段不带 JSON tag（PascalCase），与
+// ToolStatus 及前端 renderBundles 的读取（b.Name / b.ToolIDs）一致。ToolBundle
+// 因要解析 index.json 而保留 snake_case tag，故给前端单独用本视图类型，避免
+// 字段名不匹配导致工具集卡片空白。
+type BundleView struct {
+	ID          string
+	Name        string
+	Description string
+	ToolIDs     []string
 }
 
 // indexJSON 是内置工具清单（单源）：与远程索引同构，编译期嵌入。
@@ -95,12 +108,14 @@ func Catalog() []Tool {
 	return out
 }
 
-// Bundles 返回当前有效的工具集快照。
-func Bundles() []ToolBundle {
+// Bundles 返回当前有效的工具集前端视图（PascalCase，见 BundleView）。
+func Bundles() []BundleView {
 	catalogMu.RLock()
 	defer catalogMu.RUnlock()
-	out := make([]ToolBundle, len(effectiveBundles))
-	copy(out, effectiveBundles)
+	out := make([]BundleView, 0, len(effectiveBundles))
+	for _, b := range effectiveBundles {
+		out = append(out, BundleView{ID: b.ID, Name: b.Name, Description: b.Description, ToolIDs: b.ToolIDs})
+	}
 	return out
 }
 
@@ -409,19 +424,23 @@ func Conflicts(dirA, dirB string) []string {
 // —— 状态组装（给 UI 用） ——
 
 // ToolStatus 是工具的运行时状态，供 UI 渲染。
+// 字段故意不带 JSON tag：序列化用 Go 字段名（PascalCase），与前端 toolCard 的
+// camelCase 读取（c.ID / c.AvailableVersion / c.Installed）及外层 app.ToolStatus
+// （同样无 tag）保持一致。历史教训：曾误加 snake_case tag（available_version
+// 等），导致前端读不到值、工具市场卡片全空白、统计恒为「0 个工具」。
 type ToolStatus struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Category          string   `json:"category"`
-	Description       string   `json:"description"`
-	Provides          []string `json:"provides"`
-	Dependencies      []string `json:"dependencies"`
-	AvailableVersion  string   `json:"available_version"`  // 推荐版本
-	AvailableVersions []string `json:"available_versions"` // 全部可装版本
-	Installed         bool     `json:"installed"`
-	ActiveVersion     string   `json:"active_version"`     // 当前激活版本
-	InstalledVersions []string `json:"installed_versions"` // 所有已装版本
-	Size              int64    `json:"size"`               // 字节
+	ID                string
+	Name              string
+	Category          string
+	Description       string
+	Provides          []string
+	Dependencies      []string
+	AvailableVersion  string   // 推荐版本
+	AvailableVersions []string // 全部可装版本
+	Installed         bool
+	ActiveVersion     string   // 当前激活版本
+	InstalledVersions []string // 所有已装版本
+	Size              int64    // 字节
 }
 
 // ToolStatuses 组装所有工具的状态列表。
