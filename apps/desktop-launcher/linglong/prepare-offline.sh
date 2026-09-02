@@ -150,7 +150,7 @@ fi
 # 6. 体积瘦身：node-pty 编译完后，运行时不需要的东西统统删掉。
 #    - include/ 头文件：运行时用不到，省 ~67 MB
 #    - strip node 二进制：剥调试符号，省 ~20-40 MB
-#    - node 自带的 npm 文档/测试（如果有明显冗余的话）
+#    - node 自带的 npm（~20 MB）：统一用 pnpm，见下方删除逻辑
 echo "prepare-offline: 精简 Node 运行时..."
 if [ -d "$STAGE/node/include" ]; then
   rm -rf "$STAGE/node/include"
@@ -159,6 +159,14 @@ fi
 if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
   strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
   echo "  - 已 strip node 二进制 ($(du -h "$STAGE/node/bin/node" | cut -f1))"
+fi
+# 删除 node 自带的 npm（~20 MB）：包管理器统一用出厂内置 pnpm，删 npm 目录
+# 与其 bin 软链（避免悬空）；node-gyp 已在上一步编译 node-pty 用毕，删掉不
+# 影响运行时。需要 npm/npx 时走 L2 工具链（~/.dsh-tools 热插拔 node）。
+if [ -d "$STAGE/node/lib/node_modules/npm" ]; then
+  rm -rf "$STAGE/node/lib/node_modules/npm"
+  rm -f "$STAGE/node/bin/npm" "$STAGE/node/bin/npx"
+  echo "  - 已删除 node 自带 npm/npx（统一用 pnpm）"
 fi
 
 echo "prepare-offline: 产物已暂存到 $STAGE"

@@ -62,6 +62,13 @@ build: |
   if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
     strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
   fi
+  # npm 瘦身：Node 发行版自带 npm（~20 MB），包管理器统一用出厂内置 pnpm。
+  # 删 npm 目录与其 bin 软链（避免悬空）；需要 npm/npx 时走 L2 工具链
+  # （~/.dsh-tools 热插拔 node）。corepack 保留（pnpm 的 fallback 分发器）。
+  if [ -d "$STAGE/node/lib/node_modules/npm" ]; then
+    rm -rf "$STAGE/node/lib/node_modules/npm"
+    rm -f "$STAGE/node/bin/npm" "$STAGE/node/bin/npx"
+  fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
   # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
@@ -80,10 +87,9 @@ build: |
   # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
   # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的
   # node/corepack(pnpm);软链进 $PREFIX/bin 后容器内任何进程都能直接调用。
+  # npm/npx 已在上方瘦身段删除，不再软链。
   ln -sf ../node/bin/node ${PREFIX}/bin/node
   ln -sf ../node/bin/corepack ${PREFIX}/bin/corepack
-  ln -sf ../node/bin/npm ${PREFIX}/bin/npm
-  ln -sf ../node/bin/npx ${PREFIX}/bin/npx
   # pnpm 上 PATH：优先出厂内置 CLI（离线可用）；无内置时退回 corepack
   # 薄包装（首次调用需联网下载 pnpm）。
   if [ -f "$PREFIX/node/bin/pnpm" ]; then
@@ -153,9 +159,12 @@ buildext:
       # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
       # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
       - git-lfs
-      # 层1 工具链自包含:随包工具与其运行时依赖
+      # 层1 工具链自包含:随包工具与其运行时依赖。
+      # 注意：不带 python3-pip —— pip 的 Recommends(build-essential + python3-dev)
+      # 会经 apt 拉进完整 gcc-12 编译器（cc1/cc1plus/lto1 + 静态库，约 121 MB）
+      # 与 python3-dev 头文件/静态库（约 46 MB）。运行时不需要编译能力，pip 由
+      # L2 工具链（~/.dsh-tools 热插拔 python，自带 pip）提供，避免 ~167 MB 浪费。
       - python3
-      - python3-pip
       - curl
       - wget
       - unzip
