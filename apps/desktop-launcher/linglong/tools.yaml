@@ -128,8 +128,40 @@ installable:
     version: "0.10.0"
     url: "https://github.com/ajeetdsouza/zoxide/releases/download/v0.10.0/zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz"
     sha256: "2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae"
+  node:
+    version: "24.20.0"
+    url: "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.gz"
+    sha256: "855d581f8a4eb1a8117e3426de25fe02770592febcfb31369aee1ffbfee9e8ec"
+  bun:
+    version: "1.4.0"
+    url: "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip"
+    sha256: "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452"
+  deno:
+    version: "2.9.6"
+    url: "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip"
+    sha256: "394f07f4da2bebe6ce6f1e7ce0fa16429b29b08c35e3fac3fe25972676dff4b2"
+  flutter:
+    version: "3.47.2"
+    url: "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.2-stable.tar.xz"
+    sha256: "447878859d01ca9bfdb99a85f245af07ed8a15fedcd9d189c4749e8e92d1f185"
+  dart:
+    version: "3.13.3"
+    url: "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.3/sdk/dartsdk-linux-x64-release.zip"
+    sha256: "549c182cffbdc6864df7509c16fec646c73fe6cb8a18c2cb572db1292f300cd7"
+  rust:
+    version: "1.98.0"
+    url: "https://static.rust-lang.org/dist/2026-08-20/rust-1.98.0-x86_64-unknown-linux-gnu.tar.gz"
+    sha256: "aa30409afa67bd1ada244cefd82c7980e6a65bc113bb978e934b2413c75e3900"
+  dotnet:
+    version: "10.0.400"
+    url: "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.400/dotnet-sdk-10.0.400-linux-x64.tar.gz"
+    sha256: "7ad9d2db01512e41fd580a0630321bb70cd062d7fe4c5badfb4ce81ec1eddbb8"
+  kotlin:
+    version: "2.4.10"
+    url: "https://github.com/JetBrains/kotlin/releases/download/v2.4.10/kotlin-compiler-2.4.10.zip"
+    sha256: "473dd66c7a3ef4b182065b3da670466c1bf2773a9dbb0ed8b33a39fe9d4f876d"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
+# 注:Rust(rustc)已作为按需工具链进入白名单,故从本列表移除。
 excluded:
   - gcc
   - clang
-  - rustc
