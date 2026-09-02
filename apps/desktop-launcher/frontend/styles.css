@@ -613,8 +613,14 @@ body {
 .btn:focus-visible, .host-row input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* ---------- 工具链市场 ---------- */
-/* 固定高度而非 max-height：筛选分类后内容变少时弹框不来回伸缩，保持 72vh 稳定 */
-.market-body { display: flex; flex-direction: column; gap: 10px; height: 72vh; overflow-y: auto; }
+/* 固定高度：筛选分类后内容变少时弹框不来回伸缩。用 min-height + flex-shrink:0
+   而非纯 height，因为父容器 .modal-body 的 min-height:0 允许 flex 收缩，
+   纯 height 会被忽略。72vh 为最大内容区高度，超过后滚动。 */
+.market-body {
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: 72vh; flex-shrink: 0;
+  overflow-y: auto;
+}
 
 .market-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .market-tabs { display: flex; gap: 4px; }
