@@ -33,6 +33,9 @@ func main() {
 	resolved := appenv.Resolve()
 	controller := app.New(resolved.Config, home, app.ExternalConfigFilePath())
 
+	// 读取上次保存的窗口状态（尺寸、最大化等），读取失败时静默回退默认值。
+	windowState, _ := app.LoadWindowState(home)
+
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
@@ -42,15 +45,22 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// 起始窗口状态：上次是最大化则本次也最大化
+	startState := options.Normal
+	if windowState.Maximized {
+		startState = options.Maximised
+	}
+
 	err := wails.Run(&options.App{
 		Title:     "DeepSeek Harness",
-		Width:     1280,
-		Height:    800,
+		Width:     windowState.Width,
+		Height:    windowState.Height,
 		MinWidth:  900,
 		MinHeight: 600,
 		// 无边框窗口：自绘标题栏（frontend/#titlebar）承载品牌/按钮/窗口控制，
 		// 通过 --wails-draggable 拖拽、边缘自动 resize。
-		Frameless: true,
+		Frameless:      true,
+		WindowStartState: startState,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

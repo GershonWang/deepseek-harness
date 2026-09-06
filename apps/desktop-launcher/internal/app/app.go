@@ -24,6 +24,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/terminal"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 )
 
@@ -32,6 +33,8 @@ const (
 	StatusEvent            = "harness:status"
 	ToolchainEvent         = "toolchain:status"
 	ToolchainProgressEvent = "toolchain:progress" // 单个工具链安装的实时进度
+	TerminalOutputEvent    = "terminal:output"    // 终端输出事件
+	TerminalStatusEvent    = "terminal:status"    // 终端状态变更事件
 )
 
 // ProgressEvent 是 toolchain:progress 事件的载荷：描述某个工具链安装的
@@ -133,6 +136,7 @@ type App struct {
 	ctx        context.Context
 	dshCmd     string // dsh executable / node binary
 	dshScript  string // path to dsh bin script (empty when dshCmd is itself the dsh bin)
+	term       *terminal.Manager // 终端会话管理器
 
 	mu           sync.Mutex
 	externalBusy bool
@@ -157,6 +161,9 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 	if len(cfg.Args) >= 1 && strings.HasSuffix(cfg.Args[0], ".js") {
 		dshScript = cfg.Args[0]
 	}
+
+	term := terminal.NewManager()
+
 	return &App{
 		sup:        supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
 		conn:       connector.New(),
@@ -164,6 +171,7 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 		home:       home,
 		dshCmd:     dshCmd,
 		dshScript:  dshScript,
+		term:       term,
 	}
 }
 
@@ -175,10 +183,14 @@ func ExternalConfigFilePath() string {
 	return filepath.Join(".cache", "dsh-desktop", "config.json")
 }
 
-// Shutdown 停止 harness 子进程和后台 doctor（窗口关闭与外置信号两路共用；幂等）。
+// Shutdown 停止 harness 子进程、后台 doctor 和所有终端会话
+// （窗口关闭与外置信号两路共用；幂等）。
 func (a *App) Shutdown() {
 	a.sup.Stop()
 	a.stopDoctor()
+	if a.term != nil {
+		a.term.CloseAll()
+	}
 }
 
 // stopDoctor 取消正在运行的 doctor 进程并等待它退出。
@@ -202,6 +214,27 @@ func (a *App) stopDoctor() {
 // OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 注册终端事件回调：把终端输出和状态变更推送到前端
+	a.term.SetOutputCallback(func(sessionID string, data string) {
+		runtime.EventsEmit(ctx, TerminalOutputEvent, terminal.OutputEvent{
+			SessionID: sessionID,
+			Data:      data,
+		})
+	})
+	a.term.SetStatusCallback(func(sessionID string, status terminal.SessionStatus, exitCode int, err error) {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		runtime.EventsEmit(ctx, TerminalStatusEvent, terminal.StatusEvent{
+			SessionID: sessionID,
+			Status:    status,
+			ExitCode:  exitCode,
+			Error:     errStr,
+		})
+	})
+
 	go a.tick(ctx)
 	// 异步加载远程工具索引（不阻塞 UI）；加载完推送一次工具链状态。
 	go func() {
@@ -212,7 +245,19 @@ func (a *App) OnStartup(ctx context.Context) {
 
 // OnShutdown 在窗口关闭时停止 harness 子进程和后台 doctor，避免子进程残留。
 // 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
-func (a *App) OnShutdown(_ context.Context) {
+// 此外还会保存当前窗口尺寸和最大化状态，供下次启动时恢复。
+func (a *App) OnShutdown(ctx context.Context) {
+	// 保存窗口状态：失败时静默忽略（不影响正常关闭流程）
+	if a.ctx != nil {
+		width, height := runtime.WindowGetSize(a.ctx)
+		maximised := runtime.WindowIsMaximised(a.ctx)
+		_ = SaveWindowState(a.home, WindowState{
+			Width:     width,
+			Height:    height,
+			Maximized: maximised,
+		})
+	}
+
 	a.Shutdown()
 }
 
@@ -700,7 +745,10 @@ func (a *App) ConnectExternal(raw string) string {
 	go func() {
 		err := a.conn.BeginExternal(u)
 		if err == nil {
-			_ = connector.SaveExternalURL(a.configPath, u)
+			// 用统一配置结构保存，保留窗口状态等其他字段
+			cfg, _ := LoadAppConfig(a.home)
+			cfg.ExternalURL = u
+			_ = SaveAppConfig(a.home, cfg)
 		} else {
 			a.sup.Restart() // 探测失败：恢复容器模式并重启 harness
 		}
@@ -1034,4 +1082,52 @@ func joinOrNone(items []string) string {
 		out += it
 	}
 	return out
+}
+
+// ---- 终端会话控制（Wails 绑定方法） ----
+
+// TerminalStart 启动一个新的终端会话。
+//
+// command 为空时使用默认 shell（/bin/bash）；cwd 为空时使用当前工作目录。
+// 返回会话 ID 供后续操作使用。
+func (a *App) TerminalStart(command, cwd string, cols, rows int) (string, error) {
+	opts := &terminal.StartOptions{
+		Command: command,
+		Cwd:     cwd,
+		Cols:    cols,
+		Rows:    rows,
+	}
+	// 玲珑容器环境下，确保 PATH 包含容器内的 bin 目录
+	if opts.Env == nil {
+		opts.Env = []string{}
+	}
+	return a.term.Start(opts)
+}
+
+// TerminalWrite 向指定终端会话写入输入数据。
+//
+// data 是原始字节串，可以包含普通字符和控制字符（如换行、Ctrl+C 等）。
+func (a *App) TerminalWrite(sessionID, data string) error {
+	return a.term.Write(sessionID, data)
+}
+
+// TerminalResize 调整指定终端会话的窗口大小。
+//
+// 前端终端组件尺寸变化时调用此方法，通知 PTY 调整窗口大小。
+func (a *App) TerminalResize(sessionID string, cols, rows int) error {
+	return a.term.Resize(sessionID, cols, rows)
+}
+
+// TerminalClose 关闭指定终端会话。
+//
+// 会话关闭后，后续写入操作将失败，状态变更会通过 terminal:status 事件通知前端。
+func (a *App) TerminalClose(sessionID string) error {
+	return a.term.Close(sessionID)
+}
+
+// TerminalList 返回所有终端会话的元数据列表。
+//
+// 前端可以轮询或在需要时调用此方法获取当前所有会话的状态。
+func (a *App) TerminalList() []terminal.SessionInfo {
+	return a.term.List()
 }
