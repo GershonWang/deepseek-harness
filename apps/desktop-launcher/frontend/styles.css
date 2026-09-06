@@ -1043,43 +1043,13 @@ body {
   overflow: hidden;
 }
 
-.terminal-screen {
+/* xterm 挂载节点：每个会话一个，占满内容区。
+ * xterm 自带视口滚动条与选区渲染，无需外部滚动容器。 */
+.terminal-holder {
   flex: 1;
-  padding: 12px;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--term-fg, #d4d4d4);
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.terminal-screen::-webkit-scrollbar {
-  width: 8px;
-}
-.terminal-screen::-webkit-scrollbar-track {
-  background: transparent;
-}
-.terminal-screen::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 4px;
-}
-
-.terminal-input {
-  flex-shrink: 0;
-  padding: 8px 12px;
-  border: none;
-  border-top: 1px solid var(--border);
-  background: var(--bg-toolbar);
-  color: var(--term-fg, #d4d4d4);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  outline: none;
-}
-.terminal-input:focus {
-  border-top-color: var(--brand);
+  min-height: 0;
+  width: 100%;
+  padding: 6px 4px 6px 10px;
 }
 
 .terminal-empty,

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DeepSeek Harness</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="vendor/xterm.css">
 </head>
 <body>
 <div id="app">
@@ -258,10 +259,9 @@
     </div>
     <div class="modal-body terminal-body">
       <div id="terminal-tabs" class="terminal-tabs"></div>
-      <div id="terminal-content" class="terminal-content">
-        <div class="terminal-screen" id="terminal-screen"></div>
-        <input type="text" id="terminal-input" class="terminal-input" autocomplete="off" spellcheck="false" />
-      </div>
+      <!-- xterm 实例的挂载容器：每个会话一个 .terminal-holder 子节点，
+           切换标签时整体搬运 DOM 节点以保留各自的滚动历史与光标状态 -->
+      <div id="terminal-content" class="terminal-content"></div>
     </div>
   </div>
 </div>
@@ -283,6 +283,10 @@
   </div>
 </div>
 
+<!-- 终端模拟器（xterm.js 5.5.0 + fit 插件 0.10.0，本地 vendor 离线加载）：
+     UMD 构建在浏览器环境暴露 window.Terminal 与 window.FitAddon.FitAddon -->
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

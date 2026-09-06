@@ -1154,162 +1154,187 @@ function init() {
   api().Status().then((s) => applyStatus(s));
 }
 
-/* ---------- 终端模块 ---------- */
 
-// 终端状态管理：支持多标签页，当前激活的会话 ID
+/* ---------- 终端模块（xterm.js） ---------- */
+
+/**
+ * 终端状态管理：每个会话持有一个独立的 xterm 实例与挂载节点。
+ * 切换标签时整体搬运 DOM 节点（而非销毁重建），保留各会话的滚动历史、
+ * 光标位置与进程交互状态 —— 与桌面终端多标签行为一致。
+ */
 const terminalState = {
-  sessions: {},   // sessionId -> { id, title, status, history: [] }
+  sessions: {},   // sessionId -> { id, title, status, exitCode, term, fitAddon, holder }
   activeId: null, // 当前激活的会话 ID
-  cmdHistory: [], // 命令历史（全局共享）
-  historyIndex: -1,
-};
-
-// ANSI 颜色转义序列解析（简化版，支持基本颜色和样式）
-const ANSI_COLORS = {
-  30: "var(--term-black)",
-  31: "var(--term-red)",
-  32: "var(--term-green)",
-  33: "var(--term-yellow)",
-  34: "var(--term-blue)",
-  35: "var(--term-magenta)",
-  36: "var(--term-cyan)",
-  37: "var(--term-white)",
-  90: "var(--term-bright-black)",
-  91: "var(--term-bright-red)",
-  92: "var(--term-bright-green)",
-  93: "var(--term-bright-yellow)",
-  94: "var(--term-bright-blue)",
-  95: "var(--term-bright-magenta)",
-  96: "var(--term-bright-cyan)",
-  97: "var(--term-bright-white)",
-  40: "var(--term-bg-black)",
-  41: "var(--term-bg-red)",
-  42: "var(--term-bg-green)",
-  43: "var(--term-bg-yellow)",
-  44: "var(--term-bg-blue)",
-  45: "var(--term-bg-magenta)",
-  46: "var(--term-bg-cyan)",
-  47: "var(--term-bg-white)",
 };
 
 /**
- * 解析 ANSI 转义序列，将带样式的文本转换为 HTML 片段。
- * 支持：基本颜色（30-37, 90-97）、背景色（40-47）、加粗、重置。
- * @param {string} text - 原始输出文本，可能包含 ANSI 转义序列
- * @returns {string} HTML 字符串
+ * xterm 主题色：沿用 styles.css 中 .terminal-content 的 --term-* 16 色调色板。
+ * xterm 的 theme 选项只接受具体色值（不解析 CSS 变量），因此在此静态映射。
  */
-function parseAnsiToHtml(text) {
-  let html = "";
-  let currentStyle = "";
-  let inEscape = false;
-  let escapeBuf = "";
-  let bold = false;
+const TERMINAL_THEME = {
+  background: "#1a1a1a",
+  foreground: "#d4d4d4",
+  cursor: "#d4d4d4",
+  cursorAccent: "#1a1a1a",
+  selectionBackground: "#3b4252",
+  black: "#000000",
+  red: "#f14c4c",
+  green: "#23d18b",
+  yellow: "#e2e210",
+  blue: "#3b8eea",
+  magenta: "#bc3fbc",
+  cyan: "#29b7d3",
+  white: "#e5e5e5",
+  brightBlack: "#666666",
+  brightRed: "#f14c4c",
+  brightGreen: "#23d18b",
+  brightYellow: "#f5f543",
+  brightBlue: "#3b8eea",
+  brightMagenta: "#bc3fbc",
+  brightCyan: "#29b7d3",
+  brightWhite: "#ffffff",
+};
 
-  const applyStyle = (codes) => {
-    const styles = [];
-    for (const code of codes) {
-      if (code === 0) {
-        // 重置
-        bold = false;
-        currentStyle = "";
-        return;
-      }
-      if (code === 1) {
-        bold = true;
-      }
-      if (ANSI_COLORS[code]) {
-        if (code >= 40 && code <= 47) {
-          styles.push(`background-color:${ANSI_COLORS[code]}`);
-        } else {
-          styles.push(`color:${ANSI_COLORS[code]}`);
-        }
-      }
-    }
-    if (bold) styles.push("font-weight:bold");
-    currentStyle = styles.join(";");
-  };
-
-  // 逐字符扫描，处理 ANSI CSI 序列 (\x1b[...m)
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === "\x1b" && text[i + 1] === "[") {
-      inEscape = true;
-      escapeBuf = "";
-      i++; // 跳过 [
-      continue;
-    }
-    if (inEscape) {
-      if (ch === "m") {
-        // CSI 序列结束，解析参数
-        const codes = escapeBuf.split(";").map((s) => parseInt(s, 10) || 0);
-        applyStyle(codes);
-        inEscape = false;
-        continue;
-      }
-      if (ch >= "0" && ch <= "9" || ch === ";") {
-        escapeBuf += ch;
-        continue;
-      }
-      // 不认识的 CSI 序列，直接跳过
-      inEscape = false;
-      continue;
-    }
-    // 普通字符
-    if (ch === "\n") {
-      html += "<br>";
-    } else if (ch === " " && currentStyle === "") {
-      html += "&nbsp;";
-    } else {
-      const escaped = escapeHtml(ch);
-      if (currentStyle) {
-        html += `<span style="${currentStyle}">${escaped}</span>`;
-      } else {
-        html += escaped;
-      }
-    }
+/**
+ * 把当前激活会话的选中文本复制到系统剪贴板。
+ * 走 Wails 注入的 window.runtime.ClipboardSetText（GTK 实现，容器内可用）。
+ */
+function terminalCopySelection() {
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session || !session.term.hasSelection()) return;
+  const text = session.term.getSelection();
+  session.term.clearSelection();
+  if (window.runtime && window.runtime.ClipboardSetText) {
+    window.runtime.ClipboardSetText(text).catch((e) => {
+      console.warn("terminal copy failed:", e && e.message);
+    });
   }
-
-  return html;
 }
 
 /**
- * 创建一个新的终端会话。
- * @param {string} [title] - 会话标题
+ * 把系统剪贴板文本粘贴进当前激活会话的 PTY。
+ * 粘贴内容作为输入直接写入终端（与手工键入等价），换行符原样传递，
+ * 由 shell 自己决定如何执行 —— 避免粘贴多行命令时被意外批量执行
+ * 的问题留给 shell 的 bracketed-paste 机制处理（bash 默认开启）。
+ */
+async function terminalPaste() {
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session || session.status !== "running") return;
+  if (!window.runtime || !window.runtime.ClipboardGetText) return;
+  try {
+    const text = await window.runtime.ClipboardGetText();
+    if (text) await api().TerminalWrite(terminalState.activeId, text);
+  } catch (e) {
+    console.warn("terminal paste failed:", e && e.message);
+  }
+}
+
+/**
+ * 创建新的终端会话：先挂载 xterm 实例并 fit 出真实行列，
+ * 再以该尺寸启动 PTY，保证首屏布局与 shell 的 $COLUMNS/$LINES 一致。
+ * @param {string} [title] - 会话标题（缺省自动编号）
  * @returns {Promise<string>} 会话 ID
  */
 async function createTerminalSession(title) {
-  const screen = $("#terminal-screen");
-  const cols = Math.floor(screen.clientWidth / 8);
-  const rows = Math.floor(screen.clientHeight / 18);
+  const content = $("#terminal-content");
+  if (!content) throw new Error("终端容器不存在");
+  if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
+    throw new Error("xterm.js 未加载（vendor/xterm.js）");
+  }
 
-  const sessionId = await api().TerminalStart("", "", Math.max(20, cols), Math.max(10, rows));
+  // 每个会话独立的包装节点：term.open 只允许调用一次，
+  // 之后通过移动该节点在标签间切换
+  const holder = document.createElement("div");
+  holder.className = "terminal-holder";
+
+  const term = new Terminal({
+    theme: TERMINAL_THEME,
+    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    fontSize: 13,
+    lineHeight: 1.2,
+    cursorBlink: true,
+    scrollback: 5000,
+  });
+  const fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+
+  // 先挂到容器再 open + fit：xterm 需要真实布局尺寸才能测出字符单元格大小
+  content.replaceChildren(holder);
+  term.open(holder);
+  fitAddon.fit();
+
+  const sessionId = await api().TerminalStart("", "", term.cols, term.rows);
   terminalState.sessions[sessionId] = {
     id: sessionId,
     title: title || "终端 " + (Object.keys(terminalState.sessions).length + 1),
     status: "running",
-    output: "",
     exitCode: null,
+    term,
+    fitAddon,
+    holder,
   };
+
+  // 按键逐字符直达 PTY：bash readline 实时回显，与真终端一致。
+  // 控制字符（Ctrl+C=\x03、Tab=\t、方向键转义序列等）由 xterm 按
+  // 终端协议编码，无需前端逐个拦截。
+  term.onData((data) => {
+    api().TerminalWrite(sessionId, data).catch((e) => {
+      console.warn("terminal write failed:", e && e.message);
+    });
+  });
+
+  // fit 后行列变化 → 同步 PTY 尺寸（SIGWINCH），保证 vim/top 等全屏程序
+  // 的重绘正确
+  term.onResize(({ cols, rows }) => {
+    api().TerminalResize(sessionId, cols, rows).catch(() => {
+      // 会话可能刚好已关闭，忽略
+    });
+  });
+
+  // 终端区快捷键：Ctrl+Shift+C 复制 / Ctrl+Shift+V、Shift+Insert 粘贴
+  // （Linux 终端标准约定）。返回 false 阻止 xterm 把该键继续当输入编码。
+  term.attachCustomKeyEventHandler((ev) => {
+    if (ev.type !== "keydown") return true;
+    if (ev.ctrlKey && ev.shiftKey && ev.code === "KeyC") {
+      terminalCopySelection();
+      return false;
+    }
+    if ((ev.ctrlKey && ev.shiftKey && ev.code === "KeyV") ||
+        (ev.shiftKey && ev.code === "Insert")) {
+      terminalPaste();
+      return false;
+    }
+    return true;
+  });
+
+  term.focus();
   return sessionId;
 }
 
 /**
- * 切换到指定的终端会话标签页。
- * @param {string} sessionId - 要切换到的会话 ID
+ * 切换到指定会话：搬运对应 holder 节点到容器并聚焦。
+ * 容器尺寸可能因标签栏换行而变化，切换后重新 fit 一次。
+ * @param {string} sessionId - 目标会话 ID
  */
 function switchTerminalSession(sessionId) {
-  if (!terminalState.sessions[sessionId]) return;
+  const session = terminalState.sessions[sessionId];
+  const content = $("#terminal-content");
+  if (!session || !content) return;
 
   terminalState.activeId = sessionId;
+  content.replaceChildren(session.holder);
+  // 容器已隐藏时（弹窗未打开）fit 读到 0 尺寸会跳过，不影响正确性
+  try { session.fitAddon.fit(); } catch (e) { /* 布局未就绪时忽略 */ }
+  session.term.focus();
   renderTerminalTabs();
-  renderTerminalScreen();
 }
 
 /**
- * 渲染终端标签页。
+ * 渲染终端标签页列表。
  */
 function renderTerminalTabs() {
   const tabsEl = $("#terminal-tabs");
+  if (!tabsEl) return;
   const sessions = Object.values(terminalState.sessions);
 
   tabsEl.innerHTML = sessions
@@ -1326,7 +1351,6 @@ function renderTerminalTabs() {
     })
     .join("");
 
-  // 绑定标签切换事件
   tabsEl.querySelectorAll(".terminal-tab").forEach((tab) => {
     tab.addEventListener("click", (e) => {
       if (e.target.classList.contains("terminal-tab-close")) return;
@@ -1334,52 +1358,18 @@ function renderTerminalTabs() {
     });
   });
 
-  // 绑定关闭按钮事件
   tabsEl.querySelectorAll(".terminal-tab-close").forEach((btn) => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const id = btn.dataset.close;
-      await closeTerminalSession(id);
+      await closeTerminalSession(btn.dataset.close);
     });
   });
 }
 
 /**
- * 渲染终端屏幕内容。
- */
-function renderTerminalScreen() {
-  const screen = $("#terminal-screen");
-  const session = terminalState.sessions[terminalState.activeId];
-  if (!session) {
-    screen.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
-    return;
-  }
-
-  screen.innerHTML = parseAnsiToHtml(session.output);
-  // 自动滚动到底部
-  screen.scrollTop = screen.scrollHeight;
-}
-
-/**
- * 向当前激活的终端发送输入。
- * @param {string} data - 要发送的数据（可以包含控制字符）
- */
-async function sendTerminalInput(data) {
-  if (!terminalState.activeId) return;
-  const session = terminalState.sessions[terminalState.activeId];
-  if (!session || session.status !== "running") return;
-
-  try {
-    await api().TerminalWrite(terminalState.activeId, data);
-  } catch (e) {
-    // 写入失败，可能是会话已关闭
-    console.warn("terminal write failed:", e.message);
-  }
-}
-
-/**
- * 关闭指定的终端会话。
- * @param {string} sessionId - 会话 ID
+ * 关闭指定会话：通知后端结束 PTY，销毁 xterm 实例并释放其内存
+ * （scrollback 缓存可能较大），最后修正激活标签。
+ * @param {string} sessionId - 要关闭的会话 ID
  */
 async function closeTerminalSession(sessionId) {
   const session = terminalState.sessions[sessionId];
@@ -1388,200 +1378,121 @@ async function closeTerminalSession(sessionId) {
   try {
     await api().TerminalClose(sessionId);
   } catch (e) {
-    console.warn("terminal close failed:", e.message);
+    // 后端会话可能已随 shell 退出而清理，忽略
   }
 
+  session.term.dispose();
   delete terminalState.sessions[sessionId];
 
-  // 如果关闭的是当前激活的标签，切换到另一个
   if (terminalState.activeId === sessionId) {
     const remaining = Object.keys(terminalState.sessions);
     terminalState.activeId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+    const content = $("#terminal-content");
+    if (content) {
+      if (terminalState.activeId) {
+        content.replaceChildren(terminalState.sessions[terminalState.activeId].holder);
+        terminalState.sessions[terminalState.activeId].term.focus();
+      } else {
+        content.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
+      }
+    }
   }
 
   renderTerminalTabs();
-  renderTerminalScreen();
 }
 
 /**
- * 打开终端弹窗并确保至少有一个终端会话。
+ * 打开终端弹窗：确保至少一个会话存在并聚焦。
+ * 已有会话时仅重新挂载激活标签（弹窗可能经历了隐藏-重开）。
  */
 async function openTerminalModal() {
   openModal("terminal-modal");
 
-  // 如果还没有会话，创建一个
+  const content = $("#terminal-content");
+  if (!content) return;
+
   if (Object.keys(terminalState.sessions).length === 0) {
     try {
       const id = await createTerminalSession();
       terminalState.activeId = id;
       renderTerminalTabs();
-      renderTerminalScreen();
     } catch (e) {
-      $("#terminal-screen").innerHTML =
+      content.innerHTML =
         '<div class="terminal-error">启动终端失败：' + escapeHtml(e.message) + "</div>";
       return;
     }
+  } else if (terminalState.activeId) {
+    const session = terminalState.sessions[terminalState.activeId];
+    content.replaceChildren(session.holder);
+    // 弹窗刚显示，等一帧布局稳定后再 fit + 聚焦
+    requestAnimationFrame(() => {
+      try { session.fitAddon.fit(); } catch (e) { /* 忽略 */ }
+      session.term.focus();
+    });
   }
-
-  // 聚焦到输入框
-  setTimeout(() => $("#terminal-input").focus(), 100);
 }
 
 /**
- * 初始化终端模块的事件绑定和事件监听。
+ * 初始化终端模块：按钮、右键复制粘贴、事件监听。
+ * 右键语义（经典终端约定）：有选中文本 → 复制并清除选区；
+ * 无选区 → 粘贴剪贴板内容到 PTY。
  */
 function initTerminal() {
-  // 终端按钮
   const btnTerminal = $("#btn-terminal");
   if (btnTerminal) {
     btnTerminal.addEventListener("click", openTerminalModal);
   }
 
-  // 新建终端按钮
   const btnNew = $("#terminal-new");
   if (btnNew) {
     btnNew.addEventListener("click", async () => {
       try {
         const id = await createTerminalSession();
-        switchTerminalSession(id);
+        terminalState.activeId = id;
+        renderTerminalTabs();
       } catch (e) {
         console.error("create terminal failed:", e.message);
       }
     });
   }
 
-  // 输入框键盘事件
-  const input = $("#terminal-input");
-  if (input) {
-    input.addEventListener("keydown", async (e) => {
-      if (!terminalState.activeId) return;
-
-      switch (e.key) {
-        case "Enter":
-          e.preventDefault();
-          const cmd = input.value;
-          if (cmd.trim()) {
-            terminalState.cmdHistory.push(cmd);
-            if (terminalState.cmdHistory.length > 100) {
-              terminalState.cmdHistory.shift();
-            }
-          }
-          terminalState.historyIndex = -1;
-          await sendTerminalInput(cmd + "\r");
-          input.value = "";
-          break;
-
-        case "ArrowUp":
-          e.preventDefault();
-          if (terminalState.cmdHistory.length > 0) {
-            if (terminalState.historyIndex < terminalState.cmdHistory.length - 1) {
-              terminalState.historyIndex++;
-              input.value =
-                terminalState.cmdHistory[
-                  terminalState.cmdHistory.length - 1 - terminalState.historyIndex
-                ];
-            }
-          }
-          break;
-
-        case "ArrowDown":
-          e.preventDefault();
-          if (terminalState.historyIndex > 0) {
-            terminalState.historyIndex--;
-            input.value =
-              terminalState.cmdHistory[
-                terminalState.cmdHistory.length - 1 - terminalState.historyIndex
-              ];
-          } else if (terminalState.historyIndex === 0) {
-            terminalState.historyIndex = -1;
-            input.value = "";
-          }
-          break;
-
-        case "c":
-          // Ctrl+C 发送中断信号
-          if (e.ctrlKey) {
-            e.preventDefault();
-            await sendTerminalInput("\x03");
-          }
-          break;
-
-        case "d":
-          // Ctrl+D 发送 EOF
-          if (e.ctrlKey) {
-            e.preventDefault();
-            await sendTerminalInput("\x04");
-          }
-          break;
-
-        case "l":
-          // Ctrl+L 清屏
-          if (e.ctrlKey) {
-            e.preventDefault();
-            const session = terminalState.sessions[terminalState.activeId];
-            if (session) {
-              session.output = "";
-              renderTerminalScreen();
-            }
-          }
-          break;
-
-        case "Tab":
-          // Tab 键补全
-          e.preventDefault();
-          await sendTerminalInput("\t");
-          break;
+  const content = $("#terminal-content");
+  if (content) {
+    content.addEventListener("contextmenu", async (e) => {
+      e.preventDefault();
+      const session = terminalState.sessions[terminalState.activeId];
+      if (!session) return;
+      if (session.term.hasSelection()) {
+        terminalCopySelection();
+      } else {
+        await terminalPaste();
       }
     });
   }
 
-  // 点击终端屏幕时聚焦输入框
-  const screen = $("#terminal-screen");
-  if (screen) {
-    screen.addEventListener("click", () => {
-      input.focus();
-    });
-  }
-
-  // 终端窗口大小变化时，通知 PTY 调整
+  // 窗口尺寸变化 → 去抖后 fit 激活会话；其余会话在切回标签时再 fit
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     if (!terminalState.activeId) return;
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(async () => {
-      const screenEl = $("#terminal-screen");
-      const cols = Math.floor(screenEl.clientWidth / 8);
-      const rows = Math.floor(screenEl.clientHeight / 18);
-      try {
-        await api().TerminalResize(
-          terminalState.activeId,
-          Math.max(20, cols),
-          Math.max(10, rows)
-        );
-      } catch (e) {
-        // 忽略 resize 错误
-      }
+    resizeTimer = setTimeout(() => {
+      const session = terminalState.sessions[terminalState.activeId];
+      if (!session) return;
+      try { session.fitAddon.fit(); } catch (e) { /* 忽略 */ }
     }, 200);
   });
 
-  // 监听终端输出事件（Wails 事件）
+  // PTY 输出 → 写入对应会话的 xterm 实例（含非激活会话，
+  // 后台标签的输出持续累积，切回时不丢内容）
   if (window.runtime && window.runtime.EventsOn) {
     window.runtime.EventsOn("terminal:output", (payload) => {
       const event = payload.detail || payload;
       const session = terminalState.sessions[event.sessionId];
       if (session) {
-        session.output += event.data;
-        // 限制输出长度，避免内存溢出（保留最后 500KB）
-        if (session.output.length > 500 * 1024) {
-          session.output = session.output.slice(-500 * 1024);
-        }
-        if (event.sessionId === terminalState.activeId) {
-          renderTerminalScreen();
-        }
+        session.term.write(event.data);
       }
     });
 
-    // 监听终端状态变更事件
     window.runtime.EventsOn("terminal:status", (payload) => {
       const event = payload.detail || payload;
       const session = terminalState.sessions[event.sessionId];
@@ -1589,12 +1500,11 @@ function initTerminal() {
         session.status = event.status;
         session.exitCode = event.exitCode;
         if (event.status === "closed") {
-          session.output += "\r\n[进程已退出，退出码: " + event.exitCode + "]";
+          session.term.write(
+            "\r\n\x1b[90m[进程已退出，退出码: " + event.exitCode + "]\x1b[0m\r\n"
+          );
         }
         renderTerminalTabs();
-        if (event.sessionId === terminalState.activeId) {
-          renderTerminalScreen();
-        }
       }
     });
   }

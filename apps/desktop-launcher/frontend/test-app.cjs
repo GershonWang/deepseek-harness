@@ -209,6 +209,12 @@ function buildHtml(document) {
     "repair-panel-status", "repair-panel-body", "repair-panel-backup",
     "ext-url", "tools-refresh", "host-add", "host-path", "host-name",
     "btn-safe-mode", "btn-exit-safe-mode",
+    /* 工具市场 / 内置工具：bindUI 静态绑定（无判空）的元素必须存在 */
+    "market-search", "market-refresh", "host-scan", "host-scan-list",
+    "market-grid", "market-statusbar", "builtin-toggle", "builtin-panel",
+    "repair-toast",
+    /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
+    "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
   ];
   for (const id of ids) {
     const el = document.createElement("div");
