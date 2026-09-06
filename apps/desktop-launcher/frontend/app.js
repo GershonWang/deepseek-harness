@@ -895,6 +895,9 @@ function init() {
   window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
   setupBuiltinToggle();
 
+  // 初始化终端模块
+  initTerminal();
+
   // 诊断与修复
   $("#btn-doctor").addEventListener("click", () => {
     openModal("doctor-modal");
@@ -1149,6 +1152,452 @@ function init() {
   }
 
   api().Status().then((s) => applyStatus(s));
+}
+
+/* ---------- 终端模块 ---------- */
+
+// 终端状态管理：支持多标签页，当前激活的会话 ID
+const terminalState = {
+  sessions: {},   // sessionId -> { id, title, status, history: [] }
+  activeId: null, // 当前激活的会话 ID
+  cmdHistory: [], // 命令历史（全局共享）
+  historyIndex: -1,
+};
+
+// ANSI 颜色转义序列解析（简化版，支持基本颜色和样式）
+const ANSI_COLORS = {
+  30: "var(--term-black)",
+  31: "var(--term-red)",
+  32: "var(--term-green)",
+  33: "var(--term-yellow)",
+  34: "var(--term-blue)",
+  35: "var(--term-magenta)",
+  36: "var(--term-cyan)",
+  37: "var(--term-white)",
+  90: "var(--term-bright-black)",
+  91: "var(--term-bright-red)",
+  92: "var(--term-bright-green)",
+  93: "var(--term-bright-yellow)",
+  94: "var(--term-bright-blue)",
+  95: "var(--term-bright-magenta)",
+  96: "var(--term-bright-cyan)",
+  97: "var(--term-bright-white)",
+  40: "var(--term-bg-black)",
+  41: "var(--term-bg-red)",
+  42: "var(--term-bg-green)",
+  43: "var(--term-bg-yellow)",
+  44: "var(--term-bg-blue)",
+  45: "var(--term-bg-magenta)",
+  46: "var(--term-bg-cyan)",
+  47: "var(--term-bg-white)",
+};
+
+/**
+ * 解析 ANSI 转义序列，将带样式的文本转换为 HTML 片段。
+ * 支持：基本颜色（30-37, 90-97）、背景色（40-47）、加粗、重置。
+ * @param {string} text - 原始输出文本，可能包含 ANSI 转义序列
+ * @returns {string} HTML 字符串
+ */
+function parseAnsiToHtml(text) {
+  let html = "";
+  let currentStyle = "";
+  let inEscape = false;
+  let escapeBuf = "";
+  let bold = false;
+
+  const applyStyle = (codes) => {
+    const styles = [];
+    for (const code of codes) {
+      if (code === 0) {
+        // 重置
+        bold = false;
+        currentStyle = "";
+        return;
+      }
+      if (code === 1) {
+        bold = true;
+      }
+      if (ANSI_COLORS[code]) {
+        if (code >= 40 && code <= 47) {
+          styles.push(`background-color:${ANSI_COLORS[code]}`);
+        } else {
+          styles.push(`color:${ANSI_COLORS[code]}`);
+        }
+      }
+    }
+    if (bold) styles.push("font-weight:bold");
+    currentStyle = styles.join(";");
+  };
+
+  // 逐字符扫描，处理 ANSI CSI 序列 (\x1b[...m)
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "\x1b" && text[i + 1] === "[") {
+      inEscape = true;
+      escapeBuf = "";
+      i++; // 跳过 [
+      continue;
+    }
+    if (inEscape) {
+      if (ch === "m") {
+        // CSI 序列结束，解析参数
+        const codes = escapeBuf.split(";").map((s) => parseInt(s, 10) || 0);
+        applyStyle(codes);
+        inEscape = false;
+        continue;
+      }
+      if (ch >= "0" && ch <= "9" || ch === ";") {
+        escapeBuf += ch;
+        continue;
+      }
+      // 不认识的 CSI 序列，直接跳过
+      inEscape = false;
+      continue;
+    }
+    // 普通字符
+    if (ch === "\n") {
+      html += "<br>";
+    } else if (ch === " " && currentStyle === "") {
+      html += "&nbsp;";
+    } else {
+      const escaped = escapeHtml(ch);
+      if (currentStyle) {
+        html += `<span style="${currentStyle}">${escaped}</span>`;
+      } else {
+        html += escaped;
+      }
+    }
+  }
+
+  return html;
+}
+
+/**
+ * 创建一个新的终端会话。
+ * @param {string} [title] - 会话标题
+ * @returns {Promise<string>} 会话 ID
+ */
+async function createTerminalSession(title) {
+  const screen = $("#terminal-screen");
+  const cols = Math.floor(screen.clientWidth / 8);
+  const rows = Math.floor(screen.clientHeight / 18);
+
+  const sessionId = await api().TerminalStart("", "", Math.max(20, cols), Math.max(10, rows));
+  terminalState.sessions[sessionId] = {
+    id: sessionId,
+    title: title || "终端 " + (Object.keys(terminalState.sessions).length + 1),
+    status: "running",
+    output: "",
+    exitCode: null,
+  };
+  return sessionId;
+}
+
+/**
+ * 切换到指定的终端会话标签页。
+ * @param {string} sessionId - 要切换到的会话 ID
+ */
+function switchTerminalSession(sessionId) {
+  if (!terminalState.sessions[sessionId]) return;
+
+  terminalState.activeId = sessionId;
+  renderTerminalTabs();
+  renderTerminalScreen();
+}
+
+/**
+ * 渲染终端标签页。
+ */
+function renderTerminalTabs() {
+  const tabsEl = $("#terminal-tabs");
+  const sessions = Object.values(terminalState.sessions);
+
+  tabsEl.innerHTML = sessions
+    .map((s) => {
+      const isActive = s.id === terminalState.activeId;
+      const statusDot = s.status === "running" ? "●" : "○";
+      return `
+        <div class="terminal-tab ${isActive ? "active" : ""}" data-id="${s.id}">
+          <span class="terminal-tab-status">${statusDot}</span>
+          <span class="terminal-tab-title">${escapeHtml(s.title)}</span>
+          <button class="terminal-tab-close" data-close="${s.id}" title="关闭">×</button>
+        </div>
+      `;
+    })
+    .join("");
+
+  // 绑定标签切换事件
+  tabsEl.querySelectorAll(".terminal-tab").forEach((tab) => {
+    tab.addEventListener("click", (e) => {
+      if (e.target.classList.contains("terminal-tab-close")) return;
+      switchTerminalSession(tab.dataset.id);
+    });
+  });
+
+  // 绑定关闭按钮事件
+  tabsEl.querySelectorAll(".terminal-tab-close").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.close;
+      await closeTerminalSession(id);
+    });
+  });
+}
+
+/**
+ * 渲染终端屏幕内容。
+ */
+function renderTerminalScreen() {
+  const screen = $("#terminal-screen");
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session) {
+    screen.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
+    return;
+  }
+
+  screen.innerHTML = parseAnsiToHtml(session.output);
+  // 自动滚动到底部
+  screen.scrollTop = screen.scrollHeight;
+}
+
+/**
+ * 向当前激活的终端发送输入。
+ * @param {string} data - 要发送的数据（可以包含控制字符）
+ */
+async function sendTerminalInput(data) {
+  if (!terminalState.activeId) return;
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session || session.status !== "running") return;
+
+  try {
+    await api().TerminalWrite(terminalState.activeId, data);
+  } catch (e) {
+    // 写入失败，可能是会话已关闭
+    console.warn("terminal write failed:", e.message);
+  }
+}
+
+/**
+ * 关闭指定的终端会话。
+ * @param {string} sessionId - 会话 ID
+ */
+async function closeTerminalSession(sessionId) {
+  const session = terminalState.sessions[sessionId];
+  if (!session) return;
+
+  try {
+    await api().TerminalClose(sessionId);
+  } catch (e) {
+    console.warn("terminal close failed:", e.message);
+  }
+
+  delete terminalState.sessions[sessionId];
+
+  // 如果关闭的是当前激活的标签，切换到另一个
+  if (terminalState.activeId === sessionId) {
+    const remaining = Object.keys(terminalState.sessions);
+    terminalState.activeId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
+  }
+
+  renderTerminalTabs();
+  renderTerminalScreen();
+}
+
+/**
+ * 打开终端弹窗并确保至少有一个终端会话。
+ */
+async function openTerminalModal() {
+  openModal("terminal-modal");
+
+  // 如果还没有会话，创建一个
+  if (Object.keys(terminalState.sessions).length === 0) {
+    try {
+      const id = await createTerminalSession();
+      terminalState.activeId = id;
+      renderTerminalTabs();
+      renderTerminalScreen();
+    } catch (e) {
+      $("#terminal-screen").innerHTML =
+        '<div class="terminal-error">启动终端失败：' + escapeHtml(e.message) + "</div>";
+      return;
+    }
+  }
+
+  // 聚焦到输入框
+  setTimeout(() => $("#terminal-input").focus(), 100);
+}
+
+/**
+ * 初始化终端模块的事件绑定和事件监听。
+ */
+function initTerminal() {
+  // 终端按钮
+  const btnTerminal = $("#btn-terminal");
+  if (btnTerminal) {
+    btnTerminal.addEventListener("click", openTerminalModal);
+  }
+
+  // 新建终端按钮
+  const btnNew = $("#terminal-new");
+  if (btnNew) {
+    btnNew.addEventListener("click", async () => {
+      try {
+        const id = await createTerminalSession();
+        switchTerminalSession(id);
+      } catch (e) {
+        console.error("create terminal failed:", e.message);
+      }
+    });
+  }
+
+  // 输入框键盘事件
+  const input = $("#terminal-input");
+  if (input) {
+    input.addEventListener("keydown", async (e) => {
+      if (!terminalState.activeId) return;
+
+      switch (e.key) {
+        case "Enter":
+          e.preventDefault();
+          const cmd = input.value;
+          if (cmd.trim()) {
+            terminalState.cmdHistory.push(cmd);
+            if (terminalState.cmdHistory.length > 100) {
+              terminalState.cmdHistory.shift();
+            }
+          }
+          terminalState.historyIndex = -1;
+          await sendTerminalInput(cmd + "\r");
+          input.value = "";
+          break;
+
+        case "ArrowUp":
+          e.preventDefault();
+          if (terminalState.cmdHistory.length > 0) {
+            if (terminalState.historyIndex < terminalState.cmdHistory.length - 1) {
+              terminalState.historyIndex++;
+              input.value =
+                terminalState.cmdHistory[
+                  terminalState.cmdHistory.length - 1 - terminalState.historyIndex
+                ];
+            }
+          }
+          break;
+
+        case "ArrowDown":
+          e.preventDefault();
+          if (terminalState.historyIndex > 0) {
+            terminalState.historyIndex--;
+            input.value =
+              terminalState.cmdHistory[
+                terminalState.cmdHistory.length - 1 - terminalState.historyIndex
+              ];
+          } else if (terminalState.historyIndex === 0) {
+            terminalState.historyIndex = -1;
+            input.value = "";
+          }
+          break;
+
+        case "c":
+          // Ctrl+C 发送中断信号
+          if (e.ctrlKey) {
+            e.preventDefault();
+            await sendTerminalInput("\x03");
+          }
+          break;
+
+        case "d":
+          // Ctrl+D 发送 EOF
+          if (e.ctrlKey) {
+            e.preventDefault();
+            await sendTerminalInput("\x04");
+          }
+          break;
+
+        case "l":
+          // Ctrl+L 清屏
+          if (e.ctrlKey) {
+            e.preventDefault();
+            const session = terminalState.sessions[terminalState.activeId];
+            if (session) {
+              session.output = "";
+              renderTerminalScreen();
+            }
+          }
+          break;
+
+        case "Tab":
+          // Tab 键补全
+          e.preventDefault();
+          await sendTerminalInput("\t");
+          break;
+      }
+    });
+  }
+
+  // 点击终端屏幕时聚焦输入框
+  const screen = $("#terminal-screen");
+  if (screen) {
+    screen.addEventListener("click", () => {
+      input.focus();
+    });
+  }
+
+  // 终端窗口大小变化时，通知 PTY 调整
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (!terminalState.activeId) return;
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(async () => {
+      const screenEl = $("#terminal-screen");
+      const cols = Math.floor(screenEl.clientWidth / 8);
+      const rows = Math.floor(screenEl.clientHeight / 18);
+      try {
+        await api().TerminalResize(
+          terminalState.activeId,
+          Math.max(20, cols),
+          Math.max(10, rows)
+        );
+      } catch (e) {
+        // 忽略 resize 错误
+      }
+    }, 200);
+  });
+
+  // 监听终端输出事件（Wails 事件）
+  if (window.runtime && window.runtime.EventsOn) {
+    window.runtime.EventsOn("terminal:output", (payload) => {
+      const event = payload.detail || payload;
+      const session = terminalState.sessions[event.sessionId];
+      if (session) {
+        session.output += event.data;
+        // 限制输出长度，避免内存溢出（保留最后 500KB）
+        if (session.output.length > 500 * 1024) {
+          session.output = session.output.slice(-500 * 1024);
+        }
+        if (event.sessionId === terminalState.activeId) {
+          renderTerminalScreen();
+        }
+      }
+    });
+
+    // 监听终端状态变更事件
+    window.runtime.EventsOn("terminal:status", (payload) => {
+      const event = payload.detail || payload;
+      const session = terminalState.sessions[event.sessionId];
+      if (session) {
+        session.status = event.status;
+        session.exitCode = event.exitCode;
+        if (event.status === "closed") {
+          session.output += "\r\n[进程已退出，退出码: " + event.exitCode + "]";
+        }
+        renderTerminalTabs();
+        if (event.sessionId === terminalState.activeId) {
+          renderTerminalScreen();
+        }
+      }
+    });
+  }
 }
 
 if (document.readyState === "loading") {

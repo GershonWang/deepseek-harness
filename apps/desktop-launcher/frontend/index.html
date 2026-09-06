@@ -23,6 +23,9 @@
       <button id="btn-tools" class="icon-btn" title="工具链">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
       </button>
+      <button id="btn-terminal" class="icon-btn" title="终端">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+      </button>
       <button id="btn-doctor" class="icon-btn doctor-icon" title="诊断与修复">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v6"/><path d="M9 11h6"/></svg>
       </button>
@@ -236,6 +239,28 @@
       </div>
       <div class="doctor-actions-start">
         <button id="doctor-start" class="btn btn-primary">开始诊断</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 终端弹框 -->
+<div id="terminal-modal" class="modal hidden">
+  <div class="modal-card modal-terminal">
+    <div class="modal-head">
+      <span class="modal-title"><span class="brand-dot"></span>终端</span>
+      <div class="terminal-head-actions">
+        <button id="terminal-new" class="icon-btn-sm" title="新建终端">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
+      </div>
+    </div>
+    <div class="modal-body terminal-body">
+      <div id="terminal-tabs" class="terminal-tabs"></div>
+      <div id="terminal-content" class="terminal-content">
+        <div class="terminal-screen" id="terminal-screen"></div>
+        <input type="text" id="terminal-input" class="terminal-input" autocomplete="off" spellcheck="false" />
       </div>
     </div>
   </div>

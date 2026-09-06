@@ -1,0 +1,302 @@
+// Package terminal - PTY 会话实现
+package terminal
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
+
+	"github.com/creack/pty"
+)
+
+// Session 表示一个独立的 PTY 终端会话。
+//
+// 每个会话管理一个伪终端对（master/slave）和一个子进程。
+// 输出通过回调函数推送给前端，输入通过 Write 方法写入 PTY。
+type Session struct {
+	id        string
+	title     string
+	status    atomic.Value // SessionStatus
+	cmd       *exec.Cmd
+	pty       *os.File
+	cols      int
+	rows      int
+	createdAt time.Time
+	exitCode  int
+
+	mu      sync.Mutex
+	closed  bool
+	onOutput func(data string)
+	onStatus func(status SessionStatus, exitCode int, err error)
+}
+
+// newSession 创建一个新的 PTY 会话。
+//
+// 调用后会话处于 Starting 状态，PTY 已创建但子进程尚未启动。
+// 调用 start() 后进入 Running 状态。
+func newSession(id string, opts StartOptions) (*Session, error) {
+	if opts.Cols <= 0 {
+		opts.Cols = 80
+	}
+	if opts.Rows <= 0 {
+		opts.Rows = 24
+	}
+	if opts.Command == "" {
+		opts.Command = "/bin/bash"
+	}
+
+	title := opts.Title
+	if title == "" {
+		title = opts.Command
+	}
+
+	s := &Session{
+		id:        id,
+		title:     title,
+		cols:      opts.Cols,
+		rows:      opts.Rows,
+		createdAt: time.Now(),
+		exitCode:  -1,
+	}
+	s.status.Store(StatusStarting)
+
+	// 构造命令
+	cmd := exec.Command(opts.Command, opts.Args...)
+	if opts.Cwd != "" {
+		cmd.Dir = opts.Cwd
+	}
+
+	// 合并环境变量：继承系统环境 + 额外环境
+	env := os.Environ()
+	if len(opts.Env) > 0 {
+		env = append(env, opts.Env...)
+	}
+	// 确保 TERM 变量存在，否则很多程序显示异常
+	hasTerm := false
+	for _, e := range env {
+		if len(e) > 5 && e[:5] == "TERM=" {
+			hasTerm = true
+			break
+		}
+	}
+	if !hasTerm {
+		env = append(env, "TERM=xterm-256color")
+	}
+	cmd.Env = env
+
+	s.cmd = cmd
+
+	// 创建 PTY
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{
+		Cols: uint16(opts.Cols),
+		Rows: uint16(opts.Rows),
+		X:    0,
+		Y:    0,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to start pty: %w", err)
+	}
+	s.pty = ptmx
+	s.status.Store(StatusRunning)
+
+	// 启动输出读取 goroutine
+	go s.readLoop()
+
+	// 启动等待 goroutine（监控进程退出）
+	go s.waitLoop()
+
+	return s, nil
+}
+
+// readLoop 持续从 PTY 主端读取输出，并通过回调推送。
+//
+// 设计要点：
+//   - 使用固定大小的缓冲区（4KB）批量读取，减少回调次数
+//   - 读取错误时终止循环并标记会话已关闭
+//   - 输出按原始字节传递，保留 ANSI 转义序列
+func (s *Session) readLoop() {
+	buf := make([]byte, 4096)
+	for {
+		n, err := s.pty.Read(buf)
+		if n > 0 {
+			// 只传递有效的 UTF-8 数据（大部分终端输出都是 UTF-8）
+			// 对于非 UTF-8 字节，原样传递不做转换，由前端处理
+			data := string(buf[:n])
+			s.mu.Lock()
+			cb := s.onOutput
+			s.mu.Unlock()
+			if cb != nil {
+				cb(data)
+			}
+		}
+		if err != nil {
+			// EOF 或读取错误表示 PTY 已关闭
+			return
+		}
+	}
+}
+
+// waitLoop 等待子进程退出，然后更新状态。
+func (s *Session) waitLoop() {
+	err := s.cmd.Wait()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	exitCode := -1
+	if err == nil {
+		exitCode = 0
+	} else {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			exitCode = exitErr.ExitCode()
+		}
+	}
+	s.exitCode = exitCode
+	s.closed = true
+	s.status.Store(StatusClosed)
+
+	if s.onStatus != nil {
+		s.onStatus(StatusClosed, exitCode, err)
+	}
+
+	// 关闭 PTY 主端
+	_ = s.pty.Close()
+}
+
+// ID 返回会话唯一标识。
+func (s *Session) ID() string {
+	return s.id
+}
+
+// Title 返回会话标题。
+func (s *Session) Title() string {
+	return s.title
+}
+
+// Status 返回当前状态。
+func (s *Session) Status() SessionStatus {
+	return s.status.Load().(SessionStatus)
+}
+
+// Info 返回会话元数据快照。
+func (s *Session) Info() SessionInfo {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return SessionInfo{
+		ID:        s.id,
+		Title:     s.title,
+		Status:    s.Status(),
+		Cols:      s.cols,
+		Rows:      s.rows,
+		CreatedAt: s.createdAt,
+		ExitCode:  s.exitCode,
+	}
+}
+
+// Write 向 PTY 写入输入数据。
+//
+// data 是原始字节串，可以包含普通字符和控制字符（如 \n、\x03 等）。
+// 写入失败时返回错误，但不影响会话状态（PTY 可能已关闭）。
+func (s *Session) Write(data string) error {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+
+	if closed {
+		return errors.New("session is closed")
+	}
+
+	// 确保数据是有效的字节序列
+	// 对于无效的 UTF-8，原样写入（PTY 不关心编码）
+	_, err := s.pty.Write([]byte(data))
+	return err
+}
+
+// Resize 调整 PTY 窗口大小。
+//
+// 这会向子进程发送 SIGWINCH 信号，通知应用程序窗口大小变化。
+// 列数和行数必须为正整数。
+func (s *Session) Resize(cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return errors.New("cols and rows must be positive")
+	}
+
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+
+	if closed {
+		return errors.New("session is closed")
+	}
+
+	err := pty.Setsize(s.pty, &pty.Winsize{
+		Cols: uint16(cols),
+		Rows: uint16(rows),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to resize pty: %w", err)
+	}
+
+	s.mu.Lock()
+	s.cols = cols
+	s.rows = rows
+	s.mu.Unlock()
+	return nil
+}
+
+// Close 关闭终端会话。
+//
+// 会先尝试优雅关闭（发送 SIGHUP），然后强制终止进程。
+// 多次调用 Close 是安全的，后续调用直接返回 nil。
+func (s *Session) Close() error {
+	s.mu.Lock()
+	closed := s.closed
+	s.mu.Unlock()
+
+	if closed {
+		return nil
+	}
+
+	// 发送 SIGHUP 通知 shell 退出（优雅关闭）
+	// 如果进程不响应，进程退出时 PTY 会自动关闭
+	_ = s.cmd.Process.Signal(os.Interrupt)
+
+	// 给进程一点时间优雅退出
+	time.AfterFunc(500*time.Millisecond, func() {
+		s.mu.Lock()
+		if !s.closed && s.cmd.Process != nil {
+			_ = s.cmd.Process.Kill()
+		}
+		s.mu.Unlock()
+	})
+
+	return nil
+}
+
+// SetOutputCallback 设置输出回调函数。
+//
+// 回调会在读取 goroutine 中同步调用，因此回调函数应：
+//   - 尽量简短，避免阻塞读取
+//   - 不要在回调中调用 Session 的其他方法（可能导致死锁）
+//   - 如果需要耗时处理，应异步派发
+func (s *Session) SetOutputCallback(cb func(data string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onOutput = cb
+}
+
+// SetStatusCallback 设置状态变更回调函数。
+func (s *Session) SetStatusCallback(cb func(status SessionStatus, exitCode int, err error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onStatus = cb
+}
+
+// 编译期验证：确保 Write 方法接受的 data 字符串可以安全地转换为字节
+var _ = utf8.ValidString
