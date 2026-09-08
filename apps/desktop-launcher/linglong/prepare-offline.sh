@@ -35,7 +35,11 @@ node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 #     跳过 test-support 与 typert-generator（仅开发/构建期用）。
 inject_workspace_pkg() {
   pkgdir=$1
-  pkgname=$(node -e "console.log(require('./$pkgdir/package.json').name)" 2>/dev/null)
+  # 分支切换/回退后可能残留只有 node_modules、没有 package.json 的目录；
+  # 这类目录不是合法包，必须先做存在性守卫：否则下面的 node 调用报错退出，
+  # 其非零状态会在 set -e 下中断整个 prepare-offline 脚本。
+  [ -f "$pkgdir/package.json" ] || return 0
+  pkgname=$(node -e "console.log(require('./$pkgdir/package.json').name)" 2>/dev/null || true)
   [ -z "$pkgname" ] && return 0
   # 跳过非 @deepseek-ai 域的包
   case "$pkgname" in @deepseek-ai/* ) ;; *) return 0 ;; esac
