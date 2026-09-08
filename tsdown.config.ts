@@ -17,7 +17,9 @@ export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
   return {
     workspace: ['vendor/*', 'packages/*/*', 'apps/cli'],
-    entry: client ? '' : ['lib/types/{index,invariant,startup}.js'],
+    // 根包（@deepseek-ai/dsh-root）是 solution-only，不需要被 tsdown 构建。
+    // entry 留空让 tsdown 跳过根配置本身，workspace 子包会用各自的 tsdown.config.ts。
+    entry: '',
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
