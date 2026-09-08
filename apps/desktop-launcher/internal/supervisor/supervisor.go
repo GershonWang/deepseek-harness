@@ -61,6 +61,8 @@ type Supervisor struct {
 	options         Options
 	ready           chan string
 	logFile         *os.File
+	stdoutLog       *timedWriter // 带时间戳的 stdout 日志 writer
+	stderrLog       *timedWriter // 带时间戳的 stderr 日志 writer
 	cancel          context.CancelFunc
 	mu              sync.Mutex
 	cmd             *exec.Cmd
@@ -205,15 +207,18 @@ func (s *Supervisor) Wait() {
 	}
 }
 
-// logf 向 harness.log 追加一行；日志未打开时静默丢弃。
+// logf 向 harness.log 追加一行（带时间戳和 supervisor 标记）；日志未打开时静默丢弃。
 func (s *Supervisor) logf(format string, args ...any) {
 	s.mu.Lock()
-	f := s.logFile
+	w := s.stdoutLog
 	s.mu.Unlock()
-	if f == nil {
+	if w == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(f, format+"\n", args...)
+	// supervisor 内部日志统一走 stdoutLog 的 writer，
+	// 标记为 supervisor，格式与 stdout/stderr 一致。
+	ts := time.Now().Format("2006-01-02 15:04:05.000")
+	_, _ = fmt.Fprintf(w.out, "[%s] [supervisor] "+format+"\n", append([]any{ts}, args...)...)
 }
 
 // run 是唯一的监护循环：手动停止等待、spawn、等退出、退避重启。
@@ -322,8 +327,16 @@ func (s *Supervisor) run() {
 func (s *Supervisor) spawn() {
 	s.mu.Lock()
 	if s.logFile != nil {
+		if s.stdoutLog != nil {
+			s.stdoutLog.flush()
+		}
+		if s.stderrLog != nil {
+			s.stderrLog.flush()
+		}
 		s.logFile.Close()
 		s.logFile = nil
+		s.stdoutLog = nil
+		s.stderrLog = nil
 	}
 	if s.cancel != nil {
 		s.cancel()
@@ -340,9 +353,15 @@ drained:
 	s.mu.Unlock()
 
 	logFile := openLogFile(filepath.Join(s.cfg.LogDir, "harness.log"))
-	var out io.Writer = logFile
-	if logFile == nil {
-		out = io.Discard
+	// stdout/stderr 分别走带时间戳的 writer，便于排查问题时
+	// 直接定位每行的产生时间与来源。
+	var stdoutLog, stderrLog *timedWriter
+	if logFile != nil {
+		stdoutLog = newTimedWriter(logFile, "stdout")
+		stderrLog = newTimedWriter(logFile, "stderr")
+	} else {
+		stdoutLog = newTimedWriter(io.Discard, "stdout")
+		stderrLog = newTimedWriter(io.Discard, "stderr")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -355,12 +374,14 @@ drained:
 		killTree(cmd)
 		return nil
 	}
-	cmd.Stdout = io.MultiWriter(out, &readyScanner{sup: s})
-	cmd.Stderr = io.MultiWriter(out, &failScanner{sup: s})
+	cmd.Stdout = io.MultiWriter(stdoutLog, &readyScanner{sup: s})
+	cmd.Stderr = io.MultiWriter(stderrLog, &failScanner{sup: s})
 
 	exited := make(chan struct{})
 	s.mu.Lock()
 	s.logFile = logFile
+	s.stdoutLog = stdoutLog
+	s.stderrLog = stderrLog
 	s.cancel = cancel
 	s.cmd = cmd
 	s.exited = exited
@@ -492,4 +513,47 @@ func (s *Supervisor) markFatalLoad() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sawFatalLoad = true
+}
+
+// timedWriter 为写入的每一行添加时间戳和来源标记前缀。
+// 它内部缓冲不完整行，遇到换行符时输出带前缀的完整行。
+// 同一底层 writer 上的多个 timedWriter 不保证写入原子性，
+// 但 stdout/stderr 各自独立缓冲不会互相打断行结构。
+type timedWriter struct {
+	out io.Writer
+	tag string
+	buf []byte
+}
+
+// newTimedWriter 创建一个带时间戳的行写入器。
+func newTimedWriter(out io.Writer, tag string) *timedWriter {
+	return &timedWriter{out: out, tag: tag}
+}
+
+// Write 实现 io.Writer：按行缓冲并为每行添加 `[时间戳] [tag] ` 前缀。
+func (w *timedWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	for {
+		idx := bytes.IndexByte(w.buf, '\n')
+		if idx < 0 {
+			break
+		}
+		line := w.buf[:idx]
+		w.buf = w.buf[idx+1:]
+		ts := time.Now().Format("2006-01-02 15:04:05.000")
+		if _, err := fmt.Fprintf(w.out, "[%s] [%s] %s\n", ts, w.tag, line); err != nil {
+			return len(p), err
+		}
+	}
+	return len(p), nil
+}
+
+// flush 输出缓冲区中可能残留的不完整行（带时间戳），用于关闭日志前兜底。
+func (w *timedWriter) flush() {
+	if len(w.buf) == 0 {
+		return
+	}
+	ts := time.Now().Format("2006-01-02 15:04:05.000")
+	_, _ = fmt.Fprintf(w.out, "[%s] [%s] %s\n", ts, w.tag, w.buf)
+	w.buf = nil
 }
