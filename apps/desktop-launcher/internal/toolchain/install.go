@@ -7,12 +7,15 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ulikunitz/xz"
@@ -21,6 +24,10 @@ import (
 // downloadTimeout 覆盖"下载挂起"场景：超时后放弃整个安装。
 const downloadTimeout = 10 * time.Minute
 
+// maxResumeRetries 下载失败后的重试次数（含断点续传场景）。
+// 每次失败后退避重试；服务端不支持 Range 时回退为完整下载再失败。
+const maxResumeRetries = 3
+
 // InstallProgress 安装进度回调。
 // phase: "downloading" | "verifying" | "extracting" | "linking" | "done" | "error"
 // percent: 0-100，仅 downloading 阶段有准确值，其他阶段为估算值
@@ -28,6 +35,54 @@ type InstallProgress func(phase string, percent int, message string)
 
 // noopProgress 空进度回调。
 func noopProgress(string, int, string) {}
+
+// friendlyError 把原始安装错误归类为面向用户的友好提示。
+// 返回 "分类：提示" 格式的字符串，原始错误通过 %w 包装保留。
+func friendlyError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := classifyError(err)
+	return fmt.Errorf("%s：%w", msg, err)
+}
+
+// classifyError 根据错误类型返回人类可读的分类描述与建议。
+func classifyError(err error) string {
+	// 磁盘空间不足
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) {
+		if errno, ok := pathErr.Err.(syscall.Errno); ok {
+			if errno == syscall.ENOSPC {
+				return "磁盘空间不足，请清理后重试"
+			}
+			if errno == syscall.EACCES || errno == syscall.EPERM {
+				return "写入权限不足，请检查安装目录权限"
+			}
+		}
+	}
+
+	// 网络类错误
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return "下载超时，请检查网络后重试"
+		}
+		// DNS 失败、连接被拒等
+		return "网络连接失败，请检查网络后重试"
+	}
+
+	errMsg := err.Error()
+	switch {
+	case strings.Contains(errMsg, "sha256 mismatch") || strings.Contains(errMsg, "sha256"):
+		return "文件校验失败，可能下载不完整或被篡改"
+	case strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "TLS"):
+		return "网络连接失败，请检查网络后重试"
+	case strings.Contains(errMsg, "extract"):
+		return "文件解压失败，归档可能已损坏"
+	}
+
+	return "安装失败"
+}
 
 // InstallOptions 安装选项。
 type InstallOptions struct {
@@ -97,7 +152,7 @@ func installVersion(dir, toolID string, tv ToolVersion, progress InstallProgress
 
 	root, err := downloadAndExtract(dir, toolID, tv, progress)
 	if err != nil {
-		return err
+		return friendlyError(err)
 	}
 
 	if activate || !hadOther {
@@ -130,58 +185,86 @@ func archiveFormat(url string) string {
 }
 
 // downloadAndExtract 下载归档（tar.gz / zip / tar.xz），校验 sha256，
-// 原子解包到 <dir>/<id>-<version>。
-// 返回最终目录路径。
+// 原子解包到 <dir>/<id>-<version>。支持 HTTP Range 断点续传，
+// 下载过程中文件落地（而非全量驻留内存），适配大文件场景。
 func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress InstallProgress) (string, error) {
 	if tv.SHA256 == "" {
 		return "", fmt.Errorf("tool %s version %s: sha256 not pinned", toolID, tv.Version)
 	}
 
-	// 检查下载缓存：文件名带归档后缀，便于区分与人工排查。
 	format := archiveFormat(tv.URL)
 	cachePath := filepath.Join(cacheDir(dir), tv.SHA256+"."+format)
-	var data []byte
-	var cacheErr error
 
+	// 1) 缓存命中 → 直接从缓存解压
 	if _, statErr := os.Stat(cachePath); statErr == nil {
 		progress("verifying", 30, "使用缓存...")
-		if data, cacheErr = os.ReadFile(cachePath); cacheErr == nil {
-			// 校验缓存的 sha256
-			if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != strings.ToLower(tv.SHA256) {
-				data = nil
-				_ = os.Remove(cachePath)
+		if valid, _ := verifyFileSHA256(cachePath, tv.SHA256); valid {
+			return extractFromFile(cachePath, format, dir, toolID, tv, progress)
+		}
+		_ = os.Remove(cachePath)
+	}
+
+	// 2) 无缓存 → 断点续传下载到 part 文件
+	partPath := partPathForURL(tv.URL)
+	// 若旧 part 文件校验已正确，直接复用（避免重新下载）
+	if info, statErr := os.Stat(partPath); statErr == nil && info.Size() > 0 {
+		if valid, _ := verifyFileSHA256(partPath, tv.SHA256); valid {
+			// part 居然就是完整的：移入缓存
+			if err := moveOrCopy(partPath, cachePath); err == nil {
+				return extractFromFile(cachePath, format, dir, toolID, tv, progress)
 			}
 		}
+		// part 文件损坏或不完整：保留它（断点续传会从尾部继续），
+		// 但若大小为 0 或明显损坏则删除重来
 	}
 
-	// 没有缓存就下载
-	if data == nil {
-		var err error
-		progress("downloading", 0, "下载中...")
-		data, err = downloadWithProgress(tv.URL, func(pct int) {
-			progress("downloading", pct, fmt.Sprintf("下载中 %d%%", pct))
-		})
-		if err != nil {
-			progress("error", 0, fmt.Sprintf("下载失败: %s", err))
-			return "", fmt.Errorf("download %s: %w", tv.URL, err)
-		}
+	progress("downloading", 0, "下载中...")
+	if err := downloadToFile(tv.URL, partPath, func(pct int) {
+		progress("downloading", pct, fmt.Sprintf("下载中 %d%%", pct))
+	}); err != nil {
+		progress("error", 0, fmt.Sprintf("下载失败: %s", err))
+		return "", fmt.Errorf("download %s: %w", tv.URL, err)
+	}
 
-		// 校验 sha256
-		progress("verifying", 75, "校验 sha256...")
-		if sum := sha256.Sum256(data); hex.EncodeToString(sum[:]) != strings.ToLower(tv.SHA256) {
-			progress("error", 0, "sha256 校验失败")
-			return "", fmt.Errorf("sha256 mismatch for %s", toolID)
-		}
+	// 3) 校验 sha256
+	progress("verifying", 75, "校验 sha256...")
+	if valid, _ := verifyFileSHA256(partPath, tv.SHA256); !valid {
+		_ = os.Remove(partPath)
+		progress("error", 0, "sha256 校验失败")
+		return "", fmt.Errorf("sha256 mismatch for %s", toolID)
+	}
 
-		// 写入缓存
-		if err := os.MkdirAll(cacheDir(dir), 0o755); err == nil {
-			_ = os.WriteFile(cachePath, data, 0o644)
-			// 简单的缓存清理：超过 500MB 就删最老的
+	// 4) 移入缓存目录
+	if err := os.MkdirAll(cacheDir(dir), 0o755); err == nil {
+		if err := moveOrCopy(partPath, cachePath); err == nil {
+			// 缓存清理：超过 500MB 就删最老的
 			go pruneCache(cacheDir(dir), 500*1024*1024)
+		} else {
+			// 移入缓存失败：直接用 part 文件解压
+			cachePath = partPath
 		}
+	} else {
+		cachePath = partPath
 	}
 
-	// 解压到临时目录
+	return extractFromFile(cachePath, format, dir, toolID, tv, progress)
+}
+
+// moveOrCopy 优先 rename，跨分区失败时退回复制+删除源。
+func moveOrCopy(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	_ = os.Remove(src)
+	return nil
+}
+
+// extractFromFile 从归档文件流式解压到工具版本目录。
+// 不把整个归档读进内存，大文件（几百 MB 到几 GB）场景下节省显著内存。
+func extractFromFile(archivePath, format, dir, toolID string, tv ToolVersion, progress InstallProgress) (string, error) {
 	progress("extracting", 85, "解压中...")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
@@ -192,14 +275,11 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	}
 	defer os.RemoveAll(tmp)
 
-	if err := extractArchive(format, data, tmp); err != nil {
+	if err := extractArchiveFromFile(format, archivePath, tmp); err != nil {
 		progress("error", 0, fmt.Sprintf("解压失败: %s", err))
 		return "", fmt.Errorf("extract %s: %w", toolID, err)
 	}
 
-	// 顶层目录剥离：多数 tarball 解出唯一顶层目录，上移一层作为工具根；
-	// 少数（如 fzf、lazygit）直接解出单个可执行文件或散文件，此时以解压
-	// 目录本身为根。两种布局都归一到 <id>-<version> 目录。
 	entries, err := os.ReadDir(tmp)
 	if err != nil {
 		return "", fmt.Errorf("read extracted %s: %w", toolID, err)
@@ -213,18 +293,15 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 		return "", err
 	}
 	if len(entries) == 1 && entries[0].IsDir() {
-		// 唯一顶层目录：上移一层。
 		if err := os.Rename(filepath.Join(tmp, entries[0].Name()), root); err != nil {
 			return "", err
 		}
 	} else {
-		// 单文件/多文件：直接以解压目录为根。
 		if err := os.Rename(tmp, root); err != nil {
 			return "", err
 		}
 	}
 
-	// 保存 tool.yml 元数据到安装目录（方便后续读取）
 	if err := writeToolMetadata(root, toolID, tv); err != nil {
 		// 元数据写入失败不影响安装
 	}
@@ -239,32 +316,141 @@ func writeToolMetadata(root, id string, tv ToolVersion) error {
 	return os.WriteFile(filepath.Join(root, "tool.yml"), []byte(content), 0o644)
 }
 
-// downloadWithProgress 带进度的下载。
-func downloadWithProgress(url string, onProgress func(int)) ([]byte, error) {
+// downloadToFile 下载到指定文件路径（支持 HTTP Range 断点续传 + 指数退避重试）。
+func downloadToFile(url, destPath string, onProgress func(int)) error {
+	return downloadToFileWithRetries(url, destPath, onProgress, 0)
+}
+
+func downloadToFileWithRetries(url, destPath string, onProgress func(int), attempt int) error {
+	err := downloadFileResumable(url, destPath, onProgress)
+	if err == nil {
+		return nil
+	}
+	if attempt >= maxResumeRetries-1 {
+		return err
+	}
+	// 指数退避：200ms → 400ms → 800ms
+	delay := time.Duration(1<<attempt) * 200 * time.Millisecond
+	time.Sleep(delay)
+	return downloadToFileWithRetries(url, destPath, onProgress, attempt+1)
+}
+
+// downloadFileResumable 执行一次断点续传下载到 destPath。
+// 若 destPath 已存在且服务端支持 Range，则从已有字节处追加；
+// 服务端不支持或文件损坏时从头下载。
+func downloadFileResumable(url, destPath string, onProgress func(int)) error {
+	var existingSize int64
+	if info, err := os.Stat(destPath); err == nil {
+		existingSize = info.Size()
+	}
+
 	client := &http.Client{Timeout: downloadTimeout}
-	resp, err := client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, err
+		return err
+	}
+	if existingSize > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", existingSize))
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download %s: %s", url, resp.Status)
+
+	resuming := resp.StatusCode == http.StatusPartialContent
+	if !resuming && resp.StatusCode != http.StatusOK {
+		// 如 416 Range Not Satisfiable：清掉坏 part 让下次重试从头开始
+		if existingSize > 0 {
+			_ = os.Remove(destPath)
+		}
+		return fmt.Errorf("download %s: %s", url, resp.Status)
 	}
 
-	total := resp.ContentLength
-	var buf bytes.Buffer
-	buf.Grow(int(total))
+	var total int64
+	if resuming {
+		// Content-Range: bytes 1000-1999/2000 → 解析出总大小
+		if cr := resp.Header.Get("Content-Range"); cr != "" {
+			if idx := strings.LastIndex(cr, "/"); idx >= 0 {
+				fmt.Sscanf(cr[idx+1:], "%d", &total)
+			}
+		}
+	} else {
+		total = resp.ContentLength
+		// 不支持续传：清掉旧文件从头开始
+		_ = os.Remove(destPath)
+	}
 
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return err
+	}
+	flag := os.O_CREATE | os.O_WRONLY
+	if resuming {
+		flag |= os.O_APPEND
+	} else {
+		flag |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(destPath, flag, 0o644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	startBytes := existingSize
+	if !resuming {
+		startBytes = 0
+	}
 	reader := &progressReader{
 		Reader:   resp.Body,
 		Total:    total,
+		Received: startBytes,
 		OnUpdate: onProgress,
 	}
 
-	if _, err := io.Copy(&buf, reader); err != nil {
-		return nil, err
+	_, err = io.Copy(f, reader)
+	return err
+}
+
+// verifyFileSHA256 校验文件的 sha256 是否匹配。
+func verifyFileSHA256(path, expected string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
 	}
-	return buf.Bytes(), nil
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return false, err
+	}
+	return hex.EncodeToString(h.Sum(nil)) == strings.ToLower(expected), nil
+}
+
+// partPathForURL 返回 URL 对应的断点续传临时文件路径，
+// 存放在系统临时目录下的 dsh-tools-downloads 子目录。
+func partPathForURL(url string) string {
+	sum := sha256.Sum256([]byte(url))
+	name := hex.EncodeToString(sum[:])[:16] + ".part"
+	return filepath.Join(os.TempDir(), "dsh-tools-downloads", name)
+}
+
+// copyFile 复制文件，跨分区 rename 失败时使用。
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
 }
 
 // progressReader 包装 io.Reader 以报告进度百分比。
@@ -337,7 +523,8 @@ func pruneCache(dir string, maxSize int64) {
 	}
 }
 
-// extractArchive 按归档格式分发解压到 dest。支持的格式由 archiveFormat 决定。
+// extractArchive 按归档格式分发解压到 dest（从内存字节数据）。
+// 保留以兼容现有调用；新代码优先用 extractArchiveFromFile（流式，更省内存）。
 func extractArchive(format string, data []byte, dest string) error {
 	switch format {
 	case "zip":
@@ -346,6 +533,18 @@ func extractArchive(format string, data []byte, dest string) error {
 		return extractTarXz(data, dest)
 	default:
 		return extractTarGz(data, dest)
+	}
+}
+
+// extractArchiveFromFile 从文件流式解压，避免大文件全量进内存。
+func extractArchiveFromFile(format, archivePath, dest string) error {
+	switch format {
+	case "zip":
+		return extractZipFromFile(archivePath, dest)
+	case "tar.xz":
+		return extractTarXzFromFile(archivePath, dest)
+	default:
+		return extractTarGzFromFile(archivePath, dest)
 	}
 }
 
@@ -428,7 +627,53 @@ func extractZip(data []byte, dest string) error {
 	if err != nil {
 		return err
 	}
-	for _, f := range zr.File {
+	return extractZipEntries(zr.File, dest)
+}
+
+// extractTarGzFromFile 从文件流式解压 tar.gz，避免全量进内存。
+func extractTarGzFromFile(path, dest string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gz.Close()
+	return extractTar(tar.NewReader(gz), dest)
+}
+
+// extractTarXzFromFile 从文件流式解压 tar.xz。
+func extractTarXzFromFile(path, dest string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	xr, err := xz.NewReader(f)
+	if err != nil {
+		return err
+	}
+	return extractTar(tar.NewReader(xr), dest)
+}
+
+// extractZipFromFile 从文件流式解压 zip（zip.OpenReader 按需读取各条目，
+// 中央目录会全量加载，但那通常只有几十 KB）。
+func extractZipFromFile(path, dest string) error {
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return err
+	}
+	defer zr.Close()
+	return extractZipEntries(zr.File, dest)
+}
+
+// extractZipEntries 是 zip 解压的共享实现：遍历 zip 文件条目并解压到 dest。
+// 供 extractZip（内存版）和 extractZipFromFile（文件流式版）共用。
+func extractZipEntries(files []*zip.File, dest string) error {
+	for _, f := range files {
 		// 防路径逃逸（zip 内条目名可能是绝对路径或 ..）。
 		clean := filepath.Clean(f.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
