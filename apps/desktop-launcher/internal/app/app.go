@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,27 @@ type FrontendStatus struct {
 	SafeMode           string // "" | "plugins" | "config" | "full"
 }
 
+// equal 判断两个状态快照是否完全相同，用于变化检测。
+// 零值状态也能正确比较（首次推送时 lastEmitted 是零值，必然不等 → 推送）。
+func (s FrontendStatus) equal(o FrontendStatus) bool {
+	return s.Mode == o.Mode &&
+		s.State == o.State &&
+		s.URL == o.URL &&
+		s.PID == o.PID &&
+		s.LastExit == o.LastExit &&
+		s.ExternalURL == o.ExternalURL &&
+		s.ConnectError == o.ConnectError &&
+		s.Target == o.Target &&
+		s.Busy == o.Busy &&
+		s.StartupDiagnosing == o.StartupDiagnosing &&
+		s.StartupDoctorReady == o.StartupDoctorReady &&
+		s.CanStart == o.CanStart &&
+		s.CanStop == o.CanStop &&
+		s.CanConnect == o.CanConnect &&
+		s.CanDisconnect == o.CanDisconnect &&
+		s.SafeMode == o.SafeMode
+}
+
 // ToolRow 是工具链表格的一行。
 type ToolRow struct {
 	Name    string
@@ -83,6 +105,7 @@ type ToolStatus struct {
 	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
 	Notice      string                 // 一次性提示（安装结果等）
+	UpdateCount int                    // 可更新的工具数量
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -158,6 +181,10 @@ type App struct {
 	winMu             sync.Mutex
 	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
 	winRestoredHeight int // 最近一次非最大化时的窗口高度
+
+	// 上一次推送给前端的状态快照，用于变化检测：
+	// 仅当快照真正变化时才推送事件，避免每秒一次的无意义重渲染。
+	lastEmitted FrontendStatus
 }
 
 // New 创建应用控制器并启动 harness 监护。
@@ -260,6 +287,11 @@ func (a *App) OnStartup(ctx context.Context) {
 	go func() {
 		toolchain.LoadIndex(toolchain.InstallDir(a.home))
 		a.RefreshTools()
+		// 加载完成后延迟 3 秒检测更新（不与首屏渲染抢资源）。
+		// 若检测到有可更新工具，推送 toolchain:updates 事件到前端。
+		time.AfterFunc(3*time.Second, func() {
+			a.checkToolUpdatesBackground()
+		})
 	}()
 }
 
@@ -343,9 +375,26 @@ func (a *App) tick(ctx context.Context) {
 			a.trackStartupDoctor(prevState, curState)
 			prevState = curState
 			a.trackWindowSize()
-			a.emitStatus()
+			// 仅在状态快照真正变化时推送事件，避免每秒一次的无意义重渲染。
+			// 窗口尺寸跟踪不受影响（它不需要推送给前端）。
+			a.emitStatusIfChanged()
 		}
 	}
+}
+
+// emitStatusIfChanged 仅当状态快照与上次推送不同时才推送事件。
+// 返回值表示是否实际推送了（测试用）。
+func (a *App) emitStatusIfChanged() bool {
+	if a.ctx == nil {
+		return false
+	}
+	cur := a.snapshot()
+	if a.lastEmitted.equal(cur) {
+		return false
+	}
+	a.lastEmitted = cur
+	runtime.EventsEmit(a.ctx, StatusEvent, cur)
+	return true
 }
 
 // emitStatus 推送一次状态快照；ctx 尚未就绪时静默跳过。
@@ -880,14 +929,74 @@ func (a *App) collectTools() ToolStatus {
 		hostTools = append(hostTools, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target, Mounted: e.Mounted})
 	}
 
+	catalog := toolchain.ToolStatuses(dir)
+	updateCount := 0
+	for _, t := range catalog {
+		if t.HasUpdate {
+			updateCount++
+		}
+	}
+
 	return ToolStatus{
 		Rows:        rows,
 		Installed:   joinOrNone(installed),
 		Installable: catalogInstallable(),
-		Catalog:     toolchain.ToolStatuses(dir),
+		Catalog:     catalog,
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
+		UpdateCount: updateCount,
 	}
+}
+
+// checkToolUpdatesBackground 后台检测工具更新：先刷新远程索引，
+// 再对比已装版本，有更新则推送事件到前端。
+func (a *App) checkToolUpdatesBackground() {
+	if a.ctx == nil {
+		return
+	}
+	dir := toolchain.InstallDir(a.home)
+	// 刷新索引（忽略缓存新鲜度，但失败了也不影响已有功能）
+	toolchain.RefreshIndex(dir)
+	outdated := toolchain.OutdatedTools(dir)
+	if len(outdated) == 0 {
+		return
+	}
+	st := a.collectTools()
+	a.emitToolchain(st)
+}
+
+// UpdateAllTools 一键更新所有过时工具。异步执行，进度通过
+// toolchain:progress 事件推送，最终状态通过 toolchain:status 推送。
+func (a *App) UpdateAllTools() string {
+	outdated := toolchain.OutdatedTools(toolchain.InstallDir(a.home))
+	if len(outdated) == 0 {
+		return ""
+	}
+	go func() {
+		success, failed := 0, 0
+		for _, id := range outdated {
+			if _, ok := toolchain.LookupTool(id); !ok {
+				failed++
+				continue
+			}
+			a.emitProgress(id, "queued", 0, "等待更新")
+			err := toolchain.InstallTool(toolchain.InstallDir(a.home), id, "", &toolchain.InstallOptions{
+				Progress: func(phase string, percent int, message string) {
+					a.emitProgress(id, phase, percent, message)
+				},
+			})
+			if err != nil {
+				failed++
+			} else {
+				success++
+			}
+		}
+		appenv.ConfigureChildEnv(a.home)
+		st := a.collectTools()
+		st.Notice = fmt.Sprintf("已更新 %d 个工具，失败 %d 个", success, failed)
+		a.emitToolchain(st)
+	}()
+	return ""
 }
 
 // sandboxed 判断是否玲珑打包（沙箱）环境：打包态可执行文件在 $PREFIX/bin，
