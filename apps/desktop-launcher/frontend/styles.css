@@ -1085,6 +1085,16 @@ body {
   padding: 2px 4px 0 6px;
 }
 
+/* 终端字体渲染优化：WebKitGTK canvas 下字重偏细、边缘发虚，
+   开 subpixel 抗锯齿 + 字形微调，深色背景下更锐利。 */
+.terminal-holder .xterm {
+  -webkit-font-smoothing: subpixel-antialiased;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+.terminal-holder .xterm-char-measure-element {
+  -webkit-font-smoothing: subpixel-antialiased;
+}
+
 .terminal-empty,
 .terminal-error {
   display: flex;

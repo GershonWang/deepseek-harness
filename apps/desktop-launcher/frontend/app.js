@@ -1299,9 +1299,10 @@ async function createTerminalSession(title) {
 
   const term = new Terminal({
     theme: TERMINAL_THEME,
-    fontFamily: 'Cascadia Code, Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace',
+    fontFamily: 'Cascadia Code, JetBrains Mono, Menlo, Consolas, "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
     fontSize: 14,
-    lineHeight: 1.0,
+    fontWeight: '500',
+    lineHeight: 1.25,
     letterSpacing: 0,
     cursorBlink: true,
     scrollback: 5000,
