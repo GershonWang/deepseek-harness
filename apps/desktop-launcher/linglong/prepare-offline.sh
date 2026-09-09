@@ -11,6 +11,10 @@ set -eu
 ROOT=$(pwd)
 cd "$(dirname "$0")/../../.."   # 仓库根
 
+# 捆绑的 Node 版本（唯一事实来源，全脚本引用此变量）。
+# 升级版本只需改这里 + linglong.yaml 的 fallback 下载 URL（两者保持一致）。
+NODE_VERSION="24.9.0"
+
 STAGE=apps/desktop-launcher/linglong/stage
 rm -rf "$STAGE"
 mkdir -p "$STAGE/bin"
@@ -107,13 +111,13 @@ LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' apps/desktop-launcher/linglong/li
   -ldflags "-X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=$LL_VERSION" \
   -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
-# 4. 捆绑 Node 24（harness 运行时需要 >=24：node:zlib.createZstdDecompress、
+# 4. 捆绑 Node（harness 运行时需要 >=24：node:zlib.createZstdDecompress、
 #    Promise.withResolvers、node:module.stripTypeScriptTypes；beige 只有 20 跑不起来）
 #    linglong.yaml 组装时直接复用 stage/node，容器内不再下载。
 if [ ! -x "$STAGE/node/bin/node" ]; then
-  echo "prepare-offline: 下载 Node 24.9.0..."
+  echo "prepare-offline: 下载 Node $NODE_VERSION..."
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
-  wget -q -O /tmp/node24.tar.gz https://registry.npmmirror.com/-/binary/node/v24.9.0/node-v24.9.0-linux-x64.tar.gz
+  wget -q -O /tmp/node24.tar.gz "https://registry.npmmirror.com/-/binary/node/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.gz"
   mkdir -p "$STAGE/node"
   tar -xzf /tmp/node24.tar.gz -C "$STAGE/node" --strip-components=1
 fi
