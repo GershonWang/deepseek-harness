@@ -28,6 +28,20 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
+# 2.0.5 生产闭包瘦身：删掉确定不是 runtime 依赖的大包。
+#    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）。
+#    注意：不要删 @img —— sharp 是 @deepseek-ai/dsh-attachment-local 的
+#    硬依赖（静态 import sharp），而 sharp 的 dist/colour.mjs 运行时静态
+#    import '@img/colour'；@img 下只有 colour + linux-x64 原生包（libvips
+#    约 18 MB），全部是 linux x64 运行必需，没有可裁的多余平台包。
+#    历史教训：曾 rm -rf @img 省 19 MB，结果 harness 启动即
+#    ERR_MODULE_NOT_FOUND @img/colour，插件树加载失败（见 harness.log）。
+echo "prepare-offline: 生产闭包瘦身..."
+if [ -d "$STAGE/harness/node_modules/typescript" ]; then
+  rm -rf "$STAGE/harness/node_modules/typescript"
+  echo "  - 已删除 typescript"
+fi
+
 # 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
 #     v0.1.2-alpha.1 起大量包改为 peerDependency + devDependency 模式，
 #     deploy --prod 闭包里缺失。遍历 packages/ 和 vendor/ 下所有已构建的
@@ -39,16 +53,30 @@ inject_workspace_pkg() {
   # 这类目录不是合法包，必须先做存在性守卫：否则下面的 node 调用报错退出，
   # 其非零状态会在 set -e 下中断整个 prepare-offline 脚本。
   [ -f "$pkgdir/package.json" ] || return 0
+  # 跳过 experimental 包（AGENTS.md: excluded from official releases）
+  case "$pkgdir" in
+    packages/experimental/*|vendor/experimental/*) return 0 ;;
+  esac
   pkgname=$(node -e "console.log(require('./$pkgdir/package.json').name)" 2>/dev/null || true)
   [ -z "$pkgname" ] && return 0
   # 跳过非 @deepseek-ai 域的包
   case "$pkgname" in @deepseek-ai/* ) ;; *) return 0 ;; esac
   short=${pkgname#@deepseek-ai/}
   dest="$STAGE/harness/node_modules/@deepseek-ai/$short"
-  if [ ! -d "$dest" ] && [ -d "$pkgdir/lib" ]; then
+  # 注入条件：目标目录不存在，或已存在但 lib/ 内容缺失（pnpm deploy --prod
+  # 闭包可能通过软链创建了空壳目录，但 vendor 包作为 devDependency 不会被
+  # deploy 安装实际内容，需要从工作区源码补入）
+  if { [ ! -d "$dest" ] || [ ! -f "$dest/lib/index.js" ]; } && [ -d "$pkgdir/lib" ]; then
     echo "prepare-offline: injecting $pkgname from $pkgdir"
-    mkdir -p "$(dirname "$dest")"
-    cp -a "$pkgdir" "$dest"
+    mkdir -p "$dest"
+    # 只拷运行时需要的：lib/ + bin/ + package.json + README*
+    # 不拷 src/ tests/ tsconfig*.json tsdown.config.* 等开发文件（缩小闭包）
+    cp -a "$pkgdir/lib" "$dest/lib"
+    [ -d "$pkgdir/bin" ] && cp -a "$pkgdir/bin" "$dest/bin" 2>/dev/null || true
+    cp "$pkgdir/package.json" "$dest/package.json" 2>/dev/null || true
+    for f in README*; do
+      [ -f "$pkgdir/$f" ] && cp "$pkgdir/$f" "$dest/$f" 2>/dev/null || true
+    done
   fi
 }
 
@@ -120,6 +148,22 @@ if [ -d "$STAGE/harness/node_modules/node-pty" ]; then
   NODE_GYP="$ROOT/$STAGE/node/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js"
   ( cd "$ROOT/$STAGE/harness" && "$ROOT/$STAGE/node/bin/node" "$NODE_GYP" rebuild \
       --nodedir="$ROOT/$STAGE/node" --directory=node_modules/node-pty )
+fi
+
+# 6. 体积瘦身：node-pty 编译完后，运行时不需要的东西统统删掉。
+#    - include/ 头文件：运行时用不到，省 ~67 MB
+#    - strip node 二进制：剥调试符号，省 ~20-40 MB
+#    注意：不删 Node 自带的 npm/npx —— npm 是 Node 官方发行版标准组件，
+#    删掉后 lefthook pre-push 的 typecheck（npm run）与用户习惯的 npm/npx
+#    都会失效；省 20 MB 不值这些副作用。pnpm 仍是主力包管理器，两者共存。
+echo "prepare-offline: 精简 Node 运行时..."
+if [ -d "$STAGE/node/include" ]; then
+  rm -rf "$STAGE/node/include"
+  echo "  - 已删除 node/include/"
+fi
+if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
+  strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
+  echo "  - 已 strip node 二进制 ($(du -h "$STAGE/node/bin/node" | cut -f1))"
 fi
 
 echo "prepare-offline: 产物已暂存到 $STAGE"

@@ -54,6 +54,14 @@ build: |
       'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' > "$STAGE/node/bin/pnpm"
     chmod +x "$STAGE/node/bin/pnpm"
   fi
+  # Node 运行时瘦身：删掉运行时不需要的头文件，strip 二进制剥符号。
+  # 容器内 fallback 下载的 node 也做同样处理，保证 stage 有或没有都一致。
+  if [ -d "$STAGE/node/include" ]; then
+    rm -rf "$STAGE/node/include"
+  fi
+  if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
+    strip --strip-unneeded "$STAGE/node/bin/node" 2>/dev/null || true
+  fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
   # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
@@ -145,9 +153,12 @@ buildext:
       # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
       # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
       - git-lfs
-      # 层1 工具链自包含:随包工具与其运行时依赖
+      # 层1 工具链自包含:随包工具与其运行时依赖。
+      # 注意：不带 python3-pip —— pip 的 Recommends(build-essential + python3-dev)
+      # 会经 apt 拉进完整 gcc-12 编译器（cc1/cc1plus/lto1 + 静态库，约 121 MB）
+      # 与 python3-dev 头文件/静态库（约 46 MB）。运行时不需要编译能力，pip 由
+      # L2 工具链（~/.dsh-tools 热插拔 python，自带 pip）提供，避免 ~167 MB 浪费。
       - python3
-      - python3-pip
       - curl
       - wget
       - unzip
