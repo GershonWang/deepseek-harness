@@ -21,6 +21,8 @@ else
 fi
 
 ll-builder build -f "$YAML"
+echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
+sh apps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files
 echo "==> 校验合并产物树工具清单（含 git-core helper，launcher 以 GIT_EXEC_PATH 指回它）"
 sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
