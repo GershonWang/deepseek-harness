@@ -420,6 +420,7 @@ type ToolStatus struct {
 	ActiveVersion     string   // 当前激活版本
 	InstalledVersions []string // 所有已装版本
 	Size              int64    // 字节
+	HasUpdate         bool     // 已安装且有更新版本
 }
 
 // ToolStatuses 组装所有工具的状态列表。
@@ -427,6 +428,10 @@ func ToolStatuses(dir string) []ToolStatus {
 	tools := Catalog()
 	out := make([]ToolStatus, 0, len(tools))
 	for _, t := range tools {
+		latest := t.LatestVersion().Version
+		installedVersions := ListVersions(dir, t.ID)
+		active := ActiveVersion(dir, t.ID)
+		hasUpdate := len(installedVersions) > 0 && active != latest && latest != ""
 		ts := ToolStatus{
 			ID:                t.ID,
 			Name:              t.Name,
@@ -434,10 +439,11 @@ func ToolStatuses(dir string) []ToolStatus {
 			Description:       t.Description,
 			Provides:          t.Provides,
 			Dependencies:      t.Dependencies,
-			AvailableVersion:  t.LatestVersion().Version,
+			AvailableVersion:  latest,
 			Size:              t.LatestVersion().Size,
-			InstalledVersions: ListVersions(dir, t.ID),
-			ActiveVersion:     ActiveVersion(dir, t.ID),
+			InstalledVersions: installedVersions,
+			ActiveVersion:     active,
+			HasUpdate:         hasUpdate,
 		}
 		for _, v := range t.Versions {
 			ts.AvailableVersions = append(ts.AvailableVersions, v.Version)
@@ -446,4 +452,15 @@ func ToolStatuses(dir string) []ToolStatus {
 		out = append(out, ts)
 	}
 	return out
+}
+
+// OutdatedTools 返回所有已安装且有更新版本的工具 ID 列表。
+func OutdatedTools(dir string) []string {
+	var outdated []string
+	for _, ts := range ToolStatuses(dir) {
+		if ts.HasUpdate {
+			outdated = append(outdated, ts.ID)
+		}
+	}
+	return outdated
 }

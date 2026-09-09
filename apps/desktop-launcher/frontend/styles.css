@@ -127,6 +127,20 @@ body {
 .icon-btn:hover { background: var(--bg-hover); color: var(--fg-strong); }
 .icon-btn:active { background: var(--bg-input); }
 
+/* 图标按钮上的小红点徽章（如工具链更新提示） */
+.icon-btn { position: relative; }
+.icon-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warn, #cca700);
+  border: 2px solid var(--bg-titlebar, #222);
+  box-sizing: content-box;
+}
+
 /* 诊断与修复：品牌色图标，与"关于"等普通灰图标明显区分 */
 .icon-btn.doctor-icon { color: var(--accent); }
 .icon-btn.doctor-icon:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
@@ -625,6 +639,25 @@ body {
 }
 
 .market-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
+
+/* 可更新提示条：在 toolbar 下方，醒目但不喧宾夺主 */
+.market-update-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--warn, #cca700) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #cca700) 35%, transparent);
+  border-radius: 6px;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.market-update-banner .update-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--warn, #cca700); color: #111;
+  font-weight: bold; font-size: 12px;
+}
+.market-update-banner #market-update-all { margin-left: auto; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
 .market-tabs { display: flex; gap: 4px; }
 .market-tab {
   font-size: 12px; padding: 5px 12px; border-radius: 99px; cursor: pointer;

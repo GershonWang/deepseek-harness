@@ -111,6 +111,52 @@ func TestToolStatuses(t *testing.T) {
 	}
 }
 
+func TestHasUpdateAndOutdated(t *testing.T) {
+	dir := t.TempDir()
+	goTool, ok := LookupTool("go")
+	if !ok {
+		t.Fatal("catalog 应含 go")
+	}
+	latest := goTool.LatestVersion().Version
+	// 安装一个旧版本（不是最新版），应标记为 HasUpdate
+	oldRoot := filepath.Join(dir, "go-1.21.0")
+	if err := os.MkdirAll(oldRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(oldRoot, filepath.Join(dir, "current", "go")); err != nil {
+		t.Fatal(err)
+	}
+
+	// 用一个已装但版本等于最新版的工具做对照（模拟）
+	// 这里直接验证 OutdatedTools 和 HasUpdate
+	outdated := OutdatedTools(dir)
+	hasGo := false
+	for _, id := range outdated {
+		if id == "go" {
+			hasGo = true
+		}
+	}
+	if latest != "1.21.0" && !hasGo {
+		t.Fatalf("go 1.21.0 应标记为可更新（最新版=%s）", latest)
+	}
+	// 最新版就是 1.21.0 时 HasUpdate 应为 false（边界情况跳过强校验）
+
+	byID := map[string]ToolStatus{}
+	for _, cs := range ToolStatuses(dir) {
+		byID[cs.ID] = cs
+	}
+	goStatus := byID["go"]
+	if latest != "1.21.0" && !goStatus.HasUpdate {
+		t.Fatalf("go 应有 HasUpdate=true, got %+v", goStatus)
+	}
+	if latest == "1.21.0" && goStatus.HasUpdate {
+		t.Fatalf("go 已是最新版不应有 HasUpdate")
+	}
+}
+
 func TestCatalog_Uv(t *testing.T) {
 	it, ok := LookupTool("uv")
 	if !ok {
