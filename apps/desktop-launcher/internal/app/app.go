@@ -150,6 +150,14 @@ type App struct {
 	doctorCancel          func()        // 取消正在运行的 doctor 进程
 	doctorDone            chan struct{} // doctor 进程退出信号（nil 表示未在运行）
 	doctorEpoch           int           // 诊断启动序号，用于 goroutine 收尾时归属判断
+
+	// 窗口状态跟踪（受 winMu 保护）。OnBeforeClose 是唯一可靠的保存时机
+	// （Wails 在窗口销毁之后才调用 OnShutdown，届时 WindowGetSize 只能取
+	// 到 0）。tick 每秒轮询记录最近一次非最大化的尺寸，最大化关闭时用它
+	// 作为还原尺寸，避免把全屏尺寸写进配置。
+	winMu             sync.Mutex
+	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
+	winRestoredHeight int // 最近一次非最大化时的窗口高度
 }
 
 // New 创建应用控制器并启动 harness 监护。
@@ -185,7 +193,10 @@ func ExternalConfigFilePath() string {
 
 // Shutdown 停止 harness 子进程、后台 doctor 和所有终端会话
 // （窗口关闭与外置信号两路共用；幂等）。
+// SIGTERM 路径不经过 OnBeforeClose，这里补一次窗口状态保存；正常关闭
+// 路径 OnBeforeClose 已保存过，saveWindowState 内部对无效读数会跳过。
 func (a *App) Shutdown() {
+	a.saveWindowState()
 	a.sup.Stop()
 	a.stopDoctor()
 	if a.term != nil {
@@ -215,6 +226,15 @@ func (a *App) stopDoctor() {
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
 
+	// 窗口还原尺寸的初值取配置里保存的尺寸：若用户全程最大化使用并直接
+	// 关闭，还原尺寸仍是他上次主动调整过的窗口大小，而非程序默认值。
+	if cfg, err := LoadAppConfig(a.home); err == nil && cfg.Window.Width >= 400 && cfg.Window.Height >= 300 {
+		a.winMu.Lock()
+		a.winRestoredWidth = cfg.Window.Width
+		a.winRestoredHeight = cfg.Window.Height
+		a.winMu.Unlock()
+	}
+
 	// 注册终端事件回调：把终端输出和状态变更推送到前端
 	a.term.SetOutputCallback(func(sessionID string, data string) {
 		runtime.EventsEmit(ctx, TerminalOutputEvent, terminal.OutputEvent{
@@ -243,22 +263,70 @@ func (a *App) OnStartup(ctx context.Context) {
 	}()
 }
 
-// OnShutdown 在窗口关闭时停止 harness 子进程和后台 doctor，避免子进程残留。
-// 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
-// 此外还会保存当前窗口尺寸和最大化状态，供下次启动时恢复。
-func (a *App) OnShutdown(ctx context.Context) {
-	// 保存窗口状态：失败时静默忽略（不影响正常关闭流程）
-	if a.ctx != nil {
-		width, height := runtime.WindowGetSize(a.ctx)
-		maximised := runtime.WindowIsMaximised(a.ctx)
-		_ = SaveWindowState(a.home, WindowState{
-			Width:     width,
-			Height:    height,
-			Maximized: maximised,
-		})
-	}
+// OnBeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或 runtime.Quit）时保存
+// 窗口状态。这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose →
+// 窗口销毁 → OnShutdown，OnShutdown 里 WindowGetSize 只能取到 0。
+// 返回 false 表示放行关闭。
+func (a *App) OnBeforeClose(ctx context.Context) bool {
+	a.saveWindowState()
+	return false
+}
 
+// OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
+// 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
+// 窗口状态已在 OnBeforeClose 保存，这里不再重复（窗口已销毁，读取必然为 0）。
+func (a *App) OnShutdown(_ context.Context) {
 	a.Shutdown()
+}
+
+// trackWindowSize 每秒记录一次窗口的非最大化尺寸。
+// 关闭时若窗口处于最大化，配置里写入的是这个"还原尺寸"而非全屏尺寸，
+// 否则下次启动取消最大化后窗口会是铺满屏幕的大小。
+func (a *App) trackWindowSize() {
+	if a.ctx == nil {
+		return
+	}
+	if runtime.WindowIsMaximised(a.ctx) {
+		return
+	}
+	w, h := runtime.WindowGetSize(a.ctx)
+	if w < 400 || h < 300 {
+		return
+	}
+	a.winMu.Lock()
+	a.winRestoredWidth = w
+	a.winRestoredHeight = h
+	a.winMu.Unlock()
+}
+
+// saveWindowState 读取当前窗口状态并写入配置文件。
+// 最大化时用 tick 记录的还原尺寸代替全屏尺寸；窗口已不可读（SIGTERM 等
+// 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
+func (a *App) saveWindowState() {
+	if a.ctx == nil {
+		return
+	}
+	w, h := runtime.WindowGetSize(a.ctx)
+	maximized := runtime.WindowIsMaximised(a.ctx)
+	if maximized {
+		a.winMu.Lock()
+		rw, rh := a.winRestoredWidth, a.winRestoredHeight
+		a.winMu.Unlock()
+		// 还原尺寸尚无记录（进程刚启动就最大化关闭）时放弃本次保存，
+		// 保留配置里已有的有效值。
+		if rw < 400 || rh < 300 {
+			return
+		}
+		w, h = rw, rh
+	}
+	if w < 400 || h < 300 {
+		return
+	}
+	_ = SaveWindowState(a.home, WindowState{
+		Width:     w,
+		Height:    h,
+		Maximized: maximized,
+	})
 }
 
 func (a *App) tick(ctx context.Context) {
@@ -274,6 +342,7 @@ func (a *App) tick(ctx context.Context) {
 			curState := a.sup.Status().State
 			a.trackStartupDoctor(prevState, curState)
 			prevState = curState
+			a.trackWindowSize()
 			a.emitStatus()
 		}
 	}

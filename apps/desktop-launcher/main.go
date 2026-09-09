@@ -67,7 +67,10 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 255},
 		OnStartup:        controller.OnStartup,
 		OnShutdown:       controller.OnShutdown,
-		Bind:             []interface{}{controller},
+		// 窗口关闭前保存尺寸/最大化状态：此时窗口仍存活，能读到真实值
+		// （OnShutdown 时窗口已销毁，只能读到 0）。
+		OnBeforeClose: controller.OnBeforeClose,
+		Bind:          []interface{}{controller},
 	})
 	if err != nil {
 		log.Fatalf("dsh-desktop: %v", err)
