@@ -33,6 +33,14 @@
     var href = anchor.getAttribute("href");
     if (href === null || !isHttpUrl(href)) return;
     event.preventDefault();
-    window.parent.postMessage({ dshDesktop: true, type: "open-external", url: href }, "*");
+    // targetOrigin 优先使用父窗口真实 origin（WebKitGTK 支持
+    // location.ancestorOrigins），仅在不支持时回退 "*"；
+    // 接收侧（app.js）已通过 e.source === frame.contentWindow
+    // 做二次校验，确保消息只来自预期的 iframe。
+    var targetOrigin = (window.location.ancestorOrigins
+        && window.location.ancestorOrigins[0])
+      ? window.location.ancestorOrigins[0]
+      : "*";
+    window.parent.postMessage({ dshDesktop: true, type: "open-external", url: href }, targetOrigin);
   }, false);
 })();

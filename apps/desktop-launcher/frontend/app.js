@@ -32,11 +32,7 @@ function api() {
   return window.go.app.App;
 }
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-  }[c]));
-}
+
 
 function radioValue() {
   const el = document.querySelector('input[name="mode"]:checked');
@@ -91,9 +87,18 @@ function bindExternalLinks() {
     if (d.type === "clipboard-read-image") {
       const reply = (data) => {
         if (!frame || !frame.contentWindow) return;
+        // targetOrigin 用 iframe 的实际 origin，避免 "*" 通配导致消息
+        // 被嵌套的第三方 iframe 劫持；接收侧（harness 前端）已通过
+        // e.source 判断来源，发送侧再收敛 target 为确切 origin。
+        var targetOrigin;
+        try {
+          targetOrigin = new URL(frame.src).origin;
+        } catch (e) {
+          targetOrigin = "*";
+        }
         frame.contentWindow.postMessage(
           { dshDesktop: true, type: "clipboard-image-result", data: data || "" },
-          "*"
+          targetOrigin
         );
       };
       if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReadClipboardImage) {
@@ -472,7 +477,25 @@ function renderTools(t) {
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
+  renderUpdateBadge(t);
   $("#toolchain-notice").textContent = t.Notice || "";
+}
+
+// renderUpdateBadge 更新工具链图标的小红点和弹框内的更新提示条。
+function renderUpdateBadge(t) {
+  var count = Number(t.UpdateCount) || 0;
+  var badge = $("#tools-update-badge");
+  if (badge) badge.classList.toggle("hidden", count === 0);
+  var banner = $("#market-update-banner");
+  var text = $("#market-update-text");
+  if (banner && text) {
+    if (count > 0) {
+      text.textContent = "检测到 " + count + " 个工具可更新";
+      banner.classList.remove("hidden");
+    } else {
+      banner.classList.add("hidden");
+    }
+  }
 }
 
 // renderBuiltin 渲染内置工具收纳盒（#builtin-panel）：随包工具不可卸载，
@@ -575,9 +598,19 @@ function toolCard(c) {
   name.className = "tool-card-name";
   name.textContent = c.Name;
   const status = document.createElement("span");
-  if (c.Installed) { status.className = "pill ok"; status.textContent = "✓ 已安装"; }
-  else if (installing) { status.className = "pill warn"; status.textContent = "安装中 " + (prog.Percent || 0) + "%"; }
-  else { status.className = "pill brand"; status.textContent = "可安装"; }
+  if (c.Installed && c.HasUpdate) {
+    status.className = "pill warn";
+    status.textContent = "可更新";
+  } else if (c.Installed) {
+    status.className = "pill ok";
+    status.textContent = "✓ 已安装";
+  } else if (installing) {
+    status.className = "pill warn";
+    status.textContent = "安装中 " + (prog.Percent || 0) + "%";
+  } else {
+    status.className = "pill brand";
+    status.textContent = "可安装";
+  }
   head.append(name, status);
 
   const desc = document.createElement("div");
@@ -711,8 +744,8 @@ function renderHostTools(t) {
       ? "<span class='state-ok'>✓ 生效中</span>"
       : "<span class='state-missing'>配置已写入 · 重启应用后生效</span>";
     row.innerHTML =
-      "<span class='selectable host-name'>" + esc(h.Name) + "</span>" +
-      "<span class='hint selectable'>" + esc(h.Source) + " → " + esc(h.Target) + "</span>" +
+      "<span class='selectable host-name'>" + escapeHtml(h.Name) + "</span>" +
+      "<span class='hint selectable'>" + escapeHtml(h.Source) + " → " + escapeHtml(h.Target) + "</span>" +
       "<span class='hint'>" + mounted + "</span>";
     row.appendChild(rm);
     hl.appendChild(row);
@@ -741,9 +774,9 @@ function renderHostScan(entries) {
       api().RefreshTools();
     });
     row.innerHTML =
-      "<span class='selectable host-name'>" + esc(e.Name) + "</span>" +
-      "<span class='hint selectable'>" + esc(e.Tool) + (e.Version ? " " + esc(e.Version) : "") + "</span>" +
-      "<span class='hint selectable'>" + esc(e.Source) + "</span>" +
+      "<span class='selectable host-name'>" + escapeHtml(e.Name) + "</span>" +
+      "<span class='hint selectable'>" + escapeHtml(e.Tool) + (e.Version ? " " + escapeHtml(e.Version) : "") + "</span>" +
+      "<span class='hint selectable'>" + escapeHtml(e.Source) + "</span>" +
       (e.Conflict ? "<span class='pill warn'>与已装重名</span>" : "");
     row.appendChild(add);
     box.appendChild(row);
@@ -846,6 +879,23 @@ function bindUI() {
     btn.disabled = false;
     btn.textContent = "刷新索引";
   });
+
+  // 一键更新所有过时工具
+  var updateAllBtn = $("#market-update-all");
+  if (updateAllBtn) {
+    updateAllBtn.addEventListener("click", async () => {
+      if (updateAllBtn.disabled) return;
+      updateAllBtn.disabled = true;
+      updateAllBtn.textContent = "更新中…";
+      var err = await api().UpdateAllTools();
+      if (err) {
+        $("#toolchain-notice").textContent = "更新失败: " + err;
+        updateAllBtn.disabled = false;
+        updateAllBtn.textContent = "一键更新";
+      }
+      // 成功时由 toolchain:status 事件刷新 UI 和按钮状态
+    });
+  }
 
   // 宿主导入向导：扫描常见宿主工具链根目录。
   $("#host-scan").addEventListener("click", async () => {
