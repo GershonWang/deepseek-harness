@@ -92,11 +92,6 @@ func newSession(id string, opts StartOptions) (*Session, error) {
 	}
 	cmd.Env = env
 
-	// 让子进程拥有独立进程组，关闭时可以把整个终端进程树（bash + 子进程）
-	// 一起杀掉，避免主程序退出后终端里的 vim/node/python 等成为孤儿进程
-	// 残留在容器中，导致玲珑容器无法退出、无法卸载。
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
 	s.cmd = cmd
 
 	// 创建 PTY
@@ -263,9 +258,9 @@ func (s *Session) Resize(cols, rows int) error {
 
 // Close 关闭终端会话。
 //
-// 会先向整个进程组发 SIGTERM（优雅关闭），3 秒超时未退出发 SIGKILL，
-// 最后确认进程退出才返回。确保整个终端进程树（bash + 子进程）都被清理，
-// 避免主程序退出后终端子进程残留，导致玲珑容器无法退出。
+// 清理顺序：SIGTERM → 等待退出 → 关闭 PTY 主端（内核向挂在这个终端上的
+// 所有进程发 SIGHUP）→ SIGKILL 兜底。既兼容玲珑沙箱（不依赖 Setpgid），
+// 又能通过 SIGHUP 传播清理终端内的子进程。
 // 多次调用 Close 是安全的，后续调用直接返回 nil。
 func (s *Session) Close() error {
 	s.mu.Lock()
@@ -283,6 +278,7 @@ func (s *Session) Close() error {
 	}
 	s.closed = true
 	cmd := s.cmd
+	ptyFile := s.pty
 	done := s.done
 	s.mu.Unlock()
 
@@ -290,21 +286,26 @@ func (s *Session) Close() error {
 		return nil
 	}
 
-	pid := cmd.Process.Pid
-	// 先 SIGTERM 整个进程组（bash + 其子进程）
-	_ = syscall.Kill(-pid, syscall.SIGTERM)
+	// 1. SIGTERM 优雅终止主进程（shell 会收到并转发给前台进程组）
+	_ = cmd.Process.Signal(syscall.SIGTERM)
 
-	// 等待优雅退出，最多 3 秒
+	// 2. 关闭 PTY 主端：内核会给所有以该 PTY 为控制终端的进程发 SIGHUP，
+	//    这是 POSIX 标准的终端清理机制，无需 Setpgid 就能覆盖子进程
+	if ptyFile != nil {
+		_ = ptyFile.Close()
+	}
+
+	// 3. 等待优雅退出，最多 3 秒
 	select {
 	case <-done:
 		return nil
 	case <-time.After(3 * time.Second):
 	}
 
-	// 3 秒没退出来，SIGKILL 整个进程组
-	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	// 4. 兜底：直接 kill 主进程（确保主程序退出）
+	_ = cmd.Process.Kill()
 
-	// 再等最多 2 秒让进程彻底消亡
+	// 5. 再等最多 2 秒让进程彻底消亡
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
