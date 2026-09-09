@@ -100,6 +100,48 @@ while IFS='|' read -r name sha; do
 done < "$INST"
 rm -f "$INST"
 
+# installable 与运行时 index.json 的一致性校验：工具 ID 列表必须
+# 完全一致，避免"tools.yaml 加了但 index.json 没更"（或反过来）导致
+# UI 上能看到但安装不了、或者能安装但清单里没有的不对称状态。
+# index.json 是运行时实际生效的单一事实来源，tools.yaml 是打包侧
+# 的白名单 + sha256 占位校验，两者的 installable 工具集合必须对齐。
+INDEX_JSON=$(dirname "$0")/../internal/toolchain/tools/index.json
+if [ -f "$INDEX_JSON" ]; then
+  TOOLS_YAML_IDS=$(mktemp)
+  INDEX_IDS=$(mktemp)
+  trap 'rm -f "$TOOLS_YAML_IDS" "$INDEX_IDS"' EXIT
+  awk '
+    /^[a-zA-Z0-9_-]+:$/ {
+      sec = $1; sub(/:$/, "", sec);
+      in_inst = (sec == "installable") ? 1 : 0;
+      next;
+    }
+    in_inst && /^  [a-zA-Z0-9_-]+:$/ {
+      name = $1; sub(/:$/, "", name);
+      print name;
+    }
+  ' "$YAML" | sort > "$TOOLS_YAML_IDS"
+  # 用 python 提取 JSON 里的 tools[].id；python3 在 beige/宿主都有
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for t in sorted(t['id'] for t in data['tools']):
+    print(t)
+" "$INDEX_JSON" > "$INDEX_IDS"
+    diff_out=$(diff "$TOOLS_YAML_IDS" "$INDEX_IDS" || true)
+    if [ -n "$diff_out" ]; then
+      echo "FAIL installable/index 不一致：tools.yaml vs index.json 工具列表不同" >&2
+      echo "$diff_out" >&2
+      fail=1
+    else
+      echo "OK   installable 与 index.json 工具列表一致"
+    fi
+  else
+    echo "SKIP installable/index 一致性校验：python3 不可用"
+  fi
+fi
+
 # git 功能探测（宿主侧静态）：launcher 启动时为整个 harness 进程树注入
 # GIT_EXEC_PATH=<prefix>/lib/git-core（packagedGitExecPath 按可执行文件位置
 # 推导，任意机器一致），因此 lib/git-core 里的远程 helper 必须随包存在；
