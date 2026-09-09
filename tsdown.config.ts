@@ -18,8 +18,10 @@ export default defineConfig(({ env }) => {
   return {
     workspace: ['vendor/*', 'packages/*/*', 'apps/cli'],
     // 根包（@deepseek-ai/dsh-root）是 solution-only，不需要被 tsdown 构建。
-    // entry 留空让 tsdown 跳过根配置本身，workspace 子包会用各自的 tsdown.config.ts。
-    entry: '',
+    // Client face 跳过根包入口；Host face 提供 glob 让 tsdown workspace 为没有
+    // 自己 tsdown.config.ts 的包匹配 lib/types/{index,invariant,startup}.js，
+    // 打包到 lib/ 生成 lib/index.js 等入口文件（Node.js exports 路径依赖这些文件）。
+    entry: client ? '' : ['lib/types/{index,invariant,startup}.js'],
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',
