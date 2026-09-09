@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -28,6 +29,7 @@ type Session struct {
 	rows      int
 	createdAt time.Time
 	exitCode  int
+	done      chan struct{} // waitLoop 退出时关闭，供 Close() 等待
 
 	mu      sync.Mutex
 	closed  bool
@@ -62,6 +64,7 @@ func newSession(id string, opts StartOptions) (*Session, error) {
 		rows:      opts.Rows,
 		createdAt: time.Now(),
 		exitCode:  -1,
+		done:      make(chan struct{}),
 	}
 	s.status.Store(StatusStarting)
 
@@ -88,6 +91,11 @@ func newSession(id string, opts StartOptions) (*Session, error) {
 		env = append(env, "TERM=xterm-256color")
 	}
 	cmd.Env = env
+
+	// 让子进程拥有独立进程组，关闭时可以把整个终端进程树（bash + 子进程）
+	// 一起杀掉，避免主程序退出后终端里的 vim/node/python 等成为孤儿进程
+	// 残留在容器中，导致玲珑容器无法退出、无法卸载。
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	s.cmd = cmd
 
@@ -167,6 +175,9 @@ func (s *Session) waitLoop() {
 
 	// 关闭 PTY 主端
 	_ = s.pty.Close()
+
+	// 通知所有等待方进程已退出
+	close(s.done)
 }
 
 // ID 返回会话唯一标识。
@@ -252,29 +263,52 @@ func (s *Session) Resize(cols, rows int) error {
 
 // Close 关闭终端会话。
 //
-// 会先尝试优雅关闭（发送 SIGHUP），然后强制终止进程。
+// 会先向整个进程组发 SIGTERM（优雅关闭），3 秒超时未退出发 SIGKILL，
+// 最后确认进程退出才返回。确保整个终端进程树（bash + 子进程）都被清理，
+// 避免主程序退出后终端子进程残留，导致玲珑容器无法退出。
 // 多次调用 Close 是安全的，后续调用直接返回 nil。
 func (s *Session) Close() error {
 	s.mu.Lock()
-	closed := s.closed
+	if s.closed {
+		// 已经关闭过：如果 done 还没关（正在关闭中），等一下再返回
+		done := s.done
+		s.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			case <-time.After(time.Second):
+			}
+		}
+		return nil
+	}
+	s.closed = true
+	cmd := s.cmd
+	done := s.done
 	s.mu.Unlock()
 
-	if closed {
+	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
 
-	// 发送 SIGHUP 通知 shell 退出（优雅关闭）
-	// 如果进程不响应，进程退出时 PTY 会自动关闭
-	_ = s.cmd.Process.Signal(os.Interrupt)
+	pid := cmd.Process.Pid
+	// 先 SIGTERM 整个进程组（bash + 其子进程）
+	_ = syscall.Kill(-pid, syscall.SIGTERM)
 
-	// 给进程一点时间优雅退出
-	time.AfterFunc(500*time.Millisecond, func() {
-		s.mu.Lock()
-		if !s.closed && s.cmd.Process != nil {
-			_ = s.cmd.Process.Kill()
-		}
-		s.mu.Unlock()
-	})
+	// 等待优雅退出，最多 3 秒
+	select {
+	case <-done:
+		return nil
+	case <-time.After(3 * time.Second):
+	}
+
+	// 3 秒没退出来，SIGKILL 整个进程组
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+
+	// 再等最多 2 秒让进程彻底消亡
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+	}
 
 	return nil
 }
