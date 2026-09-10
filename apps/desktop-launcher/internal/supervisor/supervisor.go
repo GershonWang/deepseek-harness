@@ -53,6 +53,10 @@ type Config struct {
 	Command string
 	Args    []string
 	LogDir  string
+	// Env 是子进程的完整环境（os/exec 语义：nil 表示继承 launcher 当前环境）。
+	// 预检降级路径用它在 spawn 时注入 DSH_HOME 指向全新运行时目录；普通路径
+	// 保持 nil，让子进程与 launcher 共享同一份环境快照。
+	Env []string
 }
 
 // Supervisor 管理 harness 子进程的生命周期。构造即启动唯一的 run() 监护循环。
@@ -74,6 +78,7 @@ type Supervisor struct {
 	lastExit        string
 	manuallyStopped bool
 	startCh         chan struct{}
+	gated           bool // 首次 spawn 前等待 Release（预检编排用）；消耗后不再生效
 	sawReady        bool // 当前 spawn 周期是否已匹配就绪行
 	sawFatalLoad    bool // 当前 spawn 周期是否已出现确定性加载失败特征
 }
@@ -151,6 +156,38 @@ func (s *Supervisor) Start() {
 	}
 }
 
+// Gate 要求首次 spawn 前等待 Release：启动前预检需要先于 harness 启动完成，
+// 门控让监护循环构造后挂起，直到预检给出放行/降级决策。必须在 NewSupervisor
+// 之后、监护循环消费 startCh 之前调用（App 构造内紧接着完成）。
+func (s *Supervisor) Gate() {
+	s.mu.Lock()
+	s.gated = true
+	s.mu.Unlock()
+}
+
+// Release 放行门控的首次 spawn；未门控时是无害 no-op，因此预检通过路径与
+// 现有 StartServer 手动恢复路径可以共用同一调用点。
+func (s *Supervisor) Release() {
+	s.mu.Lock()
+	gated := s.gated
+	s.mu.Unlock()
+	if !gated {
+		return
+	}
+	select {
+	case s.startCh <- struct{}{}:
+	default:
+	}
+}
+
+// SetEnv 原子替换后续 spawn 的子进程环境（nil 恢复继承当前环境）。替换只影响
+// 下一次 spawn，不触碰正在运行的进程；与 spawn 的读取同受 mu 保护。
+func (s *Supervisor) SetEnv(env []string) {
+	s.mu.Lock()
+	s.cfg.Env = env
+	s.mu.Unlock()
+}
+
 // Restart 手动重启：停止态直接唤醒 spawn，运行态先优雅终止再唤醒。
 func (s *Supervisor) Restart() {
 	s.mu.Lock()
@@ -221,7 +258,7 @@ func (s *Supervisor) logf(format string, args ...any) {
 	_, _ = fmt.Fprintf(w.out, "[%s] [supervisor] "+format+"\n", append([]any{ts}, args...)...)
 }
 
-// run 是唯一的监护循环：手动停止等待、spawn、等退出、退避重启。
+// run 是唯一的监护循环：门控等待、手动停止等待、spawn、等退出、退避重启。
 func (s *Supervisor) run() {
 	attempt := 0
 	var failStart time.Time
@@ -231,9 +268,21 @@ func (s *Supervisor) run() {
 			s.mu.Unlock()
 			return
 		}
+		gated := s.gated
 		manuallyStopped := s.manuallyStopped
 		state := s.state
 		s.mu.Unlock()
+
+		if gated {
+			<-s.startCh
+			s.mu.Lock()
+			s.gated = false
+			stop := s.stopping
+			s.mu.Unlock()
+			if stop {
+				return
+			}
+		}
 
 		if manuallyStopped {
 			<-s.startCh
@@ -350,6 +399,7 @@ func (s *Supervisor) spawn() {
 		}
 	}
 drained:
+	childEnv := s.cfg.Env
 	s.mu.Unlock()
 
 	logFile := openLogFile(filepath.Join(s.cfg.LogDir, "harness.log"))
@@ -366,6 +416,8 @@ drained:
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, s.cfg.Command, s.cfg.Args...)
+	// Env 为 nil 时保持 os/exec 默认的继承语义；预检降级路径注入的环境在此生效。
+	cmd.Env = childEnv
 	setProcessGroupAttr(cmd)
 	// WaitDelay：harness 退出但孙进程仍持有 stdout/stderr 管道时，cmd.Wait()
 	// 会卡在 EOF 上；WaitDelay 到期强制关闭管道并触发 Cancel 清理残留孙进程。
