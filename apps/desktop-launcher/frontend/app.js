@@ -617,6 +617,19 @@ function toolCard(c) {
   desc.className = "tool-card-desc";
   desc.textContent = c.Description || "";
 
+  // 运行时提示：市场仓库未装、但容器 PATH 已有同名命令（随包/宿主导入/系统
+  // 提供）时标注来源与版本，区分"仓库未安装"与"容器内不可用"两个概念。
+  // 由后端 annotateRuntime 组装，前端纯渲染。
+  let runtimeHint = null;
+  if (!c.Installed && c.RuntimeCmd) {
+    runtimeHint = document.createElement("div");
+    runtimeHint.className = "tool-card-runtime";
+    runtimeHint.textContent = "容器内已可用：" + c.RuntimeCmd
+      + (c.RuntimeVersion ? " " + c.RuntimeVersion : "")
+      + "（" + c.RuntimeSource + "）";
+    runtimeHint.title = "该命令由玲珑容器环境提供，市场仓库尚未安装；通过市场安装后将由 ~/.dsh-tools 统一管理，注入 PATH 时优先使用";
+  }
+
   const meta = document.createElement("div");
   meta.className = "tool-card-meta";
   meta.textContent = [categoryLabel(c.Category), (c.Provides || []).join(" "), fmtSize(c.Size)].filter(Boolean).join(" · ");
@@ -701,6 +714,8 @@ function toolCard(c) {
   } else {
     el.append(head, desc, meta, actions);
   }
+  // 运行时提示固定插在 meta 之后、动作区之前（append 顺序即 DOM 顺序）。
+  if (runtimeHint) el.append(runtimeHint);
   return el;
 }
 

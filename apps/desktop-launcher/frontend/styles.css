@@ -745,6 +745,15 @@ body {
 .tool-card-name { font-weight: 600; color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-card-desc { font-size: 11.5px; color: var(--fg-dim); line-height: 1.5; min-height: 32px; }
 .tool-card-meta { font-size: 10.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 容器内运行时提示：市场仓库未装、但容器 PATH 已有同名命令时的来源标注
+   （随包/宿主导入/系统）。ok 色表示"可用"，字号弱化不与状态徽标争夺注意力；
+   悬浮 title 解释两套状态（仓库安装 vs 运行时可用）的关系。 */
+.tool-card-runtime {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--ok) 70%, var(--fg-dim));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: help;
+}
 .tool-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 /* 安装进度条：toolchain:progress 事件按 data-tool-id 定向更新 fill 宽度 */
 .tool-progress {

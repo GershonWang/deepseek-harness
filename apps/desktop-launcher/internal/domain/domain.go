@@ -35,4 +35,7 @@ type ToolCheck struct {
 	OK      bool
 	Version string
 	Err     string
+	// Path 是命令在当前 PATH 中解析到的绝对路径（exec.LookPath 结果），
+	// 供调用方按路径前缀归类来源（随包/宿主导入/系统）；未命中为空。
+	Path string
 }

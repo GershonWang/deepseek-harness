@@ -59,6 +59,8 @@ class El {
     this.value = "";
     this.disabled = false;
     this.checked = false;
+    // style 用普通对象承接内联样式赋值（进度条 width 等），不需要完整 CSSOM。
+    this.style = {};
   }
   get classList() {
     return this._classList;
@@ -132,6 +134,10 @@ class El {
   }
   remove() {
     if (this.parentNode) this.parentNode.removeChild(this);
+  }
+  // 与真实 DOM 一致的 append：按参数顺序追加到末尾（toolCard 渲染用到）。
+  append(...nodes) {
+    for (const n of nodes) this.appendChild(n);
   }
 }
 
@@ -371,6 +377,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   // 加一行暴露模块级绑定供测试直接调用（函数声明提升，运行前已定义）
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
+    + "\n;globalThis.__testRenderTools = renderTools;"
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
@@ -649,4 +656,73 @@ test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
   assert.equal(status.textContent, "⚠ 未完成");
   assert.ok(status.classList.contains("error"));
   assert.match(body.innerHTML, /已移除 6 个插件/, "应显示跳过原因");
+});
+
+/* ---------- 工具链市场卡片：容器内运行时提示 ---------- */
+
+// fakeTools 构造一次 renderTools 的输入：node 未装但容器内有随包命令，
+// deno 未装且容器内无命令，go 已装（仓库语义优先，不应出现运行时提示）。
+function fakeTools() {
+  return {
+    Rows: [{ Name: "node", State: "installed", Version: "24.9.0" }],
+    Catalog: [
+      { ID: "node", Name: "Node.js", Category: "language-sdk", Description: "JavaScript 运行时",
+        Provides: ["node", "npm"], Installed: false, AvailableVersion: "24.13.0",
+        AvailableVersions: ["24.13.0"], Size: 55300000,
+        RuntimeCmd: "node", RuntimeVersion: "24.9.0", RuntimeSource: "随包" },
+      { ID: "deno", Name: "Deno", Category: "language-sdk", Description: "安全的 JavaScript/TypeScript 运行时",
+        Provides: ["deno"], Installed: false, AvailableVersion: "2.1.4",
+        AvailableVersions: ["2.1.4"], Size: 39700000 },
+      { ID: "go", Name: "Go", Category: "language-sdk", Description: "Go 编译工具链",
+        Provides: ["go", "gofmt"], Installed: true, ActiveVersion: "1.23.2",
+        AvailableVersions: ["1.23.2"], Size: 70000000 },
+    ],
+    Sandboxed: true, HostTools: [], UpdateCount: 0, Notice: "",
+  };
+}
+
+test("市场卡片：仓库未装但容器内已有命令时提示来源，已装/无命令不提示", () => {
+  const h = loadApp();
+  const render = h.sandbox.__testRenderTools;
+  assert.equal(typeof render, "function", "应暴露 renderTools");
+
+  render(fakeTools());
+
+  const cards = h.document.querySelectorAll(".tool-card-item");
+  assert.equal(cards.length, 3, "应渲染 3 张工具卡片");
+
+  // node 卡：未装 + RuntimeCmd 命中 → 显示"容器内已可用"提示行（含版本与来源）
+  const hints = h.document.querySelectorAll(".tool-card-runtime");
+  assert.equal(hints.length, 1, "只有 node 卡应有运行时提示");
+  assert.equal(hints[0].textContent, "容器内已可用：node 24.9.0（随包）");
+  assert.ok(hints[0].title, "提示行应带悬浮说明");
+
+  // deno 卡：未装且无 RuntimeCmd → 不提示
+  // go 卡：已装 → 仓库状态（已安装）优先，不提示
+  // （stub 的 querySelector 不限定子树，状态徽标用全局顺序断言：
+  //   三张卡的 pill 依次为 node=可安装、deno=可安装、go=✓ 已安装）
+  const nodeCard = cards[0];
+  assert.equal(nodeCard.dataset.toolId, "node");
+  const denoCard = cards[1];
+  const goCard = cards[2];
+  for (const card of [denoCard, goCard]) {
+    const hasHint = card.children.some((ch) => ch.classList.contains("tool-card-runtime"));
+    assert.equal(hasHint, false, "无命中的卡片不应出现运行时提示");
+  }
+  const pills = h.document.querySelectorAll(".pill");
+  assert.equal(pills.length, 3, "每张卡一个状态徽标");
+  assert.equal(pills[0].textContent, "可安装");
+  assert.equal(pills[1].textContent, "可安装");
+  assert.match(pills[2].textContent, /已安装/);
+});
+
+test("市场卡片：运行时提示在版本探测失败时省略版本段", () => {
+  const h = loadApp();
+  const tools = fakeTools();
+  tools.Catalog[0].RuntimeVersion = "";
+  h.sandbox.__testRenderTools(tools);
+
+  const hints = h.document.querySelectorAll(".tool-card-runtime");
+  assert.equal(hints.length, 1);
+  assert.equal(hints[0].textContent, "容器内已可用：node（随包）");
 });

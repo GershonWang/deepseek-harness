@@ -930,6 +930,7 @@ func (a *App) collectTools() ToolStatus {
 	}
 
 	catalog := toolchain.ToolStatuses(dir)
+	annotateRuntime(catalog, checks, a.home, a.bundledBinPrefix())
 	updateCount := 0
 	for _, t := range catalog {
 		if t.HasUpdate {
@@ -945,6 +946,91 @@ func (a *App) collectTools() ToolStatus {
 		HostTools:   hostTools,
 		Sandboxed:   a.sandboxed(),
 		UpdateCount: updateCount,
+	}
+}
+
+// annotateRuntime 为未安装的市场工具填充容器内运行时可用性（Runtime* 字段）。
+// 背景玲珑容器内命令有三个互不相干的来源：随包内置、宿主导入挂载、系统运行
+// 时，而市场卡片只描述市场仓库（~/.dsh-tools）的安装状态——不标注运行时可
+// 用性会让"环境里明明有 node"与卡片"可安装"看似矛盾。
+//
+// 探测数据优先复用固定自检清单（Checks，覆盖随包工具），其余 Provides 命令
+// 按需 LookPath 补充。只处理未安装工具：已安装工具的仓库状态信息更准，混入
+// PATH 提示会模糊两套语义。home 与 bundledBin 由调用方传入（市场目录与随包
+// 前缀的判定依据），本函数除按需探测外不读取进程环境，保证分类结果确定可测。
+func annotateRuntime(catalog []toolchain.ToolStatus, checks []domain.ToolCheck, home, bundledBin string) {
+	known := make(map[string]domain.ToolCheck, len(checks))
+	for _, c := range checks {
+		known[c.Name] = c
+	}
+
+	// 收集固定清单未覆盖、且属于未安装工具的命令名，去重后按需补充探测。
+	var extra []string
+	seenExtra := map[string]bool{}
+	for _, ts := range catalog {
+		if ts.Installed {
+			continue
+		}
+		for _, cmd := range ts.Provides {
+			if _, ok := known[cmd]; !ok && !seenExtra[cmd] {
+				seenExtra[cmd] = true
+				extra = append(extra, cmd)
+			}
+		}
+	}
+	for _, c := range toolchain.ProbeCommands(extra) {
+		known[c.Name] = c
+	}
+
+	for i := range catalog {
+		ts := &catalog[i]
+		if ts.Installed {
+			continue
+		}
+		for _, cmd := range ts.Provides {
+			c, ok := known[cmd]
+			if !ok || !c.OK {
+				continue
+			}
+			source := classifyRuntimeSource(c.Path, home, bundledBin)
+			if source == "" {
+				continue
+			}
+			ts.RuntimeCmd = cmd
+			ts.RuntimeVersion = c.Version
+			ts.RuntimeSource = source
+			break
+		}
+	}
+}
+
+// bundledBinPrefix 返回随包可执行目录前缀，由 launcher 自身位置推导：
+// .../files/bin/<exe> → .../files/bin。玲珑打包态随包工具都部署在该目录；
+// 推导失败（拿不到可执行路径）返回空，来源分类不命中随包分支。
+func (a *App) bundledBinPrefix() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(exe)), "bin")
+}
+
+// classifyRuntimeSource 按命令解析路径归类容器内命中来源。路径分隔符固定用
+// "/"：MountBase 与 LookPath 结果都是 Linux 绝对路径语义。市场自管目录
+// （~/.dsh-tools）返回空——那是 Installed 已覆盖的仓库语义，不应再以运行时
+// 来源出现，避免同一命令展示两个出处。
+func classifyRuntimeSource(path, home, bundledBin string) string {
+	switch {
+	case path == "":
+		return ""
+	case strings.HasPrefix(path, hosttools.MountBase+"/"):
+		return "宿主导入"
+	case bundledBin != "" && strings.HasPrefix(path, bundledBin+"/"):
+		return "随包"
+	case strings.HasPrefix(path, toolchain.InstallDir(home)+"/"):
+		return ""
+	default:
+		return "系统"
 	}
 }
 

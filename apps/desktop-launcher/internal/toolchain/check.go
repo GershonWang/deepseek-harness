@@ -38,12 +38,18 @@ func DefaultSpecs() []Spec {
 	}
 }
 
+// probeTimeout 是单次版本探测上限（Check 与 ProbeCommands 共用）。
+const probeTimeout = 5 * time.Second
+
 // Check 依序探测，单工具失败不影响其余。每次探测最多 5 秒。
 func Check(specs []Spec) []domain.ToolCheck {
 	out := make([]domain.ToolCheck, 0, len(specs))
 	for _, s := range specs {
 		c := domain.ToolCheck{Name: s.Name}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// LookPath 结果随探测一并返回，供按路径前缀归类命令来源；与
+		// exec.Command 内部解析一致，失败不影响后续探测。
+		c.Path, _ = exec.LookPath(s.Command[0])
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 		var buf bytes.Buffer
 		cmd := exec.CommandContext(ctx, s.Command[0], s.Command[1:]...)
 		cmd.Stdout = &buf
@@ -61,6 +67,32 @@ func Check(specs []Spec) []domain.ToolCheck {
 				c.Version = firstLine(buf.String())
 			}
 		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// ProbeCommands 对 Checks 固定清单之外的命令做按需可用性探测：LookPath 命中
+// 即视为可用，未命中的命令不出现在结果里。版本探测（--version）失败不回退
+// 可用性判定——部分命令没有安全的版本参数或以非零退出码打印版本，而市场卡片
+// 只需要"容器内已可用"这一事实与尽力而为的版本号。调用方传入去重后的命令名。
+func ProbeCommands(names []string) []domain.ToolCheck {
+	out := make([]domain.ToolCheck, 0, len(names))
+	for _, name := range names {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		c := domain.ToolCheck{Name: name, OK: true, Path: path}
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		var buf bytes.Buffer
+		cmd := exec.CommandContext(ctx, name, "--version")
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if runErr := cmd.Run(); runErr == nil {
+			c.Version = VersionNumber(firstLine(buf.String()))
+		}
+		cancel()
 		out = append(out, c)
 	}
 	return out

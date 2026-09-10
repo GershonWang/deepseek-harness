@@ -421,6 +421,12 @@ type ToolStatus struct {
 	InstalledVersions []string // 所有已装版本
 	Size              int64    // 字节
 	HasUpdate         bool     // 已安装且有更新版本
+	// 以下三项描述"容器内运行时可用性"：该工具提供的命令已在当前 PATH 命中
+	// （随包/宿主导入/系统提供），与市场仓库安装状态（Installed）相互独立。
+	// 由 app 层组装填充，toolchain 包只声明字段；未命中均为空。
+	RuntimeCmd     string // 命中的主命令名（如 node）
+	RuntimeVersion string // 命中命令的版本号，探测失败为空
+	RuntimeSource  string // 命中来源：随包 / 宿主导入 / 系统
 }
 
 // ToolStatuses 组装所有工具的状态列表。

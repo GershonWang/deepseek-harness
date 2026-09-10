@@ -10,7 +10,9 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 )
 
 // testApp 构造一个不会真正执行 dsh 的 App：RunDoctor 命令不存在，
@@ -285,4 +287,62 @@ func TestShutdown_CancelsRunningDoctor(t *testing.T) {
 		t.Fatal("Shutdown 后 RunDoctor 未在 5 秒内返回（doctor 未被取消）")
 	}
 	assertDoctorUntracked(t, a)
+}
+
+func TestClassifyRuntimeSource(t *testing.T) {
+	const bundled = "/opt/apps/com.deepseek.dsh-desktop/files/bin"
+	home := "/home/tester"
+	cases := []struct {
+		name    string
+		path    string
+		bundled string
+		want    string
+	}{
+		{"空路径不提示", "", bundled, ""},
+		{"宿主导入挂载基址", hosttools.MountBase + "/node/bin/node", bundled, "宿主导入"},
+		{"随包 bin 前缀", bundled + "/node", bundled, "随包"},
+		{"市场自管目录不提示", home + "/.dsh-tools/bin/node", bundled, ""},
+		{"系统运行时兜底", "/usr/bin/node", bundled, "系统"},
+		{"bundled 为空时不命中随包", bundled + "/node", "", "系统"},
+	}
+	for _, c := range cases {
+		if got := classifyRuntimeSource(c.path, home, c.bundled); got != c.want {
+			t.Errorf("%s: classifyRuntimeSource(%q) = %q, want %q", c.name, c.path, got, c.want)
+		}
+	}
+}
+
+func TestAnnotateRuntime(t *testing.T) {
+	catalog := []toolchain.ToolStatus{
+		// node：Checks 已覆盖且命中随包前缀 → 提示随包来源。
+		{ID: "node", Provides: []string{"node", "npm"}},
+		// py：首个命令解析到市场自管目录（不提示），应继续尝试下一个命令。
+		{ID: "py", Provides: []string{"python3", "python"}},
+		// 假命令：Checks 探测失败，且 PATH 上不存在 → 不提示。
+		{ID: "ghost", Provides: []string{"dsh-annotate-ghost-cmd"}},
+		// 已安装工具：仓库状态语义优先，不混入运行时提示。
+		{ID: "go", Provides: []string{"go"}, Installed: true},
+	}
+	checks := []domain.ToolCheck{
+		{Name: "node", OK: true, Version: "24.9.0",
+			Path: "/opt/apps/com.deepseek.dsh-desktop/files/bin/node"},
+		{Name: "python3", OK: true, Version: "3.12.14",
+			Path: "/home/tester/.dsh-tools/bin/python3"},
+		{Name: "python", OK: true, Version: "3.10.12", Path: "/usr/bin/python"},
+		{Name: "dsh-annotate-ghost-cmd", OK: false, Err: "not found"},
+	}
+	annotateRuntime(catalog, checks, "/home/tester", "/opt/apps/com.deepseek.dsh-desktop/files/bin")
+
+	if got := catalog[0]; got.RuntimeCmd != "node" || got.RuntimeVersion != "24.9.0" || got.RuntimeSource != "随包" {
+		t.Fatalf("node 应命中随包来源: %+v", got)
+	}
+	if got := catalog[1]; got.RuntimeCmd != "python" || got.RuntimeVersion != "3.10.12" || got.RuntimeSource != "系统" {
+		t.Fatalf("py 应跳过市场自管命令继续命中 python: %+v", got)
+	}
+	if got := catalog[2]; got.RuntimeCmd != "" || got.RuntimeVersion != "" || got.RuntimeSource != "" {
+		t.Fatalf("探测失败的命令不应提示: %+v", got)
+	}
+	if got := catalog[3]; got.RuntimeCmd != "" {
+		t.Fatalf("已安装工具不应提示运行时来源: %+v", got)
+	}
 }
