@@ -1,5 +1,34 @@
 /* DeepSeek Harness 桌面壳 —— VS Code 深色风格，模块用清晰边框 + 圆角分隔。 */
 
+/* 随包 JetBrains Mono：终端主字体。四个面覆盖 xterm 用到的 500 常规/斜体
+   与 700 粗体/粗斜体；TTF 经 go:embed all:frontend 编入二进制，由 asset
+   server 同源提供。走 @font-face 而非系统 fontconfig 安装，是因为玲珑容器
+   的 fontconfig 只扫 /usr/share/fonts 等系统目录，看不见应用包内的字体。 */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('vendor/fonts/jetbrains-mono/JetBrainsMono-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('vendor/fonts/jetbrains-mono/JetBrainsMono-MediumItalic.ttf') format('truetype');
+  font-weight: 500;
+  font-style: italic;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('vendor/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('vendor/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+}
+
 :root {
   --bg: #1e1e1e;
   --bg-panel: #252526;
@@ -1085,14 +1114,12 @@ body {
   padding: 2px 4px 0 6px;
 }
 
-/* 终端字体渲染优化：WebKitGTK canvas 下字重偏细、边缘发虚，
-   开 subpixel 抗锯齿 + 字形微调，深色背景下更锐利。 */
+/* 关闭终端连字：JetBrains Mono 默认启用 =>/!= 等编程连字，连字会把多个
+   字符并进一个格子，破坏 xterm 的等宽列对齐。注：WebKitGTK 不实现
+   -webkit-font-smoothing，Linux 字形平滑由 fontconfig 决定，写该属性是
+   无效声明，故不保留。 */
 .terminal-holder .xterm {
-  -webkit-font-smoothing: subpixel-antialiased;
   font-feature-settings: "liga" 0, "calt" 0;
-}
-.terminal-holder .xterm-char-measure-element {
-  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .terminal-empty,

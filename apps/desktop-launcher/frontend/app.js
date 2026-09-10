@@ -1297,11 +1297,33 @@ async function createTerminalSession(title) {
   const holder = document.createElement("div");
   holder.className = "terminal-holder";
 
+  // 等随包字体就绪再创建实例：xterm 在 open 时测量字符单元格，
+  // 字体晚到会测出与实际渲染不一致的行列尺寸。加载失败或超时
+  // 只回退系统等宽字体，绝不阻塞终端创建。
+  try {
+    const base = "14px 'JetBrains Mono'";
+    await Promise.race([
+      Promise.all([
+        document.fonts.load("500 " + base),
+        document.fonts.load("italic 500 " + base),
+        document.fonts.load("bold " + base),
+        document.fonts.load("italic bold " + base),
+      ]),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+  } catch (error) {
+    // DOM stub 测试环境没有 document.fonts（真实 webview 异常同理）：
+    // 仅影响字形，按系统回退字体渲染，不中断建会话流程。
+  }
+
   const term = new Terminal({
     theme: TERMINAL_THEME,
-    fontFamily: 'Cascadia Code, JetBrains Mono, Menlo, Consolas, "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
+    // JetBrains Mono 由 styles.css 的 @font-face 随包提供，不依赖系统
+    // fontconfig；其余项仅在 webview 字体加载失败时兜底。原栈里的
+    // Cascadia Code/Menlo/Consolas 在 deepin 上永远缺失，只添空查，已删。
+    fontFamily: '"JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: 500,
     lineHeight: 1.25,
     letterSpacing: 0,
     cursorBlink: true,
