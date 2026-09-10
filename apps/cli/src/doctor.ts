@@ -10,6 +10,8 @@ import { runDiagnosis, runRepair } from '@deepseek-ai/dsh-doctor'
 interface DoctorOptions {
   repair?: number
   json: boolean
+  /** Skip the live loader-probe check; forward to runDiagnosis. */
+  quick?: boolean
 }
 
 const severityRank: Record<string, number> = {
@@ -122,7 +124,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     return report.skipped.length === 0 ? 0 : 1
   }
 
-  const report = await runDiagnosis()
+  const report = await runDiagnosis(undefined, options.quick === true ? { quick: true } : {})
   if (options.json) {
     console.log(JSON.stringify(report, null, 2))
   } else {

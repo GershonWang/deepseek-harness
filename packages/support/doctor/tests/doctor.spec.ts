@@ -107,6 +107,54 @@ describe('runDiagnosis with failing checks', () => {
   })
 })
 
+describe('runDiagnosis quick mode', () => {
+  it('skips the live loader-probe check while keeping the rest', async () => {
+    let probeRan = false
+    registerCheck(makeCheck({
+      id: 'plugin-dynamic-load',
+      category: 'plugin',
+      severity: 'fatal',
+      check: async () => {
+        probeRan = true
+        return { ok: true, message: 'probed', fixable: false, suggestedLevel: 2 }
+      },
+    }))
+    registerCheck(makeCheck({
+      id: 'env-node-version',
+      category: 'env',
+      severity: 'fatal',
+      check: async () => ({ ok: true, message: 'node ok', fixable: false, suggestedLevel: 1 }),
+    }))
+
+    const quickReport = await runDiagnosis(tempHome, { quick: true })
+    expect(probeRan).toBe(false)
+    expect(quickReport.checks.map(c => c.id)).toEqual(['env-node-version'])
+
+    const fullReport = await runDiagnosis(tempHome)
+    expect(probeRan).toBe(true)
+    expect(fullReport.checks.map(c => c.id)).toEqual(['plugin-dynamic-load', 'env-node-version'])
+  })
+
+  it('still reports a fatal failure from the remaining checks in quick mode', async () => {
+    registerCheck(makeCheck({
+      id: 'plugin-dynamic-load',
+      category: 'plugin',
+      severity: 'fatal',
+      check: async () => ({ ok: true, message: 'probed', fixable: false, suggestedLevel: 2 }),
+    }))
+    registerCheck(makeCheck({
+      id: 'cfg-settings-yaml',
+      category: 'config',
+      severity: 'fatal',
+      check: async () => ({ ok: false, message: 'invalid yaml', fixable: true, suggestedLevel: 2 }),
+    }))
+
+    const report = await runDiagnosis(tempHome, { quick: true })
+    expect(report.checks).toHaveLength(1)
+    expect(report.summary.fatal).toBe(1)
+  })
+})
+
 describe('runRepair', () => {
   it('applies level-1 fixes for fixable checks at suggestedLevel <= 1', async () => {
     let fixCalled = false

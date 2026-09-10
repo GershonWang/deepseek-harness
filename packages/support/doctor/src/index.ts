@@ -19,6 +19,7 @@ import type {
   DoctorReport,
   DoctorReportCheckEntry,
   DoctorReportSummary,
+  DiagnosisOptions,
   RepairLevel,
   RepairReport,
 } from './types.ts'
@@ -26,6 +27,7 @@ import type {
 export type {
   CheckCategory,
   CheckResult,
+  DiagnosisOptions,
   DoctorCheck,
   DoctorReport,
   DoctorReportCheckEntry,
@@ -66,16 +68,23 @@ export function _resetRegistry(): void {
   checks.length = 0
 }
 
+/** The only check `quick` skips; it owns the slow subprocess boot probe. */
+const DYNAMIC_LOAD_CHECK_ID = 'plugin-dynamic-load'
+
 /**
  * Run all registered diagnostic checks and produce a report.
  *
  * Checks are executed concurrently. The report preserves registration order.
  * @param dshHome - optional explicit harness home path; resolves the default when omitted.
+ * @param options - `quick: true` skips the live loader-probe check (see {@link DiagnosisOptions}).
  * @returns the full diagnosis report.
  */
-export async function runDiagnosis(dshHome?: string): Promise<DoctorReport> {
+export async function runDiagnosis(dshHome?: string, options: DiagnosisOptions = {}): Promise<DoctorReport> {
   const home = resolveDshHome(dshHome)
-  const results = await Promise.all(checks.map(async (check): Promise<DoctorReportCheckEntry> => {
+  const selected = options.quick === true
+    ? checks.filter(check => check.id !== DYNAMIC_LOAD_CHECK_ID)
+    : checks
+  const results = await Promise.all(selected.map(async (check): Promise<DoctorReportCheckEntry> => {
     const result = await check.check(home)
     return {
       id: check.id,

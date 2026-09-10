@@ -51,6 +51,8 @@ interface DoctorInvocation {
   repair?: number
   /** Output JSON instead of human-readable text. */
   json: boolean
+  /** Skip the live loader-probe check; callers polling quickly select this. */
+  quick: boolean
 }
 
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
@@ -193,14 +195,18 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .description('diagnose and repair common harness installation issues (env, config, plugins, data)')
   doctor
     .option('--json', 'output machine-readable JSON instead of human-readable text')
+    .option('--quick', 'skip the live loader-probe check (fast static pre-flight)')
     .option('--repair [level]', 'run auto-repair at the given level (1=mild, 2=moderate, 3=destructive); omit for level 1')
-    .action((_args: string[], opts: { json?: boolean; repair?: boolean | string }) => {
+    .action((_args: string[], opts: { json?: boolean; quick?: boolean; repair?: boolean | string }) => {
       rejectParentOptions('doctor')
       // Under the root command's passThroughOptions, subcommand boolean and
       // optional-value flags sometimes don't pick up their values from argv.
-      // Fall back to scanning process.argv directly for reliability.
-      const argv = process.argv.slice(2)
-      const json = opts.json ?? argv.includes('--json')
+      // Fall back to scanning this invocation's own argv — the same slice the
+      // root parse consumed, so the scan matches the real process argv that
+      // bin.ts passes (and stays reliable under a test-injected argv).
+      const scan = argv
+      const json = opts.json ?? scan.includes('--json')
+      const quick = opts.quick ?? scan.includes('--quick')
       let repair: number | undefined
       if (opts.repair === true) repair = 1
       else if (typeof opts.repair === 'string') {
@@ -210,9 +216,9 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
         }
         repair = n
       } else {
-        const idx = argv.indexOf('--repair')
+        const idx = scan.indexOf('--repair')
         if (idx >= 0) {
-          const next = argv[idx + 1]
+          const next = scan[idx + 1]
           if (next === undefined || next.startsWith('-')) repair = 1
           else {
             const n = Number(next)
@@ -223,7 +229,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
           }
         }
       }
-      resolved = { mode: 'doctor', json, ...repair !== undefined ? { repair } : {} }
+      resolved = { mode: 'doctor', json, quick, ...repair !== undefined ? { repair } : {} }
     })
 
   try {

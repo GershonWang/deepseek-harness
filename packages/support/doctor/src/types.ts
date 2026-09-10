@@ -6,6 +6,17 @@
 /** Severity level of a diagnostic finding. */
 export type Severity = 'info' | 'warning' | 'error' | 'fatal'
 
+/** Options narrowing what a diagnosis run executes. */
+export interface DiagnosisOptions {
+  /**
+   * Skip the live loader-probe check (`plugin-dynamic-load`). The probe boots
+   * the whole plugin tree in a subprocess and can take up to a minute; callers
+   * that poll quickly (a desktop launcher's pre-flight) select quick mode and
+   * run the full diagnosis later, once a failure is already suspected.
+   */
+  quick?: boolean
+}
+
 /**
  * Repair effort level. Higher levels authorize more invasive changes.
  * - `1`: safe, reversible fixes (e.g. permission tweaks, harmless config additions)
