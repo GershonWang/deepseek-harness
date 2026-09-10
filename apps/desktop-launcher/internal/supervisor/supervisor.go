@@ -188,6 +188,13 @@ func (s *Supervisor) SetEnv(env []string) {
 	s.mu.Unlock()
 }
 
+// Env 返回当前注入的子进程环境（nil 表示继承）。
+func (s *Supervisor) Env() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Env
+}
+
 // Restart 手动重启：停止态直接唤醒 spawn，运行态先优雅终止再唤醒。
 func (s *Supervisor) Restart() {
 	s.mu.Lock()

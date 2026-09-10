@@ -24,6 +24,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/terminal"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
@@ -66,6 +67,8 @@ type FrontendStatus struct {
 	CanConnect         bool
 	CanDisconnect      bool
 	SafeMode           string // "" | "plugins" | "config" | "full"
+	FreshHome          bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+	Preflight          PreflightSummary // 启动前预检状态
 }
 
 // equal 判断两个状态快照是否完全相同，用于变化检测。
@@ -86,7 +89,9 @@ func (s FrontendStatus) equal(o FrontendStatus) bool {
 		s.CanStop == o.CanStop &&
 		s.CanConnect == o.CanConnect &&
 		s.CanDisconnect == o.CanDisconnect &&
-		s.SafeMode == o.SafeMode
+		s.SafeMode == o.SafeMode &&
+		s.FreshHome == o.FreshHome &&
+		s.Preflight.equal(o.Preflight)
 }
 
 // ToolRow 是工具链表格的一行。
@@ -164,6 +169,11 @@ type App struct {
 	mu           sync.Mutex
 	externalBusy bool
 	safeMode     string // "plugins" | "config" | "full" | ""
+	freshHome    bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+
+	// 启动前预检（preflight.go 状态机）与 doctor 面板共用的 doctor 执行器。
+	preflightRunner *preflight.Runner
+	preflight       PreflightSummary
 
 	// 启动失败自动诊断状态（受 mu 保护；语义按失败周期计）。
 	startupDoctorRunning  bool          // 自动诊断是否正在后台运行
@@ -187,7 +197,8 @@ type App struct {
 	lastEmitted FrontendStatus
 }
 
-// New 创建应用控制器并启动 harness 监护。
+// New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
+// 由预检结果决定放行或等待用户决策。
 func New(cfg supervisor.Config, home, configPath string) *App {
 	// 推导 doctor 命令：Args 形如 ["web", "--port", "N"] 或 ["/path/to/bin.js", "web", "--port", "N"]
 	// 后者表示 Command 是 node，第一个 arg 是 dsh 脚本路径。
@@ -199,15 +210,20 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 
 	term := terminal.NewManager()
 
-	return &App{
-		sup:        supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
-		conn:       connector.New(),
-		configPath: configPath,
-		home:       home,
-		dshCmd:     dshCmd,
-		dshScript:  dshScript,
-		term:       term,
+	a := &App{
+		sup:             supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
+		conn:            connector.New(),
+		configPath:      configPath,
+		home:            home,
+		dshCmd:          dshCmd,
+		dshScript:       dshScript,
+		term:            term,
+		preflightRunner: preflight.NewRunner(dshCmd, dshScript, preflightHomePath(home)),
 	}
+	// 预检先于 harness 首次启动：门控监护循环，预检通过/降级决策后放行。
+	a.sup.Gate()
+	go a.runPreflightGate()
+	return a
 }
 
 // ExternalConfigFilePath 返回外部 URL 配置文件路径。
@@ -552,6 +568,10 @@ func (a *App) snapshot() FrontendStatus {
 			target = st.URL
 		}
 	}
+	// 预检/安全模式/全新环境标志在预检状态机与用户操作间并发更新，快照读取收进锁内。
+	a.mu.Lock()
+	safeMode, freshHome, preflightNow := a.safeMode, a.freshHome, a.preflight
+	a.mu.Unlock()
 	s := FrontendStatus{
 		Mode:               modeName(mode),
 		State:              stateName(st.State),
@@ -568,7 +588,9 @@ func (a *App) snapshot() FrontendStatus {
 		CanStop:            (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
 		CanConnect:         mode == domain.ModeContainer && !busy,
 		CanDisconnect:      mode == domain.ModeExternal && !busy,
-		SafeMode:           a.safeMode,
+		SafeMode:           safeMode,
+		FreshHome:          freshHome,
+		Preflight:          preflightNow,
 	}
 	// 连接失败错误只在容器模式展示，成功后清除。
 	if mode != domain.ModeExternal {
@@ -611,17 +633,29 @@ func (a *App) StopServer() FrontendStatus {
 // StartSafeMode 以插件安全模式启动 harness（跳过第三方 bundle，保留官方插件和用户数据）。
 // 适用于升级后第三方插件不兼容导致启动失败的场景。
 func (a *App) StartSafeMode() FrontendStatus {
-	os.Setenv("DSH_SAFE_MODE", "plugins")
-	a.safeMode = "plugins"
-	a.sup.Restart()
-	a.emitStatus()
+	return a.StartSafeModeLevel("plugins")
+}
+
+// StartSafeModeLevel 以指定级别的安全模式启动 harness（"plugins" 跳过第三方
+// bundle；"config" 再跳过用户补丁层，用于用户配置层也损坏的场景）。用户数据
+// 始终保留。门控期（预检等待决策）与失败/停止态都由此放行。
+func (a *App) StartSafeModeLevel(level string) FrontendStatus {
+	os.Setenv("DSH_SAFE_MODE", level)
+	a.mu.Lock()
+	a.safeMode = level
+	a.freshHome = false
+	a.mu.Unlock()
+	a.sup.SetEnv(nil) // 安全模式回到默认 home；与全新环境互斥
+	a.resumeAfterPreflight()
 	return a.snapshot()
 }
 
 // ExitSafeMode 退出安全模式，恢复正常启动。
 func (a *App) ExitSafeMode() FrontendStatus {
 	os.Unsetenv("DSH_SAFE_MODE")
+	a.mu.Lock()
 	a.safeMode = ""
+	a.mu.Unlock()
 	a.sup.Restart()
 	a.emitStatus()
 	return a.snapshot()
@@ -651,27 +685,6 @@ type DoctorReport struct {
 	Fatal       int
 	Fixable     int
 	Error       string // 非空表示 doctor 命令本身执行失败
-}
-
-// doctorEnv 构造 doctor 子进程环境：继承当前环境但剥离 DSH_SAFE_MODE，
-// 再覆盖 DSH_HOME 指向真实的 harness home（a.home/.dsh）。两个历史缺陷
-// 在此一并修复：
-//   - 安全模式会令 loadProfile 跳过第三方 bundle，若让 doctor 继承它，
-//     诊断永远看不到真实安装中的第三方插件问题；
-//   - 之前把 DSH_HOME 设成 a.home（用户主目录而非 ~/.dsh，主目录下没有
-//     profiles/settings/sessions），doctor 会在 $HOME 下自动初始化一个空的
-//     模板 profile（无第三方、无用户设置），诊断 12 项全绿但完全没检查
-//     真实安装。harness 子进程不设 DSH_HOME、由 node 落到 ~/.dsh，
-//     这里显式指向同一目录。
-func (a *App) doctorEnv() []string {
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, "DSH_SAFE_MODE=") {
-			continue
-		}
-		env = append(env, kv)
-	}
-	return append(env, "DSH_HOME="+filepath.Join(a.home, ".dsh"))
 }
 
 // beginDoctorRun 登记一次 doctor 子进程运行：取消上一次仍在运行的 doctor，
@@ -720,14 +733,11 @@ func (a *App) RunDoctor() DoctorReport {
 
 // runDoctor 是内部实现，接收 ctx 以便上层控制生命周期（shutdown / 失败周期重置）。
 func (a *App) runDoctor(ctx context.Context) DoctorReport {
-	args := []string{}
-	if a.dshScript != "" {
-		args = append(args, a.dshScript)
-	}
-	args = append(args, "doctor", "--json")
-
-	cmd := exec.CommandContext(ctx, a.dshCmd, args...)
-	cmd.Env = a.doctorEnv()
+	// doctor 子进程的环境与 argv 统一来自 preflight.Runner：剥离
+	// DSH_SAFE_MODE（否则安全模式下诊断看不到真实安装的第三方插件）、
+	// 显式指向真实 harness home（而非 $HOME）。
+	cmd := exec.CommandContext(ctx, a.dshCmd, a.preflightRunner.DoctorArgs("--json")...)
+	cmd.Env = a.preflightRunner.Env()
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -811,11 +821,7 @@ func exitCodeText(cmd *exec.Cmd) string {
 func (a *App) RunDoctorRepair(level int) string {
 	ctx, cancel, myEpoch, done := a.beginDoctorRun()
 	defer a.endDoctorRun(myEpoch, done, cancel)
-	args := []string{}
-	if a.dshScript != "" {
-		args = append(args, a.dshScript)
-	}
-	args = append(args, "doctor", "--repair", "1")
+	args := a.preflightRunner.DoctorArgs("--repair", "1")
 	if level >= 2 {
 		args[len(args)-1] = "2"
 	}
@@ -824,7 +830,7 @@ func (a *App) RunDoctorRepair(level int) string {
 	}
 
 	cmd := exec.CommandContext(ctx, a.dshCmd, args...)
-	cmd.Env = a.doctorEnv()
+	cmd.Env = a.preflightRunner.Env()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {
 		return "修复失败: " + err.Error()

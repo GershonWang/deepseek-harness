@@ -136,6 +136,18 @@ func (r *Runner) args(extra ...string) []string {
 	return append(args, append([]string{"doctor"}, extra...)...)
 }
 
+// DoctorArgs 导出 doctor 子命令的 argv 组装，供 app 层需要自行控制输出
+// 处理（如 doctor 面板的人类可读修复输出）的调用点复用同一来源。
+func (r *Runner) DoctorArgs(extra ...string) []string {
+	return r.args(extra...)
+}
+
+// Env 导出 doctor 子进程环境（剥离 DSH_SAFE_MODE、注入 DSH_HOME），
+// 供 app 层的 doctor 面板子进程与预检保持同一环境来源。
+func (r *Runner) Env() []string {
+	return r.env
+}
+
 // runDoctor 执行一次 doctor 子命令并解析 JSON 输出。
 func (r *Runner) runDoctor(ctx context.Context, extra []string, out any) error {
 	var stdout, stderr bytes.Buffer
