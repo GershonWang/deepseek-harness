@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -35,6 +36,45 @@ type Session struct {
 	closed  bool
 	onOutput func(data string)
 	onStatus func(status SessionStatus, exitCode int, err error)
+}
+
+// ensureSessionEnv 补齐终端子进程必需的环境变量（TERM/SHELL），返回新环境切片。
+//
+// 玲珑启动 GUI 应用时不携带 SHELL，而 ~/.bashrc 里的 dircolors 等子进程工具
+// 依赖它判断输出格式；bash 会从 /etc/passwd 补一个 $SHELL 变量但并不导出，
+// 子进程读不到，必须在 env 数组里显式兜底，否则每次开终端都会打印
+// "dircolors: no SHELL environment variable" 警告。SHELL 兜底取本次启动的
+// shell；已有的非空值保持不动（开发态从桌面会话继承的值不应被覆盖）。
+// env 数组出现重复条目时 getenv 返回首条，因此空值条目一律剔除、非空值
+// 统一只保留一条，保证子进程看到的 SHELL 恰好一条且非空。TERM 缺失同样
+// 在此兜底，否则很多程序显示异常。
+//
+// base 必须是本次调用新建的切片：函数为避免额外分配会原地紧凑该切片。
+func ensureSessionEnv(base []string, shell string) []string {
+	hasTerm := false
+	shellEntry := ""
+	env := base[:0]
+	for _, e := range base {
+		switch {
+		case strings.HasPrefix(e, "TERM="):
+			hasTerm = true
+			env = append(env, e)
+		case e == "SHELL=":
+			// 空值等价于缺失，剔除后走兜底
+		case strings.HasPrefix(e, "SHELL="):
+			shellEntry = e
+			env = append(env, e)
+		default:
+			env = append(env, e)
+		}
+	}
+	if !hasTerm {
+		env = append(env, "TERM=xterm-256color")
+	}
+	if shellEntry == "" {
+		env = append(env, "SHELL="+shell)
+	}
+	return env
 }
 
 // newSession 创建一个新的 PTY 会话。
@@ -74,22 +114,10 @@ func newSession(id string, opts StartOptions) (*Session, error) {
 		cmd.Dir = opts.Cwd
 	}
 
-	// 合并环境变量：继承系统环境 + 额外环境
-	env := os.Environ()
-	if len(opts.Env) > 0 {
-		env = append(env, opts.Env...)
-	}
-	// 确保 TERM 变量存在，否则很多程序显示异常
-	hasTerm := false
-	for _, e := range env {
-		if len(e) > 5 && e[:5] == "TERM=" {
-			hasTerm = true
-			break
-		}
-	}
-	if !hasTerm {
-		env = append(env, "TERM=xterm-256color")
-	}
+	// 合并环境变量：继承系统环境 + 额外环境，并补齐 TERM/SHELL 兜底。
+	// ensureSessionEnv 会原地紧凑 base，这里必须传新建的切片（os.Environ
+	// 与 append 均返回新切片，满足前提）。
+	env := ensureSessionEnv(append(os.Environ(), opts.Env...), opts.Command)
 	cmd.Env = env
 
 	s.cmd = cmd
