@@ -93,6 +93,22 @@
         <p class="loading-hint">DeepSeek Harness 正在加载插件和服务，请稍候</p>
       </section>
 
+      <!-- 启动前预检页：预检进行中 / 发现问题等待决策 / 修复穷尽降级建议 -->
+      <section id="preflight-page" class="preflight-page hidden">
+        <div id="preflight-icon" class="preflight-icon" aria-hidden="true">🩺</div>
+        <h2 id="preflight-title">启动前预检…</h2>
+        <p id="preflight-hint" class="preflight-hint">正在检查运行环境、配置与插件，稍候片刻</p>
+        <div id="preflight-repairs" class="preflight-repairs hidden"></div>
+        <div id="preflight-issues" class="preflight-issues hidden"></div>
+        <div id="preflight-actions" class="failed-actions hidden">
+          <button id="btn-preflight-deep-repair" class="btn btn-primary">深度修复（含移除问题插件）</button>
+          <button id="btn-preflight-safe-mode" class="btn">安全模式启动</button>
+          <button id="btn-preflight-fresh" class="btn">全新环境启动</button>
+          <button id="btn-preflight-skip" class="btn btn-link">忽略问题，仍然启动</button>
+        </div>
+        <p id="preflight-note" class="preflight-note hidden"></p>
+      </section>
+
       <!-- 启动失败页 -->
       <section id="failed-page" class="failed-page hidden">
         <div class="failed-icon" aria-hidden="true">⚠️</div>
@@ -143,6 +159,10 @@
         <div id="safe-mode-active" class="safe-mode-active hidden">
           <span class="badge-safe">🔒 插件安全模式运行中</span>
           <button id="btn-exit-safe-mode" class="btn btn-link">退出安全模式</button>
+        </div>
+        <div id="fresh-home-active" class="safe-mode-active hidden">
+          <span class="badge-safe">🆕 全新环境运行中（原 ~/.dsh 数据保留）</span>
+          <button id="btn-exit-fresh-home" class="btn btn-link">回到默认环境</button>
         </div>
       </div>
 

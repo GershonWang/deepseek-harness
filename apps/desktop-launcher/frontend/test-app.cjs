@@ -200,12 +200,16 @@ function makeDocument() {
 function buildHtml(document) {
   const ids = [
     "status-dot", "status-text",
-    "harness", "guidance", "loading-page", "failed-page",
+    "harness", "guidance", "loading-page", "failed-page", "preflight-page",
     "failed-reason", "btn-failed-doctor", "btn-failed-safe-mode", "failed-log-hint",
+    "preflight-icon", "preflight-title", "preflight-hint", "preflight-repairs",
+    "preflight-issues", "preflight-actions", "preflight-note",
+    "btn-preflight-deep-repair", "btn-preflight-safe-mode", "btn-preflight-fresh", "btn-preflight-skip",
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "container-panel", "external-panel", "dlg-error", "server-state",
     "server-detail1", "server-detail2", "server-start", "server-stop",
     "safe-mode-row", "safe-mode-active", "ext-connect", "ext-disconnect", "ext-state",
+    "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
     "card-hosts", "host-list", "host-hint",
     "about-repo", "about-version", "win-min", "win-max", "win-close", "titlebar",
@@ -242,10 +246,12 @@ function buildHtml(document) {
   document.body.appendChild(summary);
   // 与 index.html 一致的初始 hidden 态
   for (const id of [
-    "harness", "loading-page", "failed-page",
+    "harness", "loading-page", "failed-page", "preflight-page",
+    "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "doctor-content", "doctor-repair-output",
     "safe-mode-row", "safe-mode-active", "external-panel",
+    "fresh-home-active",
   ]) {
     document.getElementById(id).classList.add("hidden");
   }
@@ -725,4 +731,75 @@ test("市场卡片：运行时提示在版本探测失败时省略版本段", ()
   const hints = h.document.querySelectorAll(".tool-card-runtime");
   assert.equal(hints.length, 1);
   assert.equal(hints[0].textContent, "容器内已可用：node（随包）");
+});
+test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {
+  const h = loadApp();
+  h.status(baseStatus({
+    State: "starting",
+    Preflight: {
+      Phase: "needs-confirm",
+      Busy: false,
+      Error: "",
+      Issues: [
+        { ID: "plugin-dynamic-load", Name: "插件运行时兼容性", Severity: "fatal", Message: "插件 X 导致启动失败", Detail: "", Fixable: true, Level: 2, Kind: "confirm" },
+        { ID: "env-bootstrap-env", Name: ".env 变量", Severity: "fatal", Message: "已注释违规行", Detail: "", Fixable: true, Level: 1, Kind: "auto" },
+      ],
+      Repairs: ["env-bootstrap-env: 已注释"],
+      BackupDirs: ["/home/u/.dsh/backups/doctor-1"],
+    },
+  }));
+
+  const page = h.document.getElementById("preflight-page");
+  assert.equal(page.classList.contains("hidden"), false, "预检页应可见");
+  const loading = h.document.getElementById("loading-page");
+  assert.equal(loading.classList.contains("hidden"), true, "加载页应隐藏");
+
+  assert.equal(h.document.getElementById("preflight-title").textContent, "预检发现问题");
+  const issues = h.document.querySelectorAll(".preflight-issue");
+  assert.equal(issues.length, 2, "应渲染两条问题");
+  const kinds = h.document.querySelectorAll(".preflight-kind");
+  assert.equal(kinds[0].textContent, "需确认修复");
+  assert.equal(kinds[1].textContent, "已自动修复");
+
+  const actions = h.document.getElementById("preflight-actions");
+  assert.equal(actions.classList.contains("hidden"), false, "操作按钮应可见");
+  const repairs = h.document.getElementById("preflight-repairs");
+  assert.match(repairs.textContent, /已应用修复/);
+});
+
+test("预检 running：舞台显示预检页但不显示操作按钮", () => {
+  const h = loadApp();
+  h.status(baseStatus({
+    State: "starting",
+    Preflight: { Phase: "running", Busy: false, Error: "", Issues: [], Repairs: [], BackupDirs: [] },
+  }));
+
+  const page = h.document.getElementById("preflight-page");
+  assert.equal(page.classList.contains("hidden"), false, "预检页应可见");
+  const actions = h.document.getElementById("preflight-actions");
+  assert.equal(actions.classList.contains("hidden"), true, "预检中不应显示操作按钮");
+});
+
+test("预检放行后（ok）回到加载页", () => {
+  const h = loadApp();
+  h.status(baseStatus({
+    State: "starting",
+    Preflight: { Phase: "ok", Busy: false, Error: "", Issues: [], Repairs: [], BackupDirs: [] },
+  }));
+
+  const page = h.document.getElementById("preflight-page");
+  assert.equal(page.classList.contains("hidden"), true, "预检页应隐藏");
+  const loading = h.document.getElementById("loading-page");
+  assert.equal(loading.classList.contains("hidden"), false, "应回到加载页");
+});
+
+test("freshHome 运行中：服务器弹框显示全新环境标识", () => {
+  const h = loadApp();
+  h.status(baseStatus({
+    State: "running",
+    Target: "http://127.0.0.1:1",
+    FreshHome: true,
+  }));
+  const badge = h.document.getElementById("fresh-home-active");
+  assert.equal(badge.classList.contains("hidden"), false, "全新环境标识应可见");
 });

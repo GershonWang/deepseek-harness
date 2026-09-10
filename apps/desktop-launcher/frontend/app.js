@@ -120,9 +120,9 @@ function clearStoppedTimer() {
   }
 }
 
-// 主舞台四选一展示：harness iframe / 引导页 / 启动加载页 / 启动失败页。
+// 主舞台五选一展示：harness iframe / 引导页 / 启动加载页 / 预检页 / 启动失败页。
 function showStageOnly(el) {
-  for (const id of ["harness", "guidance", "loading-page", "failed-page"]) {
+  for (const id of ["harness", "guidance", "loading-page", "preflight-page", "failed-page"]) {
     const node = document.getElementById(id);
     node.classList.toggle("hidden", node !== el);
   }
@@ -139,10 +139,10 @@ function applyStatus(s) {
     text.textContent = "外部服务 " + (s.ExternalURL || "");
   } else if (s.State === "running") {
     dot.className = "dot ok";
-    text.textContent = "运行中 " + s.URL + (s.SafeMode ? " 🔒" : "");
+    text.textContent = "运行中 " + s.URL + (s.SafeMode ? " 🔒" : "") + (s.FreshHome ? " 🆕" : "");
   } else if (s.State === "starting") {
     dot.className = "dot warn";
-    text.textContent = "启动中" + (s.SafeMode ? "（安全模式）" : "");
+    text.textContent = "启动中" + (s.SafeMode ? "（安全模式）" : "") + (s.FreshHome ? "（全新环境）" : "");
   } else if (s.State === "failed") {
     dot.className = "dot danger";
     text.textContent = "启动失败" + (s.LastExit ? " (" + s.LastExit + ")" : "");
@@ -151,8 +151,8 @@ function applyStatus(s) {
     text.textContent = "已停止" + (s.LastExit ? " (" + s.LastExit + ")" : "");
   }
 
-  // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页；
-  // 启动失败 -> 失败页（附失败原因）；手动停止（非重试间隙）-> 引导页。
+  // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页（预检占用时 ->
+  // 预检页）；启动失败 -> 失败页（附失败原因）；手动停止（非重试间隙）-> 引导页。
   const frame = $("#harness");
   if (s.Target) {
     clearStoppedTimer();
@@ -163,7 +163,15 @@ function applyStatus(s) {
     frame.removeAttribute("src");
     if (s.State === "starting") {
       clearStoppedTimer();
-      showStageOnly($("#loading-page"));
+      // 预检占用舞台：预检进行中或等待用户决策时优先于加载页，
+      // 放行（ok/autofixed/skipped/error）后回到正常加载流程。
+      const p = s.Preflight;
+      if (p && (p.Busy || p.Phase === "running" || p.Phase === "needs-confirm" || p.Phase === "exhausted")) {
+        renderPreflight(p);
+        showStageOnly($("#preflight-page"));
+      } else {
+        showStageOnly($("#loading-page"));
+      }
     } else if (s.State === "failed") {
       clearStoppedTimer();
       $("#failed-reason").textContent = s.LastExit || "";
@@ -182,6 +190,98 @@ function applyStatus(s) {
 
   updateStartupDoctor(s);
   renderServerDialog(s);
+}
+
+/* ---------- 启动前预检 ---------- */
+
+// 预检问题 Kind 的徽标文案。
+const PREFLIGHT_KIND_LABEL = {
+  auto: "已自动修复",
+  confirm: "需确认修复",
+  none: "无自动方案",
+  warn: "提醒",
+};
+
+// renderPreflight 渲染预检页内容：按 Phase 切换标题/图标/按钮组。
+// 仅在舞台被预检占用（applyStatus 判定）时调用，状态事件驱动重绘。
+function renderPreflight(p) {
+  const icon = $("#preflight-icon");
+  const title = $("#preflight-title");
+  const hint = $("#preflight-hint");
+  const issues = $("#preflight-issues");
+  const repairs = $("#preflight-repairs");
+  const actions = $("#preflight-actions");
+  const note = $("#preflight-note");
+
+  const repairing = !!p.Busy;
+  const decided = p.Phase === "needs-confirm" || p.Phase === "exhausted";
+  const exhausted = p.Phase === "exhausted";
+
+  icon.textContent = exhausted ? "🧯" : decided ? "🩺" : "🩺";
+  title.textContent = repairing
+    ? (exhausted ? "修复执行中…" : "预检修复执行中…")
+    : exhausted ? "修复后仍存在问题" : decided ? "预检发现问题" : "启动前预检…";
+  hint.textContent = repairing
+    ? "正在应用修复并复查，真实插件加载探测最长可能需要一分钟"
+    : exhausted
+      ? "自动修复已尽力，仍无法保证启动。推荐先试安全模式（保留全部数据），必要时用全新环境（数据隔离，凭证需重新配置）"
+      : decided
+        ? "低风险修复已自动应用；下列问题需要你确认修复方式，或选择其他启动方式"
+        : "正在检查运行环境、配置与插件，稍候片刻";
+
+  // 问题清单
+  const list = p.Issues || [];
+  if (decided && list.length > 0) {
+    issues.innerHTML = "";
+    for (const item of list) {
+      const row = document.createElement("div");
+      row.className = "preflight-issue";
+      const badge = document.createElement("span");
+      badge.className = "preflight-kind kind-" + (item.Kind || "warn");
+      badge.textContent = PREFLIGHT_KIND_LABEL[item.Kind] || item.Kind || "";
+      const body = document.createElement("div");
+      body.className = "preflight-issue-body";
+      const name = document.createElement("div");
+      name.className = "preflight-issue-name";
+      name.textContent = item.Name || item.ID;
+      const msg = document.createElement("div");
+      msg.className = "preflight-issue-msg";
+      msg.textContent = item.Message + (item.Detail ? " — " + item.Detail : "");
+      body.appendChild(name);
+      body.appendChild(msg);
+      row.appendChild(badge);
+      row.appendChild(body);
+      issues.appendChild(row);
+    }
+    issues.classList.remove("hidden");
+  } else {
+    issues.classList.add("hidden");
+  }
+
+  // 已应用的修复摘要（含备份位置，用户可回滚）
+  const applied = p.Repairs || [];
+  if (applied.length > 0) {
+    repairs.textContent = "已应用修复: " + applied.join("；");
+    repairs.classList.remove("hidden");
+  } else {
+    repairs.classList.add("hidden");
+  }
+
+  // 按钮组：仅决策态显示；修复中禁用。
+  actions.classList.toggle("hidden", !decided);
+  $("#btn-preflight-deep-repair").classList.toggle("hidden", exhausted);
+  for (const id of ["btn-preflight-deep-repair", "btn-preflight-safe-mode", "btn-preflight-fresh", "btn-preflight-skip"]) {
+    $(("#" + id)).disabled = repairing;
+  }
+
+  // 备份目录提示
+  const backups = p.BackupDirs || [];
+  if (backups.length > 0) {
+    note.textContent = "修复前的原文件已备份到: " + backups.join("、");
+    note.classList.remove("hidden");
+  } else {
+    note.classList.add("hidden");
+  }
 }
 
 /* ---------- 启动失败自动诊断 ---------- */
@@ -432,9 +532,11 @@ function renderServerDialog(s) {
 
   // 安全模式：失败态显示「以插件安全模式启动」
   const failed = s.State === "failed" || s.State === "stopped";
-  $("#safe-mode-row").classList.toggle("hidden", !failed || !!s.SafeMode);
+  $("#safe-mode-row").classList.toggle("hidden", !failed || !!s.SafeMode || !!s.FreshHome);
   // 运行中且为安全模式，显示安全模式标识和退出按钮
   $("#safe-mode-active").classList.toggle("hidden", !s.SafeMode);
+  // 全新环境运行标识与退出入口
+  $("#fresh-home-active").classList.toggle("hidden", !s.FreshHome);
 
   $("#ext-connect").disabled = !s.CanConnect;
   $("#ext-disconnect").disabled = !s.CanDisconnect;
@@ -858,6 +960,26 @@ function bindUI() {
   });
   $("#btn-exit-safe-mode").addEventListener("click", async () => {
     applyStatus(await api().ExitSafeMode());
+  });
+
+  // 预检页操作：深度修复 / 忽略启动 / 安全模式 / 全新环境。
+  $("#btn-preflight-deep-repair").addEventListener("click", async () => {
+    applyStatus(await api().ConfirmDeepRepair());
+  });
+  $("#btn-preflight-skip").addEventListener("click", async () => {
+    applyStatus(await api().SkipPreflight());
+  });
+  $("#btn-preflight-safe-mode").addEventListener("click", async () => {
+    applyStatus(await api().StartSafeModeLevel("config"));
+  });
+  $("#btn-preflight-fresh").addEventListener("click", async () => {
+    if (!confirm("将以全新的运行时环境启动（~/.dsh-fallback）：\n\n· 会话历史、模型设置、第三方插件均不可见\n· API Key 等凭证不迁移，需要重新配置\n· 原始 ~/.dsh 数据原样保留，可随时回到默认环境\n\n确认继续？")) {
+      return;
+    }
+    applyStatus(await api().StartFreshHome());
+  });
+  $("#btn-exit-fresh-home").addEventListener("click", async () => {
+    applyStatus(await api().ExitFreshHome());
   });
 
   $("#ext-connect").addEventListener("click", async () => {

@@ -366,6 +366,113 @@ body {
   font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace;
 }
 
+/* ---------- 启动前预检页 ---------- */
+.preflight-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  text-align: center;
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.preflight-icon {
+  font-size: 44px;
+  line-height: 1;
+}
+
+.preflight-page h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--fg-strong);
+}
+
+.preflight-hint {
+  font-size: 13px;
+  color: var(--fg-dim);
+  max-width: 520px;
+  line-height: 1.6;
+}
+
+.preflight-repairs {
+  font-size: 12px;
+  color: var(--fg-dim);
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 14px;
+  max-width: 560px;
+  line-height: 1.6;
+}
+
+.preflight-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 620px;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.preflight-issue {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.preflight-kind {
+  flex: none;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  color: var(--fg-dim);
+  white-space: nowrap;
+}
+
+.preflight-kind.kind-confirm {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.preflight-kind.kind-none {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.preflight-kind.kind-auto {
+  color: var(--ok, #3aa66a);
+  border-color: var(--ok, #3aa66a);
+}
+
+.preflight-issue-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-strong);
+}
+
+.preflight-issue-msg {
+  font-size: 12px;
+  color: var(--fg-dim);
+  line-height: 1.5;
+}
+
+.preflight-note {
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace;
+  max-width: 560px;
+  overflow-wrap: anywhere;
+}
+
 /* 启动失败自动诊断提示（失败页） */
 #auto-diag-hint {
   display: inline-flex;
