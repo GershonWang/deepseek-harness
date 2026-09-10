@@ -257,15 +257,16 @@
   <div class="modal-card modal-terminal">
     <div class="modal-head">
       <span class="modal-title"><span class="brand-dot"></span>终端</span>
-      <div class="terminal-head-actions">
+      <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
+    </div>
+    <div class="modal-body terminal-body">
+      <!-- 标签条整行承载工具栏背景，「新建」按钮与标签同排靠右 -->
+      <div class="terminal-tabbar">
+        <div id="terminal-tabs" class="terminal-tabs"></div>
         <button id="terminal-new" class="icon-btn-sm" title="新建终端">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
-        <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
       </div>
-    </div>
-    <div class="modal-body terminal-body">
-      <div id="terminal-tabs" class="terminal-tabs"></div>
       <!-- xterm 实例的挂载容器：每个会话一个 .terminal-holder 子节点，
            切换标签时整体搬运 DOM 节点以保留各自的滚动历史与光标状态 -->
       <div id="terminal-content" class="terminal-content"></div>

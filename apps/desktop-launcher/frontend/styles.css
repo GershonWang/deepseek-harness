@@ -982,10 +982,15 @@ body {
   flex-shrink: 0;
 }
 
-.terminal-head-actions {
+/* 标签条整行容器：承载工具栏背景与底边线，「新建」按钮与标签同排靠右。 */
+.terminal-tabbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
+  padding: 6px 8px 0;
+  background: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .icon-btn-sm {
@@ -1019,12 +1024,10 @@ body {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 8px 0;
-  background: var(--bg-toolbar);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
   min-height: 36px;
+  overflow-x: auto;
 }
 
 .terminal-tab {
