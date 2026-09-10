@@ -217,6 +217,29 @@ func TestManager_CloseAll(t *testing.T) {
 	}
 }
 
+// TestSession_Close_InteractiveBashPromptly 回归钉子：交互式 bash 忽略
+// SIGTERM，首信号必须用 SIGHUP，否则 Close 每次耗满 3 秒宽限期、终端
+// 删标签冻结（历史缺陷）。健康路径毫秒级，断言放宽到 2 秒容纳 CI 抖动。
+func TestSession_Close_InteractiveBashPromptly(t *testing.T) {
+	session, err := newSession("test-close-bash", StartOptions{
+		Command: "/bin/bash",
+		Cols:    80,
+		Rows:    24,
+	})
+	if err != nil {
+		t.Fatalf("创建会话失败: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	start := time.Now()
+	if err := session.Close(); err != nil {
+		t.Fatalf("Close 失败: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("交互式 bash 会话 Close 过慢（疑似首信号失效）: %v", elapsed)
+	}
+}
+
 // 测试环境：确保有 /bin/sleep
 func TestMain(m *testing.M) {
 	if _, err := os.Stat("/bin/sleep"); err != nil {

@@ -286,9 +286,11 @@ func (s *Session) Resize(cols, rows int) error {
 
 // Close 关闭终端会话。
 //
-// 清理顺序：SIGTERM → 等待退出 → 关闭 PTY 主端（内核向挂在这个终端上的
-// 所有进程发 SIGHUP）→ SIGKILL 兜底。既兼容玲珑沙箱（不依赖 Setpgid），
-// 又能通过 SIGHUP 传播清理终端内的子进程。
+// 清理顺序：SIGHUP → 关闭 PTY 主端 → 等待退出 → SIGKILL 兜底。
+// 首信号用 SIGHUP 而非 SIGTERM：交互式 shell 忽略 SIGTERM，会耗满
+// 宽限期；HUP 是终端关闭的语义信号且经 kill(2) 直达，不需要进程组
+// 或控制终端关系，兼容玲珑沙箱。shell 收到 HUP 后自行向作业转发，
+// 运行中的子进程随之清理。
 // 多次调用 Close 是安全的，后续调用直接返回 nil。
 func (s *Session) Close() error {
 	s.mu.Lock()
@@ -314,11 +316,15 @@ func (s *Session) Close() error {
 		return nil
 	}
 
-	// 1. SIGTERM 优雅终止主进程（shell 会收到并转发给前台进程组）
-	_ = cmd.Process.Signal(syscall.SIGTERM)
+	// 1. SIGHUP 挂断主进程：这是终端关闭的语义信号，交互式 shell 对它
+	//    不免疫（收到即退出并向运行中的作业转发 HUP）。不能用 SIGTERM——
+	//    交互式 bash 按惯例忽略它；也不能依赖关闭 PTY 主端的内核 SIGHUP
+	//    广播——玲珑禁止 Setpgid 后子进程未与 PTY 建立控制终端关系，
+	//    广播不会发生（实测空闲 bash 会因此耗满 3 秒宽限期）。
+	//    直接发信号走 kill(2)，不涉及进程组，玲珑沙箱放行。
+	_ = cmd.Process.Signal(syscall.SIGHUP)
 
-	// 2. 关闭 PTY 主端：内核会给所有以该 PTY 为控制终端的进程发 SIGHUP，
-	//    这是 POSIX 标准的终端清理机制，无需 Setpgid 就能覆盖子进程
+	// 2. 关闭 PTY 主端：阻止后续输出并释放终端资源
 	if ptyFile != nil {
 		_ = ptyFile.Close()
 	}
