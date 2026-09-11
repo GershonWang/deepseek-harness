@@ -742,6 +742,21 @@ function setupBuiltinToggle() {
   });
 }
 
+// 宿主导入 toggle：默认折叠成一行。折叠态由 #hosts-summary 报出已挂载项数，
+// 展开后才出现扫描与挂载表单——把底部这块常驻空间还给卡片网格。
+function setupHostsToggle() {
+  const btn = $("#hosts-toggle");
+  const body = $("#hosts-body");
+  if (!btn || !body) return;
+  // aria-expanded 由 DOM 的折叠态推导，不在 HTML 与 JS 里各记一份状态。
+  const sync = () => btn.setAttribute("aria-expanded", body.classList.contains("hidden") ? "false" : "true");
+  btn.addEventListener("click", () => {
+    body.classList.toggle("hidden");
+    sync();
+  });
+  sync();
+}
+
 // renderProgress 处理 toolchain:progress 事件：更新进度表，并定向刷新对应
 // 卡片的进度条（不做整网格重渲染，下载回调高频时保持 UI 响应）。
 function renderProgress(ev) {
@@ -954,9 +969,12 @@ function renderHostTools(t) {
     return;
   }
   hostBox.classList.remove("hidden");
+  const mounts = t.HostTools || [];
+  // 折叠态下唯一可见的一行：报出已挂载项数，用户不必展开就知道有没有配置。
+  $("#hosts-summary").textContent = mounts.length ? "已挂载 " + mounts.length + " 项" : "";
   const hl = $("#host-list");
   hl.innerHTML = "";
-  for (const h of t.HostTools || []) {
+  for (const h of mounts) {
     const row = document.createElement("div");
     row.className = "host-item";
     const rm = document.createElement("button");
@@ -1193,6 +1211,7 @@ function init() {
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
   window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
   setupBuiltinToggle();
+  setupHostsToggle();
 
   // 初始化终端模块
   initTerminal();

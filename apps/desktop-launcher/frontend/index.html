@@ -223,18 +223,25 @@
       <div id="builtin-panel" class="builtin-panel hidden" aria-label="内置工具清单"></div>
       <div id="toolchain-notice" class="hint"></div>
 
-      <!-- 宿主导入向导 -->
+      <!-- 宿主导入是高级路径：默认折叠成一行，折叠态由 #hosts-summary 报出已挂载项数，
+           展开后才出现扫描与挂载表单（绑定见 app.js 的 setupHostsToggle）。 -->
       <section id="card-hosts" class="tool-card" aria-label="宿主导入">
-        <h3 class="section-title">宿主导入（玲珑沙箱，重启应用生效）</h3>
-        <div class="host-row">
-          <button id="host-scan" class="btn btn-quiet">扫描宿主</button>
-          <input id="host-path" type="text" placeholder="宿主工具链目录，如 /usr/lib/jvm/java-21" spellcheck="false">
-          <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
-          <button id="host-add" class="btn btn-primary">挂载</button>
+        <button id="hosts-toggle" class="tool-card-toggle" aria-expanded="false" aria-controls="hosts-body">
+          <span class="tool-card-toggle-chevron" aria-hidden="true">▸</span>
+          <span>宿主导入（玲珑沙箱，重启应用生效）</span>
+          <span id="hosts-summary" class="tool-card-toggle-summary"></span>
+        </button>
+        <div id="hosts-body" class="hosts-body hidden">
+          <div class="host-row">
+            <button id="host-scan" class="btn btn-quiet">扫描宿主</button>
+            <input id="host-path" type="text" placeholder="宿主工具链目录，如 /usr/lib/jvm/java-21" spellcheck="false">
+            <input id="host-name" type="text" placeholder="名称(可选)" spellcheck="false">
+            <button id="host-add" class="btn btn-primary">挂载</button>
+          </div>
+          <div id="host-scan-list" class="host-scan-list"></div>
+          <div id="host-list" class="host-list"></div>
+          <div id="host-hint" class="hint"></div>
         </div>
-        <div id="host-scan-list" class="host-scan-list"></div>
-        <div id="host-list" class="host-list"></div>
-        <div id="host-hint" class="hint"></div>
       </section>
 
       <div class="actions">

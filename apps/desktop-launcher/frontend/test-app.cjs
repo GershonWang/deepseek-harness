@@ -276,6 +276,8 @@ function buildHtml(document) {
     /* 工具市场 / 内置工具：bindUI 静态绑定（无判空）的元素必须存在 */
     "market-search", "market-refresh", "host-scan", "host-scan-list",
     "market-grid", "market-statusbar", "builtin-toggle", "builtin-panel",
+    /* 宿主导入折叠：renderHostTools 写摘要、setupHostsToggle 绑标题 */
+    "hosts-toggle", "hosts-body", "hosts-summary",
     "repair-toast",
     /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
     "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
@@ -308,6 +310,8 @@ function buildHtml(document) {
     "doctor-content", "doctor-repair-output",
     "safe-mode-row", "safe-mode-active", "external-panel", "server-address",
     "fresh-home-active",
+    /* 宿主导入的正文默认折叠（与 index.html 的 class="hosts-body hidden" 一致） */
+    "hosts-body",
   ]) {
     document.getElementById(id).classList.add("hidden");
   }
@@ -917,6 +921,37 @@ test("市场卡片：运行时提示在版本探测失败时省略版本段", ()
   assert.equal(hints.length, 1);
   assert.equal(hints[0].textContent, "容器内已可用：node（随包）");
 });
+
+/* ---------- 宿主导入折叠 ---------- */
+
+test("宿主导入：默认折叠，点标题展开可收起，摘要报出已挂载项数", () => {
+  const h = loadApp();
+  const toggle = h.document.getElementById("hosts-toggle");
+  const body = h.document.getElementById("hosts-body");
+  assert.ok(body.classList.contains("hidden"), "默认应折叠");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false", "折叠态 aria-expanded 为 false");
+
+  const tools = fakeTools();
+  tools.HostTools = [{ Name: "jdk21", Source: "/usr/lib/jvm/java-21", Target: "/opt/host/jdk21", Mounted: true }];
+  h.sandbox.__testRenderTools(tools);
+  assert.equal(h.document.getElementById("hosts-summary").textContent, "已挂载 1 项",
+    "折叠态应报出已挂载项数");
+
+  toggle.fire("click");
+  assert.equal(body.classList.contains("hidden"), false, "点击标题应展开");
+  assert.equal(toggle.getAttribute("aria-expanded"), "true");
+
+  toggle.fire("click");
+  assert.equal(body.classList.contains("hidden"), true, "再次点击应收起");
+  assert.equal(toggle.getAttribute("aria-expanded"), "false");
+});
+
+test("宿主导入：没有挂载项时摘要留空", () => {
+  const h = loadApp();
+  h.sandbox.__testRenderTools(fakeTools());
+  assert.equal(h.document.getElementById("hosts-summary").textContent, "");
+});
+
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {
   const h = loadApp();
   h.status(baseStatus({

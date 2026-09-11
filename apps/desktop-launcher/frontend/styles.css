@@ -930,6 +930,19 @@ button, input, select, textarea { font: inherit; }
 .tool-card .section-title { margin: 0; }
 
 .host-list { display: flex; flex-direction: column; }
+/* 宿主导入的折叠标题：默认折叠，展开才出现扫描与挂载表单。外观沿用分区小标题
+   （11px/600/弱化色），右侧补一个已挂载项数的摘要，折叠时也有信息可读。 */
+.tool-card-toggle {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 0; border: 0; background: none; cursor: pointer; text-align: left;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.4px; color: var(--fg-dim);
+}
+.tool-card-toggle:hover { color: var(--fg); }
+.tool-card-toggle-chevron { display: inline-block; transition: transform 0.12s ease; }
+.tool-card-toggle[aria-expanded="true"] .tool-card-toggle-chevron { transform: rotate(90deg); }
+.tool-card-toggle-summary { margin-left: auto; font-weight: 400; }
+.tool-card-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.hosts-body { display: flex; flex-direction: column; gap: 6px; }
 .tool-list { display: flex; flex-direction: column; }
 .tool-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
 .tool-row + .tool-row { border-top: 1px solid var(--border); }
