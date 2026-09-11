@@ -1317,3 +1317,20 @@ test("终端标签快捷键：Ctrl+Shift+T 新建、Ctrl+Tab 循环、Ctrl+Shift
   assert.equal(onKey({ type: "keydown", ctrlKey: true, code: "Tab" }), false,
     "Ctrl+Tab 不得进 PTY");
 });
+
+test("关掉最后一个标签回到空态，并提示下一步操作", async () => {
+  const h = loadApp();
+  await flush();
+  h.document.getElementById("btn-terminal").fire("click");
+  await flush();
+  await flush();
+  const content = h.document.getElementById("terminal-content");
+  assert.equal(content.children[0], h.terminals[0].holder, "打开后内容区应是会话节点");
+
+  // 标签上的 × 与 Ctrl+Shift+W 都走 closeTerminalSession
+  await h.sandbox.__testCloseTerminal("pty-1");
+  assert.match(content.innerHTML, /没有打开的终端/, "最后一个会话关闭后应回到空态");
+  assert.match(content.innerHTML, /Ctrl\+Shift\+T/, "空态应指明下一步操作");
+  assert.equal(content.children.length, 0, "空态不应留下会话节点");
+  assert.equal(h.document.getElementById("terminal-tabs").innerHTML, "", "标签栏应清空");
+});

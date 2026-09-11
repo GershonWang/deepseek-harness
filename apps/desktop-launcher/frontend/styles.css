@@ -1530,3 +1530,32 @@ body {
 .terminal-error {
   color: var(--danger-text);
 }
+
+/* 空态分两行：上一行说现状，下一行小一号说明下一步点哪里 */
+.terminal-empty {
+  flex-direction: column;
+  gap: 6px;
+}
+.terminal-empty-hint {
+  font-size: 12px;
+  opacity: 0.75;
+}
+
+/* xterm 视口滚动条：WebKitGTK 走 ::-webkit-scrollbar 系列伪元素，默认样式在
+   终端画布上是一道亮边。这里压暗成终端自己的色阶，滑块用透明边框内缩。 */
+.terminal-holder .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.terminal-holder .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.terminal-holder .xterm-viewport::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background-clip: content-box;
+}
+.terminal-holder .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #4a4a4a;
+  background-clip: content-box;
+}

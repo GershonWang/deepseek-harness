@@ -1831,7 +1831,11 @@ function restoreTerminalContent() {
   if (!content) return;
   const session = terminalState.sessions[terminalState.activeId];
   if (!session) {
-    content.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
+    // 空态顺带指路：关掉最后一个标签后，下一步是点标签栏的 +（或 Ctrl+Shift+T）
+    content.innerHTML = '<div class="terminal-empty">'
+      + "<span>没有打开的终端</span>"
+      + '<span class="terminal-empty-hint">点标签栏的 + 新建一个（Ctrl+Shift+T）</span>'
+      + "</div>";
     return;
   }
   content.replaceChildren(session.holder);
