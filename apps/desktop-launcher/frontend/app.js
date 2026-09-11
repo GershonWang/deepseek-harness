@@ -804,12 +804,17 @@ function renderMarketGrid() {
 }
 
 // toolCard 渲染单个工具卡片；已装与未装分支的动作不同。
+// installed 是状态标记（描边不再区分已装）；updatable 与 installing 才是需要用户
+// 注意、由卡片描边强调的两种状态。
 function toolCard(c) {
   const el = document.createElement("div");
-  el.className = "tool-card-item" + (c.Installed ? " installed" : "");
-  el.dataset.toolId = c.ID; // 供进度事件定向更新
   const prog = marketState.progress[c.ID];
   const installing = !!prog && prog.Phase !== "done" && prog.Phase !== "error";
+  el.className = "tool-card-item"
+    + (c.Installed ? " installed" : "")
+    + (c.Installed && c.HasUpdate ? " updatable" : "")
+    + (installing ? " installing" : "");
+  el.dataset.toolId = c.ID; // 供进度事件定向更新
 
   const head = document.createElement("div");
   head.className = "tool-card-head";

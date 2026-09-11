@@ -1066,6 +1066,10 @@ button, input, select, textarea { font: inherit; }
   min-height: 141px;
 }
 .tool-card-item.has-runtime { min-height: 160px; }
+/* 强调色只留给要用户动作的两种卡片。已安装是这里的常态（首屏 11/19），整排绿描边
+   只会让网格发花；未安装卡片则有品牌色按钮与"可安装"徽标，也不缺强调。 */
+.tool-card-item.updatable { border-color: color-mix(in srgb, var(--warn) 55%, var(--border-strong)); }
+.tool-card-item.installing { border-color: color-mix(in srgb, var(--brand) 55%, var(--border-strong)); }
 .tool-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tool-card-name { font-weight: 600; color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 描述截两行：不截断的长描述会挤掉下面的元信息行（同一处高度预算）。
