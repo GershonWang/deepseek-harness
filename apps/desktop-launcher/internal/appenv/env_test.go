@@ -3,6 +3,7 @@ package appenv
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -10,17 +11,90 @@ import (
 func TestResolve_OverrideBin(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_PORT", "8080")
+	// overlay 落到临时目录：Resolve 会写这个文件，测试不能碰真实的 ~/.cache。
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	r := Resolve()
 	if r.Config.Command != "/custom/dsh" {
 		t.Errorf("expected /custom/dsh, got %s", r.Config.Command)
 	}
-	if r.Config.Args[0] != "web" || r.Config.Args[1] != "--port" || r.Config.Args[2] != "8080" {
-		t.Errorf("unexpected args: %v", r.Config.Args)
+	// launcher 自己的 flag 必须先于 app 的 --port（见 harnessArgs 的顺序约束），
+	// 所以首项是 web、末两项才是 --port <n>。
+	if r.Config.Args[0] != "web" {
+		t.Errorf("expected web first, got %v", r.Config.Args)
+	}
+	if n := len(r.Config.Args); r.Config.Args[n-2] != "--port" || r.Config.Args[n-1] != "8080" {
+		t.Errorf("expected trailing --port 8080, got %v", r.Config.Args)
+	}
+}
+
+// 监护声明必须落到 argv 上：harness 由 launcher 的 Supervisor 管生命周期，
+// dsh-market 的一键重启会用同一个 --port 与它竞态。
+func TestResolve_InjectsSupervisorOverlay(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_PORT", "8080")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
+
+	r := Resolve()
+	overlay := filepath.Join(dir, supervisorOverlayName)
+	want := []string{"web", "--patch", overlay, "--port", "8080"}
+	if !slices.Equal(r.Config.Args, want) {
+		t.Fatalf("Args = %v, want %v", r.Config.Args, want)
+	}
+
+	body, err := os.ReadFile(overlay)
+	if err != nil {
+		t.Fatalf("overlay not written: %v", err)
+	}
+	// 断言行地址与字段名：二者是 dsh-market 的第三方契约，改名即静默失效。
+	if !strings.Contains(string(body), "- id: dsh-market") {
+		t.Errorf("overlay missing target row: %s", body)
+	}
+	if !strings.Contains(string(body), "allowRestart: false") {
+		t.Errorf("overlay missing allowRestart: false: %s", body)
+	}
+}
+
+// 入口脚本前缀决定 harness 能否被拉起，overlay 的位置决定它是否被解析：
+// 两种错位都会让这条路径失去保护或直接启动失败。
+func TestHarnessArgs_EntryPrefixOrder(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	overlay := filepath.Join(os.Getenv("DSH_DESKTOP_LOG_DIR"), supervisorOverlayName)
+
+	cases := []struct {
+		name  string
+		entry string
+		want  []string
+	}{
+		{"no entry", "", []string{"web", "--patch", overlay, "--port", "1"}},
+		{"entry prefix", "/opt/h/bin.js", []string{"/opt/h/bin.js", "web", "--patch", overlay, "--port", "1"}},
+	}
+	for _, c := range cases {
+		if got := harnessArgs(c.entry, "1"); !slices.Equal(got, c.want) {
+			t.Errorf("%s: harnessArgs = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// overlay 写不进去时省略 --patch，而不是拿一个不存在的路径去启动，或让整个
+// harness 起不来——监护本身仍然有效，只是退回"两个重启者"的旧行为。
+func TestHarnessArgs_OmitsOverlayWhenUnwritable(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DSH_DESKTOP_LOG_DIR", notADir)
+
+	got := harnessArgs("", "1234")
+	want := []string{"web", "--port", "1234"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("harnessArgs = %v, want %v", got, want)
 	}
 }
 
 func TestResolve_DefaultPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	os.Unsetenv("DSH_DESKTOP_PORT")
 	r := Resolve()
 	// 默认预留一个空闲 loopback 端口，保证 harness 重启时复用同一端口。
@@ -31,6 +105,7 @@ func TestResolve_DefaultPort(t *testing.T) {
 
 func TestResolve_ExplicitPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	t.Setenv("DSH_DESKTOP_PORT", "18080")
 	r := Resolve()
 	if r.Port != "18080" {

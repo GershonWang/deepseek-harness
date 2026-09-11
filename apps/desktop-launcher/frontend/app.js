@@ -528,6 +528,7 @@ function renderServerDialog(s) {
   }
 
   $("#server-start").disabled = !s.CanStart;
+  $("#server-restart").disabled = !s.CanRestart;
   $("#server-stop").disabled = !s.CanStop;
 
   // 安全模式：失败态显示「以插件安全模式启动」
@@ -951,6 +952,9 @@ function bindUI() {
 
   $("#server-start").addEventListener("click", async () => {
     applyStatus(await api().StartServer());
+  });
+  $("#server-restart").addEventListener("click", async () => {
+    applyStatus(await api().RestartServer());
   });
   $("#server-stop").addEventListener("click", async () => {
     applyStatus(await api().StopServer());

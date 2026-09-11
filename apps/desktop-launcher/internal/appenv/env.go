@@ -26,13 +26,15 @@ type Resolved struct {
 //  2. $PREFIX/harness/lib/bin.js 存在（打包态）
 //  3. repo 内 apps/cli/lib/bin.js 存在（开发态）
 //  4. 回退：node + 当前目录 bin.js
+//
+// 四条分支都经 harnessArgs 组装参数，以保证监护声明 overlay 无一遗漏。
 func Resolve() Resolved {
 	port := resolvePort()
 	logDir := resolveLogDir()
 
 	if bin := os.Getenv("DSH_DESKTOP_DSH_BIN"); bin != "" {
 		return Resolved{
-			Config: supervisor.Config{Command: bin, Args: []string{"web", "--port", port}, LogDir: logDir},
+			Config: supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
 			Port:   port,
 		}
 	}
@@ -48,7 +50,7 @@ func Resolve() Resolved {
 			node = resolveNode()
 		}
 		return Resolved{
-			Config: supervisor.Config{Command: node, Args: []string{packagedBin, "web", "--port", port}, LogDir: logDir},
+			Config: supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
 			Port:   port,
 		}
 	}
@@ -57,15 +59,80 @@ func Resolve() Resolved {
 	devBin := filepath.Join(cwd, "..", "cli", "lib", "bin.js")
 	if _, err := os.Stat(devBin); err == nil {
 		return Resolved{
-			Config: supervisor.Config{Command: resolveNode(), Args: []string{devBin, "web", "--port", port}, LogDir: logDir},
+			Config: supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
 			Port:   port,
 		}
 	}
 
 	return Resolved{
-		Config: supervisor.Config{Command: resolveNode(), Args: []string{"bin.js", "web", "--port", port}, LogDir: logDir},
+		Config: supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
 		Port:   port,
 	}
+}
+
+// supervisorOverlayName 是 launcher 写入运行时目录、并在每次 spawn 时传给
+// harness 的 patch overlay 文件名。
+const supervisorOverlayName = "supervisor-overlay.yml"
+
+// supervisorOverlayBody 是 overlay 的内容：声明 harness 由本 launcher 的
+// Supervisor 监护，因此插件市场不得再自行重启。
+//
+// 必须禁用的原因：dsh-market 插件的"立即重启"端点会 spawn 一个 detached
+// helper，用复用的 argv（含同一个稳定 --port，见 resolvePort）拉起替代进程；
+// 而本 launcher 的监护循环在 harness 退出后同样会用该端口重启。两者对同一个
+// 端口竞态，先 bind 的胜出，另一方以 EADDRINUSE 退出。若监护循环屡次败给对方，
+// 它会在 StartupTimeoutMs 后进入失败态并弹诊断，而诊断只检查自己 spawn 的
+// 进程，看不到 helper 写在 tmpdir 的 dsh-market-restart-*.err.log——用户因此
+// 看到"服务启动失败"却又"检测不到故障点"。让监护循环成为唯一的重启者，
+// 竞态的前提即不存在。
+//
+// 依赖的第三方契约：entry id `dsh-market` 与配置字段 `allowRestart`。上游若改名
+// 或移除，patch 匹配不到行只会产生一条 include 警告（不会阻止启动），但本
+// 保护随之失效——这是选择用 overlay 而非改 dsh 源码的代价，改这里需同步核对
+// dsh-market 的 settings 命名空间。
+const supervisorOverlayBody = `# 由 dsh-desktop-launcher 生成，请勿手工编辑。
+# harness 由 launcher 的 Supervisor 监护（spawn、重启、端口都归它管），
+# 插件市场不得再自行重启：两者会用同一个 --port 竞态，先 bind 的胜出，
+# 另一方 EADDRINUSE 退出。
+- id: dsh-market
+  config:
+    allowRestart: false
+`
+
+// harnessArgs 组装 harness 的启动参数：入口脚本（可为空）、web 子命令、声明
+// 监护关系的 overlay，以及稳定端口。
+//
+// 集中在一处是因为 Resolve 有四条入口分支，任何一条漏掉 overlay 都会让那条
+// 路径重新引入与 dsh-market 的端口竞态。
+//
+// 顺序不可调换：`web` 子命令启用了 passThroughOptions，而 `--port` 是 web app
+// 自己的 flag 而非 launcher 的选项，它一旦出现，其后所有参数都会原样透传给
+// app——排在它之后的 `--patch` 不会再被解析，overlay 静默失效（实测报
+// `error: unknown option '--patch'`）。因此 launcher 自己的 flag 必须先于
+// `--port`。
+//
+// overlay 写失败时静默省略该参数：监护本身仍然有效，只是回到"两个重启者"
+// 的旧行为，比让 harness 因缺失参数而启动不起来更可取。
+func harnessArgs(entry, port string) []string {
+	args := make([]string, 0, 6)
+	if entry != "" {
+		args = append(args, entry)
+	}
+	args = append(args, "web")
+	if overlay, err := writeSupervisorOverlay(); err == nil {
+		args = append(args, "--patch", overlay)
+	}
+	return append(args, "--port", port)
+}
+
+// writeSupervisorOverlay 把监护声明写入 launcher 运行时目录，返回其路径。
+// 内容固定，每次启动覆写即可，无需比较或保留旧版本。
+func writeSupervisorOverlay() (string, error) {
+	path := filepath.Join(resolveLogDir(), supervisorOverlayName)
+	if err := os.WriteFile(path, []byte(supervisorOverlayBody), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // resolvePort 稳定端口：harness 重启时复用同一端口，GUI 才能重连。

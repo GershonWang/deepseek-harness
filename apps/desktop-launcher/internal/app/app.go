@@ -64,6 +64,7 @@ type FrontendStatus struct {
 	StartupDoctorReady bool // 自动诊断结果已就绪（本次失败周期内）
 	CanStart           bool
 	CanStop            bool
+	CanRestart         bool
 	CanConnect         bool
 	CanDisconnect      bool
 	SafeMode           string // "" | "plugins" | "config" | "full"
@@ -87,6 +88,7 @@ func (s FrontendStatus) equal(o FrontendStatus) bool {
 		s.StartupDoctorReady == o.StartupDoctorReady &&
 		s.CanStart == o.CanStart &&
 		s.CanStop == o.CanStop &&
+		s.CanRestart == o.CanRestart &&
 		s.CanConnect == o.CanConnect &&
 		s.CanDisconnect == o.CanDisconnect &&
 		s.SafeMode == o.SafeMode &&
@@ -586,6 +588,7 @@ func (a *App) snapshot() FrontendStatus {
 		StartupDoctorReady: doctorReady,
 		CanStart:           (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
 		CanStop:            (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
+		CanRestart:         mode == domain.ModeContainer && !busy && (st.State == domain.StateStarting || st.State == domain.StateRunning),
 		CanConnect:         mode == domain.ModeContainer && !busy,
 		CanDisconnect:      mode == domain.ModeExternal && !busy,
 		SafeMode:           safeMode,
@@ -626,6 +629,18 @@ func (a *App) StartServer() FrontendStatus {
 // StopServer 手动停止容器内 harness 并暂停自动重启。
 func (a *App) StopServer() FrontendStatus {
 	a.sup.StopHarness()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// RestartServer 重启容器内 harness：运行态先优雅终止再拉起，停止/失败态直接
+// 拉起（见 supervisor.Restart）。
+//
+// 插件变更后让新配置生效靠这个入口：dsh-market 的一键重启已被 launcher 注入的
+// 监护声明禁用（appenv.supervisorOverlayBody），harness 的生命周期统一归
+// Supervisor，避免两个重启者争抢同一个 --port。
+func (a *App) RestartServer() FrontendStatus {
+	a.sup.Restart()
 	a.emitStatus()
 	return a.snapshot()
 }

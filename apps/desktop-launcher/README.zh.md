@@ -32,6 +32,8 @@
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
+harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+
 ## 文件结构
 
 ```

@@ -207,7 +207,7 @@ function buildHtml(document) {
     "btn-preflight-deep-repair", "btn-preflight-safe-mode", "btn-preflight-fresh", "btn-preflight-skip",
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "container-panel", "external-panel", "dlg-error", "server-state",
-    "server-detail1", "server-detail2", "server-start", "server-stop",
+    "server-detail1", "server-detail2", "server-start", "server-restart", "server-stop",
     "safe-mode-row", "safe-mode-active", "ext-connect", "ext-disconnect", "ext-state",
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
@@ -325,6 +325,10 @@ function makeWails(runCalls, overrides = {}) {
     Status: async () => baseStatus(),
     StartServer: overrides.StartServer ?? (async () => {
       runCalls.push("start");
+      return baseStatus();
+    }),
+    RestartServer: overrides.RestartServer ?? (async () => {
+      runCalls.push("restart");
       return baseStatus();
     }),
     StopServer: async () => baseStatus(),
@@ -802,4 +806,25 @@ test("freshHome 运行中：服务器弹框显示全新环境标识", () => {
   }));
   const badge = h.document.getElementById("fresh-home-active");
   assert.equal(badge.classList.contains("hidden"), false, "全新环境标识应可见");
+});
+
+test("服务器弹框「重启」按钮在运行态调用 RestartServer", async () => {
+  // dsh-market 的一键重启已被 launcher 的监护声明禁用（两个重启者会争同一个
+  // --port），插件变更后走这个入口，可用性由状态里的 CanRestart 决定。
+  const h = loadApp();
+  h.status(baseStatus({ State: "running", CanStart: false, CanStop: true, CanRestart: true }));
+  const btn = h.document.getElementById("server-restart");
+  assert.ok(btn, "服务器弹框应有重启按钮");
+  assert.equal(btn.disabled, false, "运行态重启按钮应可用");
+
+  await btn.fire("click");
+  await flush();
+  assert.ok(h.runCalls.includes("restart"), "点击重启应调用 RestartServer");
+});
+
+test("停止态禁用「重启」按钮", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "stopped", CanRestart: false }));
+  assert.equal(h.document.getElementById("server-restart").disabled, true,
+    "停止态由「启动」承担，重启应不可用");
 });
