@@ -1059,9 +1059,16 @@ button, input, select, textarea { font: inherit; }
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
   flex: 1; min-height: 0; overflow-y: auto;
   align-content: start;
+  /* 滚动条与卡片之间要有一条通道。滚动条画在滚动视口的右缘，卡片一直排到那里
+     就会被压住：实机截图逐列取色，滑块左缘与卡片右缘只差 0–1px，而滑块右侧到
+     弹框边线还空着约 12px。右内边距留出通道，等量的右外边距再把网格（连同它的
+     滚动条）整体右推进弹框正文的内边距里——滚动条因此靠近弹框右缘，卡片位置
+     基本不变，两者之间空出这条通道。 */
+  padding-right: 10px;
+  margin-right: -10px;
   /* 细滚动条：默认滚动条在 WebKitGTK 下是一道亮边，与深色卡片风格不符，15px 的
-     占位也会挤掉卡片。scrollbar-* 给标准实现，::-webkit-scrollbar 给 webkit2gtk
-     （与终端视口同一套做法：滑块用透明边框内缩）。 */
+     占位也会挤掉卡片。scrollbar-* 给标准实现，::-webkit-scrollbar 给引擎按同一套
+     尺寸渲染（与终端视口同一套做法：滑块用透明边框内缩）。 */
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
 }
