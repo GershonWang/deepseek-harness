@@ -1127,6 +1127,10 @@ body {
   background: var(--bg-hover);
   color: var(--fg-strong);
 }
+/* 复制成功反馈：图标换成对勾并用成功色，1.5s 后由脚本复原 */
+.icon-btn-sm.copied {
+  color: var(--ok);
+}
 
 .modal-terminal .modal-body {
   flex: 1;

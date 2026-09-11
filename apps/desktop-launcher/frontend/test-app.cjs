@@ -207,7 +207,7 @@ function buildHtml(document) {
     "btn-preflight-deep-repair", "btn-preflight-safe-mode", "btn-preflight-fresh", "btn-preflight-skip",
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "container-panel", "external-panel", "dlg-error", "server-state",
-    "server-detail1", "server-detail2", "server-start", "server-restart", "server-stop",
+    "server-detail1", "server-detail2", "server-start", "server-restart", "server-stop", "server-copy",
     "safe-mode-row", "safe-mode-active", "ext-connect", "ext-disconnect", "ext-state",
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
@@ -358,6 +358,8 @@ function makeWails(runCalls, overrides = {}) {
         WindowMinimise() {},
         WindowToggleMaximise() {},
         Quit() {},
+        // 复制服务地址走这条通道（与终端复制同一实现）；文本记入 runCalls 供断言。
+        ClipboardSetText: async (text) => { runCalls.push(`clipboard:${text}`); },
       },
       addEventListener() {},
     },
@@ -827,4 +829,29 @@ test("停止态禁用「重启」按钮", () => {
   h.status(baseStatus({ State: "stopped", CanRestart: false }));
   assert.equal(h.document.getElementById("server-restart").disabled, true,
     "停止态由「启动」承担，重启应不可用");
+});
+
+test("服务器弹框复制按钮：运行态复制完整地址并反馈已复制", async () => {
+  const h = loadApp();
+  await flush();
+  const url = "http://127.0.0.1:1/?token=abc";
+  h.status(baseStatus({ State: "running", CanStart: false, CanStop: true, URL: url }));
+
+  const btn = h.document.getElementById("server-copy");
+  assert.equal(btn.classList.contains("hidden"), false, "运行态应显示复制按钮");
+  assert.equal(h.document.getElementById("server-detail1").textContent, url,
+    "地址行应显示含 token 的完整地址");
+
+  await btn.fire("click");
+  await flush();
+  assert.ok(h.runCalls.includes(`clipboard:${url}`),
+    "点击应把完整地址写入剪贴板（含 token，与界面显示一致）");
+  assert.ok(btn.classList.contains("copied"), "复制成功后按钮应进入已复制态");
+});
+
+test("非运行态隐藏复制按钮", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "stopped" }));
+  assert.equal(h.document.getElementById("server-copy").classList.contains("hidden"), true,
+    "停止态地址行显示的是退出原因，复制按钮应隐藏");
 });

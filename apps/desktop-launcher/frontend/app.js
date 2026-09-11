@@ -492,6 +492,54 @@ function updateStartupDoctor(s) {
   }
 }
 
+/** 复制按钮的默认图标（两个叠加方块），与 index.html 中的初始内容一致。 */
+const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+/** 复制成功后的对勾图标。 */
+const COPIED_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
+/** 复制反馈的复原计时器；连续复制时重置，避免前一次的复原抹掉后一次的反馈。 */
+let copyResetTimer = null;
+
+/**
+ * 把复制按钮切到「已复制」态并在 1.5s 后复原。
+ *
+ * 反馈落在按钮自身而不是新增提示条：弹框的行高固定，插入文字会让正在发生的
+ * 布局跳动，而用户的视线本来就在刚点过的图标上。
+ * @param {HTMLElement} btn - 复制按钮；缺省时静默返回。
+ */
+function flashCopyButton(btn) {
+  if (!btn) return;
+  btn.innerHTML = COPIED_ICON;
+  btn.title = "已复制";
+  btn.classList.add("copied");
+  if (copyResetTimer) clearTimeout(copyResetTimer);
+  copyResetTimer = setTimeout(() => {
+    btn.innerHTML = COPY_ICON;
+    btn.title = "复制服务地址";
+    btn.classList.remove("copied");
+    copyResetTimer = null;
+  }, 1500);
+}
+
+/**
+ * 复制 harness 服务地址并给出成功反馈。
+ *
+ * 走 Wails 注入的 `window.runtime.ClipboardSetText`（GTK 实现，容器内可用），
+ * 与终端复制同一通道；`navigator.clipboard` 在 WebKit 容器里权限不可靠。
+ * 复制失败只记控制台，不弹错误框打断用户手上的操作。
+ * @param {string} url - 要复制的地址；空值直接返回（按钮此时应处于隐藏态）。
+ */
+function copyServerAddress(url) {
+  if (!url) return;
+  if (!window.runtime || !window.runtime.ClipboardSetText) {
+    console.warn("copy server address: ClipboardSetText unavailable");
+    return;
+  }
+  window.runtime.ClipboardSetText(url)
+    .then(() => flashCopyButton($("#server-copy")))
+    .catch((e) => { console.warn("copy server address failed:", e && e.message); });
+}
+
 function renderServerDialog(s) {
   const externalMode = radioValue() === "external";
   $("#container-panel").classList.toggle("hidden", externalMode);
@@ -530,6 +578,9 @@ function renderServerDialog(s) {
   $("#server-start").disabled = !s.CanStart;
   $("#server-restart").disabled = !s.CanRestart;
   $("#server-stop").disabled = !s.CanStop;
+  // 复制按钮只在地址即为服务 URL 时出现：其余状态下这一行显示的是「正在启动…」、
+  // 退出原因或日志路径，复制它们没有意义。
+  $("#server-copy").classList.toggle("hidden", s.State !== "running");
 
   // 安全模式：失败态显示「以插件安全模式启动」
   const failed = s.State === "failed" || s.State === "stopped";
@@ -958,6 +1009,9 @@ function bindUI() {
   });
   $("#server-stop").addEventListener("click", async () => {
     applyStatus(await api().StopServer());
+  });
+  $("#server-copy").addEventListener("click", () => {
+    copyServerAddress(state.status && state.status.URL);
   });
   $("#btn-safe-mode").addEventListener("click", async () => {
     applyStatus(await api().StartSafeMode());
