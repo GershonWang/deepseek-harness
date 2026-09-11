@@ -918,8 +918,12 @@ function toolCard(c) {
   } else {
     el.append(head, desc, meta, actions);
   }
-  // 运行时提示固定插在 meta 之后、动作区之前（append 顺序即 DOM 顺序）。
-  if (runtimeHint) el.append(runtimeHint);
+  // 运行时提示追加在动作区之后（也就是卡片最后一行）。它比其他卡片多占一行，
+  // 因此同时给卡片抬高最小高度档次（见 .tool-card-item.has-runtime）。
+  if (runtimeHint) {
+    el.classList.add("has-runtime");
+    el.append(runtimeHint);
+  }
   return el;
 }
 
