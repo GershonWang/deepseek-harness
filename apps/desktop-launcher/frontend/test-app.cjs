@@ -635,6 +635,25 @@ test("force 诊断穿透缓存与进行中状态（重新诊断/修复复检必�
     true, "复检结果仍正常渲染");
 });
 
+test("诊断报告用语义类着色，不把主题色值写进内联样式", async () => {
+  // 内联色只能写死一套主题：过去写的是深色主题的值，浅色主题下就成了白底上的
+  // 浅绿浅黄（对比度 1.8–2.5:1）。颜色必须由 CSS 按主题给出，JS 只给语义类。
+  const h = loadApp();
+  await flush();
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+
+  const summary = h.document.getElementById("doctor-summary-text").innerHTML;
+  assert.equal(/style="[^"]*color\s*:/iu.test(summary), false, "摘要不得内联颜色");
+  assert.match(summary, /class="sev-ok"/u, "通过计数应带 ok 语义类");
+  assert.match(summary, /class="sev-error"/u, "失败计数应带 error 语义类");
+
+  const checks = h.document.getElementById("doctor-checks").innerHTML;
+  assert.equal(/style="[^"]*color\s*:/iu.test(checks), false, "诊断清单不得内联颜色");
+  assert.match(checks, /doctor-check-icon sev-error/u, "失败项图标应带 error 语义类");
+  assert.match(checks, /doctor-check-icon sev-ok/u, "通过项图标应带 ok 语义类");
+});
+
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
   const h = loadApp();
   const fn = h.sandbox.__testRenderRepairOutput;

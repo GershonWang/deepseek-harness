@@ -1268,15 +1268,17 @@ function init() {
       return;
     }
 
-    const sevColor = { fatal: "#f48771", error: "#f48771", warning: "#cca700", info: "#75beff" };
-    const statusColor = (ok, sev) => ok ? "#89d185" : (sevColor[sev] || "#ccc");
+    // 语义类而非内联色值：内联只能写死一套主题的颜色，浅色主题下会变成白底上的
+    // 浅绿浅黄（对比度 1.8–2.5:1）。类名对应的颜色由 styles.css 按主题给出。
+    const sevClass = { fatal: "sev-error", error: "sev-error", warning: "sev-warn", info: "sev-info" };
+    const statusClass = (ok, sev) => ok ? "sev-ok" : (sevClass[sev] || "sev-muted");
 
     setDoctorSummary(
       `<strong>共 ${r.Total} 项</strong>：` +
-      `<span style="color:#89d185">✓ ${r.OK} 通过</span>，` +
-      `<span style="color:#f48771">✗ ${r.Failed} 失败</span>` +
-      (r.Fatal > 0 ? `（<span style="color:#f48771">${r.Fatal} 严重</span>）` : "") +
-      (r.Fixable > 0 ? `，<span style="color:#cca700">${r.Fixable} 项可自动修复</span>` : ""),
+      `<span class="sev-ok">✓ ${r.OK} 通过</span>，` +
+      `<span class="sev-error">✗ ${r.Failed} 失败</span>` +
+      (r.Fatal > 0 ? `（<span class="sev-error">${r.Fatal} 严重</span>）` : "") +
+      (r.Fixable > 0 ? `，<span class="sev-warn">${r.Fixable} 项可自动修复</span>` : ""),
       true,
     );
 
@@ -1300,14 +1302,14 @@ function init() {
 
     const checksHtml = r.Checks.map((c) => {
       const icon = c.OK ? "✓" : "✗";
-      const color = statusColor(c.OK, c.Severity);
+      const colorClass = statusClass(c.OK, c.Severity);
       const fixBadge = c.Fixable && !c.OK
         ? `<span class="pill warn" style="margin-left:auto">可修复 L${c.SuggestedLevel}</span>` : "";
       const detail = c.Detail && !c.OK
         ? `<div class="doctor-detail">${escapeHtml(c.Detail)}</div>` : "";
       return `
         <div class="doctor-check-row">
-          <span class="doctor-check-icon" style="color:${color}">${icon}</span>
+          <span class="doctor-check-icon ${colorClass}">${icon}</span>
           <div class="doctor-check-main">
             <div class="doctor-check-title">
               <span>${escapeHtml(c.Name)}</span>

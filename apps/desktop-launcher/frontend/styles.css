@@ -30,6 +30,10 @@
 }
 
 :root {
+  /* 声明页面同时支持两套配色：浏览器自身绘制的东西（滚动条、原生控件、
+     默认画布）才会跟着 prefers-color-scheme 走，而不是固定用浅色。 */
+  color-scheme: light dark;
+
   --bg: #1e1e1e;
   --bg-panel: #252526;
   --bg-toolbar: #2d2d30;
@@ -41,6 +45,9 @@
   --brand-strong: #6e8bff;
   --accent: var(--brand);
   --brand-text: var(--brand-strong);
+  /* 危险色的文字角色：与 --brand-text 同一模式。深色下 --danger 作为文字只有
+     4.29:1，浅色下 --danger 本身就有 4.93:1，因此只有深色需要单独给值。 */
+  --danger-text: #f48771;
   --radius-lg: 10px;
   --fg: #cccccc;
   --fg-strong: #ffffff;
@@ -51,6 +58,16 @@
   --radius: 8px;
   --radius-sm: 4px;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+
+  /* 语义色实底上的前景色。背景来自 --brand/--danger/--warn，前景写死一份
+     会让两套主题里总有一套踩线——浅色 --warn 是深黄棕，配深色文字只有 3.8:1。
+     因此每个前景按主题各给一份，使用点只引用 --on-*。 */
+  --on-brand: #ffffff;
+  --on-danger: #ffffff;
+  --on-warn: #1a1a1a;
+
+  /* 随包 JetBrains Mono 的字体栈：终端、地址、诊断详情等需要逐字符核对的位置共用。 */
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
 @media (prefers-color-scheme: light) {
@@ -65,6 +82,7 @@
     --brand: #2547d0;
     --brand-strong: #1b38b8;
     --brand-text: var(--brand);
+    --danger-text: var(--danger);
     --fg: #3b3b3b;
     --fg-strong: #1e1e1e;
     --fg-dim: #6e6e6e;
@@ -72,6 +90,8 @@
     --warn: #9d6d00;
     --danger: #d13438;
     --shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+    /* 浅色下 --warn 变深，深色文字在它上面只有 3.83:1，改用白字（4.54:1）。 */
+    --on-warn: #ffffff;
   }
 }
 
@@ -165,8 +185,8 @@ body {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--warn, #cca700);
-  border: 2px solid var(--bg-titlebar, #222);
+  background: var(--warn);
+  border: 2px solid var(--bg-toolbar);
   box-sizing: content-box;
 }
 
@@ -196,7 +216,7 @@ body {
   transition: background 0.12s ease, color 0.12s ease;
 }
 .win-btn:hover { background: var(--bg-hover); color: var(--fg-strong); }
-.win-btn.win-close:hover { background: var(--danger); color: #fff; }
+.win-btn.win-close:hover { background: var(--danger); color: var(--on-danger); }
 
 /* ---------- 按钮 ---------- */
 .btn {
@@ -215,14 +235,14 @@ body {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-brand);
 }
 .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
 
 .btn-danger {
   background: transparent;
   border-color: var(--danger);
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
@@ -257,7 +277,7 @@ body {
   width: 100%;
   height: 100%;
   border: 0;
-  background: #fff;
+  background: var(--bg-panel);
 }
 
 /* ---------- 引导页卡片 ---------- */
@@ -343,7 +363,7 @@ body {
 .failed-page h2 {
   font-size: 20px;
   font-weight: 700;
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
 .failed-reason {
@@ -444,13 +464,13 @@ body {
 }
 
 .preflight-kind.kind-none {
-  color: var(--danger);
+  color: var(--danger-text);
   border-color: var(--danger);
 }
 
 .preflight-kind.kind-auto {
-  color: var(--ok, #3aa66a);
-  border-color: var(--ok, #3aa66a);
+  color: var(--ok);
+  border-color: var(--ok);
 }
 
 .preflight-issue-name {
@@ -489,7 +509,7 @@ body {
 #auto-diag-hint.diagnosing::before {
   content: "";
   width: 12px; height: 12px;
-  border: 2px solid rgba(204, 167, 0, 0.35);
+  border: 2px solid color-mix(in srgb, var(--warn) 35%, transparent);
   border-top-color: var(--warn);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -619,7 +639,7 @@ body {
 
 /* 服务地址、PID 这类要逐字符核对的串用随包等宽字体，避免比例字体下字形宽窄不一 */
 .row-value.mono {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.45;
 }
@@ -659,7 +679,7 @@ body {
 }
 .state-value.state-ok { color: var(--ok); }
 .state-value.state-warn { color: var(--warn); }
-.state-value.state-danger { color: var(--danger); }
+.state-value.state-danger { color: var(--danger-text); }
 .state-value.state-muted { color: var(--fg-dim); }
 
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -734,7 +754,7 @@ body {
 .ext-row input:focus { border-color: var(--accent); }
 
 .ext-state { font-size: 12px; color: var(--fg); white-space: pre-line; }
-.error { font-size: 12px; color: var(--danger); min-height: 1em; white-space: pre-wrap; }
+.error { font-size: 12px; color: var(--danger-text); min-height: 1em; white-space: pre-wrap; }
 
 /* 工具链表格 */
 .tools-wrap {
@@ -762,7 +782,7 @@ body {
 }
 
 .tools td.state-ok { color: var(--ok); }
-.tools td.state-missing { color: var(--danger); }
+.tools td.state-missing { color: var(--danger-text); }
 .tools td.state-warn { color: var(--warn); }
 
 .hint { font-size: 12px; line-height: 1.7; color: var(--fg-dim); }
@@ -855,7 +875,7 @@ body {
   border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent); }
 .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); }
-.pill.danger { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent);
+.pill.danger { color: var(--danger-text); background: color-mix(in srgb, var(--danger) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent); }
 
 .btn:focus-visible, .host-row input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
@@ -878,8 +898,8 @@ body {
 .market-update-banner {
   display: flex; align-items: center; gap: 10px;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--warn, #cca700) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--warn, #cca700) 35%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
   border-radius: 6px;
   font-size: 13px;
   flex-shrink: 0;
@@ -887,7 +907,7 @@ body {
 .market-update-banner .update-badge {
   display: inline-flex; align-items: center; justify-content: center;
   width: 18px; height: 18px; border-radius: 50%;
-  background: var(--warn, #cca700); color: #111;
+  background: var(--warn); color: var(--on-warn);
   font-weight: bold; font-size: 12px;
 }
 .market-update-banner #market-update-all { margin-left: auto; }
@@ -1012,7 +1032,7 @@ body {
   padding: 12px 16px;
   font-size: 13px; line-height: 1.6;
   border-radius: 10px;
-  box-shadow: var(--shadow, 0 4px 16px rgba(0,0,0,.35));
+  box-shadow: var(--shadow);
   border: 1px solid var(--border);
   background: var(--bg-panel);
   color: var(--fg-strong);
@@ -1037,8 +1057,8 @@ body {
   color: var(--fg-strong);
   margin-bottom: 8px;
   padding: 8px 12px;
-  background: rgba(204, 167, 0, 0.15);
-  border: 1px solid rgba(204, 167, 0, 0.4);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
   border-radius: 8px;
 }
 .doctor-summary-safe-hint { margin-bottom: 8px; }
@@ -1050,6 +1070,14 @@ body {
   font-size: 13px;
 }
 .doctor-summary-text { flex: 1; min-width: 0; }
+
+/* 诊断结果语义色。这些颜色过去由 app.js 以内联 style 写成深色主题的字面色值，
+   浅色主题下变成白底上的浅绿浅黄（1.8–2.5:1），因此改为语义类走 token。 */
+.sev-ok { color: var(--ok); }
+.sev-error { color: var(--danger-text); }
+.sev-warn { color: var(--warn); }
+.sev-info { color: var(--brand-text); }
+.sev-muted { color: var(--fg-dim); }
 .doctor-summary #doctor-refresh { flex-shrink: 0; }
 .doctor-content { max-height: 50vh; overflow-y: auto; }
 .doctor-checks { display: flex; flex-direction: column; gap: 6px; }
@@ -1067,7 +1095,7 @@ body {
 .doctor-detail {
   margin-top: 6px; padding: 8px 10px;
   background: var(--bg); border-radius: 6px;
-  font-family: var(--mono, monospace); font-size: 11.5px;
+  font-family: var(--mono); font-size: 11.5px;
   white-space: pre-wrap; color: var(--fg-dim);
   max-height: 120px; overflow: auto;
 }
@@ -1155,7 +1183,7 @@ body {
 }
 .repair-panel-status.running { color: var(--warn); }
 .repair-panel-status.ok { color: var(--ok); }
-.repair-panel-status.error { color: var(--danger); }
+.repair-panel-status.error { color: var(--danger-text); }
 .repair-panel-body {
   padding: 10px 12px;
   font-size: 12.5px; line-height: 1.7; color: var(--fg);
@@ -1167,7 +1195,7 @@ body {
 .repair-panel-body .rp-row { display: flex; gap: 8px; align-items: baseline; }
 .repair-panel-body .rp-row.ok { color: var(--ok); }
 .repair-panel-body .rp-row.warn { color: var(--warn); }
-.repair-panel-body .rp-row.error { color: var(--danger); }
+.repair-panel-body .rp-row.error { color: var(--danger-text); }
 .repair-panel-body .rp-badge {
   font-size: 11px; font-weight: 600;
   padding: 1px 8px; border-radius: 999px; background: var(--bg); flex-shrink: 0;
@@ -1176,10 +1204,10 @@ body {
   padding: 8px 12px;
   border-top: 1px dashed var(--border);
   font-size: 11.5px; color: var(--fg-dim);
-  font-family: var(--mono, monospace);
+  font-family: var(--mono);
   word-break: break-all;
 }
-.btn-warn { background: var(--warn); color: #1a1a1a; border-color: transparent; }
+.btn-warn { background: var(--warn); color: var(--on-warn); border-color: transparent; }
 .btn-warn:hover { opacity: 0.9; }
 
 /* ---------- 终端 ---------- */
@@ -1315,14 +1343,14 @@ body {
 }
 .terminal-tab-close:hover {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-danger);
 }
 
 .terminal-content {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background: var(--term-bg, #1a1a1a);
+  background: var(--term-bg);
   overflow: hidden;
 }
 
@@ -1353,35 +1381,12 @@ body {
   font-size: 14px;
 }
 .terminal-error {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 
-/* 终端颜色变量 */
+/* 终端背景色。16 色调色板是终端自己的固定配色，不随壳的主题变化，且 xterm 的
+   theme 选项只接受具体色值（不解析 CSS 变量），唯一的事实来源是 app.js 的
+   TERMINAL_THEME；这里只保留 xterm 画布之外那一层用到的背景色。 */
 .terminal-content {
   --term-bg: #1a1a1a;
-  --term-fg: #d4d4d4;
-  --term-black: #000000;
-  --term-red: #f14c4c;
-  --term-green: #23d18b;
-  --term-yellow: #e2e210;
-  --term-blue: #3b8eea;
-  --term-magenta: #bc3fbc;
-  --term-cyan: #29b7d3;
-  --term-white: #e5e5e5;
-  --term-bright-black: #666666;
-  --term-bright-red: #f14c4c;
-  --term-bright-green: #23d18b;
-  --term-bright-yellow: #f5f543;
-  --term-bright-blue: #3b8eea;
-  --term-bright-magenta: #bc3fbc;
-  --term-bright-cyan: #29b7d3;
-  --term-bright-white: #ffffff;
-  --term-bg-black: #000000;
-  --term-bg-red: #f14c4c;
-  --term-bg-green: #23d18b;
-  --term-bg-yellow: #e2e210;
-  --term-bg-blue: #3b8eea;
-  --term-bg-magenta: #bc3fbc;
-  --term-bg-cyan: #29b7d3;
-  --term-bg-white: #e5e5e5;
 }
