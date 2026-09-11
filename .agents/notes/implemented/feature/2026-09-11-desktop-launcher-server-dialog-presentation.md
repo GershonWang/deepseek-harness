@@ -26,6 +26,18 @@ The split exists because the launch token is 43 base64url characters (`SECRET_BY
 
 The status bar shows the host and port only (`127.0.0.1:3456`). The full address, token included, stays in the dialog, which renders it and copies it with one click ([copy affordance](2026-09-11-desktop-launcher-copy-service-address.md)).
 
+## Fixed dialog height
+
+The mode row, the panels, and the error line occupy fixed grid rows in the server dialog's body (`.modal-body-stack`), and both panels share row 2. The card's height is the taller panel's at all times, so switching connection mode no longer resizes the dialog: the external panel is one input row against a container panel of roughly 183 px, and the jump was about 125 px.
+
+Stacked members keep contributing height while inactive. Inside a stack the `.hidden` class no longer means `display: none`; it is overridden with `visibility: hidden`, which leaves the element in flow but unclickable, unfocusable, and absent from the accessibility tree. The two address presentations are stacked the same way, so the value column always measures the boxed address rather than whichever presentation is currently shown, and the running → starting → stopped transitions stop moving the card by about 25 px.
+
+The stacked address row aligns its items by center (`.row-address`) because a grid container whose items do not participate in baseline alignment synthesizes its baseline from its border box, which would drag the 地址 label to the bottom of the address box.
+
+`.addr` reserves two lines (`min-height: calc(2.9em + 8px)`) so the row keeps that height even in a session where the harness has never run and the box is still empty.
+
+Two height changes remain deliberate: the failure state's safe-mode block, and the safe-mode and fresh-home badges, still extend the dialog. They add operations rather than replace what is already shown.
+
 ## Alternatives considered
 
 **Fix only the two defects.** The smallest change that leaves the dialog looking like a different application. Rejected: the restyle and the fix touch the same lines and the same elements, so splitting them buys a second commit rather than a smaller change.
@@ -42,14 +54,20 @@ The status bar shows the host and port only (`127.0.0.1:3456`). The full address
 
 **Truncate the address to one line with a trailing ellipsis.** Fixed row height, no second line. Rejected: the row would always hide part of the value, and the only way to read it — a native tooltip on hover — is not something the webkit2gtk container lets the shell style or rely on.
 
+**Give the card a `min-height`, or a `height`, instead of stacking.** One declaration, no markup change. Rejected: the value has to be tuned to the tallest state, which leaves permanent empty space in every other state and stops matching as soon as a row, a font, or a theme changes. Stacking measures the content itself.
+
+**Keep `display: none` and fill the external panel with the guidance text from the start page.** Would use the empty space for something useful. Rejected: it would need to match the container panel's height exactly to have any effect, so it is the tuned number again plus new copy to maintain.
+
 **Insert a line break into the single value node and set `white-space: pre-line`.** Fewer elements than the split: one node, one `textContent` write. Rejected: one text node has one color and one weight, so the location and the credential would read as equally important, which is exactly the hierarchy the dim token line restores.
 
 ## Consequences
 
-The dialog now reads as part of the same shell as the toolchain dialog, and the address row's layout no longer depends on whether the token contains a break character — it has none in the common case, which is why the break used to land mid-token. The address takes two lines instead of one, and the copy button is vertically centered against them. The status bar no longer offers a value that can be selected and pasted into a browser; that path is the dialog's copy button, which hands over the exact URL the web server accepts. `hostLabel` returns an empty label for an address it cannot parse instead of falling back to the raw string, so a malformed address cannot defeat the masking — the cost is that a malformed address shows no location at all.
+The dialog now reads as part of the same shell as the toolchain dialog, and the address row's layout no longer depends on whether the token contains a break character — it has none in the common case, which is why the break used to land mid-token. The address takes two lines instead of one, and the copy button is vertically centered against them. In external mode the card keeps the container panel's height, so the single input row sits above roughly 125 px of empty space; that is the price of the height no longer moving, and the space is never occupied by content that the container panel would need. The status bar no longer offers a value that can be selected and pasted into a browser; that path is the dialog's copy button, which hands over the exact URL the web server accepts. `hostLabel` returns an empty label for an address it cannot parse instead of falling back to the raw string, so a malformed address cannot defeat the masking — the cost is that a malformed address shows no location at all.
 
 ## Testing
 
-`node --test frontend/test-app.cjs` runs 23 cases, of which five cover this change: the state row's semantic class in the running and starting states; the address row showing the address element while hiding the text element, and the reverse once the harness is starting; the origin and token split into their own elements; an address without a query string leaving the token line empty; and the status bar text in container and external mode containing the host and port but not the token. The vm sandbox the test builds now receives `URL`, without which `hostLabel` fell into its parse-failure branch and the masking assertions passed for the wrong reason.
+`node --test frontend/test-app.cjs` runs 24 cases, of which five cover this change: the state row's semantic class in the running and starting states; the address row showing the address element while hiding the text element, and the reverse once the harness is starting; the origin and token split into their own elements; an address without a query string leaving the token line empty; and the status bar text in container and external mode containing the host and port but not the token. The vm sandbox the test builds now receives `URL`, without which `hostLabel` fell into its parse-failure branch and the masking assertions passed for the wrong reason.
+
+The fixed height has no test: it is CSS layout, and the DOM stub the suite builds implements neither stylesheets nor layout. It needs the same visual check as the rest of the presentation.
 
 Rendering was not verified in a browser: this environment has no engine that can run (the Playwright Chromium in the cache fails to start without `libnspr4`). Theme, spacing, hover, and focus behavior still need a `make build` run in the dev workspace before packaging.
