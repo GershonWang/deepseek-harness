@@ -18,9 +18,9 @@ The launcher frontend migrated to xterm.js 5.5.0, vendored locally under `fronte
 - **One xterm instance per session.** `term.onData` forwards every keystroke to the PTY, so bash readline echoes in real time exactly like a real terminal. Control characters (Ctrl+C=`\x03`, Tab=`\t`, arrow-key escape sequences) are encoded by xterm per the terminal protocol; the frontend no longer intercepts them one by one.
 - **Multi-tab state retention.** Each session owns a `.terminal-holder` wrapper node; `term.open()` runs exactly once, and switching tabs moves the whole DOM node (`content.replaceChildren(holder)`), preserving scrollback and cursor state across switches.
 - **Right-click smart action** (classic terminal convention): with a selection → copy via `window.runtime.ClipboardSetText`; without → read `ClipboardGetText` and write to the PTY. Both APIs come from the frontend runtime Wails v2.15 injects (Linux implementation goes through GTK `gtk_clipboard_*`, available inside the linglong container), so **no Go code was added**.
-- **Shortcuts.** Ctrl+Shift+C copies, Ctrl+Shift+V and Shift+Insert paste, intercepted through `attachCustomKeyEventHandler` (returning false stops xterm from also encoding the key as input).
+- **Shortcuts.** Ctrl+Shift+C copies, Ctrl+Shift+V and Shift+Insert paste, intercepted through `attachCustomKeyEventHandler` (returning false stops xterm from also encoding the key as input). Font zoom and the tab shortcuts use the same interception point ([terminal presentation](2026-09-12-desktop-launcher-terminal-presentation.md)).
 - **Size sync.** The fit addon computes cols/rows from real character cells, replacing the old `clientWidth/8` estimate; `term.onResize` → `TerminalResize` (SIGWINCH) keeps full-screen programs redrawing correctly.
-- **Theme.** The original `--term-*` 16-color palette maps statically into xterm's `theme` option (xterm does not resolve CSS variables).
+- **Theme.** The original `--term-*` 16-color palette maps statically into xterm's `theme` option (xterm does not resolve CSS variables), and the dialog around the canvas mirrors those values in CSS so the card stays one palette under both system themes ([terminal presentation](2026-09-12-desktop-launcher-terminal-presentation.md)).
 
 ## Alternatives considered
 

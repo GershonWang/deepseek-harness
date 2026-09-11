@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-launcher-xterm-terminal.md
-2026-09-06-desktop-launcher-xterm-terminal.md: 448fb8f2546d80eef209da0e850adc2df4b92e19
-2026-09-06-desktop-launcher-xterm-terminal.zh.md: 0460a1533da7e799ac49b643ea814d7fa4224e99
+2026-09-06-desktop-launcher-xterm-terminal.md: cdd68bb23c434a1367b1a62ab8aad1354bdf8d24
+2026-09-06-desktop-launcher-xterm-terminal.zh.md: 6afaef9f8438a26f96b7d1fd909862a41e5ee63f

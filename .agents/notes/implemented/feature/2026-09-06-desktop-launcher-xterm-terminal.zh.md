@@ -18,9 +18,9 @@ Status: implemented
 - **每会话一个 xterm 实例。** `term.onData` 把按键逐字符转发到 PTY，bash readline 实时回显，与真终端一致。控制字符（Ctrl+C=`\x03`、Tab=`\t`、方向键转义序列）由 xterm 按终端协议编码，前端不再逐个拦截。
 - **多标签保留状态。** 每个会话持有一个 `.terminal-holder` 包装节点；`term.open()` 只执行一次，切换标签时整体搬运 DOM 节点（`content.replaceChildren(holder)`），滚动历史与光标状态跨切换保留。
 - **右键智能操作**（经典终端约定）：有选区 → 经 `window.runtime.ClipboardSetText` 复制；无选区 → 读 `ClipboardGetText` 后写入 PTY。这两个 API 由 Wails v2.15 注入的前端运行时直接提供（Linux 实现走 GTK `gtk_clipboard_*`，玲珑容器内可用），因此**没有新增任何 Go 代码**。
-- **快捷键。** Ctrl+Shift+C 复制、Ctrl+Shift+V 与 Shift+Insert 粘贴，经 `attachCustomKeyEventHandler` 拦截（返回 false 阻止 xterm 再把该键编码为输入）。
+- **快捷键。** Ctrl+Shift+C 复制、Ctrl+Shift+V 与 Shift+Insert 粘贴，经 `attachCustomKeyEventHandler` 拦截（返回 false 阻止 xterm 再把该键编码为输入）。字号缩放与标签快捷键走同一处拦截（[终端呈现](2026-09-12-desktop-launcher-terminal-presentation.zh.md)）。
 - **尺寸同步。** fit 插件按真实字符单元格计算行列，替换原先的 `clientWidth/8` 估算；`term.onResize` → `TerminalResize`（SIGWINCH）保证全屏程序正确重绘。
-- **主题。** 原 `--term-*` 16 色调色板静态映射进 xterm 的 `theme` 选项（xterm 不解析 CSS 变量）。
+- **主题。** 原 `--term-*` 16 色调色板静态映射进 xterm 的 `theme` 选项（xterm 不解析 CSS 变量）；画布之外的弹框在 CSS 里对照同一组色值，两套系统主题下卡片都是同一套配色（[终端呈现](2026-09-12-desktop-launcher-terminal-presentation.zh.md)）。
 
 ## 备选方案
 
