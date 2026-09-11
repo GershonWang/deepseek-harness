@@ -266,7 +266,7 @@ export const InputBar = memo(function InputBar({
   // Inside the packaged shell (WebKitGTK iframe) the paste event never carries
   // clipboard images; ask the shell for the current CLIPBOARD image instead.
   // Plain browser tabs (window.parent === window) keep the fast native path.
-  const shellPaste = isShellEmbedded() && addImages !== undefined
+  const shellPaste = isShellEmbedded() && addFiles !== undefined
 
   // Shell clipboard image paste: intercept paste at capture phase on the
   // window so we catch it before Lexical's PASTE_COMMAND, regardless of which
@@ -297,7 +297,7 @@ export const InputBar = memo(function InputBar({
       void requestClipboardImage().then((data) => {
         const file = data === null ? null : base64ToImageFile(data)
         if (file !== null) {
-          gate.current.intakeImages([file])
+          gate.current.intakeFiles([file])
           return
         }
         // The shell had no image. Resume with whatever WebKitGTK delivered:
@@ -309,7 +309,7 @@ export const InputBar = memo(function InputBar({
           .map(item => item.getAsFile())
           .filter((f): f is File => f !== null)
         if (files.length > 0) {
-          gate.current.intakeImages(files)
+          gate.current.intakeFiles(files)
           return
         }
         if (text !== '' && !gate.current.machineBusy && !gate.current.locked) {
