@@ -1252,7 +1252,29 @@ body {
 
 /* ---------- 终端 ---------- */
 
+/* 终端整体自带一套深色配色，在弹框作用域内重定义壳的语义变量。
+   内容区永远是终端画布（--term-bg），若头部与标签栏继续跟随壳的主题，
+   浅色主题下这张卡片就会变成"浅色 chrome 压着黑终端"的割裂样子；
+   终端软件普遍自带配色、不随宿主明暗翻转，这里按同一约定处理。
+   色值与 app.js 的 TERMINAL_THEME 对齐，两处改动必须同步。 */
 .modal-terminal {
+  --bg: #1a1a1a;              /* 激活标签，与内容区同色才能和终端无缝相接 */
+  --bg-panel: #262626;        /* 非激活标签 */
+  --bg-toolbar: #202020;      /* 标签条 */
+  --bg-hover: #303030;        /* 标签与关闭按钮的悬停底色 */
+  --border: #2a2a2a;
+  --border-strong: #3a3a3a;
+  --fg: #d4d4d4;
+  --fg-strong: #ffffff;
+  --fg-dim: #8f8f8f;
+  --ok: #23d18b;              /* TERMINAL_THEME 的 green */
+  --danger: #f14c4c;
+  --danger-text: #f48771;
+  /* 内容区背景。16 色调色板是终端自己的固定配色，xterm 的 theme 选项
+     只接受具体色值（不解析 CSS 变量），唯一的事实来源是 app.js 的
+     TERMINAL_THEME；这里只保留 xterm 画布之外那一层用到的背景色。 */
+  --term-bg: #1a1a1a;
+
   width: min(900px, 90vw);
   height: min(600px, 80vh);
   max-height: 80vh;
@@ -1395,12 +1417,13 @@ body {
 }
 
 /* xterm 挂载节点：每个会话一个，占满内容区。
- * xterm 自带视口滚动条与选区渲染，无需外部滚动容器。 */
+ * xterm 自带视口滚动条与选区渲染，无需外部滚动容器。
+ * 四边留白对称：留白处露出的是内容区背景，与终端画布同色，看着仍是终端的一部分。 */
 .terminal-holder {
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 2px 4px 0 6px;
+  padding: 6px 8px;
 }
 
 /* 关闭终端连字：JetBrains Mono 默认启用 =>/!= 等编程连字，连字会把多个
@@ -1422,11 +1445,4 @@ body {
 }
 .terminal-error {
   color: var(--danger-text);
-}
-
-/* 终端背景色。16 色调色板是终端自己的固定配色，不随壳的主题变化，且 xterm 的
-   theme 选项只接受具体色值（不解析 CSS 变量），唯一的事实来源是 app.js 的
-   TERMINAL_THEME；这里只保留 xterm 画布之外那一层用到的背景色。 */
-.terminal-content {
-  --term-bg: #1a1a1a;
 }
