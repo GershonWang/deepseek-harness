@@ -855,3 +855,21 @@ test("非运行态隐藏复制按钮", () => {
   assert.equal(h.document.getElementById("server-copy").classList.contains("hidden"), true,
     "停止态地址行显示的是退出原因，复制按钮应隐藏");
 });
+
+test("服务器弹框状态行按状态带语义色，地址行仅运行态呈可复制样式", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:1/?token=abc" }));
+
+  const state = h.document.getElementById("server-state");
+  const addr = h.document.getElementById("server-detail1");
+  assert.equal(state.textContent, "运行中");
+  assert.ok(state.classList.contains("state-ok"), "运行态状态应为 ok 语义色");
+  assert.ok(addr.classList.contains("mono") && addr.classList.contains("code"),
+    "运行态地址行应为等宽代码块");
+
+  h.status(baseStatus({ State: "starting" }));
+  assert.ok(state.classList.contains("state-warn"), "启动中应为 warn 语义色");
+  assert.equal(state.classList.contains("state-ok"), false, "语义色不应叠加");
+  assert.equal(addr.classList.contains("code"), false,
+    "「正在启动…」不是可复制地址，不该套代码块样式");
+});

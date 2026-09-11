@@ -132,23 +132,27 @@
 
 <!-- 服务器弹框 -->
 <div id="server-modal" class="modal hidden">
-  <div class="modal-card">
+  <div class="modal-card modal-server">
     <div class="modal-head">
       <span class="modal-title"><span class="brand-dot"></span>服务器</span>
       <button class="modal-close" data-close="server-modal">×</button>
     </div>
     <div class="modal-body">
+      <!-- 连接模式：radio 仍是状态源，label 内的 span 只做分段控件外观 -->
       <div class="mode-row">
         <span class="key">连接模式</span>
-        <label><input type="radio" name="mode" value="container" checked> 容器内</label>
-        <label><input type="radio" name="mode" value="external"> 本机/远端服务</label>
+        <div class="mode-switch" role="radiogroup" aria-label="连接模式">
+          <label class="mode-opt"><input type="radio" name="mode" value="container" checked><span>容器内</span></label>
+          <label class="mode-opt"><input type="radio" name="mode" value="external"><span>本机/远端服务</span></label>
+        </div>
       </div>
 
       <div id="container-panel" class="section">
-        <div class="row"><span class="key">状态</span><span id="server-state">…</span></div>
-        <div class="row"><span class="key">地址</span><span id="server-detail1" class="selectable"></span><button id="server-copy" class="icon-btn-sm hidden" title="复制服务地址"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
-        <div class="row"><span class="key">PID</span><span id="server-detail2" class="selectable"></span></div>
-        <div class="actions">
+        <span class="section-title">容器内服务</span>
+        <div class="row"><span class="key">状态</span><span id="server-state" class="row-value state-value state-muted">…</span></div>
+        <div class="row"><span class="key">地址</span><span id="server-detail1" class="selectable row-value"></span><button id="server-copy" class="icon-btn-sm hidden" title="复制服务地址"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+        <div class="row"><span class="key">PID</span><span id="server-detail2" class="selectable row-value mono"></span></div>
+        <div class="actions actions-bar">
           <button id="server-start" class="btn btn-primary">启动</button>
           <button id="server-restart" class="btn">重启</button>
           <button id="server-stop" class="btn btn-danger">停止</button>

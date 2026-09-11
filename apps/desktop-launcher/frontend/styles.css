@@ -608,16 +608,105 @@ body {
   font-size: 12px;
 }
 
-/* 值列：占满剩余宽度；地址/令牌这类无空格长串可任意断词折行 */
-.row > span:last-child {
+/* 值列：显式挂类，不用 span:last-child —— 地址行的末尾是复制按钮，
+   :last-child 匹配不到值本身，flex/折行规则会静默失效。 */
+.row-value {
   flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
+  color: var(--fg-strong);
 }
+
+/* 服务地址、PID 这类要逐字符核对的串用随包等宽字体，避免比例字体下字形宽窄不一 */
+.row-value.mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+/* 地址整串入框，与右侧复制按钮构成「可核对 + 可复制」的一组。
+   mono/code 由 app.js 按运行态挂上，非地址状态这一行就是普通文案。 */
+.row-value.code {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+}
+
+/* 值可能折成多行，复制按钮随之垂直居中，不跟随首行基线 */
+.row > .icon-btn-sm { align-self: center; }
+
+/* 状态值：语义色 + 由 currentColor 画出的状态点，因此状态点不需要额外 DOM 节点 */
+.state-value { font-weight: 600; }
+.state-value::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 7px;
+  vertical-align: 1px;
+}
+.state-value.state-ok { color: var(--ok); }
+.state-value.state-warn { color: var(--warn); }
+.state-value.state-danger { color: var(--danger); }
+.state-value.state-muted { color: var(--fg-dim); }
 
 .actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* 弹框内操作条：用分隔线把按钮与上方信息分开，避免三行键值和按钮挤成一片 */
+.actions-bar { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
 .selectable { -webkit-user-select: text; user-select: text; }
+
+/* ---------- 服务器弹框 ---------- */
+/* 弹框加宽到 560px（与工具链弹框一致）：520px 下服务地址必然折行，
+   折行本身可接受，但空间越窄折行越碎。仅服务器弹框使用该宽度类。 */
+.modal-card.modal-server { width: 560px; }
+
+/* 连接模式用分段控件承载：两个 radio 仍是唯一状态源（app.js 按 name=mode 读写），
+   label 内的 span 只负责外观。选中态走 input:checked + span 的兄弟选择器，
+   不依赖 webkit2gtk 上支持情况不确定的 :has()。 */
+.mode-row { display: flex; align-items: center; gap: 10px; }
+
+.mode-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 99px;
+  background: var(--bg-panel);
+}
+
+.mode-opt { position: relative; display: inline-flex; cursor: pointer; }
+
+/* radio 保留在 DOM 中（脚本读写与键盘操作照常），仅视觉隐藏 */
+.mode-opt input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.mode-opt > span {
+  padding: 3px 13px;
+  border-radius: 99px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.mode-opt:hover > span { color: var(--fg); }
+
+.mode-opt input:checked + span {
+  color: var(--brand-text);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--brand) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+
+.mode-opt input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* 外部连接 */
 .ext-row { display: flex; align-items: center; gap: 8px; }

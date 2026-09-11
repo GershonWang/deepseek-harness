@@ -559,7 +559,12 @@ function renderServerDialog(s) {
   $("#dlg-error").textContent = s.ConnectError || "";
 
   const stateText = { running: "运行中", starting: "启动中", failed: "启动失败", stopped: "已停止" }[s.State] || "已停止";
-  $("#server-state").textContent = stateText;
+  // 状态色沿用底部状态栏的语义：运行=ok、启动中=warn、失败=danger、其余中性。
+  // 状态点由 .state-value::before 以 currentColor 画出，不需要额外 DOM 节点。
+  const stateClass = { running: "state-ok", starting: "state-warn", failed: "state-danger" }[s.State] || "state-muted";
+  const stateEl = $("#server-state");
+  stateEl.textContent = stateText;
+  stateEl.className = "row-value state-value " + stateClass;
 
   if (s.State === "running") {
     $("#server-detail1").textContent = s.URL;
@@ -580,7 +585,11 @@ function renderServerDialog(s) {
   $("#server-stop").disabled = !s.CanStop;
   // 复制按钮只在地址即为服务 URL 时出现：其余状态下这一行显示的是「正在启动…」、
   // 退出原因或日志路径，复制它们没有意义。
+  // 等宽 + 代码块也跟着同一条判据走，否则「harness 正在启动…」会被套进一个
+  // 看似可复制、实则无按钮的输入框样式里。
   $("#server-copy").classList.toggle("hidden", s.State !== "running");
+  $("#server-detail1").classList.toggle("mono", s.State === "running");
+  $("#server-detail1").classList.toggle("code", s.State === "running");
 
   // 安全模式：失败态显示「以插件安全模式启动」
   const failed = s.State === "failed" || s.State === "stopped";
