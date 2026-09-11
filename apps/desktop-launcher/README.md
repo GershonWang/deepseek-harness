@@ -104,7 +104,11 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 ```sh
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
+node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 ```
+
+The frontend has no build step: `index.html`, `styles.css`, and `app.js` are embedded as-is. `test-app.cjs` runs `app.js` against a hand-written DOM stub, so it observes the behavior those files produce but not the layout. `frontend/tools/preview.mjs` covers what the stub cannot: it renders `index.html` in headless Chromium, replays each dialog state the way `app.js` writes it, and asserts the layout invariants — the card keeps one height across connection modes and running states, the address box keeps its two-line reservation, and the service-address field stays within its cap. `render` writes one screenshot per theme and state into `frontend/.preview`; `measure` prints the raw geometry instead. The browser comes from `DSH_PREVIEW_BROWSER`, otherwise the Playwright cache, otherwise `PATH`; with none available the tool states why and exits without failing, so a machine without a browser can still push.
 
 ## Linglong packaging
 

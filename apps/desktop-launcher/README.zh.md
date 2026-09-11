@@ -104,7 +104,11 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 ```sh
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
+node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 ```
+
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
 
 ## 玲珑打包
 
