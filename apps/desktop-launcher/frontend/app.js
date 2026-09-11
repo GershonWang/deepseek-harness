@@ -657,7 +657,7 @@ function renderServerDialog(s) {
 // marketState 缓存最近一次工具链状态，供分类/搜索过滤与卡片渲染。
 // progress 记录各工具链安装的实时进度：id → {Phase, Percent, Message}。
 // 由 toolchain:progress 事件驱动；done/error 阶段会删除对应条目。支持多工具并发。
-const marketState = { category: "all", search: "", catalog: [], progress: {} };
+const marketState = { category: "all", search: "", catalog: [], progress: {}, status: null };
 
 // fmtSize 把字节数格式化为 "1.6 MB" 之类的可读文本；0/空返回空串。
 function fmtSize(bytes) {
@@ -678,6 +678,8 @@ function renderTools(t) {
   marketState.catalog = t.Catalog || [];
   // 缓存 Rows，供点击"内置"按钮时动态渲染
   marketState.builtinRows = t.Rows || [];
+  // 缓存最近一次状态：筛选变化时要重画状态栏（"筛选 N 个"），而那时事件不会再送一份 t。
+  marketState.status = t;
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
@@ -791,13 +793,55 @@ function filteredCatalog() {
   });
 }
 
+// hasFilter 判断当前是否设了分类或搜索条件；空态与状态栏都靠它决定要不要提"筛选"。
+function hasFilter() {
+  return marketState.category !== "all" || marketState.search.trim() !== "";
+}
+
+// emptyState 构造无结果时的网格内容。弹框定高后这里会留出大片空白，一句"没有匹配"
+// 不足以收尾：给出下一步（改关键词或清空筛选）。目录本身为空时不给清空按钮——
+// 那会让人以为是自己筛掉了什么。
+function emptyState() {
+  const box = document.createElement("div");
+  box.className = "market-empty";
+  const text = document.createElement("div");
+  text.className = "market-empty-text";
+  text.textContent = "没有匹配的工具";
+  box.appendChild(text);
+  if (hasFilter()) {
+    const hint = document.createElement("div");
+    hint.className = "market-empty-hint";
+    hint.textContent = "换个关键词，或清空当前的分类筛选。";
+    const btn = document.createElement("button");
+    btn.className = "btn btn-quiet btn-sm";
+    btn.textContent = "清空筛选";
+    btn.addEventListener("click", () => {
+      marketState.category = "all";
+      marketState.search = "";
+      $("#market-search").value = "";
+      document.querySelectorAll(".market-tab").forEach((t) =>
+        t.classList.toggle("active", t.dataset.cat === "all"));
+      refreshMarketView();
+    });
+    box.append(hint, btn);
+  }
+  return box;
+}
+
+// refreshMarketView 重画网格与状态栏。筛选条件由页签与搜索框改动，两处都要跟着变：
+// 状态栏里的"筛选 N 个"若只在 toolchain:status 事件里更新，输入搜索词后就会停在旧值。
+function refreshMarketView() {
+  renderMarketGrid();
+  if (marketState.status) renderStatusbar(marketState.status);
+}
+
 // renderMarketGrid 渲染工具卡片网格（分类 + 搜索过滤后）。
 function renderMarketGrid() {
   const grid = $("#market-grid");
   grid.innerHTML = "";
   const list = filteredCatalog();
   if (list.length === 0) {
-    grid.innerHTML = "<div class='empty'>没有匹配的工具</div>";
+    grid.appendChild(emptyState());
     return;
   }
   for (const c of list) grid.appendChild(toolCard(c));
@@ -962,6 +1006,8 @@ function renderStatusbar(t) {
   parts.push("已装 " + installed + "/" + cats.length + " 个工具");
   if (total > 0) parts.push("总大小 " + fmtSize(total));
   if (t.Sandboxed && (t.HostTools || []).length > 0) parts.push("宿主挂载 " + t.HostTools.length + " 项");
+  // 定高弹框里筛选后留下的空白需要有交代：报出当前条件命中的工具数。
+  if (hasFilter()) parts.push("筛选 " + filteredCatalog().length + " 个");
   sb.textContent = parts.join("　·　");
 }
 
@@ -1133,14 +1179,14 @@ function bindUI() {
       document.querySelectorAll("#market-tabs .market-tab").forEach((x) => x.classList.remove("active"));
       tab.classList.add("active");
       marketState.category = tab.dataset.cat || "all";
-      renderMarketGrid();
+      refreshMarketView();
     });
   });
 
   // 搜索：输入即过滤（防抖可省，目录规模小）。
   $("#market-search").addEventListener("input", () => {
     marketState.search = $("#market-search").value;
-    renderMarketGrid();
+    refreshMarketView();
   });
 
   // 刷新远程索引：异步拉取，完成后推送一次状态。

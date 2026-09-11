@@ -952,6 +952,31 @@ test("宿主导入：没有挂载项时摘要留空", () => {
   assert.equal(h.document.getElementById("hosts-summary").textContent, "");
 });
 
+/* ---------- 市场空态 ---------- */
+
+test("市场空态：筛不到结果时给出清空筛选入口，点击后恢复全部并重置搜索", () => {
+  const h = loadApp();
+  h.sandbox.__testRenderTools(fakeTools());
+  const grid = h.document.getElementById("market-grid");
+  const search = h.document.getElementById("market-search");
+  search.value = "zzz";
+  search.fire("input");
+
+  // 断言只看网格的子树：DOM 桩的 querySelector 扫的是元素注册表，innerHTML="" 并不会
+  // 把上一轮的元素摘出去，用它查空态会查到已经不在树上的残留。
+  assert.equal(grid.children.length, 1, "无结果时网格只有一个空态块");
+  const box = grid.children[0];
+  assert.ok(box.classList.contains("market-empty"), "空态块带 market-empty 类");
+  const btn = box.children.find((c) => c.classList.contains("btn"));
+  assert.ok(btn, "空态应给出清空筛选按钮");
+  assert.equal(btn.textContent, "清空筛选");
+
+  btn.fire("click");
+  assert.equal(search.value, "", "搜索框应一并清空");
+  assert.equal(grid.children.length, 3, "应恢复全部 3 张卡");
+  assert.ok(grid.children.every((c) => c.classList.contains("tool-card-item")), "恢复出来的都是工具卡片");
+});
+
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {
   const h = loadApp();
   h.status(baseStatus({
