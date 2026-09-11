@@ -136,6 +136,11 @@ class El {
   remove() {
     if (this.parentNode) this.parentNode.removeChild(this);
   }
+  // 真实 DOM 的 focus() 会把 activeElement 挪到自己身上；Esc 的归属判断
+  // （焦点是否在终端内容区）依赖这一点，故这里如实模拟。
+  focus() {
+    if (this.ownerDocument) this.ownerDocument.activeElement = this;
+  }
   // 双击处理器用 closest("button") 排除按钮上的双击（真实 DOM 同名 API）。
   closest(sel) {
     let node = this;
@@ -211,11 +216,21 @@ function matchesSelector(el, sel) {
 
 function makeDocument() {
   const registry = [];
+  const listeners = {};
   const document = {
     readyState: "complete",
-    addEventListener() {},
+    activeElement: null,
+    // 文档级键盘监听：Esc 关终端弹窗靠这条通道，用 fire("keydown", ev) 驱动。
+    addEventListener(type, fn) {
+      (listeners[type] ||= []).push(fn);
+    },
+    fire(type, event) {
+      for (const fn of listeners[type] || []) fn(event);
+    },
     createElement(tag) {
       const el = new El(tag);
+      // 元素 focus() 要能更新 activeElement（Esc 的归属判断依赖它）
+      el.ownerDocument = document;
       registry.push(el);
       return el;
     },
@@ -524,6 +539,8 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events[name], "function", name + " 事件未注册");
       events[name](payload);
     },
+    /* 文档级键盘事件（Esc 关弹窗走这条通道）。 */
+    keydown: (event) => document.fire("keydown", event),
     /* 走真实按钮路径建一个会话（点击 #terminal-new），返回其 xterm 桩。
      * 创建过程有多个 await，flush 两次让 TerminalStart 结算并渲染完标签。 */
     newTerminal: async () => {
@@ -1216,4 +1233,29 @@ test("终端启动等待字体期间显示占位提示，字体就绪后换成�
   assert.equal(content.children.length, 1, "内容区应挂上唯一的会话节点");
   assert.equal(content.children[0].className, "terminal-holder", "挂载的是 xterm 容器");
   assert.equal(h.terminals[0].opened, true, "字体就绪后应继续建会话");
+});
+
+test("Esc：终端持有焦点时放行给 PTY，焦点在工具栏时关窗并把焦点还回按钮", async () => {
+  const h = loadApp();
+  await flush();
+  h.document.getElementById("btn-terminal").fire("click");
+  await flush();
+  await flush();
+  const modal = h.document.getElementById("terminal-modal");
+  assert.equal(modal.classList.contains("hidden"), false, "点工具栏按钮应打开终端弹窗");
+
+  // 终端持有焦点：vim 的退出插入模式、readline 的转义前缀都靠 Esc，弹窗不得抢
+  h.document.activeElement = h.document.getElementById("terminal-content");
+  h.keydown({ key: "Escape" });
+  assert.equal(modal.classList.contains("hidden"), false, "终端持有焦点时 Esc 不得关窗");
+
+  h.keydown({ key: "a" });
+  h.document.activeElement = h.document.getElementById("terminal-tabs");
+  h.keydown({ key: "Escape" });
+  assert.equal(modal.classList.contains("hidden"), true, "焦点不在终端时 Esc 应关窗");
+  assert.equal(h.document.activeElement, h.document.getElementById("btn-terminal"),
+    "关窗后焦点应回到工具栏按钮");
+
+  h.keydown({ key: "Escape" });
+  assert.equal(modal.classList.contains("hidden"), true, "弹窗已关时 Esc 不应有副作用");
 });

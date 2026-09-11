@@ -1961,6 +1961,19 @@ function initTerminal() {
     });
   }
 
+  // Esc 关闭弹窗，并把焦点还给打开它的工具栏按钮，键盘用户不会掉到页面开头。
+  // 但终端自己持有焦点时 Esc 必须留给 PTY —— vim 退出插入模式、readline 的
+  // 转义前缀都靠它，弹窗不能抢。因此只在焦点不在终端内容区时才关。
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const modal = $("#terminal-modal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    if (document.activeElement && document.activeElement.closest("#terminal-content")) return;
+    closeModal("terminal-modal");
+    const btn = $("#btn-terminal");
+    if (btn) btn.focus();
+  });
+
   // 窗口尺寸变化 → 去抖后 fit 激活会话；其余会话在切回标签时再 fit
   let resizeTimer = null;
   window.addEventListener("resize", () => {
