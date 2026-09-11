@@ -904,8 +904,12 @@ button, input, select, textarea { font: inherit; }
 
 .hidden { display: none !important; }
 
-/* 工具链弹框（品牌化改版） */
-.modal-card.modal-tools { width: 900px; max-width: 94vw; }
+/* 工具链弹框（品牌化改版）。弹框定高：网格里的卡片数随分类与搜索变化，弹框若按
+   内容自适应，切一次分类就跳一次高度——"编译器"只剩一张卡时弹框缩到不足一半高。
+   高度取与 max-height 相同的 86vh：卡片最多的"全部"本来就顶到 max-height，因此
+   定高不改变最常见的那一档，只是把矮分类的空白留在弹框内，滚动交给网格。
+   与终端弹框（height: min(600px, 80vh)）同属"弹框尺寸不随内容跳"的做法。 */
+.modal-card.modal-tools { width: 900px; max-width: 94vw; height: 86vh; }
 .modal-title { display: flex; align-items: center; gap: 8px; font-weight: 700; }
 .brand-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--brand);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 18%, transparent); }
