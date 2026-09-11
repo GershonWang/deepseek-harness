@@ -65,6 +65,6 @@ Two color literals remain outside the theme blocks by design: the modal scrim `r
 
 ## Testing
 
-`node --test frontend/test-app.cjs` runs 24 cases. The added case drives a diagnostic report through the fake Wails runtime and asserts that the summary and the check list carry the semantic classes and contain no inline `color` declaration — the assertion that fails on the pre-change code, where the summary carried `style="color:#89d185"`.
+`node --test frontend/test-app.cjs` runs 37 cases. The added case drives a diagnostic report through the fake Wails runtime and asserts that the summary and the check list carry the semantic classes and contain no inline `color` declaration — the assertion that fails on the pre-change code, where the summary carried `style="color:#89d185"`.
 
-Contrast ratios were computed from the palette values rather than observed: this environment has no browser engine that starts (the Playwright Chromium in the cache needs `libnspr4`), so the rendered result still needs a `make build` run in the dev workspace, in both themes, before packaging.
+Contrast ratios were computed from the palette values. The server dialog's surfaces were then rendered in headless Chromium through the DevTools protocol with `prefers-color-scheme` emulated in both directions, and the dark and light captures agree with the computed pairs. The rest of the shell — the market, the terminal, and the doctor report's own surfaces — has not been captured in this environment, so a `make build` run in the dev workspace remains the check before packaging.

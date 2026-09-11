@@ -65,6 +65,6 @@ launcher 壳把调色板声明了两遍——`:root` 是深色，`@media (prefer
 
 ## Testing
 
-`node --test frontend/test-app.cjs` 跑 24 例。新增用例通过 Wails 桩驱动一份诊断报告，断言摘要与检查清单带语义类、且不含内联 `color` 声明——这条断言在改动前的代码上必然失败，因为摘要当时带着 `style="color:#89d185"`。
+`node --test frontend/test-app.cjs` 跑 37 例。新增用例通过 Wails 桩驱动一份诊断报告，断言摘要与检查清单带语义类、且不含内联 `color` 声明——这条断言在改动前的代码上必然失败，因为摘要当时带着 `style="color:#89d185"`。
 
-对比度是按调色板取值计算的，不是观测所得：本环境没有能启动的浏览器引擎（缓存里的 Playwright Chromium 缺 `libnspr4`），因此渲染结果仍需在开发态 `make build` 运行、两套主题各看一遍，之后才谈打包。
+对比度是按调色板取值计算的。服务器弹框的各处表面随后在无头 Chromium 里通过 DevTools 协议渲染，`prefers-color-scheme` 两个方向各模拟一遍，深色与浅色的截图与算出的配对一致。壳的其余部分——工具链市场、终端、诊断报告自身的表面——在本环境没有截图，因此打包前仍需在开发态 `make build` 运行核对。
