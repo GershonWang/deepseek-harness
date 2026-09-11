@@ -824,8 +824,9 @@ function toolCard(c) {
     status.className = "pill ok";
     status.textContent = "✓ 已安装";
   } else if (installing) {
+    // 徽标只表状态：百分比由进度条与其下方的读数承担，同一个数字不必出现三处
     status.className = "pill warn";
-    status.textContent = "安装中 " + (prog.Percent || 0) + "%";
+    status.textContent = "安装中";
   } else {
     status.className = "pill brand";
     status.textContent = "可安装";
