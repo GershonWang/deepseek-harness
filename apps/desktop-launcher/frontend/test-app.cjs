@@ -150,8 +150,12 @@ class El {
     for (const n of nodes) this.appendChild(n);
   }
   // app.js 用 replaceChildren 在两个容器间搬运终端节点（真实 DOM 同名 API）。
+  // innerHTML/textContent 在本 stub 里是独立字符串，替换子节点时要一并清掉，
+  // 否则换回真实会话后仍读得到上一次写入的占位提示文本。
   replaceChildren(...nodes) {
     this.children = [];
+    this._html = "";
+    this._text = "";
     for (const n of nodes) this.appendChild(n);
   }
   // 元素级查询走子树：renderTerminalTabs 设置 innerHTML 后要在标签容器里挂监听。
@@ -1191,4 +1195,25 @@ test("终端字号偏好：合法值恢复，脏数据回默认，写失败不�
   const term3 = await h3.newTerminal();
   h3.document.getElementById("terminal-font-inc").fire("click");
   assert.equal(term3.options.fontSize, 15, "写不进偏好也要完成本次缩放");
+});
+
+test("终端启动等待字体期间显示占位提示，字体就绪后换成真实会话", async () => {
+  const h = loadApp();
+  await flush();
+  // 字体加载慢/缺失时内容区会空着十几毫秒到 2s，占位提示让这段等待可见
+  const pending = [];
+  h.document.fonts = { load: () => new Promise((resolve) => pending.push(resolve)) };
+
+  h.document.getElementById("terminal-new").fire("click");
+  const content = h.document.getElementById("terminal-content");
+  assert.match(content.innerHTML, /正在启动终端/, "点新建后应立即可见占位提示");
+  assert.equal(pending.length, 4, "四个字重都参与字体就绪判断");
+
+  pending.forEach((resolve) => resolve());
+  await flush();
+  await flush();
+  assert.equal(content.innerHTML, "", "真实会话挂载后占位提示应被替换掉");
+  assert.equal(content.children.length, 1, "内容区应挂上唯一的会话节点");
+  assert.equal(content.children[0].className, "terminal-holder", "挂载的是 xterm 容器");
+  assert.equal(h.terminals[0].opened, true, "字体就绪后应继续建会话");
 });

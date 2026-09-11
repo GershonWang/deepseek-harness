@@ -1612,6 +1612,10 @@ async function createTerminalSession(title) {
   const holder = document.createElement("div");
   holder.className = "terminal-holder";
 
+  // 字体就绪前先占位：下面最多等 2s，这段内容区若是空的，用户看到的就是一块
+  // 没有任何说明的黑屏，分不清是在启动还是卡住了。占位节点在 open 前被替换。
+  content.innerHTML = '<div class="terminal-loading">正在启动终端…</div>';
+
   // 等随包字体就绪再创建实例：xterm 在 open 时测量字符单元格，
   // 字体晚到会测出与实际渲染不一致的行列尺寸。加载失败或超时
   // 只回退系统等宽字体，绝不阻塞终端创建。
@@ -1813,6 +1817,25 @@ function renderTerminalTabs() {
 }
 
 /**
+ * 把激活会话（没有会话时是空态）挂回内容区。
+ * 关标签、以及新会话创建失败后都要走这里：占位提示可能已经把内容区换掉，
+ * 不还原的话内容区会一直停在「正在启动终端…」，而其余会话其实还活着。
+ * 空态文案也只有这一个出处。
+ */
+function restoreTerminalContent() {
+  const content = $("#terminal-content");
+  if (!content) return;
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session) {
+    content.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
+    return;
+  }
+  content.replaceChildren(session.holder);
+  fitActiveTerminal();
+  session.term.focus();
+}
+
+/**
  * 关闭指定会话：通知后端结束 PTY，销毁 xterm 实例并释放其内存
  * （scrollback 缓存可能较大），最后修正激活标签。
  * @param {string} sessionId - 要关闭的会话 ID
@@ -1833,15 +1856,7 @@ async function closeTerminalSession(sessionId) {
   if (terminalState.activeId === sessionId) {
     const remaining = Object.keys(terminalState.sessions);
     terminalState.activeId = remaining.length > 0 ? remaining[remaining.length - 1] : null;
-    const content = $("#terminal-content");
-    if (content) {
-      if (terminalState.activeId) {
-        content.replaceChildren(terminalState.sessions[terminalState.activeId].holder);
-        terminalState.sessions[terminalState.activeId].term.focus();
-      } else {
-        content.innerHTML = '<div class="terminal-empty">没有打开的终端</div>';
-      }
-    }
+    restoreTerminalContent();
   }
 
   renderTerminalTabs();
@@ -1898,6 +1913,9 @@ function initTerminal() {
         renderTerminalTabs();
       } catch (e) {
         console.error("create terminal failed:", e.message);
+        // 内容区此刻停在新会话的占位提示上，把原会话搬回来：新标签失败不该
+        // 连累已经在跑的会话
+        restoreTerminalContent();
       }
     });
   }

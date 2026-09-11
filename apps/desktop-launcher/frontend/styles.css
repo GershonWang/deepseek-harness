@@ -1514,7 +1514,11 @@ body {
   font-feature-settings: "liga" 0, "calt" 0;
 }
 
+/* 内容区的三种非终端呈现共用一套居中版式：空态、启动占位、错误。
+   启动占位与空态同色，只有文案不同——它要说明的是「在等，不是坏了」，
+   不需要额外的视觉重量。 */
 .terminal-empty,
+.terminal-loading,
 .terminal-error {
   display: flex;
   align-items: center;
