@@ -1714,6 +1714,10 @@ async function createTerminalSession(title) {
         return false;
       }
     }
+    // 标签快捷键由文档级监听处理（onTerminalKeydown）：这里返回 false 只是
+    // 阻止 xterm 把 Ctrl+Shift+T/W 编成控制字符送进 PTY，事件照常冒泡。
+    if (ev.ctrlKey && ev.shiftKey && (ev.code === "KeyT" || ev.code === "KeyW")) return false;
+    if (ev.ctrlKey && ev.code === "Tab") return false;
     return true;
   });
 
@@ -1863,6 +1867,71 @@ async function closeTerminalSession(sessionId) {
 }
 
 /**
+ * 新建会话并激活它。失败时还原内容区，不连累已有会话。
+ * 「新建标签」按钮与 Ctrl+Shift+T 共用这一处实现。
+ */
+async function newTerminalSession() {
+  try {
+    const id = await createTerminalSession();
+    terminalState.activeId = id;
+    renderTerminalTabs();
+  } catch (e) {
+    console.error("create terminal failed:", e.message);
+    // 内容区此刻停在新会话的占位提示上，把原会话搬回来
+    restoreTerminalContent();
+  }
+}
+
+/**
+ * 按标签顺序循环切换会话，两端回绕。只有一个会话时不做无谓的搬运。
+ * @param {number} direction - 1 向后，-1 向前
+ */
+function cycleTerminalSession(direction) {
+  const ids = Object.keys(terminalState.sessions);
+  if (ids.length < 2) return;
+  const current = ids.indexOf(terminalState.activeId);
+  const next = (current + direction + ids.length) % ids.length;
+  switchTerminalSession(ids[next]);
+}
+
+/**
+ * 终端弹窗的文档级快捷键；弹窗没打开时不接管任何按键。
+ * 走文档级监听而非 xterm 的键处理：标签操作与焦点落在弹窗哪一处无关，
+ * 而 xterm 只在它是某个会话的输入通道时才看得到按键。xterm 侧对同名组合
+ * 返回 false，避免一次按键既切标签又被编成控制字符送进 PTY。
+ * @param {KeyboardEvent} e - 键盘事件
+ */
+function onTerminalKeydown(e) {
+  const modal = $("#terminal-modal");
+  if (!modal || modal.classList.contains("hidden")) return;
+
+  if (e.key === "Escape") {
+    // 终端持有焦点时 Esc 属于 PTY（vim 退出插入模式、readline 的转义前缀），
+    // 弹窗不能抢；只在焦点不在内容区时才关，并把焦点还给工具栏按钮。
+    if (document.activeElement && document.activeElement.closest("#terminal-content")) return;
+    closeModal("terminal-modal");
+    const btn = $("#btn-terminal");
+    if (btn) btn.focus();
+    return;
+  }
+
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyT") {
+    e.preventDefault();
+    newTerminalSession();
+    return;
+  }
+  if (e.ctrlKey && e.shiftKey && e.code === "KeyW") {
+    e.preventDefault();
+    if (terminalState.activeId) closeTerminalSession(terminalState.activeId);
+    return;
+  }
+  if (e.ctrlKey && e.code === "Tab") {
+    e.preventDefault();
+    cycleTerminalSession(e.shiftKey ? -1 : 1);
+  }
+}
+
+/**
  * 打开终端弹窗：确保至少一个会话存在并聚焦。
  * 已有会话时仅重新挂载激活标签（弹窗可能经历了隐藏-重开）。
  */
@@ -1906,18 +1975,7 @@ function initTerminal() {
 
   const btnNew = $("#terminal-new");
   if (btnNew) {
-    btnNew.addEventListener("click", async () => {
-      try {
-        const id = await createTerminalSession();
-        terminalState.activeId = id;
-        renderTerminalTabs();
-      } catch (e) {
-        console.error("create terminal failed:", e.message);
-        // 内容区此刻停在新会话的占位提示上，把原会话搬回来：新标签失败不该
-        // 连累已经在跑的会话
-        restoreTerminalContent();
-      }
-    });
+    btnNew.addEventListener("click", newTerminalSession);
   }
 
   // 字号缩放：按钮与 Ctrl± 快捷键共用 setTerminalFontSize 一处实现；
@@ -1961,18 +2019,8 @@ function initTerminal() {
     });
   }
 
-  // Esc 关闭弹窗，并把焦点还给打开它的工具栏按钮，键盘用户不会掉到页面开头。
-  // 但终端自己持有焦点时 Esc 必须留给 PTY —— vim 退出插入模式、readline 的
-  // 转义前缀都靠它，弹窗不能抢。因此只在焦点不在终端内容区时才关。
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    const modal = $("#terminal-modal");
-    if (!modal || modal.classList.contains("hidden")) return;
-    if (document.activeElement && document.activeElement.closest("#terminal-content")) return;
-    closeModal("terminal-modal");
-    const btn = $("#btn-terminal");
-    if (btn) btn.focus();
-  });
+  // 弹窗级快捷键统一由 onTerminalKeydown 处理（Esc 与标签快捷键共用一处入口）
+  document.addEventListener("keydown", onTerminalKeydown);
 
   // 窗口尺寸变化 → 去抖后 fit 激活会话；其余会话在切回标签时再 fit
   let resizeTimer = null;

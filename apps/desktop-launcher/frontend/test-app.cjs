@@ -461,7 +461,8 @@ function makeXtermStub() {
       this.selection = "";
       instances.push(this);
     }
-    open() { this.opened = true; }
+    // 记录挂载节点：标签切换靠搬运它证明切到了正确的会话
+    open(node) { this.opened = true; this.holder = node; }
     loadAddon(addon) { this.addons.push(addon); }
     onData(fn) { this.dataHandlers.push(fn); }
     onResize(fn) { this.resizeHandlers.push(fn); }
@@ -540,7 +541,18 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       events[name](payload);
     },
     /* 文档级键盘事件（Esc 关弹窗走这条通道）。 */
-    keydown: (event) => document.fire("keydown", event),
+    /* 文档级键盘事件（Esc 与标签快捷键走这条通道）。事件对象按真实
+     * KeyboardEvent 补上 preventDefault，用例可据 defaultPrevented 断言
+     * 默认行为确实被拦下。 */
+    keydown: (event) => {
+      const ev = {
+        defaultPrevented: false,
+        preventDefault() { ev.defaultPrevented = true; },
+        ...event,
+      };
+      document.fire("keydown", ev);
+      return ev;
+    },
     /* 走真实按钮路径建一个会话（点击 #terminal-new），返回其 xterm 桩。
      * 创建过程有多个 await，flush 两次让 TerminalStart 结算并渲染完标签。 */
     newTerminal: async () => {
@@ -1258,4 +1270,50 @@ test("Esc：终端持有焦点时放行给 PTY，焦点在工具栏时关窗并�
 
   h.keydown({ key: "Escape" });
   assert.equal(modal.classList.contains("hidden"), true, "弹窗已关时 Esc 不应有副作用");
+});
+
+test("终端标签快捷键：Ctrl+Shift+T 新建、Ctrl+Tab 循环、Ctrl+Shift+W 关闭", async () => {
+  const h = loadApp();
+  await flush();
+  const modal = h.document.getElementById("terminal-modal");
+  const content = h.document.getElementById("terminal-content");
+  const tabs = () => h.document.getElementById("terminal-tabs").innerHTML;
+  const tabCount = () => tabs().match(/data-id=/g).length;
+
+  // 弹窗没打开时不接管按键：快捷键只在终端界面可见时生效
+  h.keydown({ key: "T", code: "KeyT", ctrlKey: true, shiftKey: true });
+  await flush();
+  assert.equal(h.terminals.length, 0, "弹窗未打开时不应新建会话");
+
+  h.document.getElementById("btn-terminal").fire("click");
+  await flush();
+  await flush();
+  assert.equal(tabCount(), 1, "打开弹窗应建立首个会话");
+
+  assert.equal(h.keydown({ key: "T", code: "KeyT", ctrlKey: true, shiftKey: true }).defaultPrevented,
+    true, "标签快捷键要拦下 webview 的默认行为");
+  await flush();
+  await flush();
+  assert.equal(tabCount(), 2, "Ctrl+Shift+T 应新建标签");
+  assert.match(tabs(), /terminal-tab-running active" data-id="pty-2"/, "新标签应成为激活标签");
+  assert.equal(content.children[0], h.terminals[1].holder, "内容区应换成新会话的节点");
+
+  h.keydown({ key: "Tab", code: "Tab", ctrlKey: true });
+  assert.match(tabs(), /active" data-id="pty-1"/, "Ctrl+Tab 应切到下一个标签（到尾部回绕）");
+  assert.equal(content.children[0], h.terminals[0].holder, "切换标签应搬运对应会话的节点");
+
+  h.keydown({ key: "Tab", code: "Tab", ctrlKey: true, shiftKey: true });
+  assert.match(tabs(), /active" data-id="pty-2"/, "Ctrl+Shift+Tab 应反向切换");
+
+  h.keydown({ key: "W", code: "KeyW", ctrlKey: true, shiftKey: true });
+  await flush();
+  assert.equal(tabCount(), 1, "Ctrl+Shift+W 应关闭当前标签");
+  assert.equal(h.terminals[1].disposed, true, "关闭的会话应释放 xterm 实例");
+
+  // 这些组合不能被 xterm 编成控制字符送进 PTY
+  const onKey = h.terminals[0].keyHandlers[0];
+  assert.equal(onKey({ type: "keydown", ctrlKey: true, shiftKey: true, code: "KeyT" }), false,
+    "Ctrl+Shift+T 不得进 PTY");
+  assert.equal(onKey({ type: "keydown", ctrlKey: true, code: "Tab" }), false,
+    "Ctrl+Tab 不得进 PTY");
 });
