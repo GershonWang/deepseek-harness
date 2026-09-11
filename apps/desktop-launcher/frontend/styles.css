@@ -109,6 +109,12 @@ body {
   user-select: none;
 }
 
+/* 表单控件不继承 body 的字体栈：UA 样式表对 button/input/select 自带 font 声明，
+   元素上的声明胜过从 body 继承来的值，于是它们落到浏览器默认无衬线字体上——
+   实测计算样式是 Arial，而正文是 Noto Sans CJK SC，字形与字号都对不上。
+   显式继承后，安装按钮、版本下拉、搜索框与宿主路径输入框与正文同一套字体。 */
+button, input, select, textarea { font: inherit; }
+
 #app {
   display: flex;
   flex-direction: column;
