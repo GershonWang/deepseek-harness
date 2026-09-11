@@ -279,10 +279,9 @@ function buildHtml(document) {
     /* 宿主导入折叠：renderHostTools 写摘要、setupHostsToggle 绑标题 */
     "hosts-toggle", "hosts-body", "hosts-summary",
     "repair-toast",
-    /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
-    "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
-    "terminal-modal", "terminal-head", "terminal-max",
-    "terminal-font-dec", "terminal-font-size", "terminal-font-inc",
+    /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM。
+       弹框子树（#terminal-modal 内的卡片/头部/正文）按层级单独搭建，见下方。 */
+    "btn-terminal", "terminal-modal",
   ];
   for (const id of ids) {
     const el = document.createElement("div");
@@ -316,6 +315,45 @@ function buildHtml(document) {
     document.getElementById(id).classList.add("hidden");
   }
 
+  // 终端子树按 index.html 的层级搭建：遮罩 #terminal-modal > 卡片 .modal-terminal
+  // （#terminal-card）> 头部 #terminal-head（含最大化与关闭按钮）+ 正文（标签栏与内容区）。
+  // 桩此前把这几个元素平铺在 body 下，于是"JS 把 is-maximized 打在遮罩上、CSS 却要求
+  // 它落在卡片上"这类选择器错位在测试里完全看不出来 —— 已发生过一次。
+  const terminalModal = document.getElementById("terminal-modal");
+  const terminalCard = document.createElement("div");
+  terminalCard.id = "terminal-card";
+  terminalCard.classList.add("modal-card", "modal-terminal");
+  terminalModal.appendChild(terminalCard);
+
+  const terminalHead = document.createElement("div");
+  terminalHead.id = "terminal-head";
+  terminalHead.classList.add("modal-head");
+  terminalCard.appendChild(terminalHead);
+  const terminalMax = document.createElement("button");
+  terminalMax.id = "terminal-max";
+  terminalHead.appendChild(terminalMax);
+  const terminalClose = document.createElement("button");
+  terminalClose.dataset.close = "terminal-modal";
+  terminalHead.appendChild(terminalClose);
+
+  const terminalBody = document.createElement("div");
+  terminalBody.id = "terminal-body";
+  terminalBody.classList.add("modal-body", "terminal-body");
+  terminalCard.appendChild(terminalBody);
+  const terminalTabbar = document.createElement("div");
+  terminalTabbar.classList.add("terminal-tabbar");
+  terminalBody.appendChild(terminalTabbar);
+  for (const id of [
+    "terminal-tabs", "terminal-font-dec", "terminal-font-size", "terminal-font-inc", "terminal-new",
+  ]) {
+    const el = document.createElement("div");
+    el.id = id;
+    terminalTabbar.appendChild(el);
+  }
+  const terminalContent = document.createElement("div");
+  terminalContent.id = "terminal-content";
+  terminalBody.appendChild(terminalContent);
+
   const radioContainer = document.createElement("input");
   radioContainer.attrs.name = "mode";
   radioContainer.attrs.value = "container";
@@ -328,7 +366,7 @@ function buildHtml(document) {
   radioExternal.value = "external";
   document.body.appendChild(radioExternal);
 
-  for (const modal of ["server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal"]) {
+  for (const modal of ["server-modal", "tools-modal", "about-modal", "doctor-modal"]) {
     const b = document.createElement("button");
     b.dataset.close = modal;
     document.body.appendChild(b);
@@ -1184,34 +1222,42 @@ test("终端弹框最大化与还原：按钮与双击头部都能切换，切�
   const h = loadApp();
   await flush();
   const term = await h.newTerminal();
-  const modal = h.document.getElementById("terminal-modal");
+  const backdrop = h.document.getElementById("terminal-modal");
+  const card = h.document.getElementById("terminal-card");
   const btn = h.document.getElementById("terminal-max");
   const fitsBefore = term.addons[0].fitCount;
 
+  assert.ok(card.classList.contains("modal-terminal"),
+    "卡片自带 .modal-terminal：CSS 的最大化规则按这个选择器匹配");
+  assert.equal(h.document.getElementById("terminal-head").closest(".modal-terminal"), card,
+    "头部（含最大化按钮）必须在该卡片内部，否则点的是别人的按钮");
+
   btn.fire("click");
-  assert.equal(modal.classList.contains("is-maximized"), true, "点按钮应进入最大化");
+  assert.equal(card.classList.contains("is-maximized"), true, "点按钮应让卡片进入最大化");
+  assert.equal(backdrop.classList.contains("is-maximized"), false,
+    "is-maximized 不得打在遮罩上：CSS 只匹配 .modal-terminal，打了也看不出变化");
   assert.equal(btn.getAttribute("title"), "还原", "按钮 tooltip 应翻转为还原");
   await settle();
   assert.ok(term.addons[0].fitCount > fitsBefore,
     "尺寸变化后要重新 fit，否则全屏程序按旧行列重绘");
 
   btn.fire("click");
-  assert.equal(modal.classList.contains("is-maximized"), false, "再点一次应还原");
+  assert.equal(card.classList.contains("is-maximized"), false, "再点一次应还原");
   assert.equal(btn.getAttribute("title"), "最大化", "还原后按钮语义回到最大化");
 
   h.document.getElementById("terminal-head").fire("dblclick");
-  assert.equal(modal.classList.contains("is-maximized"), true, "双击头部应最大化");
+  assert.equal(card.classList.contains("is-maximized"), true, "双击头部应最大化");
 
   // 按钮上的双击冒泡到头部：目标元素命中 closest("button")，不得切换状态
   h.document.getElementById("terminal-max").fire("dblclick");
-  assert.equal(modal.classList.contains("is-maximized"), true, "按钮上的双击不得切换");
+  assert.equal(card.classList.contains("is-maximized"), true, "按钮上的双击不得切换");
 });
 
 test("没有会话时最大化只切尺寸，不因缺会话抛错", () => {
   const h = loadApp();
-  const modal = h.document.getElementById("terminal-modal");
+  const card = h.document.getElementById("terminal-card");
   h.document.getElementById("terminal-max").fire("click");
-  assert.equal(modal.classList.contains("is-maximized"), true, "无会话也应能最大化");
+  assert.equal(card.classList.contains("is-maximized"), true, "无会话也应能最大化");
 });
 
 test("终端字号：按钮与 Ctrl± 快捷键缩放，越界夹紧且新会话继承", async () => {

@@ -286,7 +286,9 @@
 
 <!-- 终端弹框 -->
 <div id="terminal-modal" class="modal hidden">
-  <div class="modal-card modal-terminal">
+  <!-- 遮罩与卡片是两个元素：最大化状态必须挂在卡片 #terminal-card 上，
+       CSS 的 .modal-terminal.is-maximized 才匹配得到（遮罩只负责居中与压暗） -->
+  <div id="terminal-card" class="modal-card modal-terminal">
     <div id="terminal-head" class="modal-head">
       <span class="modal-title"><span class="brand-dot"></span>终端</span>
       <span class="modal-head-actions">

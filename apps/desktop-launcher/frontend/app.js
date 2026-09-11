@@ -1813,12 +1813,14 @@ function fitActiveTerminal() {
 
 /**
  * 切换终端弹框的最大化与还原。
+ * 状态挂在卡片 #terminal-card 上（不是遮罩 #terminal-modal）：CSS 的规则是
+ * .modal-terminal.is-maximized，只有卡片同时带 modal-terminal 这个类，
+ * 打在遮罩上不会有任何视觉变化。
  * 尺寸切换后必须重新 fit：xterm 的行列由容器尺寸算出，不重算的话全屏程序
- * （vim/top）仍按旧行列重绘。最大化状态挂在卡片上，关闭弹窗不重置——下次打开
- * 仍是用户上次选择的尺寸。
+ * （vim/top）仍按旧行列重绘。关闭弹窗不重置——下次打开仍是用户上次选的尺寸。
  */
 function toggleTerminalMaximized() {
-  const card = $("#terminal-modal");
+  const card = $("#terminal-card");
   const btn = $("#terminal-max");
   if (!card) return;
   const maximized = card.classList.toggle("is-maximized");
