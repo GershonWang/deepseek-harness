@@ -6,6 +6,7 @@
  *   - 同周期重复事件不重复弹窗/重复诊断；退出 failed 后标记重置，下一周期可再触发
  *   - 浏览器预览（无 window.go）分支自动弹窗逻辑安全跳过
  *   - 现有 #btn-failed-doctor 手动入口仍可用
+ *   - 终端：会话建立走真实按钮路径，标签状态按运行/退出/非零退出码取语义类
  * 运行：node --test frontend/test-app.cjs（工作目录 apps/desktop-launcher）
  *
  * 注意：init() 末尾的 api().Status() 在微任务里落地首个状态，用例在驱动事件前
@@ -139,6 +140,28 @@ class El {
   append(...nodes) {
     for (const n of nodes) this.appendChild(n);
   }
+  // app.js 用 replaceChildren 在两个容器间搬运终端节点（真实 DOM 同名 API）。
+  replaceChildren(...nodes) {
+    this.children = [];
+    for (const n of nodes) this.appendChild(n);
+  }
+  // 元素级查询走子树：renderTerminalTabs 设置 innerHTML 后要在标签容器里挂监听。
+  // innerHTML 在本 stub 里只是字符串，不产生子节点，因此标签查询结果为空 ——
+  // 标签相关断言读 innerHTML 文本，点击标签的行为不在 stub 覆盖范围内。
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+  querySelectorAll(sel) {
+    const found = [];
+    const walk = (node) => {
+      for (const child of node.children) {
+        if (matchesSelector(child, sel)) found.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return found;
+  }
 }
 
 /* 覆盖 app.js 用到的选择器：`#id`、`input[name="mode"]:checked`、
@@ -226,6 +249,7 @@ function buildHtml(document) {
     "repair-toast",
     /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
     "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
+    "terminal-modal",
   ];
   for (const id of ids) {
     const el = document.createElement("div");
@@ -249,7 +273,7 @@ function buildHtml(document) {
   for (const id of [
     "harness", "loading-page", "failed-page", "preflight-page",
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
-    "server-modal", "tools-modal", "about-modal", "doctor-modal",
+    "server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal",
     "doctor-content", "doctor-repair-output",
     "safe-mode-row", "safe-mode-active", "external-panel", "server-address",
     "fresh-home-active",
@@ -269,7 +293,7 @@ function buildHtml(document) {
   radioExternal.value = "external";
   document.body.appendChild(radioExternal);
 
-  for (const modal of ["server-modal", "tools-modal", "about-modal", "doctor-modal"]) {
+  for (const modal of ["server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal"]) {
     const b = document.createElement("button");
     b.dataset.close = modal;
     document.body.appendChild(b);
@@ -318,6 +342,7 @@ function baseStatus(over) {
 
 function makeWails(runCalls, overrides = {}) {
   const events = {};
+  let terminalSeq = 0;
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
@@ -346,6 +371,11 @@ function makeWails(runCalls, overrides = {}) {
     AddHostTool: async () => ({}),
     About: async () => ({}),
     ReadClipboardImage: async () => "",
+    // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
+    TerminalStart: async () => "pty-" + (++terminalSeq),
+    TerminalWrite: async () => {},
+    TerminalResize: async () => {},
+    TerminalClose: async () => {},
   };
   return {
     events,
@@ -367,12 +397,52 @@ function makeWails(runCalls, overrides = {}) {
   };
 }
 
+/* xterm 桩：xterm.js 是随包 vendor 的 UMD 构建，真实例 open 需要真实布局尺寸
+ * 才能测出字符单元格，桩 DOM 给不出。这里实现 app.js 用到的最小成员并记录调用，
+ * 让终端用例能走完「点新建 → 开会话 → 事件回写 → 渲染标签」整条路径。 */
+function makeXtermStub() {
+  const instances = [];
+  class FakeTerminal {
+    constructor(options) {
+      this.options = options;
+      this.cols = 80;
+      this.rows = 24;
+      this.opened = false;
+      this.disposed = false;
+      this.addons = [];
+      this.written = [];
+      this.dataHandlers = [];
+      this.resizeHandlers = [];
+      this.keyHandlers = [];
+      this.selection = "";
+      instances.push(this);
+    }
+    open() { this.opened = true; }
+    loadAddon(addon) { this.addons.push(addon); }
+    onData(fn) { this.dataHandlers.push(fn); }
+    onResize(fn) { this.resizeHandlers.push(fn); }
+    attachCustomKeyEventHandler(fn) { this.keyHandlers.push(fn); }
+    focus() {}
+    dispose() { this.disposed = true; }
+    write(data) { this.written.push(data); }
+    hasSelection() { return this.selection !== ""; }
+    getSelection() { return this.selection; }
+    clearSelection() { this.selection = ""; }
+  }
+  class FakeFitAddon {
+    constructor() { this.fitCount = 0; }
+    fit() { this.fitCount += 1; }
+  }
+  return { instances, Terminal: FakeTerminal, FitAddon: { FitAddon: FakeFitAddon } };
+}
+
 /* 在独立 vm 上下文加载 app.js 并运行 init()；返回驱动句柄。
  * 末尾追加一行把模块级 applyStatus 暴露到 sandbox，供预览分支直接调用。 */
 function loadApp({ hasWails = true, overrides = {} } = {}) {
   const runCalls = [];
   const { document, registry } = makeDocument();
   buildHtml(document);
+  const xterm = makeXtermStub();
   const { window, events } = hasWails
     ? makeWails(runCalls, overrides)
     : { window: { addEventListener() {} }, events: {} };
@@ -385,6 +455,12 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     // app.js 的状态栏脱敏用 URL 解析主机端口；vm 上下文默认不带这个 Web API，
     // 缺了它 hostLabel 会走解析失败的兜底分支，脱敏行为就测不到了。
     URL,
+    // 终端：xterm 由 index.html 的 vendor 脚本注入全局，vm 上下文没有脚本加载，
+    // 用桩代替；requestAnimationFrame 同理缺失，而弹窗重开与布局稳定后的 fit
+    // 都依赖它，缺了会抛 ReferenceError。
+    Terminal: xterm.Terminal,
+    FitAddon: xterm.FitAddon,
+    requestAnimationFrame: (fn) => setTimeout(() => fn(0), 0),
     window,
     document,
     navigator: {},
@@ -395,6 +471,8 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
     + "\n;globalThis.__testRenderTools = renderTools;"
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
+    + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
+    + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
@@ -404,10 +482,25 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     registry,
     runCalls,
     overrides,
+    terminals: xterm.instances,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
       events["harness:status"](s);
+    },
+    /* 驱动一条后端终端事件。EventsOn 的桩把回调存进 events，名称与 index.html
+     * 脚本注册的一致（terminal:output / terminal:status）。 */
+    terminalEvent: (name, payload) => {
+      assert.equal(typeof events[name], "function", name + " 事件未注册");
+      events[name](payload);
+    },
+    /* 走真实按钮路径建一个会话（点击 #terminal-new），返回其 xterm 桩。
+     * 创建过程有多个 await，flush 两次让 TerminalStart 结算并渲染完标签。 */
+    newTerminal: async () => {
+      document.getElementById("terminal-new").fire("click");
+      await flush();
+      await flush();
+      return xterm.instances[xterm.instances.length - 1];
     },
   };
 }
@@ -923,4 +1016,43 @@ test("状态栏只显示主机端口，不带服务地址里的访问 token", ()
   text = h.document.getElementById("status-text").textContent;
   assert.equal(text, "外部服务 10.0.0.5:3456");
   assert.equal(text.includes(token), false, "外部模式同样不得出现 token");
+});
+
+/* ---------- 终端用例 ---------- */
+
+test("新建终端会话：xterm 就绪、标签渲染为运行态", async () => {
+  const h = loadApp();
+  await flush();
+  const term = await h.newTerminal();
+
+  assert.equal(term.opened, true, "会话启动前必须先 open xterm");
+  assert.equal(term.addons.length, 1, "应装载 fit 插件");
+  assert.ok(term.addons[0].fitCount >= 1, "open 后应 fit 出真实行列再启动 PTY");
+  assert.ok(term.options.fontFamily.includes("JetBrains Mono"), "终端应使用随包等宽字体");
+
+  const tabs = h.document.getElementById("terminal-tabs").innerHTML;
+  assert.match(tabs, /class="terminal-tab terminal-tab-running active"/,
+    "首个会话应为激活标签且带运行中语义类");
+  assert.match(tabs, /终端 1/, "标签标题应按会话数自动编号");
+});
+
+test("终端输出写回对应会话，退出后标签按退出码取语义类", async () => {
+  const h = loadApp();
+  await flush();
+  const term = await h.newTerminal();
+
+  h.terminalEvent("terminal:output", { sessionId: "pty-1", data: "hello" });
+  assert.deepEqual(term.written, ["hello"], "输出只写入自己的会话实例");
+
+  h.terminalEvent("terminal:status", { sessionId: "pty-1", status: "closed", exitCode: 1 });
+  let tabs = h.document.getElementById("terminal-tabs").innerHTML;
+  assert.match(tabs, /terminal-tab-failed/, "非零退出码应为 failed 语义类");
+  assert.match(tabs, /（已退出，退出码 1）/, "标签提示应带上退出码");
+  assert.match(term.written.join(""), /退出码: 1/, "滚动区的退出提示按约定保留");
+
+  h.terminalEvent("terminal:status", { sessionId: "pty-1", status: "closed", exitCode: 0 });
+  tabs = h.document.getElementById("terminal-tabs").innerHTML;
+  assert.match(tabs, /terminal-tab-exited/, "正常退出应为 exited 语义类");
+  assert.equal(tabs.includes("terminal-tab-failed"), false, "正常退出不得带失败类");
+  assert.match(tabs, /（已退出，退出码 0）/, "正常退出同样标注退出码");
 });

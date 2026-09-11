@@ -1000,16 +1000,29 @@ body {
   align-content: start;
 }
 @media (max-width: 760px) { .market-grid { grid-template-columns: repeat(2, 1fr); } }
+/* 卡片高度必须把四行内容（标题/描述/元信息/动作）装下：网格滚动时行高被钉在卡片的
+   min-height 上，内容再高也只会从卡片里溢出，不会把行撑高。实测四行需 141px；
+   多一行运行时提示的卡片需 160px，故按 has-runtime 单独抬一档，其余行保持紧凑。 */
 .tool-card-item {
   border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
   background: var(--bg-panel); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;
-  min-height: 120px;
+  min-height: 141px;
 }
-.tool-card-item.installed { border-color: color-mix(in srgb, var(--ok) 45%, var(--border-strong)); }
+.tool-card-item.has-runtime { min-height: 160px; }
 .tool-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .tool-card-name { font-weight: 600; color: var(--fg-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tool-card-desc { font-size: 11.5px; color: var(--fg-dim); line-height: 1.5; min-height: 32px; }
-.tool-card-meta { font-size: 10.5px; color: var(--fg-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 描述截两行：不截断的长描述会挤掉下面的元信息行（同一处高度预算）。
+   display:-webkit-box 是 line-clamp 的前置条件，WebKit 与 Chromium 都支持。 */
+.tool-card-desc {
+  font-size: 11.5px; color: var(--fg-dim); line-height: 1.5; min-height: 32px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* 弹性子项只在 overflow 非 visible 时把自动最小尺寸降为 0，进而成为唯一被压缩的行。
+   元信息与运行时提示都要显式拒绝收缩，缺了这两条它们会被压成 0 高、内容整体消失。 */
+.tool-card-meta {
+  font-size: 10.5px; color: var(--fg-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0;
+}
 /* 容器内运行时提示：市场仓库未装、但容器 PATH 已有同名命令时的来源标注
    （随包/宿主导入/系统）。ok 色表示"可用"，字号弱化不与状态徽标争夺注意力；
    悬浮 title 解释两套状态（仓库安装 vs 运行时可用）的关系。 */
@@ -1018,6 +1031,7 @@ body {
   color: color-mix(in srgb, var(--ok) 70%, var(--fg-dim));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   cursor: help;
+  flex-shrink: 0;
 }
 .tool-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 /* 安装进度条：toolchain:progress 事件按 data-tool-id 定向更新 fill 宽度 */
@@ -1367,12 +1381,18 @@ body {
   border-color: var(--border-strong);
 }
 
+/* 状态点按会话终态取色：运行中绿、非零退出红、正常退出中性。
+   此前只有激活标签拿得到 --ok，非激活的运行中标签与已退出的标签看上去一模一样。 */
 .terminal-tab-status {
   font-size: 10px;
   line-height: 1;
+  color: var(--fg-dim);
 }
-.terminal-tab.active .terminal-tab-status {
+.terminal-tab-running .terminal-tab-status {
   color: var(--ok);
+}
+.terminal-tab-failed .terminal-tab-status {
+  color: var(--danger);
 }
 
 .terminal-tab-title {

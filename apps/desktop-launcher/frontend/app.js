@@ -1652,6 +1652,8 @@ function switchTerminalSession(sessionId) {
 
 /**
  * 渲染终端标签页列表。
+ * 终态由 status/exitCode 决定：运行中实心点，退出后空心圈，非零退出码用危险色。
+ * 多标签下失败会话要能在标签栏直接认出来，否则得逐个翻回它的输出找退出码。
  */
 function renderTerminalTabs() {
   const tabsEl = $("#terminal-tabs");
@@ -1661,9 +1663,16 @@ function renderTerminalTabs() {
   tabsEl.innerHTML = sessions
     .map((s) => {
       const isActive = s.id === terminalState.activeId;
-      const statusDot = s.status === "running" ? "●" : "○";
+      // 后端只保证 closed 状态带 exitCode 字段，取不到数值时按普通退出处理
+      const hasCode = typeof s.exitCode === "number";
+      const state = s.status === "running" ? "running"
+        : hasCode && s.exitCode !== 0 ? "failed" : "exited";
+      const statusDot = state === "running" ? "●" : "○";
+      const exitSuffix = state === "running"
+        ? ""
+        : "（已退出" + (hasCode ? "，退出码 " + s.exitCode : "") + "）";
       return `
-        <div class="terminal-tab ${isActive ? "active" : ""}" data-id="${s.id}">
+        <div class="terminal-tab terminal-tab-${state} ${isActive ? "active" : ""}" data-id="${s.id}" title="${escapeHtml(s.title + exitSuffix)}">
           <span class="terminal-tab-status">${statusDot}</span>
           <span class="terminal-tab-title">${escapeHtml(s.title)}</span>
           <button class="terminal-tab-close" data-close="${s.id}" title="关闭">×</button>
