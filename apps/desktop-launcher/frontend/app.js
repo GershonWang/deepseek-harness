@@ -1475,8 +1475,9 @@ const terminalState = {
 };
 
 /**
- * xterm 主题色：沿用 styles.css 中 .terminal-content 的 --term-* 16 色调色板。
- * xterm 的 theme 选项只接受具体色值（不解析 CSS 变量），因此在此静态映射。
+ * xterm 主题色：styles.css 的 .modal-terminal 用同一组色值画 xterm 画布之外
+ * 那一层（头部、标签栏、留白），两处改动必须同步。xterm 的 theme 选项只接受
+ * 具体色值（不解析 CSS 变量），因此在此静态映射。
  */
 const TERMINAL_THEME = {
   background: "#1a1a1a",
