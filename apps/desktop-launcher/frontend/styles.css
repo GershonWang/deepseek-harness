@@ -1055,8 +1055,23 @@ button, input, select, textarea { font: inherit; }
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
   flex: 1; min-height: 0; overflow-y: auto;
   align-content: start;
+  /* 细滚动条：默认滚动条在 WebKitGTK 下是一道亮边，与深色卡片风格不符，15px 的
+     占位也会挤掉卡片。scrollbar-* 给标准实现，::-webkit-scrollbar 给 webkit2gtk
+     （与终端视口同一套做法：滑块用透明边框内缩）。 */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
 }
+.market-grid::-webkit-scrollbar { width: 10px; }
+.market-grid::-webkit-scrollbar-track { background: transparent; }
+.market-grid::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border: 2px solid transparent; border-radius: 5px;
+  background-clip: content-box;
+}
+.market-grid::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); background-clip: content-box; }
 @media (max-width: 760px) { .market-grid { grid-template-columns: repeat(2, 1fr); } }
+/* 弹框宽度是 min(900px, 94vw)，窄窗口下两列仍然过挤：560px 以下退回单列，
+   卡片高度不再被宽度挤压，描述也不会只剩两三个字一行。 */
+@media (max-width: 560px) { .market-grid { grid-template-columns: 1fr; } }
 /* 空结果：定高弹框里这片空白要有收尾——一句结论加一个下一步，而不是一行靠左的灰字。
    grid-column 横跨整行，否则它只占三列中的第一列。 */
 .market-empty {
