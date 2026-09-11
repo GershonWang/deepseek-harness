@@ -58,3 +58,6 @@ worktrees/
 # visual companion scratch
 .superpowers/
 native/system/test/bin/
+
+# 启动器前端预览工具的产物（截图与一次性浏览器 profile）
+apps/desktop-launcher/frontend/.preview/

@@ -57,3 +57,11 @@ pre-push:
       # SQLite 打不开或需整体重装 node_modules 而无 TTY 中止，导致钩子无法执行；
       # npm run 不做该检查，行为在所有环境一致。
       run: npm run typecheck
+
+    # 启动器前端的布局不变量：高度是否随模式/状态跳动、地址框两行预留、输入框封顶。
+    # 这些只有真实布局看得见，DOM 桩测试覆盖不到，因此放在唯一的推送出口上。
+    # 直接跑 node（不经过包管理器），且工具在找不到 Chromium 时打印原因并跳过，
+    # 不会因为某台机器没装浏览器而堵住推送。
+    - name: launcher frontend layout
+      glob: 'apps/desktop-launcher/frontend/**'
+      run: node apps/desktop-launcher/frontend/tools/preview.mjs verify
