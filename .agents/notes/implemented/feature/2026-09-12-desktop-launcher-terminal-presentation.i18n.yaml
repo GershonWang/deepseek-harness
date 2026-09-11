@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-desktop-launcher-terminal-presentation.md
-2026-09-12-desktop-launcher-terminal-presentation.md: 706285eef437e396f042ba450803f5a305b66d1a
-2026-09-12-desktop-launcher-terminal-presentation.zh.md: c5e47c085aaf8e4443f4e3098b372307d65e006b
+2026-09-12-desktop-launcher-terminal-presentation.md: b9d66ef9c738ce76d8758d137ffbc32b83bc3b4e
+2026-09-12-desktop-launcher-terminal-presentation.zh.md: 9d1c1d0ac2601102e9b4a75ed7372e97c8a434bb

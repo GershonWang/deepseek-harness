@@ -20,7 +20,7 @@ Status: implemented
 
 **标签状态是推导出来的，不是继承来的。** `renderTerminalTabs` 由 `status` 与 `exitCode` 算出 `running` / `exited` / `failed`——`closed` 但 `exitCode` 不是数字的会话按普通退出处理，不猜失败——为每个标签着色（运行中绿、非零退出红、其余中性），并把退出码写进标签的 `title`。
 
-**卡片可最大化与还原。** 头部按钮切换状态，头部双击同样切换；`is-maximized` 设为 `calc(100vw - 24px)` × `calc(100vh - 24px)` 并放开 `max-width`/`max-height`，两套图标由 CSS 切换，按钮不会跳位。状态挂在卡片元素上，关闭再打开仍是用户选的尺寸。尺寸不带 CSS 过渡。
+**卡片可最大化与还原。** 头部按钮切换状态，头部双击同样切换；`is-maximized` 设为 `calc(100vw - 24px)` × `calc(100vh - 24px)` 并放开 `max-width`/`max-height`，两套图标由 CSS 切换，按钮不会跳位。状态切换在 `#terminal-card` 上——也就是带 `modal-terminal` 类、被 `.modal-terminal.is-maximized` 选中的那个元素；遮罩 `#terminal-modal` 是另一个元素，只负责居中与压暗，把类打上去屏幕上不会有任何变化。状态挂在卡片上，关闭再打开仍是用户选的尺寸。尺寸不带 CSS 过渡。
 
 **字号是一份共享偏好。** `terminalState.fontSize` 从 `localStorage`（`dsh-desktop.terminal.fontSize`）恢复，夹在 10–20px，作用于每个活动会话以及之后新建的会话，改完必须重新 fit，因为字符单元格随之变化。标签条上是 `A−` / 读数 / `A+`，到达边界置灰；`Ctrl+=`、`Ctrl+-`、`Ctrl+0` 经 xterm 的按键处理做同样的事。
 
@@ -72,10 +72,10 @@ Esc 关窗的触发机会比一般模态少，因为终端在打开弹窗与每�
 
 退出提示留在回滚缓冲里，标签以 tooltip 复述它。`restoreTerminalContent` 成为空态的唯一写出点，也是"新建标签失败不会把运行中会话的节点从内容区抹掉"的原因——在此之前失败路径只往控制台打日志，把占位提示留在了屏幕上。
 
-`test-app.cjs` 的测试桩为了覆盖终端路径而长大，不再只是摆设：`El` 增了 `querySelector`/`querySelectorAll`（只走子树，因为 `innerHTML` 在桩里仍是字符串）、`replaceChildren`（同时清掉那个字符串）、`closest`，以及会更新 `document.activeElement` 的 `focus`；文档桩记录监听器并可用带 `preventDefault` 的事件触发 `keydown`；vm 沙箱拿到 `Terminal`、`FitAddon`、`requestAnimationFrame` 以及假 `window` 上的 `localStorage` 桩；Wails 桩拿到四个 `Terminal*` RPC。点击标签仍在桩的覆盖范围之外——标签经 `innerHTML` 渲染，断言读的就是那个字符串。
+`test-app.cjs` 的测试桩为了覆盖终端路径而长大，不再只是摆设：`El` 增了 `querySelector`/`querySelectorAll`（只走子树，因为 `innerHTML` 在桩里仍是字符串）、`replaceChildren`（同时清掉那个字符串）、`closest`，以及会更新 `document.activeElement` 的 `focus`；文档桩记录监听器并可用带 `preventDefault` 的事件触发 `keydown`；vm 沙箱拿到 `Terminal`、`FitAddon`、`requestAnimationFrame` 以及假 `window` 上的 `localStorage` 桩；Wails 桩拿到四个 `Terminal*` RPC；终端子树按 `index.html` 的层级嵌套搭建（`#terminal-modal` > `#terminal-card` > 头部与正文），不再平铺。嵌套正是让"类打错元素"看得见的原因：当每个元素都直接挂在 `body` 下时，把 `is-maximized` 打在遮罩而不是卡片上，每条断言都会通过。点击标签仍在桩的覆盖范围之外——标签经 `innerHTML` 渲染，断言读的就是那个字符串。
 
 ## 测试
 
-`node --test frontend/test-app.cjs` 跑 34 例，其中 8 例覆盖本次改动：会话建立时 xterm 就绪与运行态标签类；输出写回对应会话与退出码语义类；最大化经按钮与头部双击两条路径，含重新 fit 与无会话情形；字号经按钮与按键处理缩放，含夹紧、新会话继承、偏好恢复、脏数据与 `setItem` 抛异常；启动占位提示及其被会话节点替换；Esc 在焦点位于终端内时放行给 PTY、不在时关窗并归还焦点；标签快捷键含"弹窗隐藏时不接管"、节点搬运、组合键不进 PTY；以及关闭最后一个标签后的空态。
+`node --test frontend/test-app.cjs` 跑 37 例，其中 8 例覆盖本次改动：会话建立时 xterm 就绪与运行态标签类；输出写回对应会话与退出码语义类；最大化经按钮与头部双击两条路径，含重新 fit、无会话情形，以及"`is-maximized` 必须落在带 `modal-terminal` 的元素上"这条目标断言；字号经按钮与按键处理缩放，含夹紧、新会话继承、偏好恢复、脏数据与 `setItem` 抛异常；启动占位提示及其被会话节点替换；Esc 在焦点位于终端内时放行给 PTY、不在时关窗并归还焦点；标签快捷键含"弹窗隐藏时不接管"、节点搬运、组合键不进 PTY；以及关闭最后一个标签后的空态。
 
-渲染未经验证。本环境没有 `make` 也没有 `webkit2gtk-4.1`，前端没有重新打进内嵌二进制，也没有对着真实窗口核对过：调色板、间距、最大化后的几何、滚动条（WebKit 私有伪元素）、以及 WebKitGTK 是否会把 `Ctrl+Tab` 交给页面，都还需要在开发工作区跑一次 `make build`。这套用例钉住的是行为与 DOM 状态，不是布局。
+渲染未经验证。本环境没有 `make` 也没有 `webkit2gtk-4.1`，前端没有重新打进内嵌二进制，也没有对着真实窗口核对过：调色板、间距、最大化后的几何、滚动条（WebKit 私有伪元素）、以及 WebKitGTK 是否会把 `Ctrl+Tab` 交给页面，都还需要在开发工作区跑一次 `make build`。这套用例钉住的是行为与 DOM 状态，不是布局——最大化按钮就是这么带着绿灯出厂的，最后由用户而不是用例发现。
