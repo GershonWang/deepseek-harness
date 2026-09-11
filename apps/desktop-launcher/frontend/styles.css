@@ -1077,7 +1077,12 @@ button, input, select, textarea { font: inherit; }
   cursor: help;
   flex-shrink: 0;
 }
+/* 动作行统一成「可伸缩项 + 定宽动作」：只带安装按钮的卡片让按钮撑满，与旁边带版本
+   下拉的卡片同一个宽度基准；卸载按钮定宽，两击确认把文案换成「确认卸载?」时按钮
+   不再变宽（实测 54px → 84px），否则那一行的版本下拉会被挤窄、整行跟着抖一下。 */
 .tool-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.tool-card-actions > .btn-primary:only-child { flex: 1; }
+.tool-card-actions > .btn-danger { flex: 0 0 auto; min-width: 92px; }
 /* 安装进度条：toolchain:progress 事件按 data-tool-id 定向更新 fill 宽度 */
 .tool-progress {
   height: 6px; border-radius: 3px; background: var(--bg-input);
