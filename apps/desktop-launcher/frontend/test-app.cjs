@@ -381,6 +381,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     setTimeout,
     clearTimeout,
     Promise,
+    // app.js 的状态栏脱敏用 URL 解析主机端口；vm 上下文默认不带这个 Web API，
+    // 缺了它 hostLabel 会走解析失败的兜底分支，脱敏行为就测不到了。
+    URL,
     window,
     document,
     navigator: {},
@@ -872,4 +875,19 @@ test("服务器弹框状态行按状态带语义色，地址行仅运行态呈�
   assert.equal(state.classList.contains("state-ok"), false, "语义色不应叠加");
   assert.equal(addr.classList.contains("code"), false,
     "「正在启动…」不是可复制地址，不该套代码块样式");
+});
+
+test("状态栏只显示主机端口，不带服务地址里的访问 token", () => {
+  const h = loadApp();
+  const token = "s3cr3t-token";
+
+  h.status(baseStatus({ State: "running", URL: `http://127.0.0.1:3456/?token=${token}` }));
+  let text = h.document.getElementById("status-text").textContent;
+  assert.equal(text, "运行中 127.0.0.1:3456", "状态栏应只显示主机与端口");
+  assert.equal(text.includes(token), false, "状态栏不得出现 token");
+
+  h.status(baseStatus({ Mode: "external", ExternalURL: `http://10.0.0.5:3456/?token=${token}` }));
+  text = h.document.getElementById("status-text").textContent;
+  assert.equal(text, "外部服务 10.0.0.5:3456");
+  assert.equal(text.includes(token), false, "外部模式同样不得出现 token");
 });

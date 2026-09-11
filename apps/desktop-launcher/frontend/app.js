@@ -128,6 +128,25 @@ function showStageOnly(el) {
   }
 }
 
+/**
+ * 取服务地址的「主机:端口」标签，供状态栏常驻展示。
+ *
+ * 状态栏是长期可见的纯文本，完整服务地址携带访问 token，截图或共享屏幕即泄露；
+ * 完整地址与一键复制留在「服务器」弹框内。解析失败返回空串而不回退到原串，
+ * 否则脱敏会被一条畸形地址绕开。
+ * @param {string} url - 形如 http://127.0.0.1:3456/?token=… 的服务地址。
+ * @returns {string} 主机与端口（如 127.0.0.1:3456）；地址缺失或无法解析时为空串。
+ */
+function hostLabel(url) {
+  if (!url) return "";
+  try {
+    return new URL(url).host;
+  } catch {
+    // URL 构造失败只可能来自畸形地址；此处有意丢弃异常，调用方按空标签渲染。
+    return "";
+  }
+}
+
 function applyStatus(s) {
   state.status = s;
 
@@ -136,10 +155,12 @@ function applyStatus(s) {
 
   if (s.Mode === "external") {
     dot.className = "dot ok";
-    text.textContent = "外部服务 " + (s.ExternalURL || "");
+    const host = hostLabel(s.ExternalURL);
+    text.textContent = host ? "外部服务 " + host : "外部服务";
   } else if (s.State === "running") {
     dot.className = "dot ok";
-    text.textContent = "运行中 " + s.URL + (s.SafeMode ? " 🔒" : "") + (s.FreshHome ? " 🆕" : "");
+    const host = hostLabel(s.URL);
+    text.textContent = "运行中" + (host ? " " + host : "") + (s.SafeMode ? " 🔒" : "") + (s.FreshHome ? " 🆕" : "");
   } else if (s.State === "starting") {
     dot.className = "dot warn";
     text.textContent = "启动中" + (s.SafeMode ? "（安全模式）" : "") + (s.FreshHome ? "（全新环境）" : "");
