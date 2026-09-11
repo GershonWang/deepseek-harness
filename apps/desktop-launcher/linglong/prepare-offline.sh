@@ -27,8 +27,13 @@ pnpm run build
 #    用 --config.node-linker=hoisted + 默认 auto-install-peers 让 pnpm 尽量
 #    装全 peer deps；legacy 模式下仍会漏掉纯 peer-only 的 workspace 包
 #    （动态插件架构下很多包只以 peerDep 存在），在 2.1 步统一补齐。
+#    allowUnusedPatches：仓库根的 patchedDependencies 还声明了上游 Electron
+#    桌面壳（electron-builder → @electron/osx-sign）用的补丁，而本步只部署
+#    @deepseek-ai/dsh 的生产闭包，闭包里没有它；pnpm 11 对未被使用的补丁是
+#    硬报错（ERR_PNPM_UNUSED_PATCH），因此在这一步显式放行，只影响本步骤。
 pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   --config.node-linker=hoisted \
+  --config.allowUnusedPatches=true \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
 
