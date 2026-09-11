@@ -814,9 +814,12 @@ button, input, select, textarea { font: inherit; }
 .mode-opt input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 1px; }
 
 /* 外部连接 */
-.ext-row { display: flex; align-items: center; gap: 8px; }
-.ext-row .key { width: auto; text-align: left; }
-.ext-row input {
+/* 输入框是多行的，因此行按「标签对齐框内首行、输入框撑满行高」摆放：
+   .ext-row 吃掉面板剩余高度（面板被叠放容器拉高时余量都在这里），
+   输入框随之拉伸，卡片下方不会留下一片空白。 */
+.ext-row { display: flex; align-items: stretch; flex: 1 1 auto; gap: 8px; }
+.ext-row .key { width: auto; text-align: left; padding-top: 6px; }
+.ext-row textarea {
   flex: 1;
   min-width: 0;
   padding: 5px 8px;
@@ -824,12 +827,21 @@ button, input, select, textarea { font: inherit; }
   border-radius: var(--radius-sm);
   background: var(--bg-input);
   color: var(--fg);
+  font-family: inherit;
   font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  resize: none;
+  /* 最多约 6 行：外部模式遇容器侧失败的安全模式块时叠放会把位置拉得很高，
+     不封顶输入框会变成一个巨型空框。8.7em = 6 × 1.45 行高，+12px 是内外边距。 */
+  max-height: calc(8.7em + 12px);
   outline: none;
 }
-.ext-row input:focus { border-color: var(--accent); }
+.ext-row textarea:focus { border-color: var(--accent); }
 
-.ext-state { font-size: 12px; color: var(--fg); white-space: pre-line; }
+/* 提示行按一行预留高度：连接成功后这行才出现文字，不预留会让弹框长高一行。
+   line-height 显式写死，min-height 才能与真实行盒严格对齐。 */
+.ext-state { font-size: 12px; line-height: 1.45; min-height: 1.45em; color: var(--fg); white-space: pre-line; }
 .error { font-size: 12px; color: var(--danger-text); min-height: 1em; white-space: pre-wrap; }
 
 /* 工具链表格 */

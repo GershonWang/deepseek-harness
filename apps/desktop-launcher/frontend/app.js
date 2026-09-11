@@ -644,7 +644,10 @@ function renderServerDialog(s) {
   $("#ext-disconnect").disabled = !s.CanDisconnect;
 
   if (s.Mode === "external") {
-    $("#ext-state").textContent = "已连接\n外部地址: " + s.ExternalURL;
+    // 只报主机端口：输入框里已经是完整地址，状态栏也已收窄到 host:port，
+    // 这里再贴一遍完整 URL 会折成三行把弹框顶高，也让 token 多显示一处。
+    const host = hostLabel(s.ExternalURL);
+    $("#ext-state").textContent = host ? "已连接 " + host : "已连接";
   } else if (s.Busy) {
     $("#ext-state").textContent = "连接中…";
   } else {
