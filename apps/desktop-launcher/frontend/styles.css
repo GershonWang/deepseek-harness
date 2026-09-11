@@ -633,6 +633,15 @@ body {
   padding: 3px 7px;
 }
 
+/* 服务地址拆两行：主机端口一行，?token=… 一行。
+   令牌固定 43 字符（packages/client/connection 的 SECRET_BYTES=32 经 base64url），
+   与主机端口挤在同一行必然被 overflow-wrap 从令牌中间折断，两段各自独占一行
+   就都放得下；令牌行用弱化色，让「服务在哪」先于「凭据是什么」被读到。
+   子元素仍继承 .row-value 的 overflow-wrap，令牌若变长只是自己那一行折行。 */
+.addr { display: flex; flex-direction: column; }
+.addr .addr-origin { color: var(--fg-strong); }
+.addr .addr-token { color: var(--fg-dim); }
+
 /* 值可能折成多行，复制按钮随之垂直居中，不跟随首行基线 */
 .row > .icon-btn-sm { align-self: center; }
 

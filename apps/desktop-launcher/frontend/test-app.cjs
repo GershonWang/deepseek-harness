@@ -208,6 +208,7 @@ function buildHtml(document) {
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "container-panel", "external-panel", "dlg-error", "server-state",
     "server-detail1", "server-detail2", "server-start", "server-restart", "server-stop", "server-copy",
+    "server-address", "server-addr-origin", "server-addr-token",
     "safe-mode-row", "safe-mode-active", "ext-connect", "ext-disconnect", "ext-state",
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
@@ -250,7 +251,7 @@ function buildHtml(document) {
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
     "server-modal", "tools-modal", "about-modal", "doctor-modal",
     "doctor-content", "doctor-repair-output",
-    "safe-mode-row", "safe-mode-active", "external-panel",
+    "safe-mode-row", "safe-mode-active", "external-panel", "server-address",
     "fresh-home-active",
   ]) {
     document.getElementById(id).classList.add("hidden");
@@ -842,8 +843,10 @@ test("服务器弹框复制按钮：运行态复制完整地址并反馈已复�
 
   const btn = h.document.getElementById("server-copy");
   assert.equal(btn.classList.contains("hidden"), false, "运行态应显示复制按钮");
-  assert.equal(h.document.getElementById("server-detail1").textContent, url,
-    "地址行应显示含 token 的完整地址");
+  assert.equal(h.document.getElementById("server-addr-origin").textContent, "http://127.0.0.1:1/",
+    "地址第一行应是主机端口");
+  assert.equal(h.document.getElementById("server-addr-token").textContent, "?token=abc",
+    "地址第二行应是查询段（令牌固定 43 字符，整串一行放不下）");
 
   await btn.fire("click");
   await flush();
@@ -859,21 +862,32 @@ test("非运行态隐藏复制按钮", () => {
     "停止态地址行显示的是退出原因，复制按钮应隐藏");
 });
 
-test("服务器弹框状态行按状态带语义色，地址行仅运行态呈可复制样式", () => {
+test("地址没有查询串时整串落在第一行", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:3456/" }));
+
+  assert.equal(h.document.getElementById("server-addr-origin").textContent, "http://127.0.0.1:3456/");
+  assert.equal(h.document.getElementById("server-addr-token").textContent, "",
+    "无查询串时第二行为空，不应凭空补出 token 前缀");
+});
+
+test("服务器弹框状态行按状态带语义色，地址与文案两种呈现互斥", () => {
   const h = loadApp();
   h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:1/?token=abc" }));
 
   const state = h.document.getElementById("server-state");
-  const addr = h.document.getElementById("server-detail1");
+  const note = h.document.getElementById("server-detail1");
+  const addr = h.document.getElementById("server-address");
   assert.equal(state.textContent, "运行中");
   assert.ok(state.classList.contains("state-ok"), "运行态状态应为 ok 语义色");
-  assert.ok(addr.classList.contains("mono") && addr.classList.contains("code"),
-    "运行态地址行应为等宽代码块");
+  assert.equal(addr.classList.contains("hidden"), false, "运行态应显示分行的服务地址");
+  assert.equal(note.classList.contains("hidden"), true, "运行态不应同时显示地址文案行");
 
   h.status(baseStatus({ State: "starting" }));
   assert.ok(state.classList.contains("state-warn"), "启动中应为 warn 语义色");
   assert.equal(state.classList.contains("state-ok"), false, "语义色不应叠加");
-  assert.equal(addr.classList.contains("code"), false,
+  assert.equal(note.textContent, "harness 正在启动…", "启动中该行应是启动提示");
+  assert.equal(addr.classList.contains("hidden"), true,
     "「正在启动…」不是可复制地址，不该套代码块样式");
 });
 

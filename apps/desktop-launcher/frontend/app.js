@@ -129,6 +129,22 @@ function showStageOnly(el) {
 }
 
 /**
+ * 把服务地址拆成「主机端口」与「?token=…」两段，供分行展示。
+ *
+ * 令牌固定 43 字符，整串在弹框宽度内放不下一行，浏览器会在任意字符处折断它，
+ * 于是令牌被切成两半。按 `?` 拆开后两段都能各自占满一整行。
+ * 没有查询串时整串作为主机端口段返回；空地址返回两个空段。
+ * @param {string} url - 形如 http://127.0.0.1:3456/?token=… 的服务地址。
+ * @returns {{origin: string, token: string}} 主机端口段与查询段（无查询段时为空串）。
+ */
+function splitAddress(url) {
+  if (!url) return { origin: "", token: "" };
+  const cut = url.indexOf("?");
+  if (cut < 0) return { origin: url, token: "" };
+  return { origin: url.slice(0, cut), token: url.slice(cut) };
+}
+
+/**
  * 取服务地址的「主机:端口」标签，供状态栏常驻展示。
  *
  * 状态栏是长期可见的纯文本，完整服务地址携带访问 token，截图或共享屏幕即泄露；
@@ -588,7 +604,9 @@ function renderServerDialog(s) {
   stateEl.className = "row-value state-value " + stateClass;
 
   if (s.State === "running") {
-    $("#server-detail1").textContent = s.URL;
+    const addr = splitAddress(s.URL);
+    $("#server-addr-origin").textContent = addr.origin;
+    $("#server-addr-token").textContent = addr.token;
     $("#server-detail2").textContent = s.PID;
   } else if (s.State === "starting") {
     $("#server-detail1").textContent = "harness 正在启动…";
@@ -606,11 +624,13 @@ function renderServerDialog(s) {
   $("#server-stop").disabled = !s.CanStop;
   // 复制按钮只在地址即为服务 URL 时出现：其余状态下这一行显示的是「正在启动…」、
   // 退出原因或日志路径，复制它们没有意义。
-  // 等宽 + 代码块也跟着同一条判据走，否则「harness 正在启动…」会被套进一个
-  // 看似可复制、实则无按钮的输入框样式里。
-  $("#server-copy").classList.toggle("hidden", s.State !== "running");
-  $("#server-detail1").classList.toggle("mono", s.State === "running");
-  $("#server-detail1").classList.toggle("code", s.State === "running");
+  // 地址行的两种呈现互斥：运行态是分两行的服务地址，其余状态是纯文案。等宽与
+  // 代码块挂在只承载地址的 #server-address 上，随它一起显隐，因此「正在启动…」
+  // 不会被套进一个看似可复制、实则无按钮的输入框样式里。
+  const isAddress = s.State === "running";
+  $("#server-copy").classList.toggle("hidden", !isAddress);
+  $("#server-address").classList.toggle("hidden", !isAddress);
+  $("#server-detail1").classList.toggle("hidden", isAddress);
 
   // 安全模式：失败态显示「以插件安全模式启动」
   const failed = s.State === "failed" || s.State === "stopped";
