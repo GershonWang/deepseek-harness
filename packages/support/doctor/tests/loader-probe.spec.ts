@@ -83,6 +83,22 @@ async function writeBundle(
   await writeFile(join(dir, 'cordis.patch.yml'), patch)
 }
 
+/** A function plugin that activates without side effects or services. */
+const NOOP_PLUGIN = 'export default function () { void 0 }\n'
+
+/**
+ * Healthy third-party bundle: one entry activating a bundled no-op plugin.
+ *
+ * 必须无服务：同一棵树里已挂载的官方 bundle（`dsh-sdk-minimal` 自带 timer）先注册了
+ * 它的单例，同名服务再注册一次会让整次加载失败。noop 同时让 fixture 不再耦合上游
+ * bundle 的实际内容——用具体官方插件当 healthy 样本，会在上游给它换内容时失效。
+ */
+const HEALTHY_PATCH = [
+  '- insert:',
+  '    - id: healthy-noop',
+  '      name: ./noop.js',
+].join('\n') + '\n'
+
 describe('loader-probe', () => {
   let home: string
 
@@ -104,11 +120,11 @@ describe('loader-probe', () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-probe-bad-'))
     const brokenModule = 'dep-that-does-not-exist-xyz-12345'
     await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-healthy', 'third-party-bad'])
-    await writeBundle(home, 'web', 'third-party-healthy', [
-      '- insert:',
-      '    - id: healthy-timer',
-      '      name: "@deepseek-ai/cordis-plugin-timer"',
-    ].join('\n') + '\n')
+    await writeBundle(home, 'web', 'third-party-healthy', HEALTHY_PATCH)
+    await writeFile(
+      join(home, 'profiles', 'web', 'node_modules', 'third-party-healthy', 'noop.js'),
+      NOOP_PLUGIN,
+    )
     await writeBundle(home, 'web', 'third-party-bad', [
       '- insert:',
       '    - id: broken-plugin',
@@ -133,11 +149,11 @@ describe('loader-probe', () => {
   it('loads a subset that excludes the broken bundle (exit 0)', async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-probe-subset-'))
     await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-healthy', 'third-party-bad'])
-    await writeBundle(home, 'web', 'third-party-healthy', [
-      '- insert:',
-      '    - id: healthy-timer',
-      '      name: "@deepseek-ai/cordis-plugin-timer"',
-    ].join('\n') + '\n')
+    await writeBundle(home, 'web', 'third-party-healthy', HEALTHY_PATCH)
+    await writeFile(
+      join(home, 'profiles', 'web', 'node_modules', 'third-party-healthy', 'noop.js'),
+      NOOP_PLUGIN,
+    )
     await writeBundle(home, 'web', 'third-party-bad', [
       '- insert:',
       '    - id: broken-plugin',
