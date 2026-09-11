@@ -53,6 +53,7 @@ function appendToolStep(
   })
   session.append('step/start', { turn, step: 1 })
   session.append('assistant/message', {
+    stream: [],
     turn,
     step: 1,
     message: createMessage({
@@ -68,7 +69,7 @@ function appendToolStep(
   const result = session.append('tool/result', {
     turn,
     step: 1,
-    message: createToolResultMessage({ callId, content, isError: false }),
+    message: createToolResultMessage({ callId, content, isError: extra['error'] !== undefined }),
     ...extra,
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn, step: 1 })
@@ -185,8 +186,8 @@ describe('ToolResultPruner session transaction', () => {
     expect(entry).toMatchObject({ originalSeq, callId: ToolCallId('one'), charsBefore: 100 })
     expect(entry.charsAfter).toBeLessThanOrEqual(50)
 
-    const original = session.events[originalSeq]!
-    const replacement = session.events[entry.replacementSeq]! as SurfaceEvent
+    const original = session.snapshotEvents()[originalSeq]!
+    const replacement = session.snapshotEvents()[entry.replacementSeq]! as SurfaceEvent
     expect(original).toMatchObject({
       type: 'tool/result',
       data: {
@@ -206,12 +207,13 @@ describe('ToolResultPruner session transaction', () => {
         isError: true,
         message: {
           source: { kind: 'tool', callId: ToolCallId('one') },
+          content: [{ type: 'tool-result', isError: true }],
         },
         error: { name: 'ExitError', code: 'EXIT_1' },
         meta: { diff: ['a', 'b'] },
         futureField: { nested: true },
       },
-      surfaceOp: { op: 'replace', start: originalSeq, end: originalSeq },
+      surfaceOp: { op: 'replace', startSeq: originalSeq, endSeq: originalSeq },
       sourceEventSeqs: [originalSeq],
     })
     expect(session.surface.nodes).not.toContain(originalSeq)
@@ -219,7 +221,7 @@ describe('ToolResultPruner session transaction', () => {
     // Shadow-price protocol: the metering event sits directly before the
     // replacement and prices the shadowed node with the shared estimator.
     if (original.type !== 'tool/result') throw new Error('original is not a tool/result')
-    expect(session.events[entry.replacementSeq - 1]).toMatchObject({
+    expect(session.snapshotEvents()[entry.replacementSeq - 1]).toMatchObject({
       type: 'compaction/prune',
       data: {
         shadowedRange: { start: originalSeq, end: originalSeq },
@@ -254,7 +256,7 @@ describe('ToolResultPruner session transaction', () => {
       turn: 2,
     })
     service().pruneSession(session)
-    const replay = Session.create(session.id, [...session.events])
+    const replay = Session.create(session.id, session.snapshotEvents())
     expect(replay.deriveMessages()).toEqual(session.deriveMessages())
     expect(replay.surface.replaceGeneration).toBe(session.surface.replaceGeneration)
   })

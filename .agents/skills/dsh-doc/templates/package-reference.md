@@ -1,6 +1,6 @@
 # Template: package-reference
 
-Use this template for a package whose entry is a Cordis plugin — a service default export or an `apply` function — mounted in a composition. This is the default for `packages/<group>/<pkg>/README.md`. The `session-persistence-sqlite` README pair is the worked example of this template.
+Use this template for a package whose entry is a Cordis plugin — a service default export or an `apply` function — mounted in a composition. This is the default for `packages/<group>/<pkg>/README.md`. The `session-persistence-jsonl` README pair is the worked example of this template.
 
 ## Frontmatter
 
@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Three to five sentences on what a user or agent can DO with the package: outcomes, when to choose it, main cost, most important boundary. Never its role, type, or internal identity.
+Three to five sentences and at most 100 `wc -w`-style words on what a user or agent can DO with the package: outcomes, when to choose it, main cost, most important boundary. Apply the [Summary voice rules](../SKILL.md#voice-rules); never describe its role, type, or internal identity.
 
 ## Table of Contents
 

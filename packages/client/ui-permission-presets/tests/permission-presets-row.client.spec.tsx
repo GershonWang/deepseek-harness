@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -9,6 +10,10 @@ import { PermissionRow, type PermissionRowProps } from '../src/client/Permission
 import { zh } from '../src/client/locales.ts'
 import { SettingsDescribeMirror } from '@deepseek-ai/dsh-client-ui-settings/src/client/settings-mirror.ts'
 import { PermissionPresetSettingsController } from '../src/client/settings-store.ts'
+
+// Every fixture carries the resource hook the resources plugin merges into GlobalStandardProps.
+const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
+const usePanelInfo: GlobalStandardProps['usePanelInfo'] = selector => selector({ activePanelId: null })
 
 const schema = new SettingsSchemaService(new Context())
 
@@ -56,6 +61,7 @@ const useSessionPendingInteraction: PermissionRowProps['useSessionPendingInterac
 const runtime = {
   useSessions: (() => { throw new Error('unused') }) as never,
   useSessionPendingInteraction,
+  usePanelInfo, useResource,
   useWorkspaces: (() => { throw new Error('unused') }) as never,
 }
 
@@ -94,8 +100,8 @@ describe('PermissionRow', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: '仅可查看' }))
     expect(mutate).not.toHaveBeenCalled()
     fireEvent.click(button)
-    fireEvent.click(screen.getByRole('menuitem', { name: '可写入工作区' }))
-    await screen.findByRole('button', { name: '可写入工作区' })
+    fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))
+    await screen.findByRole('button', { name: '工作区内修改' })
     expect(mutate).toHaveBeenCalledOnce()
   })
 
@@ -166,7 +172,7 @@ describe('PermissionRow', () => {
     describe.resolve(ok({ writable: true, hasDocument: false, namespaces: [view('read-only')] }))
     const button = await screen.findByRole('button', { name: '仅可查看' })
     fireEvent.click(button)
-    fireEvent.click(screen.getByRole('menuitem', { name: '可写入工作区' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))
     expect((await screen.findByRole('alert')).textContent).toBe('changed elsewhere')
   })
 })

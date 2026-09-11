@@ -16,7 +16,9 @@ function isBuildFaceClient(value: unknown): boolean {
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
   return {
-    workspace: ['vendor/*', 'packages/*/*', 'apps/cli'],
+    workspace: client
+      ? ['vendor/*', 'packages/*/*', 'apps/cli']
+      : ['vendor/*', 'packages/*/*', 'apps/cli', 'apps/desktop', 'apps/desktop-host'],
     // 根包（@deepseek-ai/dsh-root）是 solution-only，不需要被 tsdown 构建。
     // Client face 跳过根包入口；Host face 提供 glob 让 tsdown workspace 为没有
     // 自己 tsdown.config.ts 的包匹配 lib/types/{index,invariant,startup}.js，

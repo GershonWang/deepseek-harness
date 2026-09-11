@@ -1,5 +1,6 @@
 /** Session-owned observable state excluding Conversation target data. */
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
+import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
@@ -30,6 +31,26 @@ export interface PendingSubmissionImage {
   readonly height?: number
 }
 
+/** Image branch of a local submission echo attachment. */
+export interface PendingSubmissionImageAttachment {
+  readonly type: 'image'
+  readonly value: PendingSubmissionImage
+}
+
+/** File branch of a local submission echo attachment. */
+export interface PendingSubmissionFileAttachment {
+  readonly type: 'file'
+  readonly value: FileAttachmentRef
+}
+
+/** One attachment displayed by a local submission echo, in prompt order. */
+export type PendingSubmissionAttachment =
+  | PendingSubmissionImageAttachment
+  | PendingSubmissionFileAttachment
+
+/** Client surface selected when a local submission begins. */
+export type PendingSubmissionPlacement = 'transcript' | 'queued' | 'steering'
+
 /**
  * One local prompt-submission echo: inserted synchronously when a submission
  * begins, so the conversation can show the message before serialization,
@@ -39,12 +60,14 @@ export interface PendingSubmissionImage {
 export interface PendingSubmission {
   /** The prompt RPC identity; the durable `user/message` source echoes it as `rpcId`. */
   readonly requestId: SessionRequestId
+  /** Expected surface until the Host reports the admitted queue or durable occurrence. */
+  readonly placement: PendingSubmissionPlacement
   /** Client wall-clock ms when the submission began. */
   readonly time: number
   /** Prompt text exactly as it will be sent (one text block). */
   readonly text: string
-  /** Ordered image previews matching the prompt's image parts. */
-  readonly images: readonly PendingSubmissionImage[]
+  /** Ordered image previews and durable file metadata matching the prompt attachments. */
+  readonly attachments: readonly PendingSubmissionAttachment[]
 }
 
 /** History-open lifecycle of a Session event window. */

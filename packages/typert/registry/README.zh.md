@@ -45,7 +45,7 @@ kind: "package-reference"
 
 ### Lookup 与 Context 提供方
 
-Remote 调用通过 `ctx.typert.lookups` 与 `ctx.typert.contexts` 解析 Host 对象与作用域 Context。`registerHost()` 安装一个双向 Host Context adapter 及其 wire 声明，`configureHost()` 只替换其中的 resolver。`registerClient()` 为同一个 merge-declared kind 安装双向 Client adapter。`identifyHost(ctx)` 通过 Host adapter 识别活 Context 所代表的唯一 kind 与 identity，并拒绝歧义识别。
+Remote 调用通过 `ctx.typert.lookups` 与 `ctx.typert.contexts` 解析 Host 对象与作用域 Context。`registerHost()` 安装 Host wire 声明及其 wire 到 Context 的 resolver，`configureHost()` 只替换该 resolver。`registerClient()` 为同一个 merge-declared kind 安装双向 Client adapter。Host 到 Client 的事件源显式携带领域 identity，而不从 Context 反向投影。
 
 -----
 
@@ -81,7 +81,7 @@ Remote 调用通过 `ctx.typert.lookups` 与 `ctx.typert.contexts` 解析 Host �
 | [`src/service.ts`](src/service.ts) | `TypertRegistry` 服务、存储、校验、effect 接线 |
 | [`src/types.ts`](src/types.ts) | 贡献、记录与过滤器类型 |
 | [`src/client/index.ts`](src/client/index.ts) | 安装同一注册表的 Client face |
-| [`src/invariant.ts`](src/invariant.ts) | 不变式伴生插件 |
+| — | 不发布运行时不变式伴生入口；schema 与 package-reflection record 在 register/dispose 内一起变更，没有独立 event 或第二数据源可供交叉核对；重复 identity 在所属操作处失败。 |
 
 </details>
 

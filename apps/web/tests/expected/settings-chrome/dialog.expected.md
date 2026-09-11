@@ -18,8 +18,8 @@
     - img
     - text: 关闭
   - text: 权限 选择新会话的默认权限模式
-  - button "可写入工作区":
-    - text: 可写入工作区
+  - button "工作区内修改":
+    - text: 工作区内修改
     - img
   - text: 语言
   - button "中文":
@@ -41,10 +41,10 @@
   - button "减小字号":
     - img
   - text: px 对话显示 控制已完成轮次的过程内容
-  - button "Compact":
-    - text: Compact
+  - button "紧凑":
+    - text: 紧凑
     - img
-  - text: 繁忙时 Enter 键行为 仅在智能体运行时生效；Cmd/Ctrl+Enter 使用另一行为
+  - text: 繁忙时的发送行为 智能体运行时 Enter 键和发送按钮的行为；Cmd/Ctrl+Enter 使用另一行为
   - button "排队发送":
     - text: 排队发送
     - img

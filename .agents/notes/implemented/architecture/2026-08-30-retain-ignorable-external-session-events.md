@@ -12,11 +12,11 @@ That producer inventory did not cover a third-party plugin that currently depend
 
 ## Decision
 
-The canonical `SessionEvent` envelope retains `ignorable?: true`, and every representation preserves it: seed validation, JSONL, SQLite, API transport, generated catalogs, and test fixtures. `PersistenceCoordinator` continues to refuse an unknown event unless its stored envelope explicitly carries `ignorable: true`; absent remains required-on-read.
-
-SQLite schema 20 stores packed physical rows with `ignorable=0`, scalar events marked `ignorable: true` with `ignorable=1`, and other scalar events with `NULL`. This keeps the logical marker and the packed-row discriminator in the same representation without confusing a scalar event whose name matches a physical chunk tag.
+The canonical `SessionEvent` envelope retains `ignorable?: true`, and every representation preserves it: seed validation, JSONL, API transport, generated catalogs, and test fixtures. The persistence seam's stored-event validation (`validateStoredEvents`) continues to refuse an unknown event unless its stored envelope explicitly carries `ignorable: true`; absent remains required-on-read.
 
 The field is removable only after a replacement supports the current third-party plugin across event production, persistence, reload, and transport, with an explicit cutover for sessions already containing the marker. The [session log versioning decision](2026-08-10-session-log-version-mechanism.md) continues to own the default-required safety rule and format-version policy.
+
+Historical format migration is deliberately stricter in the alpha implementation. The v0-to-v1 edge refuses every unknown v0 type, including an ignorable one, because an opaque payload may contain references that a format edge cannot validate. The [alpha historical-event decision](2026-08-31-alpha-historical-unknown-event-refusal.md) owns that bounded exception; equal-version append and reload continue to follow this note.
 
 ## Alternatives considered
 
@@ -30,6 +30,4 @@ The field is removable only after a replacement supports the current third-party
 
 ## Consequences
 
-Third-party informational events can remain reloadable when their stored records carry the explicit marker, while unknown required events still fail loudly. The field remains part of the public event envelope, persistence schemas, transport types, generated references, and their tests until a replacement satisfies the cutover condition.
-
-SQLite advances from schema 19 to schema 20 because restoring the durable column changes the pre-release physical database format. The provider continues to reject other schema versions rather than migrating them.
+Third-party informational events can remain reloadable when their stored records carry the explicit marker, while unknown required events still fail loudly. The field remains part of the public event envelope, JSONL representation, transport types, generated references, and their tests until a replacement satisfies the cutover condition.

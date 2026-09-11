@@ -7,7 +7,7 @@ description: Create, restructure, review, audit, or migrate DeepSeek Harness Mar
 
 ## Summary
 
-The DeepSeek Harness documentation standard: make every page searchable, newcomer-readable, and exact enough for agents and maintainers, and keep the documentation website a tested projection of repository Markdown. Apply repository `AGENTS.md` files and executed gates first, then this workflow for kind-mapped metadata, progressive detail, line-aligned bilingual pages, corpus audits, and website publication. Preserve one owner per fact: source, tests, generated catalogs, package READMEs, guides, Agent Notes, and scratch each keep their own kind of truth. The `session-persistence-sqlite` README pair is the reference example of the format.
+The DeepSeek Harness documentation standard: make every page searchable, newcomer-readable, and exact enough for agents and maintainers, and keep the documentation website a tested projection of repository Markdown. Apply repository `AGENTS.md` files and executed gates first, then this workflow for kind-mapped metadata, progressive detail, line-aligned bilingual pages, corpus audits, and website publication. Preserve one owner per fact: source, tests, generated catalogs, package READMEs, guides, Agent Notes, and scratch each keep their own kind of truth. The `session-persistence-jsonl` README pair is the reference example of the format.
 
 ## Table of Contents
 
@@ -61,7 +61,7 @@ Open the template before writing and follow its skeleton and rules; it states wh
 
 These rules decide what a section may say. They apply to every authored human-facing page, and to package READMEs with particular force.
 
-- **Summary says what the subject does.** The opening `Summary` and the user-facing sections describe what a user or agent can DO with the subject — outcomes, benefits, when to choose it, main cost — never its role, type, or internal identity. "The seam registers `ctx.x` and appends `x/event` records" is identity narration; "you can save a note per message and it survives restarts" is what it does.
+- **Summary says what the subject does.** The opening `Summary` and the user-facing sections describe what a user or agent can DO with the subject — outcomes, benefits, when to choose it, main cost — never its role, type, or internal identity. In a package Summary, “what it is” means only its reader-visible capability, not its Cordis role, registrations, or internal components. Omit source identifiers unless the reader directly uses them in configuration, a command, or a public API. "The seam registers `ctx.x` and appends `x/event` records" is identity narration; "you can save a note per message and it survives restarts" is what it does.
 - **Developer sections explain, never enumerate.** Folded implementation content covers the overall design concept, architecture, and hand-waving dataflow — enough to understand how the package works — and links code for exact detail. No full API catalogs, exhaustive column lists, event-payload enumerations, or JSDoc restatement inside the folds.
 - **Dev Note is the only slop zone.** Partial ideas, scratches, undecided directions, measured artifacts, and working hypotheses live only in the final Dev Note, marked explicitly non-authoritative. Every other section is polished, current-state prose.
 - **Current state only.** No compatibility shims, migration talk, or history ("previously", "now", "no longer", renamed) outside the Dev Note; the codebase as it is today is the only subject.
@@ -108,7 +108,7 @@ Load only the reference needed for the task. Each reference links directly from 
 
 The four README templates in [`templates/`](templates/) are the working skeletons for the four `kind` labels; open the one your document's kind names before writing.
 
-Use [dsh-prose-standard](../dsh-prose-standard/SKILL.md) for sentence-level contract coverage and editorial judgment. The `session-persistence-sqlite` README pair ([English](../../../packages/session/session-persistence-sqlite/README.md), [Chinese](../../../packages/session/session-persistence-sqlite/README.zh.md)) is the reference example: searchable YAML, Summary and Table of Contents, user-to-developer progression with a folded developer section, Further Exploration, canonical Model Experience and Known Limitations sections, and a final Dev Note.
+Use [dsh-prose-standard](../dsh-prose-standard/SKILL.md) for sentence-level contract coverage and editorial judgment. The `session-persistence-jsonl` README pair ([English](../../../packages/session/session-persistence-jsonl/README.md), [Chinese](../../../packages/session/session-persistence-jsonl/README.zh.md)) is the reference example: searchable YAML, Summary and Table of Contents, user-to-developer progression with a folded developer section, Further Exploration, canonical Model Experience and Known Limitations sections, and a final Dev Note.
 
 ## Validation
 
@@ -118,7 +118,7 @@ Validate the affected format, not merely Markdown syntax. A strong promise needs
 - Bilingual pages: verify structure, exact line count, terminology, link parity, and the sidecar record.
 - Tutorials: exercise the documented entry path or name an explicit manual verification owner.
 - Generated references: run the deterministic freshness check and report retrieval-size measures.
-- Package READMEs: run model-experience and limitation checks, then package-focused tests when behavior claims changed; re-run every command the README instructs before merging a claim about it.
+- Package READMEs: run the Summary gate, which limits each English Summary to 100 `wc -w`-style words and directs failures back to this skill and the kind template; run model-experience and limitation checks, then package-focused tests when behavior claims changed; re-run every command the README instructs before merging a claim about it.
 - Skills: run the repository's skill-invocation metadata check.
 
 Run `pnpm run test:docs` for the quick comprehensive documentation checks (pairing, wrap, links, README gates, budgets, skill metadata, Agent Note gates) before the full `pnpm run doc-sync`.

@@ -2,7 +2,7 @@
 
 ## Summary
 
-Page-level style preferences that make DSH pages scannable and difficult to misread: a short Summary, controlled technical English, `-----` separators between major parts, `<details>` folds that keep section titles visible, and disciplined emphasis. The template is the `session-persistence-sqlite` README pair.
+Page-level style preferences that make DSH pages scannable and difficult to misread: a short Summary, controlled technical English, `-----` separators between major parts, `<details>` folds that keep section titles visible, and disciplined emphasis. The template is the `session-persistence-jsonl` README pair.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ Page-level style preferences that make DSH pages scannable and difficult to misr
 
 ## Short summary
 
-Open every authored page with a short `Summary`: three to five sentences in one paragraph stating what the subject is, why the reader cares, the operating model, and the most important boundary. The Table of Contents and the sections carry the detail; placement and section order live in [structure-hierarchy.md](structure-hierarchy.md).
+Open every authored page with a short `Summary`: three to five sentences in one paragraph stating what the reader can do or observe, why the reader cares, the operating model, and the most important boundary. The Table of Contents and the sections carry the detail; placement and section order live in [structure-hierarchy.md](structure-hierarchy.md). An English package README Summary is additionally limited to 100 `wc -w`-style words by `verify-package-readme-summaries`.
 
 ## Controlled technical English
 
@@ -36,7 +36,7 @@ Separate the major parts of a page with a `-----` horizontal rule on its own lin
 
 ## Foldable content sections
 
-Fold developer-facing detail and the final Dev Note behind GitHub-native `<details>`/`<summary>` blocks. Keep the section title (H2 or H3) and its `<a id>` anchor visible; fold only the content under the title. Inside the block, put a blank line after `<summary>`, keep every Markdown line at column 0 (indented content becomes a code block), and close with `</details>` after a blank line. Headings, lists, tables, and links inside the fold parse normally and keep their anchors. The `session-persistence-sqlite` README pair demonstrates both folds: the implementation section and the Dev Note.
+Fold developer-facing detail and the final Dev Note behind GitHub-native `<details>`/`<summary>` blocks. Keep the section title (H2 or H3) and its `<a id>` anchor visible; fold only the content under the title. Inside the block, put a blank line after `<summary>`, keep every Markdown line at column 0 (indented content becomes a code block), and close with `</details>` after a blank line. Headings, lists, tables, and links inside the fold parse normally and keep their anchors. The `session-persistence-jsonl` README pair demonstrates both folds: the implementation section and the Dev Note.
 
 In a package README, keep `## Model Experience` and `## Known Limitations and Deferred Work` as the final two H2 headings. Put the limitations anchor immediately after its H2 so it does not become part of the preceding Model Experience body. Place the final Dev Note under the limitations section as an anchored H3. A package that is explicitly exempt from the limitations section can use an H2 Dev Note.
 

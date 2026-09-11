@@ -1,25 +1,26 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import type {
   RpcRequest,
   RpcResponse,
   RpcResult,
   SessionEvent,
   SessionId,
+  StreamChunk,
 } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
-import { decodeStorageRecord } from '@deepseek-ai/dsh-session/chunk-rows'
-import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
 import {
   createFixtureConnectionRpc,
   createFixtureFaces,
+  type FixtureAssistantStreamFrame,
   type FixtureOptions,
 } from '../src/client/fixture.ts'
 import type {
   ClientConnectionRpc, ConnectionRpcResult,
 } from '../src/rpc.ts'
 import type { DirectoryListing } from '@deepseek-ai/dsh-host-directory-picker/types'
-import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller/types'
-import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
+import type {
+  ModelCatalog, ModelSelection, SessionAssistantStreamFrame,
+} from '@deepseek-ai/dsh-api-session-controller/types'
 
 const sid = (id: string): SessionId => id as SessionId
 type WorkspaceId = string & { readonly __fixtureWorkspaceId: 'WorkspaceId' }
@@ -42,21 +43,7 @@ interface FixtureHistoryEntry {
   readonly event: SessionEvent
 }
 
-type FixtureChunkRowEvent = {
-  [Kind in ChunkRow['type']]: {
-    readonly type: `chunkrow/${Kind}`
-    readonly seq: number
-    readonly time: number
-    readonly data: Extract<ChunkRow, { readonly type: Kind }>['data']
-  }
-}[ChunkRow['type']]
-
-interface FixtureHistoryChunkRun {
-  readonly type: 'chunks'
-  readonly event: FixtureChunkRowEvent
-}
-
-type FixtureHistoryRecord = FixtureHistoryEntry | FixtureHistoryChunkRun
+type FixtureHistoryRecord = FixtureHistoryEntry
 
 interface FixturePage {
   readonly records: readonly FixtureHistoryRecord[]
@@ -64,20 +51,15 @@ interface FixturePage {
 }
 
 function historyEvents(records: readonly FixtureHistoryRecord[]): SessionEvent[] {
-  return records.flatMap(record => record.type === 'event'
-    ? [record.event]
-    : decodeStorageRecord(chunkRow(record.event)))
+  return records.map(record => record.event)
 }
 
-function chunkRow(event: FixtureChunkRowEvent): ChunkRow {
-  switch (event.type) {
-    case 'chunkrow/text-chunks':
-      return { type: 'text-chunks', seq0: event.seq, time0: event.time, data: event.data }
-    case 'chunkrow/reasoning-chunks':
-      return { type: 'reasoning-chunks', seq0: event.seq, time0: event.time, data: event.data }
-    case 'chunkrow/tool-call-chunks':
-      return { type: 'tool-call-chunks', seq0: event.seq, time0: event.time, data: event.data }
-  }
+function isReasoningDeltaChunk(
+  value: unknown,
+): value is Extract<StreamChunk, { readonly type: 'reasoning-delta' }> {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as { readonly type?: unknown; readonly text?: unknown }
+  return record.type === 'reasoning-delta' && typeof record.text === 'string'
 }
 
 type FixtureFollowFrame =
@@ -90,8 +72,20 @@ type FixtureFollowFrame =
       readonly asOfSeq: number
       readonly values: Readonly<Record<string, unknown>>
     }
+    readonly assistantStream?: {
+      readonly revision: number
+      readonly activeAttempt?: {
+        readonly attemptId: string
+        readonly startedAfterSeq: number
+        readonly turn: number
+        readonly step: number
+        readonly nextIndex: number
+        readonly stream: readonly unknown[]
+      }
+    }
   }
   | FixtureHistoryEntry
+  | { readonly type: 'assistant-stream'; readonly frame: FixtureAssistantStreamFrame }
 
 type FixtureControlFrame =
   | {
@@ -450,7 +444,7 @@ function createSessionRemote(rpc: ClientConnectionRpc): FixtureSessionRemote {
     modelCatalog: () => rpc.call('/api', 'session/modelCatalog', { args: {} }) as
       Promise<ConnectionRpcResult<ModelCatalog>>,
     follow: (sessionId, signal) => open<FixtureFollowFrame>('session/follow', {
-      request: { address: { kind: 'session', sessionId } },
+      request: { address: { kind: 'session', sessionId }, assistantStream: true },
     }, signal),
     control: signal => open<FixtureControlFrame>('session/control', {}, signal),
   }
@@ -507,6 +501,7 @@ interface TimingHooks {
   failNextHistory(): void
   appendUser(id: string, msg: string): void
   appendTitle(id: string, title: string): void
+  disarmOnlyGoal(): void
   startReasoningChunkStorm(id: string, chunkCount: number, chunksPerInterval: number, intervalMs: number): string
   reasoningChunkStormState(): {
     sessionId: string
@@ -604,6 +599,10 @@ async function readWorkspaceBaseline(
 }
 
 describe('createFixtureApi', () => {
+  it('keeps its Assistant frame vocabulary identical to the controller wire', () => {
+    expectTypeOf<FixtureAssistantStreamFrame>().toEqualTypeOf<SessionAssistantStreamFrame>()
+  })
+
   it('serves the session list sorted by updatedAt desc and echoes rpcIds on every unary', async () => {
     const api = createFixtureApi()
     const request = req({})
@@ -612,6 +611,20 @@ describe('createFixtureApi', () => {
     if (!response.result.ok) throw new Error('list failed')
     expect(response.result.value.items.map(s => s.sessionId)).toEqual(['fx-alpha', 'fx-beta', 'fx-gamma'])
     expect(response.result.value.items[1]?.parentSessionId).toBe('fx-alpha') // lineage material
+  })
+
+  it('returns an empty Assistant baseline when Session follow opts in', async () => {
+    const api = createFixtureApi()
+    const abort = new AbortController()
+    const iterator = api.sessionRemote.follow(sid('fx-alpha'), abort.signal)[Symbol.asyncIterator]()
+    try {
+      const opening = await iterator.next()
+      if (opening.done || opening.value.type !== 'snapshot') throw new Error('follow opening snapshot missing')
+      expect(opening.value.assistantStream).toEqual({ revision: 0 })
+    } finally {
+      abort.abort()
+      await iterator.return?.()
+    }
   })
 
   it('searches current message text with literal unicode61-style token phrases', async () => {
@@ -876,10 +889,19 @@ describe('createFixtureApi', () => {
     await api.sessions.cancel(req({ sessionId: id }))
     const frames = await followPromise
     const types = frames.flatMap(frame => frame.type === 'event' ? [frame.event.type] : [])
+    const assistantFrames = frames.flatMap(frame => frame.type === 'assistant-stream' ? [frame.frame] : [])
     expect(types).toContain('turn/start')
     expect(types).toContain('user/message')
-    expect(types).toContain('assistant/chunk')
     expect(types).toContain('assistant/message')
+    expect(assistantFrames.some(frame => frame.type === 'chunk')).toBe(true)
+    const committed = assistantFrames.find(frame => frame.type === 'end'
+      && frame.outcome.kind === 'committed'
+      && frame.outcome.eventType === 'assistant/message')
+    expect(committed).toMatchObject({
+      type: 'end',
+      index: assistantFrames.filter(frame => frame.type === 'chunk'
+        && frame.attemptId === committed?.attemptId).length,
+    })
     expect(types.at(-1)).toBe('turn/end')
     // Capacity is durable log state, not a transient frame: the prompt path
     // records request/context and the projection carries it to the client.
@@ -900,7 +922,9 @@ describe('createFixtureApi', () => {
       && (frame.value as { contextWindow?: number }).contextWindow === 128_000)).toBe(true)
     const finalize = frames.find(frame => frame.type === 'event' && frame.event.type === 'assistant/message')
     if (finalize?.type !== 'event') throw new Error('assistant final event missing')
-    expect(JSON.stringify(finalize?.event.data)).toContain('（已中断）')
+    if (finalize.event.type !== 'assistant/message') throw new Error('assistant final event has wrong type')
+    expect(finalize.event.data.interrupted).toBe(true)
+    expect(finalize.event.data.stream.length).toBeGreaterThan(0)
     controlAbort.abort()
     await controlPromise
     // Idle cancel: no replay in flight, must not explode; running flips false.
@@ -939,7 +963,10 @@ describe('createFixtureApi', () => {
       goal: null,
       imageLimits: { maxImagesPerMessage: 20, maxImageBytes: 5 * 1024 * 1024 },
     })
-    expect((alpha?.values['contextBreakdown'] as { messageTokens: number }).messageTokens).toBeGreaterThan(0)
+    const breakdown = alpha?.values['contextBreakdown'] as { systemTokens: number; messageTokens: number }
+    expect(breakdown.messageTokens).toBeGreaterThan(0)
+    // The seeded system/message at surface node 0 prices the system figure.
+    expect(breakdown.systemTokens).toBeGreaterThan(0)
     expect((alpha?.values['sessionStats'] as { steps: number }).steps).toBeGreaterThan(0)
     expect(second.value.projections['fx-alpha']).toEqual(alpha)
 
@@ -1569,10 +1596,10 @@ describe('createFixtureApi', () => {
     const abort = new AbortController()
     try {
       const streamed = collectValues(api.sessionRemote.follow(sid('fx-alpha'), abort.signal), abort, frames => frames.some(frame => (
-        frame.type === 'event'
-        && frame.event.type === 'assistant/chunk'
-        && frame.event.data.chunk.type === 'reasoning-delta'
-        && frame.event.data.chunk.text.includes('REASONING_STRESS_COMPLETE')
+        frame.type === 'assistant-stream'
+        && frame.frame.type === 'chunk'
+        && isReasoningDeltaChunk(frame.frame.chunk)
+        && frame.frame.chunk.text.includes('REASONING_STRESS_COMPLETE')
       )))
       const marker = hooks.startReasoningChunkStorm('fx-alpha', 3, 2, 16)
       expect(() => hooks.startReasoningChunkStorm('fx-alpha', 1, 1, 16)).toThrow(/already running/)
@@ -1588,10 +1615,10 @@ describe('createFixtureApi', () => {
 
       const frames = await streamed
       const deltas = frames.flatMap(frame => (
-        frame.type === 'event'
-        && frame.event.type === 'assistant/chunk'
-        && frame.event.data.chunk.type === 'reasoning-delta'
-          ? [frame.event.data.chunk.text]
+        frame.type === 'assistant-stream'
+        && frame.frame.type === 'chunk'
+        && isReasoningDeltaChunk(frame.frame.chunk)
+          ? [frame.frame.chunk.text]
           : []
       ))
       expect(deltas).toEqual(['推理', '推理', `\n${marker}`])
@@ -1654,6 +1681,13 @@ describe('fixture Connection RPC', () => {
     expect(revision).toBe(1)
     const ref = (at: number) => ({ id: goalId, revision: at })
     expect((await goal('goals/edit', { ref: ref(1), request: { objective: 'ship it v2' } })).ok).toBe(true)
+    expect(await goal('goals/get', {})).toMatchObject({
+      ok: true, value: { objective: 'ship it v2', revision: 2, activation: 'armed' },
+    })
+    timing().disarmOnlyGoal()
+    expect(await goal('goals/get', {})).toMatchObject({
+      ok: true, value: { objective: 'ship it v2', revision: 2, activation: 'disarmed' },
+    })
     expect((await goal('goals/pause', { ref: ref(2) })).ok).toBe(true)
     expect((await goal('goals/resume', { ref: ref(3) })).ok).toBe(true)
     // A stale ref loses the CAS check.

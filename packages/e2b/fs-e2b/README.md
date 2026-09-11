@@ -1,5 +1,5 @@
 ---
-description: "File operations inside the shared remote sandbox: what the agent can do with files there, when to use it, and what to expect — for deployments and maintainers of the E2B family."
+description: "File operations inside the shared remote sandbox: what the agent can do with files there, when to use it, and what to expect — for deployers and maintainers of the E2B family."
 kind: "package-reference"
 ---
 
@@ -44,7 +44,7 @@ Mounting it does not copy or mirror your local files — the sandbox's working d
 
 ### Reading files
 
-The agent can read a file's whole contents, stream large files, or read raw bytes up to a size cap. Binary files and files that are not valid UTF-8 text are refused with a clear message instead of being garbled; reads past the size cap fail with a message naming the limit.
+The agent can read a file's whole contents, stream large files, or read raw bytes up to a size cap or as one byte window. Binary files and files that are not valid UTF-8 text are refused with a clear message instead of being garbled; reads past the size cap fail with a message naming the limit.
 
 ### Writing and editing files
 
@@ -75,7 +75,7 @@ This section explains the design decisions behind the provider and points at the
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `E2BFileSystem` provider, canonicalization, reads, atomic writes, error mapping |
-| [`src/invariant.ts`](src/invariant.ts) | Invariant companion (no runtime invariant; each operation returns the controller's committed result directly) |
+| — | No runtime invariant companion is published; each operation returns the E2B controller's committed result directly, with no independent event or cache to cross-check. |
 
 ### Canonical paths and transport framing
 

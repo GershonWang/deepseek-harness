@@ -5,6 +5,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { SessionControlFrame } from '@deepseek-ai/dsh-api-session-controller/types'
 import type {} from '@deepseek-ai/dsh-session-title/client'
@@ -309,6 +310,7 @@ describe('subagent catalogs', () => {
         address: {
           kind: 'subagent', parentSessionId: S1, childSessionId: S2, mode: 'continuable',
         },
+        assistantStream: true,
         maxMessages: 50,
       },
     ])
@@ -318,6 +320,7 @@ describe('subagent catalogs', () => {
         requestId: expect.any(String) as unknown as string,
         parentSessionId: S1, childSessionId: S2,
         mode: 'continuable',
+        delivery: 'queue',
         content: [{ type: 'text', text: 'continue' }],
         clientTimeZone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
@@ -751,7 +754,7 @@ describe('connected generation', () => {
   it('refreshes query baselines without rebuilding independently resumed Session sources', async () => {
     const api = new FakeApiClient()
     api.onHistory = () => Promise.resolve(ok({
-      records: entries(plainTurn(0, 0, 'a', 'b')) as never[],
+      records: entries(plainTurn(SessionSeq(0), 0, 'a', 'b')) as never[],
       hasMore: false,
       modelSelection: { provider: 'deepseek-official', model: 'deepseek-chat' },
     }))
