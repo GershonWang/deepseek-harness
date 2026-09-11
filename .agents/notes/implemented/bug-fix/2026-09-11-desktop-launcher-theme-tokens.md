@@ -40,7 +40,7 @@ Twenty-five `--term-*` variables were deleted; only `--term-bg` had a reader. Th
 
 **Read the terminal palette from the CSS variables at runtime with `getComputedStyle`.** Keeps one source for all 16 colors. Rejected: the shell palette and the terminal palette are independent — the terminal stays dark regardless of the system theme — so the lookup would add a runtime dependency and a re-read path to keep two things in sync that do not need to be.
 
-**Darken the dark `--brand` so white text on the primary button reaches 4.5:1.** The fill is `#4d6bfe`, which yields 4.33:1. Rejected for this change: it alters the brand fill itself, which is a product-identity decision rather than a tokenization one. It remains open (see Consequences).
+**Darken the dark `--brand` so white text on the primary button reaches 4.5:1.** The fill is `#4d6bfe`, which yields 4.33:1. Rejected for this change: it alters the brand fill itself, which is a product-identity decision rather than a tokenization one. [The toolchain market presentation](../feature/2026-09-12-desktop-launcher-toolchain-market-presentation.md) later took that decision (see Consequences).
 
 **Tokenize the modal scrim.** Rejected: a black scrim at 45% is conventional over both light and dark content, and no theme variation was wanted.
 
@@ -59,7 +59,7 @@ Measured before and after, on the surfaces each color actually sits on:
 
 The icon badge's unintended dark ring is gone in both themes (its border now matches the titlebar). The spinner ring is one color in both themes. The doctor panes render in the bundled JetBrains Mono.
 
-Two known gaps remain, both recorded rather than fixed. White text on the dark theme's primary button measures 4.33:1, below the 4.5:1 text threshold; closing it means changing the brand fill, which this change deliberately did not do. The dark theme's close-button hover measures 3.57:1, which clears the 3:1 threshold that applies to an icon-only control.
+One known gap remains, recorded rather than fixed: the dark theme's close-button hover measures 3.57:1, which clears the 3:1 threshold that applies to an icon-only control. The other gap recorded here — white text on the dark theme's primary button at 4.33:1, below the 4.5:1 text threshold — is closed by [the toolchain market presentation](../feature/2026-09-12-desktop-launcher-toolchain-market-presentation.md): the dark `--brand` now sits at `#4763f0`, which puts white text at 4.87:1 while the button keeps 3.14:1 against the card base.
 
 Two color literals remain outside the theme blocks by design: the modal scrim `rgba(0, 0, 0, 0.45)`, and `--term-bg: #1a1a1a` for the terminal surface.
 

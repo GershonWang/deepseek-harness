@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-desktop-launcher-theme-tokens.md
-2026-09-11-desktop-launcher-theme-tokens.md: eee7ca8df67f59ca4939b5b3edccf48c1c3d8c37
-2026-09-11-desktop-launcher-theme-tokens.zh.md: ca7ec557328d2bb1669c7222faf3e7090260ea78
+2026-09-11-desktop-launcher-theme-tokens.md: 227491c43e2dc7241a4bce36ae7d1f59912bbf08
+2026-09-11-desktop-launcher-theme-tokens.zh.md: 1231a88bbb9469787cf1390cca0cf702cbe0eef1

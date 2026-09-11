@@ -38,3 +38,5 @@ Status: implemented
 ## 关联
 
 本提示在 UI 上呈现的三层容器工具链决策：[玲珑容器工具链可用性](2026-08-19-linglong-container-toolchain.zh.md)。
+
+[工具链市场的呈现](2026-09-12-desktop-launcher-toolchain-market-presentation.zh.md)拥有卡片布局，包括这行提示单独占用的那个高度档次。

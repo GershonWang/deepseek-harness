@@ -38,3 +38,5 @@ A card now explains itself when the container already provides the command, and 
 ## Related
 
 The three-layer container toolchain decision this hint surfaces in the UI: [Linglong container toolchain availability](2026-08-19-linglong-container-toolchain.md).
+
+[The toolchain market presentation](2026-09-12-desktop-launcher-toolchain-market-presentation.md) owns the card's layout, including the separate height tier this hint's line costs.
