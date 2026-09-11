@@ -236,7 +236,16 @@ button, input, select, textarea { font: inherit; }
   transition: background 0.12s ease;
 }
 .btn:hover:not(:disabled) { background: var(--bg-hover); }
-.btn:disabled { opacity: 0.4; cursor: default; }
+/* 禁用态不再整体降透明度：opacity 连文字一起变淡，「安装中…」这类要持续数分钟的
+   按钮掉到 2.29:1，12px 下读不清。改为中性底 + 仍达标的弱化文字（实测深色
+   4.64:1、浅色 5.25:1），"正在进行"由卡片上的进度条承担。选择器权重高于
+   .btn-primary/.btn-danger/.btn-quiet，因此三种按钮的禁用态外观一致。 */
+.btn:disabled {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: color-mix(in srgb, var(--fg) 75%, var(--bg-input));
+  cursor: default;
+}
 
 .btn-primary {
   background: var(--accent);
