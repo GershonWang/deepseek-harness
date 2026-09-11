@@ -584,6 +584,23 @@ body {
 }
 .modal-close:hover { color: var(--fg-strong); background: var(--bg-hover); }
 
+/* 头部动作区：多按钮时按 gap 排布，避免两个按钮贴在一起。
+   区内按钮统一 24×24 命中区：文字 × 与图标按钮的固有尺寸不同，
+   不统一的话并排时高度对不齐。 */
+.modal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.modal-head-actions .modal-close {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
 .modal-body {
   padding: 14px 16px 16px;
   display: flex;
@@ -1298,6 +1315,25 @@ body {
 
 .modal-terminal .modal-head {
   flex-shrink: 0;
+}
+
+/* 最大化：撑满窗口但留 12px 呼吸感与圆角，不做真全屏——真全屏会连自定义
+   标题栏一起盖住，用户随即失去窗口控制。尺寸不加过渡：过渡期间 xterm 每帧
+   都要重算行列，收益只是动画，代价是额外的 resize 竞态。 */
+.modal-terminal.is-maximized {
+  width: calc(100vw - 24px);
+  max-width: none;
+  height: calc(100vh - 24px);
+  max-height: none;
+}
+
+/* 最大化/还原共用一颗按钮，两套图标按 is-maximized 切换，按钮位置不跳动 */
+#terminal-max .terminal-icon-restore,
+.modal-terminal.is-maximized #terminal-max .terminal-icon-max {
+  display: none;
+}
+.modal-terminal.is-maximized #terminal-max .terminal-icon-restore {
+  display: block;
 }
 
 /* 标签条整行容器：承载工具栏背景与底边线，「新建」按钮与标签同排靠右。 */

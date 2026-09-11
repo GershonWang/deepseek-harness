@@ -136,6 +136,15 @@ class El {
   remove() {
     if (this.parentNode) this.parentNode.removeChild(this);
   }
+  // 双击处理器用 closest("button") 排除按钮上的双击（真实 DOM 同名 API）。
+  closest(sel) {
+    let node = this;
+    while (node) {
+      if (matchesSelector(node, sel)) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
   // 与真实 DOM 一致的 append：按参数顺序追加到末尾（toolCard 渲染用到）。
   append(...nodes) {
     for (const n of nodes) this.appendChild(n);
@@ -164,8 +173,8 @@ class El {
   }
 }
 
-/* 覆盖 app.js 用到的选择器：`#id`、`input[name="mode"]:checked`、
- * `input[name="mode"][value="x"]`、`[data-close]`。 */
+/* 覆盖 app.js 用到的选择器：`#id`、`.class`、裸标签名（closest("button")）、
+ * `input[name="mode"]:checked`、`input[name="mode"][value="x"]`、`[data-close]`。 */
 function matchesSelector(el, sel) {
   sel = sel.trim();
   const byId = sel.match(/^#([\w-]+)/);
@@ -191,6 +200,8 @@ function matchesSelector(el, sel) {
     if (pseudo === ":checked") return base && el.checked;
     return base;
   }
+  // 裸标签名（closest("button") 这类）按 tagName 匹配。
+  if (/^[a-z]+$/.test(sel)) return el.tagName === sel.toUpperCase();
   return false;
 }
 
@@ -249,7 +260,7 @@ function buildHtml(document) {
     "repair-toast",
     /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
     "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
-    "terminal-modal",
+    "terminal-modal", "terminal-head", "terminal-max",
   ];
   for (const id of ids) {
     const el = document.createElement("div");
@@ -506,6 +517,10 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
 }
 
 const flush = () => new Promise((r) => setImmediate(r));
+
+/* 沙箱里的 requestAnimationFrame 映射到 setTimeout(0)，与 setImmediate 的先后
+ * 顺序不确定，需要等布局回调结算的断言用这个固定短等待。 */
+const settle = () => new Promise((r) => setTimeout(r, 5));
 
 /* ---------- 用例 ---------- */
 
@@ -1055,4 +1070,38 @@ test("终端输出写回对应会话，退出后标签按退出码取语义类",
   assert.match(tabs, /terminal-tab-exited/, "正常退出应为 exited 语义类");
   assert.equal(tabs.includes("terminal-tab-failed"), false, "正常退出不得带失败类");
   assert.match(tabs, /（已退出，退出码 0）/, "正常退出同样标注退出码");
+});
+
+test("终端弹框最大化与还原：按钮与双击头部都能切换，切换后重算行列", async () => {
+  const h = loadApp();
+  await flush();
+  const term = await h.newTerminal();
+  const modal = h.document.getElementById("terminal-modal");
+  const btn = h.document.getElementById("terminal-max");
+  const fitsBefore = term.addons[0].fitCount;
+
+  btn.fire("click");
+  assert.equal(modal.classList.contains("is-maximized"), true, "点按钮应进入最大化");
+  assert.equal(btn.getAttribute("title"), "还原", "按钮 tooltip 应翻转为还原");
+  await settle();
+  assert.ok(term.addons[0].fitCount > fitsBefore,
+    "尺寸变化后要重新 fit，否则全屏程序按旧行列重绘");
+
+  btn.fire("click");
+  assert.equal(modal.classList.contains("is-maximized"), false, "再点一次应还原");
+  assert.equal(btn.getAttribute("title"), "最大化", "还原后按钮语义回到最大化");
+
+  h.document.getElementById("terminal-head").fire("dblclick");
+  assert.equal(modal.classList.contains("is-maximized"), true, "双击头部应最大化");
+
+  // 按钮上的双击冒泡到头部：目标元素命中 closest("button")，不得切换状态
+  h.document.getElementById("terminal-max").fire("dblclick");
+  assert.equal(modal.classList.contains("is-maximized"), true, "按钮上的双击不得切换");
+});
+
+test("没有会话时最大化只切尺寸，不因缺会话抛错", () => {
+  const h = loadApp();
+  const modal = h.document.getElementById("terminal-modal");
+  h.document.getElementById("terminal-max").fire("click");
+  assert.equal(modal.classList.contains("is-maximized"), true, "无会话也应能最大化");
 });

@@ -1633,6 +1633,38 @@ async function createTerminalSession(title) {
 }
 
 /**
+ * 按容器当前尺寸重算激活会话的行列，并把结果经 onResize 同步给 PTY。
+ * 容器隐藏时（弹窗未打开）fit 读到 0 尺寸会自行跳过，因此调用点无需判可见性；
+ * 但布局刚变化的调用点必须先等一帧，否则 fit 出来的是旧尺寸。
+ */
+function fitActiveTerminal() {
+  const session = terminalState.sessions[terminalState.activeId];
+  if (!session) return;
+  try { session.fitAddon.fit(); } catch (e) { /* 布局未就绪时忽略 */ }
+}
+
+/**
+ * 切换终端弹框的最大化与还原。
+ * 尺寸切换后必须重新 fit：xterm 的行列由容器尺寸算出，不重算的话全屏程序
+ * （vim/top）仍按旧行列重绘。最大化状态挂在卡片上，关闭弹窗不重置——下次打开
+ * 仍是用户上次选择的尺寸。
+ */
+function toggleTerminalMaximized() {
+  const card = $("#terminal-modal");
+  const btn = $("#terminal-max");
+  if (!card) return;
+  const maximized = card.classList.toggle("is-maximized");
+  if (btn) {
+    // 按钮语义随状态翻转：tooltip 与读屏标签都要跟着变，图标由 CSS 按状态切换
+    const label = maximized ? "还原" : "最大化";
+    btn.setAttribute("title", label);
+    btn.setAttribute("aria-label", label);
+  }
+  // 等一帧让浏览器结算新尺寸，再让 xterm 按新尺寸重算行列
+  requestAnimationFrame(fitActiveTerminal);
+}
+
+/**
  * 切换到指定会话：搬运对应 holder 节点到容器并聚焦。
  * 容器尺寸可能因标签栏换行而变化，切换后重新 fit 一次。
  * @param {string} sessionId - 目标会话 ID
@@ -1644,8 +1676,7 @@ function switchTerminalSession(sessionId) {
 
   terminalState.activeId = sessionId;
   content.replaceChildren(session.holder);
-  // 容器已隐藏时（弹窗未打开）fit 读到 0 尺寸会跳过，不影响正确性
-  try { session.fitAddon.fit(); } catch (e) { /* 布局未就绪时忽略 */ }
+  fitActiveTerminal();
   session.term.focus();
   renderTerminalTabs();
 }
@@ -1756,7 +1787,7 @@ async function openTerminalModal() {
     content.replaceChildren(session.holder);
     // 弹窗刚显示，等一帧布局稳定后再 fit + 聚焦
     requestAnimationFrame(() => {
-      try { session.fitAddon.fit(); } catch (e) { /* 忽略 */ }
+      fitActiveTerminal();
       session.term.focus();
     });
   }
@@ -1800,16 +1831,26 @@ function initTerminal() {
     });
   }
 
+  const btnMax = $("#terminal-max");
+  if (btnMax) {
+    btnMax.addEventListener("click", toggleTerminalMaximized);
+  }
+
+  const head = $("#terminal-head");
+  if (head) {
+    // 双击头部切换最大化：与自定义标题栏的双击习惯一致；头部按钮上双击不触发
+    head.addEventListener("dblclick", (e) => {
+      if (e.target.closest("button")) return;
+      toggleTerminalMaximized();
+    });
+  }
+
   // 窗口尺寸变化 → 去抖后 fit 激活会话；其余会话在切回标签时再 fit
   let resizeTimer = null;
   window.addEventListener("resize", () => {
     if (!terminalState.activeId) return;
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      const session = terminalState.sessions[terminalState.activeId];
-      if (!session) return;
-      try { session.fitAddon.fit(); } catch (e) { /* 忽略 */ }
-    }, 200);
+    resizeTimer = setTimeout(fitActiveTerminal, 200);
   });
 
   // PTY 输出 → 写入对应会话的 xterm 实例（含非激活会话，

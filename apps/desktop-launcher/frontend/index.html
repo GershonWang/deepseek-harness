@@ -280,9 +280,16 @@
 <!-- 终端弹框 -->
 <div id="terminal-modal" class="modal hidden">
   <div class="modal-card modal-terminal">
-    <div class="modal-head">
+    <div id="terminal-head" class="modal-head">
       <span class="modal-title"><span class="brand-dot"></span>终端</span>
-      <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
+      <span class="modal-head-actions">
+        <!-- 最大化/还原共用一颗按钮，两套图标按 is-maximized 切换，按钮不跳位 -->
+        <button id="terminal-max" class="modal-close" title="最大化" aria-label="最大化">
+          <svg class="terminal-icon-max" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
+          <svg class="terminal-icon-restore" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2.5" y="5.5" width="8" height="8" rx="1"/><path d="M5.5 5.5v-2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2"/></svg>
+        </button>
+        <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
+      </span>
     </div>
     <div class="modal-body terminal-body">
       <!-- 标签条整行承载工具栏背景，「新建」按钮与标签同排靠右 -->
