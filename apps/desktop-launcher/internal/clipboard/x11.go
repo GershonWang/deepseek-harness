@@ -36,6 +36,18 @@ const (
 	readTimeout   = 6 * time.Second
 )
 
+// maxINCRChunks 限制一次 INCR 传输的分块轮数。每轮重新计时 readTimeout，
+// 所以轮数就是这次传输总时长的上界：没有它，一个每次只写 1 字节的 owner 能让我们
+// 在 maxImageBytes 之内不断续时，把一次粘贴拖成无限等待。
+const maxINCRChunks = 1 << 16
+
+// CreateWindow 的 CW 属性位与事件掩码位是两套独立编号，混用会让服务端回 BadValue：
+// value-mask 里要置的是 cwEventMask，value-list 里放的才是事件掩码本身。
+const (
+	cwEventMask        = 1 << 11 // CreateWindow value-mask 的 CWEventMask 位
+	propertyChangeMask = 1 << 22 // 事件掩码：PropertyChangeMask
+)
+
 var errSelectionEmpty = errors.New("clipboard has no supported image content")
 
 // ReadImage returns the current clipboard image payload, or nil when no
@@ -124,7 +136,7 @@ func readX11UriListImage() []byte {
 	if err != nil || got == 0 {
 		return nil
 	}
-	_, data, err := x.getProperty(got, 0, incr)
+	data, err := x.getProperty(got, 0, incr)
 	if err != nil || len(data) == 0 {
 		return nil
 	}
@@ -550,56 +562,93 @@ func (x *xconn) convert(sel, target, prop uint32) (uint32, error) {
 		if err != nil {
 			return 0, err
 		}
+		// SelectionNotify 的线上布局是 type(1) pad(1) sequence(2) time(4)
+		// requestor(4) selection(4) target(4) property(4)，也就是 property 落在
+		// 偏移 20。标准事件码是 31，玲珑 X 桥把它重写成 159，property 偏移不变；
+		// 若按偏移 24 读取，拿到的是保留字段的全零，于是每一次转换都被判成
+		// “owner 拒绝”，整条 X11 读取路径静默失效。
 		switch hdr[0] {
-		case 31: // SelectionNotify (standard)
-			return binary.LittleEndian.Uint32(hdr[24:28]), nil
-		case 159: // Linglong X bridge SelectionNotify (property at offset 20)
+		case 31, 159: // SelectionNotify（标准 / 玲珑 X 桥）
 			return binary.LittleEndian.Uint32(hdr[20:24]), nil
 		}
 		// Ignore unrelated events (e.g. property changes) until the notify.
 	}
 }
 
-// getProperty reads the whole value of one property; INCR transfers are
-// followed to completion. incr must be the pre-interned INCR atom so the
-// incremental loop never issues a request of its own (replies stay aligned).
-func (x *xconn) getProperty(prop, expectedType, incr uint32) (uint32, []byte, error) {
-	for {
-		ptype, after, data, err := x.getPropertyOnce(prop, expectedType)
-		if err != nil {
-			return 0, nil, err
-		}
-		if ptype != incr || after == 0 {
-			return ptype, data, nil
-		}
-		// INCR: wait for PropertyNotify, then re-read the growing property.
+// getProperty 读取一个属性的完整值，INCR 分块传输会被跟到底。
+// incr 必须是调用方预先 intern 好的 INCR 原子：分块循环内部不能再发 InternAtom，
+// 否则自己插入的请求会打乱请求与回复的对应关系。
+//
+// @param prop - 属性原子，即 ConvertSelection 指定的落点。
+// @param expectedType - 期望的属性类型，0 表示任意。
+// @param incr - 预先 intern 的 INCR 原子，用于识别分块传输的起始回复。
+// @returns 属性的完整字节值；协议失败、超出体积上限或分块轮数用尽时返回错误。
+func (x *xconn) getProperty(prop, expectedType, incr uint32) ([]byte, error) {
+	ptype, _, data, err := x.getPropertyOnce(prop, expectedType)
+	if err != nil {
+		return nil, err
+	}
+	if ptype != incr {
+		return data, nil
+	}
+	// 回复类型是 INCR 就进入分块传输：这次读到的 4 字节是数据总量而不是数据本身，
+	// 载荷随后由 owner 逐块写入属性，每块都伴随一个 PropertyNotify 事件，
+	// 读到 0 字节的属性即传输结束。
+	//
+	// 判定只看类型，不能看 bytes-after：INCR 标记本身只有 4 字节，一次读尽后
+	// bytes-after 就是 0，把 0 当作“已经读完”会把这个标记当成图像数据返回，
+	// 于是所有走 INCR 的剪贴板内容（截图工具的位图、剪贴板管理器转存的位图）
+	// 都变成 4 字节垃圾，PNG 魔数校验失败，粘贴表现为毫无反应。
+	if len(data) < 4 {
+		return nil, errors.New("clipboard: INCR marker without a size")
+	}
+	if total := binary.LittleEndian.Uint32(data[:4]); total > maxImageBytes {
+		return nil, fmt.Errorf("clipboard: selection exceeds %d bytes", maxImageBytes)
+	}
+	chunks := make([][]byte, 0, 8)
+	size := 0
+	for round := 0; round < maxINCRChunks; round++ {
+		// 每一块都重新计时：慢但确实在推进的 owner 应该传完，卡住的 owner 也必须在
+		// 有限的轮数内被放弃。
 		if err := x.setDeadline(readTimeout); err != nil {
-			return 0, nil, err
+			return nil, err
 		}
-		chunks := [][]byte{data}
-		for {
-			hdr, _, err := x.readReply()
-			if err != nil {
-				return 0, nil, err
-			}
-			if hdr[0] != 28 { // PropertyNotify
-				continue
-			}
-			// PropertyNotify: window at bytes 8-11, property atom at 12-15.
-			if binary.LittleEndian.Uint32(hdr[12:16]) != prop {
-				continue
-			}
-			_, after, chunk, err := x.getPropertyOnce(prop, expectedType)
-			if err != nil {
-				return 0, nil, err
-			}
-			if len(chunk) > 0 {
-				chunks = append(chunks, chunk)
-			}
-			if after == 0 {
-				return expectedType, bytes.Join(chunks, nil), nil
-			}
+		if err := x.waitPropertyNotify(prop); err != nil {
+			return nil, err
 		}
+		_, _, chunk, err := x.getPropertyOnce(prop, expectedType)
+		if err != nil {
+			return nil, err
+		}
+		if len(chunk) == 0 {
+			return bytes.Join(chunks, nil), nil
+		}
+		if size += len(chunk); size > maxImageBytes {
+			return nil, fmt.Errorf("clipboard: selection exceeds %d bytes", maxImageBytes)
+		}
+		chunks = append(chunks, chunk)
+	}
+	return nil, errors.New("clipboard: INCR transfer did not finish")
+}
+
+// waitPropertyNotify 读到属于 prop 的 PropertyNotify 为止，丢弃其间无关事件。
+//
+// 事件码 28 的线上布局是 type(1) pad(1) sequence(2) window(4) atom(4) time(4)
+// state(1)：window 在偏移 4、atom 在偏移 8。若按 window 8 / atom 12 读取，
+// 比对的是 time 字段，永远匹配不上 prop，INCR 会在每一块之前空等到超时。
+func (x *xconn) waitPropertyNotify(prop uint32) error {
+	for {
+		hdr, _, err := x.readReply()
+		if err != nil {
+			return err
+		}
+		if hdr[0] != 28 { // PropertyNotify
+			continue
+		}
+		if binary.LittleEndian.Uint32(hdr[8:12]) != prop {
+			continue
+		}
+		return nil
 	}
 }
 
@@ -645,9 +694,12 @@ func (x *xconn) mustAtom(name string) uint32 {
 
 func (x *xconn) setDeadline(d time.Duration) error { return x.c.SetReadDeadline(time.Now().Add(d)) }
 
-// installWindow creates one tiny requestor window used as the ConvertSelection
-// destination (the requestor must exist server-side). The window id derives
-// from the resource base reported during setup.
+// installWindow 创建一个 8×8 的请求方窗口，作为 ConvertSelection 的属性落点
+// （请求方必须是服务端真实存在的资源）。窗口 id 取自 setup 汇报的资源基址。
+//
+// CreateWindow 的 value-list 只放一项：cwEventMask → propertyChangeMask。
+// INCR 分块传输靠服务端的 PropertyNotify 事件驱动，未选该掩码时事件不会投递，
+// 分块读取只能空等到超时（见 getProperty / waitPropertyNotify）。
 //
 // The window is intentionally left unmapped: X11 selection transfer only
 // requires the requestor to exist as a resource, not to be visible. Mapping it
@@ -655,15 +707,18 @@ func (x *xconn) setDeadline(d time.Duration) error { return x.c.SetReadDeadline(
 // flash in the top-left corner of the screen on every clipboard read.
 func (x *xconn) installWindow() error {
 	wid := x.resourceBase + 1
-	payload := make([]byte, 28)
+	payload := make([]byte, 32)
 	binary.LittleEndian.PutUint32(payload[0:4], wid)
 	binary.LittleEndian.PutUint32(payload[4:8], x.root)
 	// CreateWindow body: window(4) parent(4) x(2) y(2) width(2) height(2)
-	// border(2) class(2) visual(4) mask(4); depth lives in the request header.
+	// border(2) class(2) visual(4) mask(4) value-list; depth lives in the
+	// request header.
 	binary.LittleEndian.PutUint16(payload[12:14], 8) // width
 	binary.LittleEndian.PutUint16(payload[14:16], 8) // height
 	binary.LittleEndian.PutUint16(payload[18:20], 1) // class = InputOutput
-	if err := x.send(1, payload); err != nil {       // CreateWindow (depth 0)
+	binary.LittleEndian.PutUint32(payload[24:28], cwEventMask)
+	binary.LittleEndian.PutUint32(payload[28:32], propertyChangeMask)
+	if err := x.send(1, payload); err != nil { // CreateWindow (depth 0)
 		return err
 	}
 	// Deliberately no MapWindow: the requestor stays unmapped (see above).
@@ -752,7 +807,7 @@ func (x *xconn) readImageFromSelection(sel uint32) ([]byte, error) {
 	if targets != 0 {
 		got, err := x.convert(sel, targets, prop)
 		if err == nil && got != 0 {
-			_, data, err := x.getProperty(got, 0, incr)
+			data, err := x.getProperty(got, 0, incr)
 			if err == nil && len(data) > 0 {
 				available = parseAtomList(data)
 			}
@@ -777,7 +832,7 @@ func (x *xconn) readImageFromSelection(sel uint32) ([]byte, error) {
 		if got == 0 {
 			continue
 		}
-		_, data, err := x.getProperty(got, 0, incr)
+		data, err := x.getProperty(got, 0, incr)
 		if err != nil {
 			continue
 		}
