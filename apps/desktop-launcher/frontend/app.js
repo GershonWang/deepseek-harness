@@ -1455,6 +1455,15 @@ function init() {
 /* ---------- 终端模块（xterm.js） ---------- */
 
 /**
+ * 字号偏好的取值范围与默认值。上限 20px 是弹框 900px 宽下仍能容纳常用命令行的
+ * 边界，下限 10px 保证还能读；默认值与 xterm 创建时的字号一致。
+ */
+const TERMINAL_FONT_SIZE = { min: 10, max: 20, default: 14 };
+
+/** 字号偏好的存储键：全会话共用一份，写在 localStorage 里跨启动保留。 */
+const TERMINAL_FONT_SIZE_KEY = "dsh-desktop.terminal.fontSize";
+
+/**
  * 终端状态管理：每个会话持有一个独立的 xterm 实例与挂载节点。
  * 切换标签时整体搬运 DOM 节点（而非销毁重建），保留各会话的滚动历史、
  * 光标位置与进程交互状态 —— 与桌面终端多标签行为一致。
@@ -1462,6 +1471,7 @@ function init() {
 const terminalState = {
   sessions: {},   // sessionId -> { id, title, status, exitCode, term, fitAddon, holder }
   activeId: null, // 当前激活的会话 ID
+  fontSize: TERMINAL_FONT_SIZE.default, // 由 initTerminal 从偏好存储恢复
 };
 
 /**
@@ -1491,6 +1501,63 @@ const TERMINAL_THEME = {
   brightCyan: "#29b7d3",
   brightWhite: "#ffffff",
 };
+
+/** 把字号夹进可调范围：按钮、快捷键与记忆里的脏数据共用这一处收敛。 */
+function clampTerminalFontSize(size) {
+  return Math.min(TERMINAL_FONT_SIZE.max, Math.max(TERMINAL_FONT_SIZE.min, size));
+}
+
+/**
+ * 读取记忆的终端字号。
+ * WebKit 在禁用存储（隐私模式、无盘容器）时读写都会抛，字号只是便利项，
+ * 读写失败一律退回默认值，不能让它影响终端可用性。
+ * @returns {number} 夹进可调范围的字号
+ */
+function loadTerminalFontSize() {
+  try {
+    const raw = window.localStorage ? window.localStorage.getItem(TERMINAL_FONT_SIZE_KEY) : null;
+    const size = Number.parseInt(raw, 10);
+    if (Number.isInteger(size)) return clampTerminalFontSize(size);
+  } catch (e) {
+    // 读不到就是没记住，退默认值
+  }
+  return TERMINAL_FONT_SIZE.default;
+}
+
+/**
+ * 刷新字号读数的文本与两端按钮的可用状态：到达边界时按钮置灰，
+ * 让"再点也没用"这件事在界面上可见，而不是点了没反应。
+ * @param {number} size - 当前字号
+ */
+function renderTerminalFontSize(size) {
+  const label = $("#terminal-font-size");
+  if (label) label.textContent = String(size);
+  const dec = $("#terminal-font-dec");
+  if (dec) dec.disabled = size <= TERMINAL_FONT_SIZE.min;
+  const inc = $("#terminal-font-inc");
+  if (inc) inc.disabled = size >= TERMINAL_FONT_SIZE.max;
+}
+
+/**
+ * 设定终端字号并记住选择。所有会话共用同一偏好，新建会话也按它创建。
+ * 字号变了字符单元格尺寸随之变化，必须重新 fit，否则行列与 PTY 侧对不上，
+ * 全屏程序会按错误尺寸重绘。
+ * @param {number} size - 目标字号，越界值会被夹进可调范围
+ */
+function setTerminalFontSize(size) {
+  const next = clampTerminalFontSize(size);
+  terminalState.fontSize = next;
+  for (const session of Object.values(terminalState.sessions)) {
+    session.term.options.fontSize = next;
+  }
+  fitActiveTerminal();
+  renderTerminalFontSize(next);
+  try {
+    if (window.localStorage) window.localStorage.setItem(TERMINAL_FONT_SIZE_KEY, String(next));
+  } catch (e) {
+    // 写不进去只影响"下次打开还记得"，本次缩放照常生效
+  }
+}
 
 /**
  * 把当前激活会话的选中文本复制到系统剪贴板。
@@ -1569,7 +1636,8 @@ async function createTerminalSession(title) {
     // fontconfig；其余项仅在 webview 字体加载失败时兜底。原栈里的
     // Cascadia Code/Menlo/Consolas 在 deepin 上永远缺失，只添空查，已删。
     fontFamily: '"JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
-    fontSize: 14,
+    // 字号取全会话共享的偏好：缩放后新建的会话与已有会话保持同一尺寸
+    fontSize: terminalState.fontSize,
     fontWeight: 500,
     lineHeight: 1.25,
     letterSpacing: 0,
@@ -1624,6 +1692,22 @@ async function createTerminalSession(title) {
         (ev.shiftKey && ev.code === "Insert")) {
       terminalPaste();
       return false;
+    }
+    // 字号缩放：Ctrl+= / Ctrl+- / Ctrl+0（回到默认），与桌面终端约定一致。
+    // 只认不带 Shift/Alt 的纯 Ctrl 组合，Ctrl+Shift+... 留给 shell 与上面的复制粘贴。
+    if (ev.ctrlKey && !ev.shiftKey && !ev.altKey) {
+      if (ev.code === "Equal" || ev.code === "NumpadAdd") {
+        setTerminalFontSize(terminalState.fontSize + 1);
+        return false;
+      }
+      if (ev.code === "Minus" || ev.code === "NumpadSubtract") {
+        setTerminalFontSize(terminalState.fontSize - 1);
+        return false;
+      }
+      if (ev.code === "Digit0" || ev.code === "Numpad0") {
+        setTerminalFontSize(TERMINAL_FONT_SIZE.default);
+        return false;
+      }
     }
     return true;
   });
@@ -1815,6 +1899,19 @@ function initTerminal() {
         console.error("create terminal failed:", e.message);
       }
     });
+  }
+
+  // 字号缩放：按钮与 Ctrl± 快捷键共用 setTerminalFontSize 一处实现；
+  // 先恢复记忆的字号，再按它刷新读数与两端按钮的可用状态。
+  terminalState.fontSize = loadTerminalFontSize();
+  renderTerminalFontSize(terminalState.fontSize);
+  const btnFontDec = $("#terminal-font-dec");
+  if (btnFontDec) {
+    btnFontDec.addEventListener("click", () => setTerminalFontSize(terminalState.fontSize - 1));
+  }
+  const btnFontInc = $("#terminal-font-inc");
+  if (btnFontInc) {
+    btnFontInc.addEventListener("click", () => setTerminalFontSize(terminalState.fontSize + 1));
   }
 
   const content = $("#terminal-content");

@@ -295,6 +295,10 @@
       <!-- 标签条整行承载工具栏背景，「新建」按钮与标签同排靠右 -->
       <div class="terminal-tabbar">
         <div id="terminal-tabs" class="terminal-tabs"></div>
+        <!-- 字号缩放：读数夹在两个按钮中间，到达上下限时按钮由脚本置灰 -->
+        <button id="terminal-font-dec" class="icon-btn-sm terminal-font-btn" title="缩小字号" aria-label="缩小字号">A−</button>
+        <span id="terminal-font-size" class="terminal-font-size" title="当前字号">14</span>
+        <button id="terminal-font-inc" class="icon-btn-sm terminal-font-btn" title="放大字号" aria-label="放大字号">A+</button>
         <button id="terminal-new" class="icon-btn-sm" title="新建终端">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>

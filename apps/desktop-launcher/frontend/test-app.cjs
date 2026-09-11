@@ -261,6 +261,7 @@ function buildHtml(document) {
     /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM */
     "btn-terminal", "terminal-new", "terminal-tabs", "terminal-content",
     "terminal-modal", "terminal-head", "terminal-max",
+    "terminal-font-dec", "terminal-font-size", "terminal-font-inc",
   ];
   for (const id of ids) {
     const el = document.createElement("div");
@@ -351,6 +352,18 @@ function baseStatus(over) {
   };
 }
 
+/* localStorage 桩：终端字号偏好写在这里，用例据此断言记忆行为。
+ * 直接暴露底层 Map，用例也能预置脏数据来验证兜底分支。 */
+function makeStorage() {
+  const store = new Map();
+  return {
+    store,
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => { store.set(k, String(v)); },
+    removeItem: (k) => { store.delete(k); },
+  };
+}
+
 function makeWails(runCalls, overrides = {}) {
   const events = {};
   let terminalSeq = 0;
@@ -404,6 +417,7 @@ function makeWails(runCalls, overrides = {}) {
         ClipboardSetText: async (text) => { runCalls.push(`clipboard:${text}`); },
       },
       addEventListener() {},
+      localStorage: overrides.localStorage ?? makeStorage(),
     },
   };
 }
@@ -494,6 +508,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     runCalls,
     overrides,
     terminals: xterm.instances,
+    storage: window.localStorage,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -1104,4 +1119,76 @@ test("没有会话时最大化只切尺寸，不因缺会话抛错", () => {
   const modal = h.document.getElementById("terminal-modal");
   h.document.getElementById("terminal-max").fire("click");
   assert.equal(modal.classList.contains("is-maximized"), true, "无会话也应能最大化");
+});
+
+test("终端字号：按钮与 Ctrl± 快捷键缩放，越界夹紧且新会话继承", async () => {
+  const h = loadApp();
+  await flush();
+  const term = await h.newTerminal();
+  const inc = h.document.getElementById("terminal-font-inc");
+  const dec = h.document.getElementById("terminal-font-dec");
+  const readout = h.document.getElementById("terminal-font-size");
+
+  assert.equal(term.options.fontSize, 14, "默认字号应为 14");
+  assert.equal(readout.textContent, "14", "读数应显示当前字号");
+  assert.equal(dec.disabled, false, "默认值不在下界，缩小按钮可用");
+
+  inc.fire("click");
+  assert.equal(term.options.fontSize, 15, "点 A+ 应放大 1px");
+  assert.equal(readout.textContent, "15", "读数应跟着更新");
+  assert.equal(h.storage.store.get("dsh-desktop.terminal.fontSize"), "15",
+    "缩放后应写入偏好，下次打开还记住");
+
+  dec.fire("click");
+  dec.fire("click");
+  assert.equal(term.options.fontSize, 13, "点 A− 应缩小");
+
+  // 快捷键走 xterm 的自定义键处理：返回 false 才不会把该键当输入编码
+  const onKey = term.keyHandlers[0];
+  assert.equal(typeof onKey, "function", "会话应注册按键处理");
+  assert.equal(onKey({ type: "keydown", ctrlKey: true, code: "Equal" }), false,
+    "Ctrl+= 应被拦截");
+  assert.equal(term.options.fontSize, 14, "Ctrl+= 放大 1px");
+  onKey({ type: "keydown", ctrlKey: true, code: "Digit0" });
+  assert.equal(term.options.fontSize, 14, "Ctrl+0 回到默认字号");
+  assert.equal(onKey({ type: "keydown", ctrlKey: true, shiftKey: true, code: "Equal" }), true,
+    "带 Shift 的组合不归字号管，应放行给 shell");
+
+  // 边界：一直缩小到下限后夹紧，按钮置灰，继续点不再变小
+  for (let i = 0; i < 20; i += 1) dec.fire("click");
+  assert.equal(term.options.fontSize, 10, "字号应夹在下限 10px");
+  assert.equal(dec.disabled, true, "到达下限后缩小按钮应置灰");
+  assert.equal(readout.textContent, "10");
+
+  // 新会话继承当前字号，不回到默认值
+  const second = await h.newTerminal();
+  assert.equal(second.options.fontSize, 10, "新建会话应继承当前字号");
+  assert.equal(term.options.fontSize, 10, "已有会话不受新会话影响");
+});
+
+test("终端字号偏好：合法值恢复，脏数据回默认，写失败不影响缩放", async () => {
+  const seeded = makeStorage();
+  seeded.setItem("dsh-desktop.terminal.fontSize", "18");
+  const h = loadApp({ overrides: { localStorage: seeded } });
+  await flush();
+  assert.equal(h.document.getElementById("terminal-font-size").textContent, "18",
+    "合法偏好应恢复");
+  const term = await h.newTerminal();
+  assert.equal(term.options.fontSize, 18, "恢复的字号应作用于新建会话");
+  assert.equal(h.document.getElementById("terminal-font-inc").disabled, false);
+
+  const dirty = makeStorage();
+  dirty.setItem("dsh-desktop.terminal.fontSize", "abc");
+  const h2 = loadApp({ overrides: { localStorage: dirty } });
+  await flush();
+  assert.equal(h2.document.getElementById("terminal-font-size").textContent, "14",
+    "非数字偏好应退回默认值");
+
+  // 写失败的存储（隐私模式/配额）不得让缩放本身失败
+  const broken = { getItem: () => null, setItem: () => { throw new Error("QuotaExceeded"); } };
+  const h3 = loadApp({ overrides: { localStorage: broken } });
+  await flush();
+  const term3 = await h3.newTerminal();
+  h3.document.getElementById("terminal-font-inc").fire("click");
+  assert.equal(term3.options.fontSize, 15, "写不进偏好也要完成本次缩放");
 });

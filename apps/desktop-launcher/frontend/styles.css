@@ -1369,6 +1369,30 @@ body {
 .icon-btn-sm.copied {
   color: var(--ok);
 }
+/* 到达可用边界时按钮置灰：让「再点也没用」可见，而不是点了没反应 */
+.icon-btn-sm:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.icon-btn-sm:disabled:hover {
+  background: transparent;
+  color: var(--fg-dim);
+}
+
+/* 字号控件：按钮沿用 .icon-btn-sm 的命中区，字母比图标按钮小一号；
+   读数用等宽数字，放大缩小时宽度不抖动。 */
+.terminal-font-btn {
+  font-size: 13px;
+  font-weight: 600;
+}
+.terminal-font-size {
+  min-width: 22px;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-dim);
+  user-select: none;
+}
 
 .modal-terminal .modal-body {
   flex: 1;
