@@ -856,7 +856,9 @@ export function loadProfile(
     initProfile(dir, template.bundles, template.patchReload)
   }
   normalizeShippedProfile(name, dir, readProfileManifest(binName, dir))
-  // Safe mode 只叠加收紧：调用方显式传入的 options 优先于环境变量派生的等级。
+  // Safe mode 只叠加收紧调用方给的选择：未收紧时把缺省归一为 true，与
+  // loadProfileDirectory 内 `options.userLayer !== false` 的默认判定一致
+  // （可选属性在此项目禁用显式 undefined，故不能直接透传 undefined）。
   const safeMode = process.env.DSH_SAFE_MODE
   const skipThirdParty = options.skipThirdPartyBundles
     ?? (safeMode === 'plugins' || safeMode === 'config' || safeMode === 'full')
@@ -865,7 +867,7 @@ export function loadProfile(
     || safeMode === 'full'
   return loadProfileDirectory(binName, dir, installAnchor, {
     ...options,
-    userLayer: skipUserLayer ? false : options.userLayer,
+    userLayer: skipUserLayer ? false : (options.userLayer ?? true),
     skipThirdPartyBundles: skipThirdParty,
   })
 }
