@@ -594,6 +594,23 @@ body {
   overflow: auto;
 }
 
+/* 叠放式正文：让互斥的区块共用一格，卡片高度于是恒按较高的一块算。
+   服务器弹框的「容器内 / 本机远端」两张面板高度差很大（约 125px），
+   用 display:none 切换会让弹框在切换连接模式时整体跳一下。
+   区块改用 visibility 隐藏：不可点、不进 tab 焦点、不进读屏，但继续占位。 */
+.modal-body-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+.modal-body-stack > .mode-row { grid-area: 1 / 1; }
+.modal-body-stack > .section { grid-area: 2 / 1; }
+.modal-body-stack > .error { grid-area: 3 / 1; }
+/* 压过全局 .hidden 的 display:none；面板本身是 flex 列，逐项保留其布局 */
+.modal-body-stack > .section.hidden {
+  display: flex !important;
+  visibility: hidden;
+}
+
 /* 分区模块：清晰边框 + 圆角 */
 .section {
   border: 1px solid var(--border-strong);
@@ -658,12 +675,35 @@ body {
    与主机端口挤在同一行必然被 overflow-wrap 从令牌中间折断，两段各自独占一行
    就都放得下；令牌行用弱化色，让「服务在哪」先于「凭据是什么」被读到。
    子元素仍继承 .row-value 的 overflow-wrap，令牌若变长只是自己那一行折行。 */
-.addr { display: flex; flex-direction: column; }
+.addr {
+  display: flex;
+  flex-direction: column;
+  /* 始终按两行预留高度：本次会话从未运行过 harness 时框内是空的，不预留的话
+     值列会缩到一行，首次启动时弹框仍会跳一下。
+     2.9em = 两行 × 1.45 行高；8px = 上下内边距 6 + 描边 2（全局 border-box）。 */
+  min-height: calc(2.9em + 8px);
+}
 .addr .addr-origin { color: var(--fg-strong); }
 .addr .addr-token { color: var(--fg-dim); }
 
 /* 值可能折成多行，复制按钮随之垂直居中，不跟随首行基线 */
 .row > .icon-btn-sm { align-self: center; }
+
+/* 地址行的值有两种互斥呈现：可复制的地址框，或一行文案（启动中/退出原因）。
+   两者叠放在同一格，值列恒按较高的地址框算高度，状态在
+   运行中 ↔ 启动中 ↔ 已停止 之间切换时弹框不再缩一下。
+   与 .modal-body-stack 同一套做法与理由。 */
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); }
+.stack > * { grid-area: 1 / 1; min-width: 0; align-self: center; }
+.stack > .hidden { visibility: hidden; }
+/* 压过全局 .hidden 的 display:none，逐项保留各自原本的布局模式 */
+.stack > .row-value.hidden { display: block !important; }
+.stack > .addr.hidden { display: flex !important; }
+/* 叠放容器承接值列原本在 .row 中的伸缩行为 */
+.row > .stack { flex: 1 1 auto; min-width: 0; }
+/* 地址行按居中对齐：网格容器的基线在两项都不参与基线对齐时由边框盒合成，
+   会把「地址」标签拽到框底；该行的值本身是两行块，居中也更自然。 */
+.row-address { align-items: center; }
 
 /* 状态值：语义色 + 由 currentColor 画出的状态点，因此状态点不需要额外 DOM 节点 */
 .state-value { font-weight: 600; }
