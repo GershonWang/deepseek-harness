@@ -106,9 +106,12 @@ cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
+DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
 前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+
+市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐个真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按 ID 抽查。
 
 ## 玲珑打包
 
@@ -140,7 +143,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 ## 容器可用性（工具链/挂载）
 
 - 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
-- 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。
+- 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。归档内文件名与应当暴露的命令名不一致时，清单用 `bin_names` 改名，值为空串则屏蔽该文件——避免把平台后缀名或发行包自带的辅助脚本混进 PATH。
 - 卡片状态语义：工具链市场的「已安装/可安装」只描述市场仓库（`$HOME/.dsh-tools`）里的版本目录，与容器内命令可用性相互独立。仓库未装但容器 PATH 已有同名命令（随包/宿主导入/系统提供）时，卡片显示「容器内已可用：命令 版本（来源）」；来源按命令解析路径前缀归类（`internal/app/app.go` 的 `classifyRuntimeSource`），探测与组装分别在 `internal/toolchain/check.go`（`ProbeCommands`）与 `annotateRuntime`。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 
