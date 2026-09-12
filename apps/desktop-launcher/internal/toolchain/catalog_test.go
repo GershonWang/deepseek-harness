@@ -3,6 +3,7 @@ package toolchain
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,6 +84,54 @@ func TestReconcileBinLinks_RebuildsAndCleansStale(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(dir, "bin", "stale")); !os.IsNotExist(err) {
 		t.Errorf("失效软链 stale 应被清理: %v", err)
+	}
+}
+
+// TestReconcileBinLinks_RenamesArchiveBinary 覆盖归档内二进制名与命令名不一致的发行包
+// （如 yq 归档内是 yq_linux_amd64）：BinNames 映射必须让对外命令名可执行，归档内原名
+// 不被暴露（否则用户拿到的命令名会带平台后缀），空值映射的辅助脚本也不能混进 PATH。
+func TestReconcileBinLinks_RenamesArchiveBinary(t *testing.T) {
+	idx, err := ParseIndex([]byte(`{"version":1,"updated_at":"2026-08-31T00:00:00Z","tools":[` +
+		`{"id":"renametool","name":"Renametool","category":"modern-cli","description":"test",` +
+		`"provides":["renametool"],"dependencies":[],"versions":[{"version":"1.0.0",` +
+		`"url":"https://example.com/r.tar.gz","sha256":"` + strings.Repeat("0", 64) + `",` +
+		`"bin_rel":".","bin_names":{"renametool_linux_amd64":"renametool",` +
+		`"install-helper.sh":""}}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setCatalog(idx.Tools)
+	defer restoreBuiltin(t)
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "renametool-1.0.0")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "renametool_linux_amd64"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "install-helper.sh"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(root, filepath.Join(dir, "current", "renametool")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReconcileBinLinks(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "renametool")); err != nil {
+		t.Errorf("应暴露映射后的命令名 renametool: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "renametool_linux_amd64")); !os.IsNotExist(err) {
+		t.Errorf("归档内原名不应被暴露: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "install-helper.sh")); !os.IsNotExist(err) {
+		t.Errorf("空值映射的辅助脚本不应被暴露: %v", err)
 	}
 }
 
