@@ -23,7 +23,7 @@ English | [中文](README.zh.md)
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
-│   packaging   打包态路径、版本、webkit helper 打点            │
+│   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -44,7 +44,7 @@ internal/supervisor/    harness 进程监护（含 process_unix.go / process_win
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
+internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)
@@ -173,3 +173,4 @@ page a base64 PNG over the existing `{ dshDesktop: true }` postMessage protocol.
 ## Known issues
 
 - **Shared `~/.dsh` across harness versions**: an external harness (e.g. `npx @deepseek-ai/dsh web`, a published release) shares the same `~/.dsh` home as the launcher's bundled harness. A different version may write `~/.dsh/.credentials.yaml` in a schema this version rejects (a `version` key whose value is not a string), crashing the harness at boot into a restart loop. If the harness enters a restart loop after using an external harness, check `~/.cache/dsh-desktop/harness.log` for `credentials-local` errors; back up and remove `~/.dsh/.credentials.yaml` so the harness rebuilds an empty store (stored credentials are lost).
+- **WebKitGTK DMABUF compositing on NVIDIA**: when the kernel has the NVIDIA proprietary driver loaded, WebKitGTK's default DMABUF accelerated compositing can fail to build a framebuffer as a window is re-exposed after being occluded, painting the whole web area a solid color for a moment (white under a light theme, black under a dark one) before it recovers. The failure is intermittent, and the harness process and any running task are unaffected. The launcher therefore sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` whenever `/sys/module/nvidia` exists (`packaging.ConfigureWebKitRendering`, called before `wails.Run`), giving up the zero-copy compositing path on those machines only; every other machine keeps the default.

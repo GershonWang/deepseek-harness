@@ -46,3 +46,33 @@ func TestWebkitHelperLinkUsable(t *testing.T) {
 		t.Error("指向具备 helper 的目录应可用")
 	}
 }
+
+func TestConfigureWebKitRenderingFollowsNvidiaDriver(t *testing.T) {
+	savedProbe := nvidiaModulePath
+	savedEnv, hadEnv := os.LookupEnv("WEBKIT_DISABLE_DMABUF_RENDERER")
+	t.Cleanup(func() {
+		nvidiaModulePath = savedProbe
+		if hadEnv {
+			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", savedEnv)
+			return
+		}
+		_ = os.Unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER")
+	})
+
+	probe := filepath.Join(t.TempDir(), "nvidia")
+	nvidiaModulePath = probe
+	_ = os.Unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER")
+
+	ConfigureWebKitRendering()
+	if _, ok := os.LookupEnv("WEBKIT_DISABLE_DMABUF_RENDERER"); ok {
+		t.Error("未检测到 NVIDIA 驱动时不应关闭 DMABUF 渲染器")
+	}
+
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ConfigureWebKitRendering()
+	if got := os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER"); got != "1" {
+		t.Errorf("检测到 NVIDIA 驱动时应关闭 DMABUF 渲染器，得到 %q", got)
+	}
+}

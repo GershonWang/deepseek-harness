@@ -42,6 +42,32 @@ func ConfigureWebKitHelperPath() {
 	_ = os.Setenv("WEBKIT_INJECTED_BUNDLE_PATH", filepath.Join(helperDir, "injected-bundle"))
 }
 
+// ConfigureWebKitRendering 在 GTK/WebKit 初始化之前选择 webkit2gtk 的合成后端。
+//
+// 背景：webkit2gtk 默认启用 DMABUF 加速合成。在内核加载了 NVIDIA 专有驱动的机器
+// 上，窗口被其它程序遮挡后重新暴露、合成层重建时 DMABUF buffer 协商失败，整个
+// web 区域会短暂闪成纯色再自行恢复（浅色主题白、深色主题黑），而 harness 进程与
+// 正在运行的任务都不受影响。改用共享内存合成后闪烁消失，代价是放弃一次零拷贝的
+// 合成快速路径，因此只在检测到 NVIDIA 专有驱动时关闭，不让单显卡环境陪跑。
+//
+// 必须在 GTK/WebKit 初始化之前调用（main 的 wails.Run 之前），之后设置不生效。
+func ConfigureWebKitRendering() {
+	if !nvidiaDriverLoaded() {
+		return
+	}
+	_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+}
+
+// nvidiaModulePath 是内核模块目录下的 NVIDIA 专有驱动条目；测试可覆盖。
+var nvidiaModulePath = "/sys/module/nvidia"
+
+// nvidiaDriverLoaded 判断内核是否加载了 NVIDIA 专有驱动。玲珑容器内该条目可见
+// （/proc/driver/nvidia/version 同理），打包态与开发态用同一条判据。
+func nvidiaDriverLoaded() bool {
+	_, err := os.Stat(nvidiaModulePath)
+	return err == nil
+}
+
 // webkitHelperLinkUsable 判断短路径符号链接能否直接复用：存在、指向
 // expected 目录、且该目录里的 WebKitNetworkProcess 可访问（未卸载）。
 func webkitHelperLinkUsable(shortPath, expected string) bool {

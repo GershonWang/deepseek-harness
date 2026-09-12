@@ -23,7 +23,7 @@
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
-│   packaging   打包态路径、版本、webkit helper 打点            │
+│   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -44,7 +44,7 @@ internal/supervisor/    harness 进程监护（含 process_unix.go / process_win
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
+internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)
@@ -170,3 +170,4 @@ postMessage 协议交给页面。
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。
