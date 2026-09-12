@@ -17,7 +17,7 @@
  */
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -25,6 +25,19 @@ import { setTimeout as sleep } from 'node:timers/promises'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const FRONTEND = resolve(HERE, '..')
 const INDEX = join(FRONTEND, 'index.html')
+
+/**
+ * 一次性浏览器状态的根目录（每次运行在其下建独立子目录）。
+ *
+ * 必须落在 `frontend/` 之外：启动器用 `//go:embed all:frontend` 嵌入整个前端
+ * 目录，而 go:embed 既不读 .gitignore，`all:` 前缀又连点号开头的目录一起嵌入，
+ * 于是 Chromium 在 `Code Cache/pc/` 下写出的文件名（含 `;` 与反引号）会触发
+ * Go 的嵌入文件名校验，让 `go build` 报 invalid name 并打断整个打包流程。
+ *
+ * 放在启动器 module 目录下：既在 embed 根之外，又仍在工作区内——受限文件沙箱
+ * 只允许写工作区，Chromium 的 HOME/XDG 落到别处会卡在只读路径上。
+ */
+const SCRATCH_ROOT = resolve(FRONTEND, '..', '.preview-cache')
 
 /** 令牌固定 43 个 base64url 字符（packages/client/connection 的 SECRET_BYTES=32）。 */
 const TOKEN = 'hSSvsUVtS8wnTwXzRl0BXDfLdVtx5rPuyXH7ABs8Kc'
@@ -233,31 +246,31 @@ class Cdp {
 /**
  * 起浏览器并连上页面，回调里拿到可用的 CDP 客户端。
  * @param {string} pageUrl - 预览页文件 URL。
- * @param {string} profileDir - 一次性用户数据目录（沙箱下必须落在可写位置）。
+ * @param {string} scratchDir - 本次运行独占的浏览器状态目录（沙箱下必须可写）。
  * @param {(cdp: Cdp) => Promise<void>} body - 使用客户端的回调。
  */
-async function withBrowser(pageUrl, profileDir, body) {
+async function withBrowser(pageUrl, scratchDir, body) {
   const browser = findBrowser()
   if (!browser) {
     throw new Error('未找到可用的 Chromium。用 DSH_PREVIEW_BROWSER 指定可执行文件，或安装 Playwright 浏览器缓存。')
   }
   const port = 9400 + (process.pid % 500)
-  await mkdir(profileDir, { recursive: true })
+  await mkdir(scratchDir, { recursive: true })
   const child = spawn(browser, [
     '--headless', '--no-sandbox', '--disable-gpu', '--hide-scrollbars',
     '--disable-dev-shm-usage', '--no-first-run', '--disable-crash-reporter',
-    `--user-data-dir=${join(profileDir, 'profile')}`,
+    `--user-data-dir=${join(scratchDir, 'profile')}`,
     `--remote-debugging-port=${port}`, pageUrl,
   ], {
     stdio: 'ignore',
-    // Chromium 会往 HOME 与 XDG 目录写配置；一律重定向到工作目录内，
+    // Chromium 会往 HOME 与 XDG 目录写配置；一律重定向到本次运行的临时目录内，
     // 否则在只允许写工作区的沙箱里它会卡在写 ~/.config。
     env: {
       ...process.env,
-      HOME: join(profileDir, 'home'),
-      XDG_CONFIG_HOME: join(profileDir, 'home', '.config'),
-      XDG_CACHE_HOME: join(profileDir, 'home', '.cache'),
-      XDG_RUNTIME_DIR: join(profileDir, 'home', 'run'),
+      HOME: join(scratchDir, 'home'),
+      XDG_CONFIG_HOME: join(scratchDir, 'home', '.config'),
+      XDG_CACHE_HOME: join(scratchDir, 'home', '.cache'),
+      XDG_RUNTIME_DIR: join(scratchDir, 'home', 'run'),
     },
   })
   try {
@@ -326,32 +339,60 @@ function parseArgs(argv) {
   return args
 }
 
-/** 输出目录：默认在 frontend/.preview（已在 .gitignore 内）。 */
+/**
+ * 产物目录：默认在 frontend/.preview（已在 .gitignore 内）。
+ * 只决定截图与预览页的位置；浏览器状态固定走 SCRATCH_ROOT，不随 --out 移动。
+ * @param {Record<string, string|boolean>} args - 命令行参数。
+ * @returns {string} 产物目录绝对路径。
+ */
 function resolveOut(args) {
   return resolve(args.out && args.out !== true ? args.out : join(FRONTEND, '.preview'))
 }
 
+/**
+ * 建本次运行独占的浏览器状态目录。
+ *
+ * 每次运行新建而非复用固定路径：并发跑两个 preview 时各自的 profile 与 HOME 不会
+ * 互相踩（复用会让后者读到前者的 SingletonLock）。
+ * @returns {Promise<string>} 新建的空目录绝对路径。
+ */
+async function createScratch() {
+  await mkdir(SCRATCH_ROOT, { recursive: true })
+  return mkdtemp(join(SCRATCH_ROOT, 'run-'))
+}
+
+/**
+ * 执行一次 preview：生成预览页、在浏览器里量几何，再按子命令输出或断言。
+ * @param {string} command - render / measure / verify 之一。
+ * @param {Record<string, string|boolean>} args - 命令行参数。
+ * @returns {Promise<number>} 进程退出码。
+ */
 async function run(command, args) {
   const out = resolveOut(args)
   await mkdir(out, { recursive: true })
-  const profileDir = join(out, '.browser')
   const pageUrl = await buildPreview(out)
   const themes = args.theme === 'light' || args.theme === 'dark' ? [args.theme] : ['light', 'dark']
 
   const measurements = []
-  await withBrowser(pageUrl, profileDir, async (cdp) => {
-    await walk(cdp, pageUrl, themes, async (theme, name) => {
-      const probe = await cdp.send('Runtime.evaluate', { expression: `(${probeGeometry})()`, returnByValue: true })
-      const geometry = JSON.parse(probe.result.value)
-      measurements.push({ theme, name, ...geometry })
-      if (command === 'render') {
-        const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
-        const file = join(out, `${theme}-${name}.png`)
-        await writeFile(file, Buffer.from(shot.data, 'base64'))
-        console.log(`已截图 ${file}`)
-      }
+  const scratch = await createScratch()
+  try {
+    await withBrowser(pageUrl, scratch, async (cdp) => {
+      await walk(cdp, pageUrl, themes, async (theme, name) => {
+        const probe = await cdp.send('Runtime.evaluate', { expression: `(${probeGeometry})()`, returnByValue: true })
+        const geometry = JSON.parse(probe.result.value)
+        measurements.push({ theme, name, ...geometry })
+        if (command === 'render') {
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          const file = join(out, `${theme}-${name}.png`)
+          await writeFile(file, Buffer.from(shot.data, 'base64'))
+          console.log(`已截图 ${file}`)
+        }
+      })
     })
-  })
+  } finally {
+    // profile 与 HOME/XDG 都是本次运行的一次性状态，跑完即删，避免残留累积。
+    await rm(scratch, { recursive: true, force: true })
+  }
 
   if (command === 'measure') {
     if (args.json) console.log(JSON.stringify(measurements, null, 2))

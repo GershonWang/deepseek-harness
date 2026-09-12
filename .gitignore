@@ -59,5 +59,8 @@ worktrees/
 .superpowers/
 native/system/test/bin/
 
-# 启动器前端预览工具的产物（截图与一次性浏览器 profile）
+# 启动器前端预览工具的产物（截图与运行时生成的预览页）
 apps/desktop-launcher/frontend/.preview/
+# 启动器前端预览工具的浏览器状态（profile 与 HOME/XDG）：必须留在 go:embed 根
+# `frontend/` 之外，否则 Chromium 的缓存文件名会让启动器的 go build 直接失败
+apps/desktop-launcher/.preview-cache/

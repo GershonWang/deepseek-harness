@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`apps/desktop-launcher/frontend/tools/preview.mjs` 把 `index.html` 放进无头 Chromium 渲染并测量。它是一个零依赖的普通 Node ESM 脚本：浏览器依次取自 `DSH_PREVIEW_BROWSER`、机器上已有的 Playwright 缓存、`PATH`，协议走 Node 内置的 `WebSocket`。Chromium 的 `HOME` 与 XDG 目录被重定向到输出目录内——不这样做，它在文件沙箱下会因为 HOME 只读而卡住。
+`apps/desktop-launcher/frontend/tools/preview.mjs` 把 `index.html` 放进无头 Chromium 渲染并测量。它是一个零依赖的普通 Node ESM 脚本：浏览器依次取自 `DSH_PREVIEW_BROWSER`、机器上已有的 Playwright 缓存、`PATH`，协议走 Node 内置的 `WebSocket`。Chromium 的 profile 与 `HOME`/XDG 目录被重定向到 `apps/desktop-launcher/.preview-cache` 下每次运行新建的目录——不这样做，它在文件沙箱下会因为 HOME 只读而卡住。该根目录必须留在 `frontend/` 之外：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会因 Go 拒绝的嵌入文件名而让启动器构建失败。
 
 预览页在运行时从 `index.html` 生成——剥掉脚本、改写样式路径——因此不可能与被验证的页面漂移。状态放在 `FIXTURES` 表里，一个弹框状态一条，每条写明 `app.js` 会写入的文本、类名、值、可见性与禁用标志；新增状态只是改数据。一条状态一条记录，因此夹具表就是覆盖范围。
 
