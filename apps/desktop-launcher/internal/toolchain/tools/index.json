@@ -1,6 +1,13 @@
 {
   "version": 1,
-  "updated_at": "2026-08-31T00:00:00Z",
+  "updated_at": "2026-09-12T00:00:00Z",
+  "category_labels": {
+    "language-sdk": "语言 SDK",
+    "build-tools": "构建与编译",
+    "modern-cli": "现代 CLI",
+    "code-quality": "代码质量",
+    "debug": "调试"
+  },
   "tools": [
     {
       "id": "go",
@@ -56,7 +63,7 @@
     {
       "id": "cmake",
       "name": "CMake",
-      "category": "compiler",
+      "category": "build-tools",
       "description": "跨平台构建系统（含 ctest/cpack）",
       "provides": ["cmake", "ctest", "cpack"],
       "dependencies": [],
@@ -473,6 +480,263 @@
           "sha256": "473dd66c7a3ef4b182065b3da670466c1bf2773a9dbb0ed8b33a39fe9d4f876d",
           "size": 87077443,
           "bin_rel": "bin"
+        }
+      ]
+    },
+    {
+      "id": "ninja",
+      "name": "Ninja",
+      "category": "build-tools",
+      "description": "小而快的构建系统，CMake 常用后端",
+      "provides": ["ninja"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.13.2",
+          "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip",
+          "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6",
+          "size": 134040,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "yq",
+      "name": "yq",
+      "category": "modern-cli",
+      "description": "YAML/JSON/XML 命令行处理器（jq 语法）",
+      "provides": ["yq"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "4.53.6",
+          "url": "https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64.tar.gz",
+          "sha256": "38b907b21b1b04327fb9481c595331d925a67c6ee1aabd0ef419d0b7d12dfb3d",
+          "size": 5729058,
+          "bin_rel": ".",
+          "bin_names": { "yq_linux_amd64": "yq", "install-man-page.sh": "" }
+        }
+      ]
+    },
+    {
+      "id": "sqlite",
+      "name": "SQLite",
+      "category": "modern-cli",
+      "description": "SQLite 命令行工具（含 sqldiff 与分析工具）",
+      "provides": ["sqlite3", "sqldiff", "sqlite3_analyzer", "sqlite3_rsync"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "3.53.4",
+          "url": "https://sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip",
+          "sha256": "7a6f4d1720e4bc13faa3d934bfce37b816a496c0a2480deacd64cfd8be6cf224",
+          "size": 4265665,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "duckdb",
+      "name": "DuckDB",
+      "category": "modern-cli",
+      "description": "进程内分析型数据库 CLI，可直接查询 CSV/Parquet",
+      "provides": ["duckdb"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.5.5",
+          "url": "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip",
+          "sha256": "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05",
+          "size": 21263499,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "pandoc",
+      "name": "Pandoc",
+      "category": "modern-cli",
+      "description": "通用文档格式转换器（Markdown/DOCX/LaTeX 等）",
+      "provides": ["pandoc", "pandoc-server", "pandoc-lua"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "3.11",
+          "url": "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-linux-amd64.tar.gz",
+          "sha256": "37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6",
+          "size": 34940580,
+          "bin_rel": "bin"
+        }
+      ]
+    },
+    {
+      "id": "just",
+      "name": "just",
+      "category": "modern-cli",
+      "description": "命令运行器，跑 justfile 里的项目任务",
+      "provides": ["just"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.58.0",
+          "url": "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
+          "size": 2529009,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "ruff",
+      "name": "Ruff",
+      "category": "code-quality",
+      "description": "极快的 Python linter 与格式化工具",
+      "provides": ["ruff"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.16.7",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "8d28939cf5cabe54a2f8f7cbfab52c643436d1bc70474198181db9e48f504411",
+          "size": 10355951,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "golangci-lint",
+      "name": "golangci-lint",
+      "category": "code-quality",
+      "description": "Go 静态检查聚合器，并发运行多个 linter",
+      "provides": ["golangci-lint"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "2.13.2",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-linux-amd64.tar.gz",
+          "sha256": "2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6",
+          "size": 15451894,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "actionlint",
+      "name": "actionlint",
+      "category": "code-quality",
+      "description": "GitHub Actions 工作流静态检查",
+      "provides": ["actionlint"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.7.12",
+          "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
+          "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
+          "size": 2353908,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "shellcheck",
+      "name": "ShellCheck",
+      "category": "code-quality",
+      "description": "Shell 脚本静态检查",
+      "provides": ["shellcheck"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.11.0",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz",
+          "sha256": "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
+          "size": 2559196,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "zig",
+      "name": "Zig",
+      "category": "build-tools",
+      "description": "Zig 语言工具链，zig cc 可当 C/C++ 编译器用",
+      "provides": ["zig"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.16.0",
+          "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz",
+          "sha256": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00",
+          "size": 55478392,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "gradle",
+      "name": "Gradle",
+      "category": "build-tools",
+      "description": "JVM 生态构建工具（依赖 JDK，脚本经 PATH 里的 java 启动）",
+      "provides": ["gradle"],
+      "dependencies": ["jdk21"],
+      "versions": [
+        {
+          "version": "9.7.1",
+          "url": "https://services.gradle.org/distributions/gradle-9.7.1-bin.zip",
+          "sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+          "size": 151433392,
+          "bin_rel": "bin",
+          "bin_names": { "gradle.bat": "" }
+        }
+      ]
+    },
+    {
+      "id": "maven",
+      "name": "Maven",
+      "category": "build-tools",
+      "description": "JVM 生态构建与依赖管理（依赖 JDK，经 PATH 里的 java 启动）",
+      "provides": ["mvn"],
+      "dependencies": ["jdk21"],
+      "versions": [
+        {
+          "version": "3.9.16",
+          "url": "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz",
+          "sha256": "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb",
+          "size": 9278065,
+          "bin_rel": "bin"
+        }
+      ]
+    },
+    {
+      "id": "php",
+      "name": "PHP 8.5",
+      "category": "language-sdk",
+      "description": "PHP 静态构建（CLI，自带扩展依赖）",
+      "provides": ["php"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "8.5.8",
+          "url": "https://dl.static-php.dev/static-php-cli/common/php-8.5.8-cli-linux-x86_64.tar.gz",
+          "sha256": "517a18e0f0874de35669fe134eb3c52508e128a6d1da5bf890760cb800ada410",
+          "size": 12931817,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "grpcurl",
+      "name": "grpcurl",
+      "category": "modern-cli",
+      "description": "gRPC 命令行客户端，支持反射与服务描述文件",
+      "provides": ["grpcurl"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.9.4",
+          "url": "https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz",
+          "sha256": "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736",
+          "size": 9968722,
+          "bin_rel": "."
         }
       ]
     }
