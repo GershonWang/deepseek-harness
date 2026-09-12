@@ -17,12 +17,13 @@ func restoreBuiltin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setCatalog(idx.Tools)
+	setCatalog(idx.Tools, idx.CategoryLabels)
 }
 
 // testIndex 返回一份含自定义工具 ID 的索引 JSON，用于区分远程与内置。
 func testIndex(toolID string) []byte {
 	return []byte(`{"version":1,"updated_at":"2026-08-31T00:00:00Z",` +
+		`"category_labels":{"modern-cli":"索引声明的现代 CLI"},` +
 		`"tools":[{"id":"` + toolID + `","name":"Test","category":"modern-cli",` +
 		`"description":"test","provides":["` + toolID + `"],"dependencies":[],` +
 		`"versions":[{"version":"1.0.0","url":"https://example.com/t.tar.gz",` +
@@ -66,6 +67,9 @@ func TestLoadIndex_FetchesAndCaches(t *testing.T) {
 	}
 	if _, ok := LookupTool("remote-tool"); !ok {
 		t.Fatal("有效目录应含 remote-tool")
+	}
+	if got := CategoryLabels()["modern-cli"]; got != "索引声明的现代 CLI" {
+		t.Fatalf("分类标签应随索引生效, got %q", got)
 	}
 	if _, err := os.Stat(indexCachePath(dir)); err != nil {
 		t.Fatal("应写入缓存 index.json")

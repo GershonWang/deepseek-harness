@@ -23,7 +23,7 @@
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
-│   packaging   打包态路径、版本、webkit helper 打点            │
+│   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -44,7 +44,7 @@ internal/supervisor/    harness 进程监护（含 process_unix.go / process_win
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
+internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)
@@ -70,6 +70,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_PORT` | 未设 | 默认保留一个空闲 loopback 端口（harness 重启复用，GUI 可重连）；显式指定则尊重，`0` 让系统选空闲端口 |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
+| `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
 
 ## 连接外部服务
 
@@ -106,9 +107,12 @@ cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
+DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+
+市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐个真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按 ID 抽查。
 
 ## 玲珑打包
 
@@ -140,7 +144,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 ## 容器可用性（工具链/挂载）
 
 - 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
-- 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。
+- 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）经 sha256 校验后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。归档内文件名与应当暴露的命令名不一致时，清单用 `bin_names` 改名，值为空串则屏蔽该文件——避免把平台后缀名或发行包自带的辅助脚本混进 PATH。市场的分类页签与其中文标签同样取自索引：页签按清单里实际出现的分类生成，标签来自索引的 `category_labels`（客户端保留一张同内容的兜底表，供旧索引使用），因此增删工具、新增分类都不必发客户端，只要该工具不依赖新字段或新的归档格式。
 - 卡片状态语义：工具链市场的「已安装/可安装」只描述市场仓库（`$HOME/.dsh-tools`）里的版本目录，与容器内命令可用性相互独立。仓库未装但容器 PATH 已有同名命令（随包/宿主导入/系统提供）时，卡片显示「容器内已可用：命令 版本（来源）」；来源按命令解析路径前缀归类（`internal/app/app.go` 的 `classifyRuntimeSource`），探测与组装分别在 `internal/toolchain/check.go`（`ProbeCommands`）与 `annotateRuntime`。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 
@@ -167,3 +171,4 @@ postMessage 协议交给页面。
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。

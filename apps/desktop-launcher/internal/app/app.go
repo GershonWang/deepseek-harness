@@ -109,10 +109,13 @@ type ToolStatus struct {
 	Installed   string
 	Installable string
 	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
-	HostTools   []HostToolEntry        // 宿主命令挂载列表（仅沙箱环境）
-	Sandboxed   bool                   // 是否玲珑打包（沙箱）环境
-	Notice      string                 // 一次性提示（安装结果等）
-	UpdateCount int                    // 可更新的工具数量
+	// CategoryLabels 是市场分类的中文标签，取自当前生效索引。分类页签由清单推导后，
+	// 标签也必须随索引走，否则新增分类仍要等客户端发版。
+	CategoryLabels map[string]string
+	HostTools      []HostToolEntry // 宿主命令挂载列表（仅沙箱环境）
+	Sandboxed      bool            // 是否玲珑打包（沙箱）环境
+	Notice         string          // 一次性提示（安装结果等）
+	UpdateCount    int             // 可更新的工具数量
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -960,13 +963,14 @@ func (a *App) collectTools() ToolStatus {
 	}
 
 	return ToolStatus{
-		Rows:        rows,
-		Installed:   joinOrNone(installed),
-		Installable: catalogInstallable(),
-		Catalog:     catalog,
-		HostTools:   hostTools,
-		Sandboxed:   a.sandboxed(),
-		UpdateCount: updateCount,
+		Rows:           rows,
+		Installed:      joinOrNone(installed),
+		Installable:    catalogInstallable(),
+		Catalog:        catalog,
+		CategoryLabels: toolchain.CategoryLabels(),
+		HostTools:      hostTools,
+		Sandboxed:      a.sandboxed(),
+		UpdateCount:    updateCount,
 	}
 }
 

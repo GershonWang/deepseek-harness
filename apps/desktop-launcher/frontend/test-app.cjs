@@ -276,6 +276,8 @@ function buildHtml(document) {
     /* 工具市场 / 内置工具：bindUI 静态绑定（无判空）的元素必须存在 */
     "market-search", "market-refresh", "host-scan", "host-scan-list",
     "market-grid", "market-statusbar", "builtin-toggle", "builtin-panel",
+    /* 分类页签容器：renderMarketTabs 按清单重建其子树 */
+    "market-tabs",
     /* 宿主导入折叠：renderHostTools 写摘要、setupHostsToggle 绑标题 */
     "hosts-toggle", "hosts-body", "hosts-summary",
     "repair-toast",
@@ -557,6 +559,8 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
     + "\n;globalThis.__testRenderTools = renderTools;"
+    + "\n;globalThis.__testCategoryLabel = categoryLabel;"
+    + "\n;globalThis.__testSelectMarketCategory = selectMarketCategory;"
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
     + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
@@ -1013,6 +1017,56 @@ test("市场空态：筛不到结果时给出清空筛选入口，点击后恢�
   assert.equal(search.value, "", "搜索框应一并清空");
   assert.equal(grid.children.length, 3, "应恢复全部 3 张卡");
   assert.ok(grid.children.every((c) => c.classList.contains("tool-card-item")), "恢复出来的都是工具卡片");
+});
+
+// 分类页签由清单推导，标签由索引下发：清单来自独立发布的远程索引，客户端与它的分类
+// 集合可能不同版本。两种错配都要安全——旧索引配新客户端不能留下点进去是空的页签，新
+// 索引配旧客户端不能把分类藏起来；标签以索引声明优先，旧索引（无该字段）回落到客户端
+// 兜底表，两边都没有才原样显示分类 ID。
+function tabLabels(h) {
+  return h.document.getElementById("market-tabs").children.map((b) => b.textContent);
+}
+
+test("市场分类：页签按清单分类生成，标签以索引声明优先", () => {
+  const h = loadApp();
+  const render = h.sandbox.__testRenderTools;
+  const grid = () => h.document.getElementById("market-grid");
+
+  // 索引带标签：页签用索引里的中文名，未知分类未被声明则原样显示 ID
+  const withLabels = fakeTools();
+  withLabels.CategoryLabels = { "language-sdk": "语言运行时" };
+  withLabels.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+    { ID: "new", Name: "New", Category: "brand-new", Provides: ["new"], Installed: false },
+  ];
+  render(withLabels);
+  assert.deepEqual(tabLabels(h), ["全部", "语言运行时", "brand-new"],
+    "索引声明的标签优先，未知分类原样显示 ID");
+
+  // 旧索引（引入 category_labels 之前）：回落到客户端兜底表
+  const noLabels = fakeTools();
+  noLabels.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+  ];
+  render(noLabels);
+  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK"], "旧索引回落到客户端兜底标签");
+
+  // 旧结构清单（28 项时代）：只有 language-sdk/compiler/modern-cli
+  const legacy = fakeTools();
+  legacy.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+    { ID: "cmake", Name: "CMake", Category: "compiler", Provides: ["cmake"], Installed: false },
+    { ID: "fd", Name: "fd", Category: "modern-cli", Provides: ["fd"], Installed: false },
+  ];
+  render(legacy);
+  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK", "现代 CLI", "compiler"],
+    "未知分类排在已知分类之后成页签，且不出现清单里没有的分类页签");
+
+  // 切到旧索引里不存在的分类（模拟换了索引后选中项失效）→ 回落到全部且不空列表
+  h.sandbox.__testSelectMarketCategory("code-quality");
+  render(legacy);
+  assert.equal(grid().children.length, 3, "选中分类在新清单里消失后应回落到全部");
+  assert.ok(tabLabels(h).includes("全部"));
 });
 
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {

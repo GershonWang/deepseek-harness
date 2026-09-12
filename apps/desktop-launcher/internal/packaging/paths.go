@@ -1,4 +1,5 @@
-// Package packaging 处理打包态与开发态的路径、版本与 webkit 辅助进程打点。
+// Package packaging 处理打包态与开发态的路径、版本，以及 webkit2gtk 的平台适配
+// （辅助进程路径与合成后端）。
 // Linux 专属逻辑放 webkit_linux.go；本文件跨平台。
 package packaging
 

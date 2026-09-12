@@ -20,6 +20,11 @@ type ToolVersion struct {
 	// （如 Rust：cargo/bin 与 rustc/bin）。非空时优先于 BinRel；为空走默认
 	// 布局探测（bin/ 子目录，否则工具根目录）。
 	BinDirs []string `json:"bin_dirs,omitempty"`
+	// BinNames 覆盖归档内可执行文件的对外命令名：键是归档内文件名，值是命令名。
+	// 用于发行包内二进制名与命令名不一致的场景（如 yq 归档内为 yq_linux_amd64）。
+	// 值为空串表示不暴露该文件，用于发行包自带的安装/辅助脚本——它们带可执行位，
+	// 默认布局探测会一并软链进 bin/，把杂散命令混进 PATH。未列出的文件沿用归档内原名。
+	BinNames map[string]string `json:"bin_names,omitempty"`
 }
 
 // Tool 描述一个可安装的工具链。
@@ -60,6 +65,9 @@ var indexJSON []byte
 var (
 	catalogMu      sync.RWMutex
 	effectiveTools []Tool
+	// effectiveLabels 是当前有效索引里的分类中文标签（见 Index.CategoryLabels）。
+	// 与工具清单一同被远程索引覆盖：标签属于索引数据，这样新增分类不必等客户端发版。
+	effectiveLabels map[string]string
 )
 
 // init 解析嵌入的单源索引作为内置兜底；索引非法则立即失败（打包期应被
@@ -70,13 +78,27 @@ func init() {
 		panic("builtin tools index is invalid: " + err.Error())
 	}
 	effectiveTools = idx.Tools
+	effectiveLabels = idx.CategoryLabels
 }
 
-// setCatalog 用远程索引覆盖有效目录（remote.go 调用）。
-func setCatalog(tools []Tool) {
+// setCatalog 用生效索引覆盖有效目录与分类标签（remote.go 调用）。
+func setCatalog(tools []Tool, labels map[string]string) {
 	catalogMu.Lock()
 	effectiveTools = tools
+	effectiveLabels = labels
 	catalogMu.Unlock()
+}
+
+// CategoryLabels 返回当前有效索引声明的分类中文标签快照。索引未声明某分类时，
+// 调用方自行决定回退（前端保留一张同内容的兜底表，兼顾旧索引）。
+func CategoryLabels() map[string]string {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	out := make(map[string]string, len(effectiveLabels))
+	for k, v := range effectiveLabels {
+		out[k] = v
+	}
+	return out
 }
 
 // Catalog 返回当前有效的工具清单快照。
@@ -245,6 +267,20 @@ func toolBinDirs(id, dir string) []string {
 	return tv.BinDirs
 }
 
+// toolBinNames 返回工具已激活版本声明的归档内文件名到对外命令名的映射（见
+// ToolVersion.BinNames）。清单未声明或版本不存在时返回 nil，调用方沿用归档内原名。
+func toolBinNames(id, dir string) map[string]string {
+	tool, ok := LookupTool(id)
+	if !ok {
+		return nil
+	}
+	tv, ok := tool.FindVersion(ActiveVersion(dir, id))
+	if !ok {
+		return nil
+	}
+	return tv.BinNames
+}
+
 // ReconcileBinLinks 自愈：扫描 <dir>/current 下已装工具，在 <dir>/bin 重建其
 // 可执行文件软链，在 <dir>/lib 重建库目录绑定（如有 LibRel），并清理失效软链。
 // 启动时调用，保证重装、更新、HOME 迁移后工具链仍自动可用。
@@ -284,17 +320,18 @@ func ReconcileBinLinks(dir string) error {
 		// 优先用清单里显式声明的多 bin 目录（如 Rust 的 cargo/bin + rustc/bin）；
 		// 未声明时走默认布局探测：bin/ 子目录，否则工具根目录（单文件发行包）。
 		binDirs := toolBinDirs(e.Name(), dir)
+		names := toolBinNames(e.Name(), dir)
 		if len(binDirs) > 0 {
 			for _, rel := range binDirs {
 				if info, err := os.Stat(filepath.Join(root, rel)); err == nil && info.IsDir() {
-					linkExecutables(filepath.Join(root, rel), linkDir, seenBins)
+					linkExecutables(filepath.Join(root, rel), linkDir, seenBins, names)
 				}
 			}
 		} else if info, err := os.Stat(filepath.Join(root, "bin")); err == nil && info.IsDir() {
-			linkExecutables(filepath.Join(root, "bin"), linkDir, seenBins)
+			linkExecutables(filepath.Join(root, "bin"), linkDir, seenBins, names)
 		} else if info, err := os.Stat(root); err == nil && info.IsDir() {
 			// 根目录直接含可执行
-			linkExecutables(root, linkDir, seenBins)
+			linkExecutables(root, linkDir, seenBins, names)
 		}
 
 		// 库目录 lib/
@@ -320,7 +357,10 @@ func ReconcileBinLinks(dir string) error {
 }
 
 // linkExecutables 把 src 下所有可执行文件软链进 linkDir，并记入 seen。
-func linkExecutables(src, linkDir string, seen map[string]bool) {
+// names 把归档内文件名映射为对外命令名（见 ToolVersion.BinNames）：映射为空串的
+// 文件直接跳过，未命中的沿用原名；seen 记录的是对外命令名，cleanStaleLinks 据此
+// 保留本次重建的软链。
+func linkExecutables(src, linkDir string, seen map[string]bool, names map[string]string) {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return
@@ -336,9 +376,16 @@ func linkExecutables(src, linkDir string, seen map[string]bool) {
 		if fi.Mode()&0o111 == 0 {
 			continue
 		}
-		name := e.Name()
+		file := e.Name()
+		name := file
+		if renamed, ok := names[file]; ok {
+			if renamed == "" {
+				continue // 清单显式要求不暴露
+			}
+			name = renamed
+		}
 		_ = os.Remove(filepath.Join(linkDir, name))
-		if err := os.Symlink(filepath.Join(src, name), filepath.Join(linkDir, name)); err == nil {
+		if err := os.Symlink(filepath.Join(src, file), filepath.Join(linkDir, name)); err == nil {
 			seen[name] = true
 		}
 	}

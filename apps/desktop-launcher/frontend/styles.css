@@ -1068,7 +1068,12 @@ button, input, select, textarea { font: inherit; }
    align-content: start 确保行高按内容计算，不拉伸填充剩余空间，
    避免工具数量少时单个卡片被拉得过高。 */
 .market-grid {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+  /* minmax(0, 1fr) 而不是 1fr：1fr 等价 minmax(auto, 1fr)，轨道的最小尺寸由卡片的最小
+     内容宽度决定，而卡片里的元信息行是 white-space: nowrap（命令列表 + 体积）——它的整行
+     宽度就是这个最小内容宽度。命令多的工具（SQLite 四个命令、Pandoc 三个）会把轨道顶到
+     超过均分，三条轨道之和超出网格宽度后网格横向溢出，右侧整列被裁掉。下限压到 0 后轨道
+     严格等分，元信息行由它自己的 overflow/text-overflow 截断。 */
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
   flex: 1; min-height: 0; overflow-y: auto;
   align-content: start;
   /* 滚动条与卡片之间要有一条通道。滚动条画在滚动视口的右缘，卡片一直排到那里
@@ -1091,10 +1096,10 @@ button, input, select, textarea { font: inherit; }
   background-clip: content-box;
 }
 .market-grid::-webkit-scrollbar-thumb:hover { background: var(--fg-dim); background-clip: content-box; }
-@media (max-width: 760px) { .market-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 760px) { .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* 弹框宽度是 min(900px, 94vw)，窄窗口下两列仍然过挤：560px 以下退回单列，
    卡片高度不再被宽度挤压，描述也不会只剩两三个字一行。 */
-@media (max-width: 560px) { .market-grid { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .market-grid { grid-template-columns: minmax(0, 1fr); } }
 /* 空结果：定高弹框里这片空白要有收尾——一句结论加一个下一步，而不是一行靠左的灰字。
    grid-column 横跨整行，否则它只占三列中的第一列。 */
 .market-empty {

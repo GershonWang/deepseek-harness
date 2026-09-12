@@ -17,6 +17,10 @@ type Index struct {
 	Version   int    `json:"version"`
 	UpdatedAt string `json:"updated_at"`
 	Tools     []Tool `json:"tools"`
+	// CategoryLabels 是分类 ID 到中文标签的映射。标签属于索引数据而非客户端常量：
+	// 分类页签按清单里的分类生成后，中文名若还写死在客户端，新增分类就仍要等发版。
+	// 缺项由客户端的兜底表补齐，旧索引（无此字段）照常工作。
+	CategoryLabels map[string]string `json:"category_labels,omitempty"`
 }
 
 // indexCacheTTL 是远程索引缓存有效期。超过后下次加载会尝试重新拉取。
@@ -119,7 +123,7 @@ func fetchIndex(url string) ([]byte, error) {
 func LoadIndex(dir string) (source string, err error) {
 	if cacheFresh(dir) {
 		if idx := loadCachedIndex(dir); idx != nil {
-			setCatalog(idx.Tools)
+			setCatalog(idx.Tools, idx.CategoryLabels)
 			return "cache", nil
 		}
 	}
@@ -150,14 +154,14 @@ func loadRemote(dir string) (string, error) {
 		return "", err
 	}
 	_ = storeIndex(dir, data) // 缓存写失败不阻断生效
-	setCatalog(idx.Tools)
+	setCatalog(idx.Tools, idx.CategoryLabels)
 	return "remote", nil
 }
 
 // fallback 回退到缓存（即使过期），否则保持内置兜底。返回生效来源。
 func fallback(dir string) string {
 	if idx := loadCachedIndex(dir); idx != nil {
-		setCatalog(idx.Tools)
+		setCatalog(idx.Tools, idx.CategoryLabels)
 		return "cache"
 	}
 	return "builtin"

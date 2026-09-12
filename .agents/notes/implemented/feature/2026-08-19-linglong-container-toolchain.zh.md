@@ -16,7 +16,7 @@ Status: implemented
 
 **层 2 —— 运行时自检与模型可见工具清单。** 启动器状态栏打开设置弹框，其工具链分区经 `CheckTools(DefaultToolSpecs())` 探测 `git/python3/node/curl/jq/pnpm` 并列出已安装与可安装工具；git 凭据经容器 HOME 继承宿主 `~/.git-credentials`。`configurePackagedEnvForHome` 在目录存在时把 `$HOME/.dsh-tools/bin` 前置进 PATH、`$HOME/.dsh-tools/lib` 进 LD_LIBRARY_PATH，按需安装经 harness 重启后生效。harness 侧注入复用随包的 `standard` 预设（见下方 Phase D）。
 
-**层 3 —— 重/罕见工具按需安装。** `toolinstall.go` 下载静态或自带运行时的产物（规避 glibc 与 postinst 耦合），校验 sha256，原子解包到 `$HOME/.dsh-tools/<name>-<ver>`（临时目录再 `mv`，并拒绝 tar 路径逃逸），更新 `current/<name>` 软链。目录经容器 HOME 映射落在宿主磁盘，玲珑卸载默认保留。可安装范围受 `tools.yaml` 的 `installable` 白名单约束，并与运行时清单 `internal/toolchain/catalog.go` 保持同步。
+**层 3 —— 重/罕见工具按需安装。** `internal/toolchain/install.go` 下载静态或自带运行时的产物（规避 glibc 与 postinst 耦合），校验 sha256，原子解包到 `$HOME/.dsh-tools/<name>-<ver>`（临时目录再 `mv`，并拒绝 tar 路径逃逸），更新 `current/<name>` 软链；软链名默认取归档内文件名，清单的 `bin_names` 可改名，值为空串则屏蔽（见[工具链市场的清单扩容与命令暴露](2026-09-12-toolchain-market-catalog-expansion.zh.md)）。目录经容器 HOME 映射落在宿主磁盘，玲珑卸载默认保留。可安装范围受 `tools.yaml` 的 `installable` 白名单约束，并与运行时清单 `internal/toolchain/tools/index.json` 保持同步。
 
 **凭据与数据可达性。** 凭据面板与 `20-host-credentials.json` 模板已移除：容器经 HOME 直接继承宿主 `~/.git-credentials` 与 `~/.ssh`，打包会话直接用宿主已存凭据。容器 HOME 即宿主主目录，且 `ll-cli uninstall` 不清用户数据（源码核实），已存凭据在重装后保留；文档建议导出备份。`ca-certificates` 随包进 `$PREFIX` 供 git/https/python 校验；私有 CA 是文档化的追加 + `update-ca-certificates` 项。linyaps 默认转发代理环境变量。
 

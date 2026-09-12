@@ -660,7 +660,7 @@ function renderServerDialog(s) {
 // marketState 缓存最近一次工具链状态，供分类/搜索过滤与卡片渲染。
 // progress 记录各工具链安装的实时进度：id → {Phase, Percent, Message}。
 // 由 toolchain:progress 事件驱动；done/error 阶段会删除对应条目。支持多工具并发。
-const marketState = { category: "all", search: "", catalog: [], progress: {}, status: null };
+const marketState = { category: "all", search: "", catalog: [], categoryLabels: {}, progress: {}, status: null };
 
 // fmtSize 把字节数格式化为 "1.6 MB" 之类的可读文本；0/空返回空串。
 function fmtSize(bytes) {
@@ -672,17 +672,73 @@ function fmtSize(bytes) {
   return (i === 0 ? String(v) : v.toFixed(1)) + " " + units[i];
 }
 
-// categoryLabel 分类 ID → 中文标签；未知分类原样返回。
+// DEFAULT_CATEGORY_LABELS 是分类标签的兜底表：标签的权威来源是索引里的
+// category_labels（随 t.CategoryLabels 下发），这张表只在两种情况下生效——索引没带该
+// 分类的标签，以及生效的还是引入 category_labels 之前的旧索引。索引优先，因此新增分类
+// 只要在索引里写一行标签，客户端不必跟着发版。
+const DEFAULT_CATEGORY_LABELS = {
+  "language-sdk": "语言 SDK", "build-tools": "构建与编译", "modern-cli": "现代 CLI",
+  "code-quality": "代码质量", "debug": "调试",
+};
+
+// categoryLabel 分类 ID → 中文标签：索引声明优先，其次兜底表，都没有则原样返回 ID。
 function categoryLabel(cat) {
-  return ({ "language-sdk": "语言 SDK", "compiler": "编译器", "modern-cli": "现代 CLI", "code-quality": "代码质量", "debug": "调试" })[cat] || cat;
+  return marketState.categoryLabels[cat] || DEFAULT_CATEGORY_LABELS[cat] || cat;
+}
+
+// MARKET_CATEGORY_ORDER 只决定已知分类在页签里的先后，不再是页签全集：清单来自独立
+// 发布的远程索引，客户端与它的版本必然错配。写死页签会在两种错配下出问题——旧索引
+// 配新客户端时点进去是空列表，新索引配旧客户端时整个分类被藏掉。改成按清单里实际出现
+// 的分类建页签后，未知分类仍成页签（排在已知分类之后），没有工具的分类不会留下死页签。
+const MARKET_CATEGORY_ORDER = ["language-sdk", "build-tools", "modern-cli", "code-quality", "debug"];
+
+// visibleCategories 汇总清单里出现的分类，已知分类按固定顺序在前，未知分类按 ID 排序在后。
+function visibleCategories() {
+  const present = new Set(marketState.catalog.map((c) => c.Category));
+  const known = MARKET_CATEGORY_ORDER.filter((c) => present.has(c));
+  const unknown = [...present].filter((c) => !MARKET_CATEGORY_ORDER.includes(c)).sort();
+  return known.concat(unknown);
+}
+
+// renderMarketTabs 按当前清单重建分类页签。选中项在清单里消失（换了索引版本）时回落到
+// "全部"，否则筛选条件会指向一个已不存在的分类，网格永远空着。
+function renderMarketTabs() {
+  const box = $("#market-tabs");
+  box.innerHTML = "";
+  const cats = visibleCategories();
+  if (marketState.category !== "all" && !cats.includes(marketState.category)) {
+    marketState.category = "all";
+  }
+  const items = [{ cat: "all", label: "全部" }].concat(cats.map((c) => ({ cat: c, label: categoryLabel(c) })));
+  for (const item of items) {
+    const btn = document.createElement("button");
+    btn.className = "market-tab" + (marketState.category === item.cat ? " active" : "");
+    btn.dataset.cat = item.cat;
+    btn.textContent = item.label;
+    // 页签随时可能被重建，逐个绑事件而不是在启动时按选择器绑一次；委托还依赖冒泡，
+    // 而这里不需要那层间接。
+    btn.addEventListener("click", () => selectMarketCategory(item.cat));
+    box.appendChild(btn);
+  }
+}
+
+// selectMarketCategory 切换分类筛选：更新状态与高亮后重画网格与状态栏。
+function selectMarketCategory(cat) {
+  marketState.category = cat;
+  document.querySelectorAll(".market-tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.cat === cat));
+  refreshMarketView();
 }
 
 function renderTools(t) {
   marketState.catalog = t.Catalog || [];
+  // 分类标签随生效索引下发；先落状态再建页签，页签才拿得到新标签。
+  marketState.categoryLabels = t.CategoryLabels || {};
   // 缓存 Rows，供点击"内置"按钮时动态渲染
   marketState.builtinRows = t.Rows || [];
   // 缓存最近一次状态：筛选变化时要重画状态栏（"筛选 N 个"），而那时事件不会再送一份 t。
   marketState.status = t;
+  renderMarketTabs();
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
@@ -819,12 +875,9 @@ function emptyState() {
     btn.className = "btn btn-quiet btn-sm";
     btn.textContent = "清空筛选";
     btn.addEventListener("click", () => {
-      marketState.category = "all";
       marketState.search = "";
       $("#market-search").value = "";
-      document.querySelectorAll(".market-tab").forEach((t) =>
-        t.classList.toggle("active", t.dataset.cat === "all"));
-      refreshMarketView();
+      selectMarketCategory("all");
     });
     box.append(hint, btn);
   }
@@ -1176,15 +1229,7 @@ function bindUI() {
 
   $("#tools-refresh").addEventListener("click", () => api().RefreshTools());
 
-  // 分类页签：切换后高亮并重渲染网格。
-  document.querySelectorAll("#market-tabs .market-tab").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll("#market-tabs .market-tab").forEach((x) => x.classList.remove("active"));
-      tab.classList.add("active");
-      marketState.category = tab.dataset.cat || "all";
-      refreshMarketView();
-    });
-  });
+  // 分类页签由 renderMarketTabs 按清单重建，事件在建立时逐个绑定（见该函数）。
 
   // 搜索：输入即过滤（防抖可省，目录规模小）。
   $("#market-search").addEventListener("input", () => {

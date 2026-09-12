@@ -23,7 +23,7 @@ English | [中文](README.zh.md)
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
 │   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
-│   packaging   打包态路径、版本、webkit helper 打点            │
+│   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -44,7 +44,7 @@ internal/supervisor/    harness 进程监护（含 process_unix.go / process_win
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
-internal/packaging/     打包态路径、版本、webkit helper 打点（webkit_linux.go）
+internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)
@@ -70,6 +70,7 @@ Development infers the repo root from CWD rather than the executable path, becau
 | `DSH_DESKTOP_PORT` | unset | By default reserves a free loopback port (reused across harness restarts so the GUI can reconnect); an explicit value is respected, `0` lets the system pick a free port |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | Directory where `harness.log` is written |
 | `DSH_DESKTOP_NODE` | unset | Overrides the node executable path |
+| `DSH_DESKTOP_DMABUF_RENDERER` | unset | `1` keeps webkit2gtk's DMABUF accelerated compositing on a machine with the NVIDIA driver, where the launcher otherwise disables it (see Known issues) |
 
 ## Connecting to an external service
 
@@ -106,9 +107,12 @@ cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
+DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-The frontend has no build step: `index.html`, `styles.css`, and `app.js` are embedded as-is. `test-app.cjs` runs `app.js` against a hand-written DOM stub, so it observes the behavior those files produce but not the layout. `frontend/tools/preview.mjs` covers what the stub cannot: it renders `index.html` in headless Chromium, replays each dialog state the way `app.js` writes it, and asserts the layout invariants — the card keeps one height across connection modes and running states, the address box keeps its two-line reservation, and the service-address field stays within its cap. `render` writes one screenshot per theme and state into `frontend/.preview`; `measure` prints the raw geometry instead. Chromium's profile and `HOME`/XDG directories live in `apps/desktop-launcher/.preview-cache`, created per run and deleted when it finishes: `//go:embed all:frontend` embeds the whole frontend directory regardless of `.gitignore`, so a browser cache written there makes the launcher build fail on filenames Go's embed rules reject. The browser comes from `DSH_PREVIEW_BROWSER`, otherwise the Playwright cache, otherwise `PATH`; with none available the tool states why and exits without failing, so a machine without a browser can still push.
+The frontend has no build step: `index.html`, `styles.css`, and `app.js` are embedded as-is. `test-app.cjs` runs `app.js` against a hand-written DOM stub, so it observes the behavior those files produce but not the layout. `frontend/tools/preview.mjs` covers what the stub cannot: it renders `index.html` in headless Chromium, replays each dialog state the way `app.js` writes it, and asserts the layout invariants — the card keeps one height across connection modes and running states, the address box keeps its two-line reservation, and the service-address field stays within its cap. It also opens the toolchain market and checks, with cards whose meta rows carry a long command list, that the grid does not overflow horizontally and that a row's cards stay equal in width (`1fr` fails here: the cards' min-content width pushes the tracks past the container). `render` writes one screenshot per theme and state into `frontend/.preview`; `measure` prints the raw geometry instead. Chromium's profile and `HOME`/XDG directories live in `apps/desktop-launcher/.preview-cache`, created per run and deleted when it finishes: `//go:embed all:frontend` embeds the whole frontend directory regardless of `.gitignore`, so a browser cache written there makes the launcher build fail on filenames Go's embed rules reject. The browser comes from `DSH_PREVIEW_BROWSER`, otherwise the Playwright cache, otherwise `PATH`; with none available the tool states why and exits without failing, so a machine without a browser can still push.
+
+The market catalog has a comparable opt-in audit: `DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` skips by default and, when enabled, installs each catalog tool for real to verify the URL resolves, the archive sha256 matches the catalog, the extracted layout matches the `bin_rel`/`bin_names` declaration, and every declared command is actually exposed under `bin/`. Mirror sites rotate versions (Apache dlcdn keeps only the current release, so older pinned URLs 404 silently), and that rot surfaces only under such an audit or when a user clicks install; `DSH_TC_E2E_IDS` narrows the run by ID.
 
 ## Linglong packaging
 
@@ -140,7 +144,7 @@ External links cannot open through WebKit's new-window path in the Wails webview
 ## Container usability (toolchain/mounts)
 
 - Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
-- On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after sha256 verification, and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes.
+- On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after sha256 verification, and the launcher injects PATH/LD_LIBRARY_PATH automatically; the self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes. When an archive's file names differ from the commands they should expose, the catalog's `bin_names` renames them, or suppresses them with an empty value — keeping platform-suffixed names and bundled helper scripts out of PATH. The market's category tabs and their Chinese labels also come from the index: tabs are built from the categories present in the catalog, and labels come from the index's `category_labels` (the client keeps a matching fallback table for older indexes), so adding or removing tools and introducing a category needs no client release as long as the tool relies on no new field or archive format.
 - Card state semantics: the market dialog's "installed/installable" only describes version directories in the market store (`$HOME/.dsh-tools`), independently of command availability inside the container. When a tool is not in the store but the container PATH already provides a command it declares (bundled / host-imported / system), the card shows "容器内已可用：command version (source)"; the source is classified by the resolved binary path prefix (`classifyRuntimeSource` in `internal/app/app.go`), with probing and assembly in `internal/toolchain/check.go` (`ProbeCommands`) and `annotateRuntime`.
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
 
@@ -170,3 +174,4 @@ page a base64 PNG over the existing `{ dshDesktop: true }` postMessage protocol.
 ## Known issues
 
 - **Shared `~/.dsh` across harness versions**: an external harness (e.g. `npx @deepseek-ai/dsh web`, a published release) shares the same `~/.dsh` home as the launcher's bundled harness. A different version may write `~/.dsh/.credentials.yaml` in a schema this version rejects (a `version` key whose value is not a string), crashing the harness at boot into a restart loop. If the harness enters a restart loop after using an external harness, check `~/.cache/dsh-desktop/harness.log` for `credentials-local` errors; back up and remove `~/.dsh/.credentials.yaml` so the harness rebuilds an empty store (stored credentials are lost).
+- **WebKitGTK DMABUF compositing on NVIDIA**: when the kernel has the NVIDIA proprietary driver loaded, WebKitGTK's default DMABUF accelerated compositing can fail to build a framebuffer as a window is re-exposed after being occluded, painting the whole web area a solid color for a moment (white under a light theme, black under a dark one) before it recovers. The failure is intermittent, and the harness process and any running task are unaffected. The launcher therefore sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` whenever `/sys/module/nvidia` exists (`packaging.ConfigureWebKitRendering`, called before `wails.Run`), giving up the zero-copy compositing path on those machines only; every other machine keeps the default. Setting `DSH_DESKTOP_DMABUF_RENDERER=1` opts back into the DMABUF path on such a machine, for a machine that matches the driver condition but was never affected.

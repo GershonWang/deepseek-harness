@@ -29,6 +29,8 @@ func main() {
 	_ = toolchain.ReconcileBinLinks(toolchain.InstallDir(home))
 	appenv.ConfigureChildEnv(home)
 	packaging.ConfigureWebKitHelperPath()
+	// 须在 wails.Run 之前：webkit2gtk 只在 GTK/WebKit 初始化时读取渲染后端的开关。
+	packaging.ConfigureWebKitRendering()
 
 	resolved := appenv.Resolve()
 	controller := app.New(resolved.Config, home, app.ExternalConfigFilePath())
