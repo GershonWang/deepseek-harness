@@ -22,6 +22,8 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 把这个覆盖限定在该条件下正是关键：其余 Linux 机器继续使用 DMABUF 加速合成，只有命中已知触发条件的机器才用较慢的呈现路径换取稳定。
 
+`DSH_DESKTOP_DMABUF_RENDERER=1` 是逃生舱：它跳过覆盖，不去动 `WEBKIT_DISABLE_DMABUF_RENDERER`。这个条件是有偏向的——它命中所有装了 NVIDIA 驱动的机器，包括从未出现该缺陷的机器——而 `os.Setenv` 会覆盖用户预先设置的值，因此没有出路的话，这类机器只能等新版本。逃生舱只保证 launcher 自己不写，从不清除已继承的设置。
+
 ## Alternatives considered
 
 **无条件关闭 DMABUF。** 一行代码、不用探测，还能顺带覆盖我们没见过但同样受影响的显卡组合。否决：webkit2gtk 自身的说明与 [Tauri 的 Linux 图形问题页面](https://v2.tauri.app/develop/debug/linux-graphics/)都警告过，无条件下发会让本来正常的环境也失去快速路径，而已知触发条件是 NVIDIA 驱动而不是整个 Linux。
@@ -34,11 +36,13 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 **按 X11 判断而不是按驱动判断。** 这台机器确实跑在 X11 上。否决：Wayland 方向两边都没有证据，比证据更宽的条件会覆盖掉本不需要覆盖的机器。
 
+**下发覆盖但不留任何退出方式。** 这是本次改动最初的形态，配置面为零。评审时否决：驱动条件比缺陷本身更宽，会覆盖掉从未受影响的机器；又因为 launcher 是覆盖变量而不是尊重预设值，这些机器只能等新版本才能恢复。用一个环境变量换一个分支，比这个死胡同便宜得多。
+
 ## Consequences
 
 在受影响的机器上，反复切出/切回不再闪烁。这一点在打包客户端里通过 `ll-cli run --env WEBKIT_DISABLE_DMABUF_RENDERER=1` 启动验证，并确认变量确实经由 `/proc/<pid>/environ` 到达了 launcher 进程。整个过程里 harness 进程、会话与流式任务都未被牵涉。
 
-代价是 NVIDIA 机器上失去了零拷贝的 DMABUF 呈现路径：webkit2gtk 在那里改为经由共享内存合成。以文本为主的界面预计察觉不到，但这个取舍是真实的，也正是覆盖不无条件下发的理由。
+代价是 NVIDIA 机器上失去了零拷贝的 DMABUF 呈现路径：webkit2gtk 在那里改为经由共享内存合成。以文本为主的界面预计察觉不到，但这个取舍是真实的，也正是覆盖不无条件下发的理由。逃生舱把这份暴露收窄：命中驱动条件却渲染正常的机器，不必等新版本就能取回快速路径。
 
 有三处缺口记录在案而非就地关闭。nouveau、AMD 与仅有核显的机器都在当前条件之外，若它们出现相同症状，在有人报告之前不受保护。NVIDIA 这个条件是从一次单驱动分支上的复现归纳出来的，而不是来自 webkit2gtk 里与驱动无关的根因。探测读的是内核事实，因此将来若某个玲珑沙箱隐藏了 `/sys/module`，覆盖会静默失效——失效方向是缺陷回归，而绝不会是错误地覆盖了某台机器。
 
@@ -46,7 +50,7 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 ## Testing
 
-`go test ./internal/packaging/` 通过可注入的探测路径覆盖两个分支：探测目标不存在时，`ConfigureWebKitRendering` 不设置 `WEBKIT_DISABLE_DMABUF_RENDERER`；该路径出现后，它设置为 `1`。测试保存并恢复探测变量与环境变量两项，因此既不依赖宿主机真的装了 NVIDIA 驱动，也不会把设置泄漏给同包的其他测试。
+`go test ./internal/packaging/` 通过可注入的探测路径覆盖全部三个分支：探测目标不存在时，`ConfigureWebKitRendering` 不设置 `WEBKIT_DISABLE_DMABUF_RENDERER`；该路径出现后，它设置为 `1`；探测命中但 `DSH_DESKTOP_DMABUF_RENDERER=1` 时，它完全不碰该变量。测试保存并恢复探测变量与两个环境变量，因此既不依赖宿主机真的装了 NVIDIA 驱动，也不会把设置泄漏给同包的其他测试。
 
 容器侧的前置条件是先核查、后写码，而不是假设：玲珑沙箱内 `/sys/module/nvidia` 与 `/proc/driver/nvidia/version` 均可读，后者报出的模块版本与宿主一致，同为 580.119.02。
 

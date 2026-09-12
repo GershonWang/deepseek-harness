@@ -50,8 +50,15 @@ func ConfigureWebKitHelperPath() {
 // 正在运行的任务都不受影响。改用共享内存合成后闪烁消失，代价是放弃一次零拷贝的
 // 合成快速路径，因此只在检测到 NVIDIA 专有驱动时关闭，不让单显卡环境陪跑。
 //
+// DSH_DESKTOP_DMABUF_RENDERER=1 跳过该覆盖、保留 DMABUF 路径：命中驱动条件却并未
+// 受影响的机器可以据此自救，上游修好后也不必等新版本。逃生舱不主动清除已有设置，
+// 只保证 launcher 自己不写。
+//
 // 必须在 GTK/WebKit 初始化之前调用（main 的 wails.Run 之前），之后设置不生效。
 func ConfigureWebKitRendering() {
+	if os.Getenv("DSH_DESKTOP_DMABUF_RENDERER") == "1" {
+		return
+	}
 	if !nvidiaDriverLoaded() {
 		return
 	}

@@ -70,6 +70,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_PORT` | 未设 | 默认保留一个空闲 loopback 端口（harness 重启复用，GUI 可重连）；显式指定则尊重，`0` 让系统选空闲端口 |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
+| `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
 
 ## 连接外部服务
 
@@ -170,4 +171,4 @@ postMessage 协议交给页面。
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
-- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。

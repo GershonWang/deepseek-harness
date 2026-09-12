@@ -22,6 +22,8 @@ The probe is `/sys/module/nvidia`, kept in the overridable `nvidiaModulePath` va
 
 Restricting the override to that condition is the point: every other Linux machine keeps DMABUF accelerated compositing, and only machines that match the documented trigger pay for stability with the slower presentation path.
 
+`DSH_DESKTOP_DMABUF_RENDERER=1` is an escape hatch: it skips the override and leaves `WEBKIT_DISABLE_DMABUF_RENDERER` alone. The condition is one-sided — it matches every machine with the NVIDIA driver, including machines that never showed the defect — and `os.Setenv` overwrites whatever the user preset, so without a way out such a machine could only wait for a release. The hatch stops the launcher from writing the variable; it never clears an inherited setting.
+
 ## Alternatives considered
 
 **Disable DMABUF unconditionally.** One line, no probe, and it would also cover affected machines whose GPU we have not seen. Rejected: webkit2gtk's own guidance and [Tauri's Linux graphics page](https://v2.tauri.app/develop/debug/linux-graphics/) both warn that shipping this unconditionally disables a faster path for users on working setups, and the known trigger is the NVIDIA driver rather than Linux at large.
@@ -34,11 +36,13 @@ Restricting the override to that condition is the point: every other Linux machi
 
 **Gate on X11 rather than on the driver.** The host session is X11. Rejected: no Wayland evidence exists in either direction, and being broader than the evidence would override the compositor on machines that may not need it.
 
+**Ship the override with no way to opt out.** That was the first shape of this change, and it keeps the configuration surface at zero. Rejected on review: the driver condition is broader than the defect, so it overrides machines that were never affected, and because the launcher overwrites the variable rather than deferring to a preset, those machines had no recovery short of a new release. One environment variable costing a branch is cheaper than that dead end.
+
 ## Consequences
 
 On the affected machine the flicker is gone across repeated switch-away/switch-back cycles, verified in the packaged client by launching with `ll-cli run --env WEBKIT_DISABLE_DMABUF_RENDERER=1` and confirming the variable reached the launcher process through `/proc/<pid>/environ`. The harness process, session, and streaming task were never implicated at any point.
 
-The cost is the zero-copy DMABUF presentation path on NVIDIA machines: webkit2gtk composites through shared memory there instead. Text-heavy UI is not expected to notice, but the trade is real and is why the override is not unconditional.
+The cost is the zero-copy DMABUF presentation path on NVIDIA machines: webkit2gtk composites through shared memory there instead. Text-heavy UI is not expected to notice, but the trade is real and is why the override is not unconditional. The escape hatch bounds that exposure: a machine matching the driver condition but rendering correctly can take the fast path back without waiting for a release.
 
 Three gaps are recorded rather than closed. nouveau, AMD, and iGPU-only machines are outside the current condition, so a matching symptom there would still be unprotected until reported. The NVIDIA condition is inferred from one reproduction on one driver branch, not from a driver-independent root cause in webkit2gtk. And the probe reads a kernel fact, so a future Linglong sandbox that hides `/sys/module` would silently stop applying the override — the failure mode is the bug returning, never a machine wrongly overridden.
 
@@ -46,7 +50,7 @@ Removing the override is a one-function deletion once webkit2gtk fixes the upstr
 
 ## Testing
 
-`go test ./internal/packaging/` covers both branches through the injectable probe path: with the probe absent, `ConfigureWebKitRendering` leaves `WEBKIT_DISABLE_DMABUF_RENDERER` unset; once the path exists, it sets `1`. The test saves and restores both the probe variable and the environment entry, so it neither depends on the host having an NVIDIA driver nor leaks the setting into sibling tests.
+`go test ./internal/packaging/` covers all three branches through the injectable probe path: with the probe absent, `ConfigureWebKitRendering` leaves `WEBKIT_DISABLE_DMABUF_RENDERER` unset; once the path exists, it sets `1`; and with the probe present but `DSH_DESKTOP_DMABUF_RENDERER=1`, it leaves the variable untouched. The tests save and restore the probe variable and both environment entries, so they neither depend on the host having an NVIDIA driver nor leak settings into sibling tests.
 
 The container-side preconditions were checked before the probe was written, not assumed: inside the Linglong sandbox `/sys/module/nvidia` and `/proc/driver/nvidia/version` are both readable, the latter reporting the same 580.119.02 module version as the host.
 

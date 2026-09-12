@@ -76,3 +76,26 @@ func TestConfigureWebKitRenderingFollowsNvidiaDriver(t *testing.T) {
 		t.Errorf("检测到 NVIDIA 驱动时应关闭 DMABUF 渲染器，得到 %q", got)
 	}
 }
+
+func TestConfigureWebKitRenderingHonorsOptOut(t *testing.T) {
+	savedProbe := nvidiaModulePath
+	nvidiaModulePath = t.TempDir() // 存在的目录即可让驱动探测命中
+	t.Cleanup(func() { nvidiaModulePath = savedProbe })
+
+	t.Setenv("DSH_DESKTOP_DMABUF_RENDERER", "1")
+
+	savedEnv, hadEnv := os.LookupEnv("WEBKIT_DISABLE_DMABUF_RENDERER")
+	t.Cleanup(func() {
+		if hadEnv {
+			_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", savedEnv)
+			return
+		}
+		_ = os.Unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER")
+	})
+	_ = os.Unsetenv("WEBKIT_DISABLE_DMABUF_RENDERER")
+
+	ConfigureWebKitRendering()
+	if _, ok := os.LookupEnv("WEBKIT_DISABLE_DMABUF_RENDERER"); ok {
+		t.Error("逃生舱开启时应保留 DMABUF 渲染器")
+	}
+}

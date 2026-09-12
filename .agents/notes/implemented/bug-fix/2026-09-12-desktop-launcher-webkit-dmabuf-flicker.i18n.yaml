@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md
-2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md: 70eae7ed035e87f662dc15c819bd676d6a6ddd5d
-2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md: 7e0346186caf8262067d28392f49ccc8deca6c15
+2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md: 1b3cf7467438281c1c329d8744c812acc232097d
+2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md: 7b3f188de2b15bef2223d1273bfd57a0a124d673
