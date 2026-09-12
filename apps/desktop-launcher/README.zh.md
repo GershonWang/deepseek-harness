@@ -109,7 +109,7 @@ node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromi
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
 
 市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐个真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按 ID 抽查。
 

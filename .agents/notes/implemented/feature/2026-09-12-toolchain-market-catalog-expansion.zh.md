@@ -29,6 +29,8 @@ Status: implemented
 
 分类标签的归属从客户端搬到了索引。`Index.CategoryLabels` 携带分类 ID 到中文名的映射，`setCatalog` 把它与工具清单一同装进生效目录，`CategoryLabels()` 对外暴露，app 层再随载荷下发给弹框。客户端保留一张同内容的兜底表，供引入该字段之前的旧索引以及索引未标注的分类使用；两边都没有标签时原样显示分类 ID。配合页签推导，加工具与加分类都成了纯索引工作：标签跟着数据一起来。Go 用例断言仓内索引为它用到的每个分类都标注了标签（这条不再由客户端保证），前端用例则用改写过标签的载荷固定优先级——索引标签在前、兜底表在后。
 
+市场网格的轨道用 `minmax(0, 1fr)` 而不是 `1fr`。两者并不等价：`1fr` 就是 `minmax(auto, 1fr)`，轨道的最小尺寸取自其中卡片的最小内容宽度，而卡片的最小内容宽度由元信息行决定——那是一行 `white-space: nowrap` 的命令列表。命令多的卡片（sqlite 四个命令、pandoc 三个，更早还有 Rust 的五个）把轨道顶到超过均分；三条轨道之和超出网格宽度后，网格横向溢出，右列被弹框边缘裁掉。下限压到 0 后轨道严格等分，元信息行由它自己的 `overflow: hidden` 与 `text-overflow: ellipsis` 截断。原来的 `1fr` 早已让三条轨道不等（当时是 262/320/265），所以这次扩容引入的不是机制，而是第一批长到能把总和顶出容器的卡片。
+
 `ToolVersion.BinNames` 把归档内文件名映射为对外命令名，值为空串则屏蔽该文件。`linkExecutables` 应用映射，并把对外命令名记进 `seen`，`cleanStaleLinks` 因此会保留改名后的软链、清掉被屏蔽的。`ReconcileBinLinks` 是唯一建立这些软链的路径，映射只有一个生效点。
 
 zig 归入 `build-tools`，是沙箱里的 C/C++ 编译路径：`zig cc` 不需要 gcc 工具链即可编译与链接。gradle 与 maven 把 `jdk21` 声明为依赖，安装它们会先装 JDK。两者都不需要 `JAVA_HOME`：启动脚本会退回使用 PATH 上的 `java`，而 `appenv` 已经把它前置，二者都在 `JAVA_HOME` 未设置的情况下用市场装的 JDK 实跑通过。
@@ -75,7 +77,7 @@ maven 的地址指向 `archive.apache.org`，因为 `dlcdn.apache.org` 只保留
 
 `DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 把每个新增工具都真实装了一遍并报出各自暴露的命令；yq 的 `bin/` 恰好是声明的那条命令——由 `yq_linux_amd64` 改名而来，`install-man-page.sh` 被屏蔽。gradle 与 maven 的两次运行同时演练了 jdk21 依赖链。这条审计立刻体现了价值：grpcurl 首次运行就因清单 sha256 抄错一个字符而失败，光靠读上游校验文件不会发现。
 
-`go test ./internal/toolchain` 用 `TestReconcileBinLinks_RenamesArchiveBinary` 固定改名与屏蔽行为。`node --test frontend/test-app.cjs` 38 例通过，其中分类用例固定了标签优先级（索引提供的标签优先、未标注的分类走兜底），以及两个错配场景：旧结构清单只渲染自己的页签，选中分类消失后回落到「全部」。把按数据推导的页签换回写死列表，或让标签只查兜底表，都会让该用例失败。Go 侧 `TestCatalog_EveryCategoryHasLabel` 会在仓内索引漏标某个在用分类时失败，`TestLoadIndex_FetchesAndCaches` 断言标签随拉取到的索引一同生效。`linglong/verify-tools.sh` 报 `installable` 集合与 `index.json` 一致，`node frontend/tools/preview.mjs verify` 通过，但它不覆盖市场弹框。
+`go test ./internal/toolchain` 用 `TestReconcileBinLinks_RenamesArchiveBinary` 固定改名与屏蔽行为。`node --test frontend/test-app.cjs` 38 例通过，其中分类用例固定了标签优先级（索引提供的标签优先、未标注的分类走兜底），以及两个错配场景：旧结构清单只渲染自己的页签，选中分类消失后回落到「全部」。把按数据推导的页签换回写死列表，或让标签只查兜底表，都会让该用例失败。Go 侧 `TestCatalog_EveryCategoryHasLabel` 会在仓内索引漏标某个在用分类时失败，`TestLoadIndex_FetchesAndCaches` 断言标签随拉取到的索引一同生效。`linglong/verify-tools.sh` 报 `installable` 集合与 `index.json` 一致，`node frontend/tools/preview.mjs verify` 通过。该门禁现在还会打开市场弹框、往网格里塞入元信息行带长命令列表的卡片，并在网格内容宽超过客户宽、或同一行列宽不等时失败；把 `minmax(0, 1fr)` 换回 `1fr` 就会失败（内容宽 1058 对客户宽 876），而现行 CSS 在三列、两列、单列下都是 876 对 876。
 
 未验证：没有在玲珑容器内实跑，新二进制的 glibc 兼容性只经宿主运行背书。
 

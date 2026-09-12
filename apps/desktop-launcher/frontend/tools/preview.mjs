@@ -150,6 +150,43 @@ function probeGeometry() {
 }
 
 /**
+ * 在页面里执行：把市场弹框打开、塞入若干卡片，读回网格几何。
+ *
+ * 卡片按 app.js 的 toolCard 形制搭建，元信息行取一个很长的命令列表：该行是
+ * white-space: nowrap，它的整行宽度就是卡片的最小内容宽度。轨道若用 1fr
+ * （等价 minmax(auto, 1fr)），这个宽度会把轨道顶到超过均分，轨道之和超出网格宽度后
+ * 网格横向溢出、右侧整列被裁掉——这条只有真实布局看得见，DOM 桩与截图都无法固定它。
+ * 预览页剥掉了脚本，因此这里手搭 DOM，而不是调用 renderTools。
+ * @returns {object} 网格客户宽/内容宽、轨道列宽与首行列宽。
+ */
+function probeMarketGrid() {
+  const $ = (id) => document.getElementById(id)
+  $('tools-modal').classList.remove('hidden')
+  const grid = $('market-grid')
+  grid.innerHTML = ''
+  const meta = '现代 CLI · sqlite3 sqldiff sqlite3_analyzer sqlite3_rsync · 4.1 MB'
+  for (let i = 0; i < 6; i += 1) {
+    const card = document.createElement('div')
+    card.className = 'tool-card-item'
+    card.innerHTML = `<div class="tool-card-head"><span class="tool-card-name">工具 ${i}</span></div>`
+      + '<div class="tool-card-desc">描述文本，占两行高度</div>'
+      + `<div class="tool-card-meta">${meta}</div>`
+      + '<div class="tool-card-actions"><select class="version-select"><option>v1.0.0 · 当前</option></select>'
+      + '<button class="btn btn-danger">卸载</button></div>'
+    grid.appendChild(card)
+  }
+  const cards = Array.from(grid.children)
+  const top0 = Math.round(cards[0].getBoundingClientRect().top)
+  const firstRow = cards.filter((c) => Math.round(c.getBoundingClientRect().top) === top0)
+  return JSON.stringify({
+    clientWidth: grid.clientWidth,
+    scrollWidth: grid.scrollWidth,
+    tracks: getComputedStyle(grid).gridTemplateColumns,
+    rowWidths: firstRow.map((c) => Math.round(c.getBoundingClientRect().width)),
+  })
+}
+
+/**
  * 找一个能跑的无头浏览器：先看 DSH_PREVIEW_BROWSER，再用 Playwright 缓存，最后 PATH。
  * 找不到时返回 undefined，由调用方决定是报错还是跳过。
  * @returns {string|undefined} 可执行文件路径。
@@ -374,6 +411,7 @@ async function run(command, args) {
   const themes = args.theme === 'light' || args.theme === 'dark' ? [args.theme] : ['light', 'dark']
 
   const measurements = []
+  const market = []
   const scratch = await createScratch()
   try {
     await withBrowser(pageUrl, scratch, async (cdp) => {
@@ -388,6 +426,20 @@ async function run(command, args) {
           console.log(`已截图 ${file}`)
         }
       })
+      // 市场网格与主题无关（几何相同），但仍按主题各测一次，保证两套配色下都成立。
+      for (const theme of themes) {
+        await cdp.send('Emulation.setEmulatedMedia', {
+          media: 'screen',
+          features: [{ name: 'prefers-color-scheme', value: theme }],
+        })
+        const loaded = cdp.once('Page.loadEventFired')
+        await cdp.send('Page.navigate', { url: pageUrl })
+        await loaded
+        const probe = await cdp.send('Runtime.evaluate', {
+          expression: `(${probeMarketGrid})()`, returnByValue: true,
+        })
+        market.push({ theme, ...JSON.parse(probe.result.value) })
+      }
     })
   } finally {
     // profile 与 HOME/XDG 都是本次运行的一次性状态，跑完即删，避免残留累积。
@@ -395,21 +447,25 @@ async function run(command, args) {
   }
 
   if (command === 'measure') {
-    if (args.json) console.log(JSON.stringify(measurements, null, 2))
-    else for (const m of measurements) console.log(`${m.theme}\t${m.name}\t${JSON.stringify(m)}`)
+    if (args.json) console.log(JSON.stringify({ measurements, market }, null, 2))
+    else {
+      for (const m of measurements) console.log(`${m.theme}\t${m.name}\t${JSON.stringify(m)}`)
+      for (const m of market) console.log(`${m.theme}\tmarket-grid\t${JSON.stringify(m)}`)
+    }
     return 0
   }
   if (command === 'render') return 0
-  return verify(measurements)
+  return verify(measurements, market)
 }
 
 /**
  * 断言布局不变量。这里断的就是「切模式/切状态是否改变弹框高度」这类只有真实布局
  * 才看得见、DOM 桩看不见的性质。
  * @param {Array<object>} measurements - 各主题各状态的实测几何。
+ * @param {Array<object>} market - 各主题下市场网格的实测几何。
  * @returns {number} 进程退出码。
  */
-function verify(measurements) {
+function verify(measurements, market) {
   const failures = []
   for (const theme of [...new Set(measurements.map((m) => m.theme))]) {
     const rows = measurements.filter((m) => m.theme === theme)
@@ -440,6 +496,16 @@ function verify(measurements) {
       if (row.textarea > TEXTAREA_MAX_HEIGHT) {
         failures.push(`${theme}/${row.name}: 服务地址输入框 ${row.textarea}px 超过封顶 ${TEXTAREA_MAX_HEIGHT}px`)
       }
+    }
+  }
+  for (const m of market) {
+    console.log(`[${m.theme}] 市场网格 轨道=${m.tracks} 首行列宽=${m.rowWidths.join('+')} 内容宽=${m.scrollWidth} 客户宽=${m.clientWidth}`)
+    if (m.scrollWidth > m.clientWidth) {
+      failures.push(`${m.theme}: 市场网格横向溢出（内容 ${m.scrollWidth} > 客户 ${m.clientWidth}）——卡片的最小内容宽度顶开了等分轨道`)
+    }
+    const rowSpread = Math.max(...m.rowWidths) - Math.min(...m.rowWidths)
+    if (m.rowWidths.length > 1 && rowSpread > HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 市场网格同一行列宽不等（${m.rowWidths.join(' / ')}）——轨道没有均分`)
     }
   }
   if (failures.length > 0) {
