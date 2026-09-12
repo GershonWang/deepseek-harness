@@ -6,6 +6,10 @@ Comment=DeepSeek Harness desktop client
 Comment[zh_CN]=DeepSeek Harness 桌面客户端
 Exec=/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-launcher
 Icon=dsh-desktop
+# 窗口 WM_CLASS 的 instance（实测 "dsh-desktop-launcher"）。从启动器启动时桌面会
+# 附带来源提示，dock 无需它；直接跑 ll-cli run 时只剩这条线索，缺失就退回占位图标。
+# 改可执行文件名必须同步这里。
+StartupWMClass=dsh-desktop-launcher
 Terminal=false
 Categories=Development;Utility;
 StartupNotify=false
