@@ -160,6 +160,46 @@ installable:
     version: "2.4.10"
     url: "https://github.com/JetBrains/kotlin/releases/download/v2.4.10/kotlin-compiler-2.4.10.zip"
     sha256: "473dd66c7a3ef4b182065b3da670466c1bf2773a9dbb0ed8b33a39fe9d4f876d"
+  ninja:
+    version: "1.13.2"
+    url: "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip"
+    sha256: "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6"
+  yq:
+    version: "4.53.6"
+    url: "https://github.com/mikefarah/yq/releases/download/v4.53.6/yq_linux_amd64.tar.gz"
+    sha256: "38b907b21b1b04327fb9481c595331d925a67c6ee1aabd0ef419d0b7d12dfb3d"
+  sqlite:
+    version: "3.53.4"
+    url: "https://sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip"
+    sha256: "7a6f4d1720e4bc13faa3d934bfce37b816a496c0a2480deacd64cfd8be6cf224"
+  duckdb:
+    version: "1.5.5"
+    url: "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip"
+    sha256: "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05"
+  pandoc:
+    version: "3.11"
+    url: "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-linux-amd64.tar.gz"
+    sha256: "37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6"
+  just:
+    version: "1.58.0"
+    url: "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz"
+    sha256: "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d"
+  ruff:
+    version: "0.16.7"
+    url: "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-unknown-linux-musl.tar.gz"
+    sha256: "8d28939cf5cabe54a2f8f7cbfab52c643436d1bc70474198181db9e48f504411"
+  golangci-lint:
+    version: "2.13.2"
+    url: "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-linux-amd64.tar.gz"
+    sha256: "2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6"
+  actionlint:
+    version: "1.7.12"
+    url: "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+    sha256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+  shellcheck:
+    version: "0.11.0"
+    url: "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
+    sha256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
 # 注:Rust(rustc)已作为按需工具链进入白名单,故从本列表移除。
 excluded:
