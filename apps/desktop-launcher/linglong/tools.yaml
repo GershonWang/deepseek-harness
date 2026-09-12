@@ -200,6 +200,26 @@ installable:
     version: "0.11.0"
     url: "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz"
     sha256: "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+  zig:
+    version: "0.16.0"
+    url: "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz"
+    sha256: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+  gradle:
+    version: "9.7.1"
+    url: "https://services.gradle.org/distributions/gradle-9.7.1-bin.zip"
+    sha256: "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a"
+  maven:
+    version: "3.9.16"
+    url: "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz"
+    sha256: "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb"
+  php:
+    version: "8.5.8"
+    url: "https://dl.static-php.dev/static-php-cli/common/php-8.5.8-cli-linux-x86_64.tar.gz"
+    sha256: "517a18e0f0874de35669fe134eb3c52508e128a6d1da5bf890760cb800ada410"
+  grpcurl:
+    version: "1.9.4"
+    url: "https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz"
+    sha256: "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736"
 # 有意不包含(包体控制):编译器链不进包体、不进按需白名单
 # 注:Rust(rustc)已作为按需工具链进入白名单,故从本列表移除。
 excluded:

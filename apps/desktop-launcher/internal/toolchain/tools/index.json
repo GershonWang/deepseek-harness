@@ -646,6 +646,92 @@
           "bin_rel": "."
         }
       ]
+    },
+    {
+      "id": "zig",
+      "name": "Zig",
+      "category": "build-tools",
+      "description": "Zig 语言工具链，zig cc 可当 C/C++ 编译器用",
+      "provides": ["zig"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "0.16.0",
+          "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz",
+          "sha256": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00",
+          "size": 55478392,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "gradle",
+      "name": "Gradle",
+      "category": "build-tools",
+      "description": "JVM 生态构建工具（依赖 JDK，脚本经 PATH 里的 java 启动）",
+      "provides": ["gradle"],
+      "dependencies": ["jdk21"],
+      "versions": [
+        {
+          "version": "9.7.1",
+          "url": "https://services.gradle.org/distributions/gradle-9.7.1-bin.zip",
+          "sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
+          "size": 151433392,
+          "bin_rel": "bin",
+          "bin_names": { "gradle.bat": "" }
+        }
+      ]
+    },
+    {
+      "id": "maven",
+      "name": "Maven",
+      "category": "build-tools",
+      "description": "JVM 生态构建与依赖管理（依赖 JDK，经 PATH 里的 java 启动）",
+      "provides": ["mvn"],
+      "dependencies": ["jdk21"],
+      "versions": [
+        {
+          "version": "3.9.16",
+          "url": "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz",
+          "sha256": "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb",
+          "size": 9278065,
+          "bin_rel": "bin"
+        }
+      ]
+    },
+    {
+      "id": "php",
+      "name": "PHP 8.5",
+      "category": "language-sdk",
+      "description": "PHP 静态构建（CLI，自带扩展依赖）",
+      "provides": ["php"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "8.5.8",
+          "url": "https://dl.static-php.dev/static-php-cli/common/php-8.5.8-cli-linux-x86_64.tar.gz",
+          "sha256": "517a18e0f0874de35669fe134eb3c52508e128a6d1da5bf890760cb800ada410",
+          "size": 12931817,
+          "bin_rel": "."
+        }
+      ]
+    },
+    {
+      "id": "grpcurl",
+      "name": "grpcurl",
+      "category": "modern-cli",
+      "description": "gRPC 命令行客户端，支持反射与服务描述文件",
+      "provides": ["grpcurl"],
+      "dependencies": [],
+      "versions": [
+        {
+          "version": "1.9.4",
+          "url": "https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz",
+          "sha256": "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736",
+          "size": 9968722,
+          "bin_rel": "."
+        }
+      ]
     }
   ]
 }
