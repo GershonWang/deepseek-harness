@@ -100,7 +100,7 @@ func TestReconcileBinLinks_RenamesArchiveBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	setCatalog(idx.Tools)
+	setCatalog(idx.Tools, idx.CategoryLabels)
 	defer restoreBuiltin(t)
 
 	dir := t.TempDir()
@@ -223,5 +223,23 @@ func TestCatalog_Uv(t *testing.T) {
 	}
 	if v.Version != "0.12.6" {
 		t.Fatalf("uv 版本应为 0.12.6: %+v", v)
+	}
+}
+
+// TestCatalog_EveryCategoryHasLabel 固定清单侧的不变量：工具用到的每个分类都必须在
+// 同一份索引里声明中文标签。标签随索引下发后，"页签显示英文 ID" 不再由客户端保证，
+// 而是这份清单自己必须守住的事。
+func TestCatalog_EveryCategoryHasLabel(t *testing.T) {
+	idx, err := ParseIndex(indexJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.CategoryLabels) == 0 {
+		t.Fatal("内置索引应声明 category_labels")
+	}
+	for _, tool := range idx.Tools {
+		if idx.CategoryLabels[tool.Category] == "" {
+			t.Errorf("分类 %s（工具 %s）缺 category_labels 条目", tool.Category, tool.ID)
+		}
 	}
 }

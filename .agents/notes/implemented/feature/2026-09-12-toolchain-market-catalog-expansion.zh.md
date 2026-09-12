@@ -25,7 +25,9 @@ Status: implemented
 - `code-quality`：ruff 0.16.7、golangci-lint 2.13.2、actionlint 1.7.12、shellcheck 0.11.0
 - `language-sdk`：php 8.5.8
 
-`compiler` 在清单、标签表与页签里统一改名为 `build-tools`，`code-quality` 与 `debug` 补上页签。弹框的分类页签由已加载清单里实际出现的分类生成，而不是写死的列表：远程索引是独立发布的产物，客户端与它的分类集合可能不同版本，写死页签在两个方向都是错的——新客户端配旧索引会得到点不出内容的页签，旧客户端配新索引会把整个分类藏掉。已知分类保持固定顺序，未知分类按 ID 排序排在后面，没有工具的分类不生成页签，选中项所在分类消失时回落到「全部」。前端用例从 `tools/index.json` 读出分类并断言每个都有中文标签，再渲染一份旧结构的清单，把两个错配方向都固定下来。
+`compiler` 在清单与弹框页签里统一改名为 `build-tools`，`code-quality` 与 `debug` 补上页签。弹框的分类页签由已加载清单里实际出现的分类生成，而不是写死的列表：远程索引是独立发布的产物，客户端与它的分类集合可能不同版本，写死页签在两个方向都是错的——新客户端配旧索引会得到点不出内容的页签，旧客户端配新索引会把整个分类藏掉。已知分类保持固定顺序，未知分类按 ID 排序排在后面，没有工具的分类不生成页签，选中项所在分类消失时回落到「全部」。
+
+分类标签的归属从客户端搬到了索引。`Index.CategoryLabels` 携带分类 ID 到中文名的映射，`setCatalog` 把它与工具清单一同装进生效目录，`CategoryLabels()` 对外暴露，app 层再随载荷下发给弹框。客户端保留一张同内容的兜底表，供引入该字段之前的旧索引以及索引未标注的分类使用；两边都没有标签时原样显示分类 ID。配合页签推导，加工具与加分类都成了纯索引工作：标签跟着数据一起来。Go 用例断言仓内索引为它用到的每个分类都标注了标签（这条不再由客户端保证），前端用例则用改写过标签的载荷固定优先级——索引标签在前、兜底表在后。
 
 `ToolVersion.BinNames` 把归档内文件名映射为对外命令名，值为空串则屏蔽该文件。`linkExecutables` 应用映射，并把对外命令名记进 `seen`，`cleanStaleLinks` 因此会保留改名后的软链、清掉被屏蔽的。`ReconcileBinLinks` 是唯一建立这些软链的路径，映射只有一个生效点。
 
@@ -73,7 +75,7 @@ maven 的地址指向 `archive.apache.org`，因为 `dlcdn.apache.org` 只保留
 
 `DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 把每个新增工具都真实装了一遍并报出各自暴露的命令；yq 的 `bin/` 恰好是声明的那条命令——由 `yq_linux_amd64` 改名而来，`install-man-page.sh` 被屏蔽。gradle 与 maven 的两次运行同时演练了 jdk21 依赖链。这条审计立刻体现了价值：grpcurl 首次运行就因清单 sha256 抄错一个字符而失败，光靠读上游校验文件不会发现。
 
-`go test ./internal/toolchain` 用 `TestReconcileBinLinks_RenamesArchiveBinary` 固定改名与屏蔽行为。`node --test frontend/test-app.cjs` 38 例通过，其中分类用例渲染一份旧结构的清单并断言其页签，同时覆盖选中分类消失后的回落；把按数据推导的页签换回写死列表会让该用例失败。`linglong/verify-tools.sh` 报 `installable` 集合与 `index.json` 一致，`node frontend/tools/preview.mjs verify` 通过，但它不覆盖市场弹框。
+`go test ./internal/toolchain` 用 `TestReconcileBinLinks_RenamesArchiveBinary` 固定改名与屏蔽行为。`node --test frontend/test-app.cjs` 38 例通过，其中分类用例固定了标签优先级（索引提供的标签优先、未标注的分类走兜底），以及两个错配场景：旧结构清单只渲染自己的页签，选中分类消失后回落到「全部」。把按数据推导的页签换回写死列表，或让标签只查兜底表，都会让该用例失败。Go 侧 `TestCatalog_EveryCategoryHasLabel` 会在仓内索引漏标某个在用分类时失败，`TestLoadIndex_FetchesAndCaches` 断言标签随拉取到的索引一同生效。`linglong/verify-tools.sh` 报 `installable` 集合与 `index.json` 一致，`node frontend/tools/preview.mjs verify` 通过，但它不覆盖市场弹框。
 
 未验证：没有在玲珑容器内实跑，新二进制的 glibc 兼容性只经宿主运行背书。
 

@@ -660,7 +660,7 @@ function renderServerDialog(s) {
 // marketState 缓存最近一次工具链状态，供分类/搜索过滤与卡片渲染。
 // progress 记录各工具链安装的实时进度：id → {Phase, Percent, Message}。
 // 由 toolchain:progress 事件驱动；done/error 阶段会删除对应条目。支持多工具并发。
-const marketState = { category: "all", search: "", catalog: [], progress: {}, status: null };
+const marketState = { category: "all", search: "", catalog: [], categoryLabels: {}, progress: {}, status: null };
 
 // fmtSize 把字节数格式化为 "1.6 MB" 之类的可读文本；0/空返回空串。
 function fmtSize(bytes) {
@@ -672,9 +672,18 @@ function fmtSize(bytes) {
   return (i === 0 ? String(v) : v.toFixed(1)) + " " + units[i];
 }
 
-// categoryLabel 分类 ID → 中文标签；未知分类原样返回。
+// DEFAULT_CATEGORY_LABELS 是分类标签的兜底表：标签的权威来源是索引里的
+// category_labels（随 t.CategoryLabels 下发），这张表只在两种情况下生效——索引没带该
+// 分类的标签，以及生效的还是引入 category_labels 之前的旧索引。索引优先，因此新增分类
+// 只要在索引里写一行标签，客户端不必跟着发版。
+const DEFAULT_CATEGORY_LABELS = {
+  "language-sdk": "语言 SDK", "build-tools": "构建与编译", "modern-cli": "现代 CLI",
+  "code-quality": "代码质量", "debug": "调试",
+};
+
+// categoryLabel 分类 ID → 中文标签：索引声明优先，其次兜底表，都没有则原样返回 ID。
 function categoryLabel(cat) {
-  return ({ "language-sdk": "语言 SDK", "build-tools": "构建与编译", "modern-cli": "现代 CLI", "code-quality": "代码质量", "debug": "调试" })[cat] || cat;
+  return marketState.categoryLabels[cat] || DEFAULT_CATEGORY_LABELS[cat] || cat;
 }
 
 // MARKET_CATEGORY_ORDER 只决定已知分类在页签里的先后，不再是页签全集：清单来自独立
@@ -723,6 +732,8 @@ function selectMarketCategory(cat) {
 
 function renderTools(t) {
   marketState.catalog = t.Catalog || [];
+  // 分类标签随生效索引下发；先落状态再建页签，页签才拿得到新标签。
+  marketState.categoryLabels = t.CategoryLabels || {};
   // 缓存 Rows，供点击"内置"按钮时动态渲染
   marketState.builtinRows = t.Rows || [];
   // 缓存最近一次状态：筛选变化时要重画状态栏（"筛选 N 个"），而那时事件不会再送一份 t。

@@ -1019,27 +1019,39 @@ test("市场空态：筛不到结果时给出清空筛选入口，点击后恢�
   assert.ok(grid.children.every((c) => c.classList.contains("tool-card-item")), "恢复出来的都是工具卡片");
 });
 
-// 分类页签由清单推导：清单来自独立发布的远程索引，客户端与它的分类集合可能不同版本。
-// 两种错配都要安全——旧索引配新客户端不能留下点进去是空的页签，新索引配旧客户端不能
-// 把分类藏起来；清单里的分类必须都有中文标签（否则页签显示英文分类 ID）。
+// 分类页签由清单推导，标签由索引下发：清单来自独立发布的远程索引，客户端与它的分类
+// 集合可能不同版本。两种错配都要安全——旧索引配新客户端不能留下点进去是空的页签，新
+// 索引配旧客户端不能把分类藏起来；标签以索引声明优先，旧索引（无该字段）回落到客户端
+// 兜底表，两边都没有才原样显示分类 ID。
 function tabLabels(h) {
   return h.document.getElementById("market-tabs").children.map((b) => b.textContent);
 }
 
-test("市场分类：页签按清单分类生成，未知分类也成页签且不留死页签", () => {
+test("市场分类：页签按清单分类生成，标签以索引声明优先", () => {
   const h = loadApp();
   const render = h.sandbox.__testRenderTools;
-  const label = h.sandbox.__testCategoryLabel;
+  const grid = () => h.document.getElementById("market-grid");
 
-  // 仓内清单：每个分类都要有中文标签
-  const index = JSON.parse(
-    fs.readFileSync(path.join(__dirname, "..", "internal", "toolchain", "tools", "index.json"), "utf8"));
-  const cats = [...new Set(index.tools.map((t) => t.category))];
-  for (const cat of cats) {
-    assert.notEqual(label(cat), cat, `分类 ${cat} 缺中文标签`);
-  }
+  // 索引带标签：页签用索引里的中文名，未知分类未被声明则原样显示 ID
+  const withLabels = fakeTools();
+  withLabels.CategoryLabels = { "language-sdk": "语言运行时" };
+  withLabels.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+    { ID: "new", Name: "New", Category: "brand-new", Provides: ["new"], Installed: false },
+  ];
+  render(withLabels);
+  assert.deepEqual(tabLabels(h), ["全部", "语言运行时", "brand-new"],
+    "索引声明的标签优先，未知分类原样显示 ID");
 
-  // 旧索引（28 项时代）：只有 language-sdk/compiler/modern-cli
+  // 旧索引（引入 category_labels 之前）：回落到客户端兜底表
+  const noLabels = fakeTools();
+  noLabels.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+  ];
+  render(noLabels);
+  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK"], "旧索引回落到客户端兜底标签");
+
+  // 旧结构清单（28 项时代）：只有 language-sdk/compiler/modern-cli
   const legacy = fakeTools();
   legacy.Catalog = [
     { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
@@ -1053,13 +1065,8 @@ test("市场分类：页签按清单分类生成，未知分类也成页签且�
   // 切到旧索引里不存在的分类（模拟换了索引后选中项失效）→ 回落到全部且不空列表
   h.sandbox.__testSelectMarketCategory("code-quality");
   render(legacy);
-  assert.equal(h.document.getElementById("market-grid").children.length, 3,
-    "选中分类在新清单里消失后应回落到全部");
+  assert.equal(grid().children.length, 3, "选中分类在新清单里消失后应回落到全部");
   assert.ok(tabLabels(h).includes("全部"));
-
-  // 新索引：新增分类出现，且固定顺序在已知分类之间
-  render(fakeTools());
-  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK"], "fakeTools 只有 language-sdk");
 });
 
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {

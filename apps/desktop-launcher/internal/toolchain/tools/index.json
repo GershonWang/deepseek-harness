@@ -1,6 +1,13 @@
 {
   "version": 1,
   "updated_at": "2026-09-12T00:00:00Z",
+  "category_labels": {
+    "language-sdk": "语言 SDK",
+    "build-tools": "构建与编译",
+    "modern-cli": "现代 CLI",
+    "code-quality": "代码质量",
+    "debug": "调试"
+  },
   "tools": [
     {
       "id": "go",

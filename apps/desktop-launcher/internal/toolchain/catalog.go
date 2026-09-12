@@ -65,6 +65,9 @@ var indexJSON []byte
 var (
 	catalogMu      sync.RWMutex
 	effectiveTools []Tool
+	// effectiveLabels 是当前有效索引里的分类中文标签（见 Index.CategoryLabels）。
+	// 与工具清单一同被远程索引覆盖：标签属于索引数据，这样新增分类不必等客户端发版。
+	effectiveLabels map[string]string
 )
 
 // init 解析嵌入的单源索引作为内置兜底；索引非法则立即失败（打包期应被
@@ -75,13 +78,27 @@ func init() {
 		panic("builtin tools index is invalid: " + err.Error())
 	}
 	effectiveTools = idx.Tools
+	effectiveLabels = idx.CategoryLabels
 }
 
-// setCatalog 用远程索引覆盖有效目录（remote.go 调用）。
-func setCatalog(tools []Tool) {
+// setCatalog 用生效索引覆盖有效目录与分类标签（remote.go 调用）。
+func setCatalog(tools []Tool, labels map[string]string) {
 	catalogMu.Lock()
 	effectiveTools = tools
+	effectiveLabels = labels
 	catalogMu.Unlock()
+}
+
+// CategoryLabels 返回当前有效索引声明的分类中文标签快照。索引未声明某分类时，
+// 调用方自行决定回退（前端保留一张同内容的兜底表，兼顾旧索引）。
+func CategoryLabels() map[string]string {
+	catalogMu.RLock()
+	defer catalogMu.RUnlock()
+	out := make(map[string]string, len(effectiveLabels))
+	for k, v := range effectiveLabels {
+		out[k] = v
+	}
+	return out
 }
 
 // Catalog 返回当前有效的工具清单快照。
