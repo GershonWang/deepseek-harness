@@ -56,7 +56,7 @@
     {
       "id": "cmake",
       "name": "CMake",
-      "category": "compiler",
+      "category": "build-tools",
       "description": "跨平台构建系统（含 ctest/cpack）",
       "provides": ["cmake", "ctest", "cpack"],
       "dependencies": [],

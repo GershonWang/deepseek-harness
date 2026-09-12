@@ -674,7 +674,7 @@ function fmtSize(bytes) {
 
 // categoryLabel 分类 ID → 中文标签；未知分类原样返回。
 function categoryLabel(cat) {
-  return ({ "language-sdk": "语言 SDK", "compiler": "编译器", "modern-cli": "现代 CLI", "code-quality": "代码质量", "debug": "调试" })[cat] || cat;
+  return ({ "language-sdk": "语言 SDK", "build-tools": "构建与编译", "modern-cli": "现代 CLI", "code-quality": "代码质量", "debug": "调试" })[cat] || cat;
 }
 
 function renderTools(t) {

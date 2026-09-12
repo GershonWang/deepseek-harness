@@ -557,6 +557,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
     + "\n;globalThis.__testRenderTools = renderTools;"
+    + "\n;globalThis.__testCategoryLabel = categoryLabel;"
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
     + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
@@ -1013,6 +1014,25 @@ test("市场空态：筛不到结果时给出清空筛选入口，点击后恢�
   assert.equal(search.value, "", "搜索框应一并清空");
   assert.equal(grid.children.length, 3, "应恢复全部 3 张卡");
   assert.ok(grid.children.every((c) => c.classList.contains("tool-card-item")), "恢复出来的都是工具卡片");
+});
+
+// 分类是跨文件约定：清单里的 category 必须同时有页签与中文标签，否则该分类的工具
+// 只能在"全部"里被翻到、筛选页签点不进去，卡片元信息还会显示英文分类 ID。
+test("市场分类：清单里每个分类都有中文标签与筛选页签", () => {
+  const h = loadApp();
+  const label = h.sandbox.__testCategoryLabel;
+  assert.equal(typeof label, "function", "应暴露 categoryLabel");
+
+  const index = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "..", "internal", "toolchain", "tools", "index.json"), "utf8"));
+  const cats = [...new Set(index.tools.map((t) => t.category))];
+  assert.ok(cats.length > 0, "清单不应为空");
+
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  for (const cat of cats) {
+    assert.notEqual(label(cat), cat, `分类 ${cat} 缺中文标签`);
+    assert.match(html, new RegExp(`data-cat="${cat}"`), `分类 ${cat} 缺筛选页签`);
+  }
 });
 
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {
