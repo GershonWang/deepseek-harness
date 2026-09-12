@@ -276,6 +276,8 @@ function buildHtml(document) {
     /* 工具市场 / 内置工具：bindUI 静态绑定（无判空）的元素必须存在 */
     "market-search", "market-refresh", "host-scan", "host-scan-list",
     "market-grid", "market-statusbar", "builtin-toggle", "builtin-panel",
+    /* 分类页签容器：renderMarketTabs 按清单重建其子树 */
+    "market-tabs",
     /* 宿主导入折叠：renderHostTools 写摘要、setupHostsToggle 绑标题 */
     "hosts-toggle", "hosts-body", "hosts-summary",
     "repair-toast",
@@ -558,6 +560,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
     + "\n;globalThis.__testRenderTools = renderTools;"
     + "\n;globalThis.__testCategoryLabel = categoryLabel;"
+    + "\n;globalThis.__testSelectMarketCategory = selectMarketCategory;"
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
     + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
@@ -1016,23 +1019,47 @@ test("市场空态：筛不到结果时给出清空筛选入口，点击后恢�
   assert.ok(grid.children.every((c) => c.classList.contains("tool-card-item")), "恢复出来的都是工具卡片");
 });
 
-// 分类是跨文件约定：清单里的 category 必须同时有页签与中文标签，否则该分类的工具
-// 只能在"全部"里被翻到、筛选页签点不进去，卡片元信息还会显示英文分类 ID。
-test("市场分类：清单里每个分类都有中文标签与筛选页签", () => {
-  const h = loadApp();
-  const label = h.sandbox.__testCategoryLabel;
-  assert.equal(typeof label, "function", "应暴露 categoryLabel");
+// 分类页签由清单推导：清单来自独立发布的远程索引，客户端与它的分类集合可能不同版本。
+// 两种错配都要安全——旧索引配新客户端不能留下点进去是空的页签，新索引配旧客户端不能
+// 把分类藏起来；清单里的分类必须都有中文标签（否则页签显示英文分类 ID）。
+function tabLabels(h) {
+  return h.document.getElementById("market-tabs").children.map((b) => b.textContent);
+}
 
+test("市场分类：页签按清单分类生成，未知分类也成页签且不留死页签", () => {
+  const h = loadApp();
+  const render = h.sandbox.__testRenderTools;
+  const label = h.sandbox.__testCategoryLabel;
+
+  // 仓内清单：每个分类都要有中文标签
   const index = JSON.parse(
     fs.readFileSync(path.join(__dirname, "..", "internal", "toolchain", "tools", "index.json"), "utf8"));
   const cats = [...new Set(index.tools.map((t) => t.category))];
-  assert.ok(cats.length > 0, "清单不应为空");
-
-  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
   for (const cat of cats) {
     assert.notEqual(label(cat), cat, `分类 ${cat} 缺中文标签`);
-    assert.match(html, new RegExp(`data-cat="${cat}"`), `分类 ${cat} 缺筛选页签`);
   }
+
+  // 旧索引（28 项时代）：只有 language-sdk/compiler/modern-cli
+  const legacy = fakeTools();
+  legacy.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Provides: ["go"], Installed: false },
+    { ID: "cmake", Name: "CMake", Category: "compiler", Provides: ["cmake"], Installed: false },
+    { ID: "fd", Name: "fd", Category: "modern-cli", Provides: ["fd"], Installed: false },
+  ];
+  render(legacy);
+  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK", "现代 CLI", "compiler"],
+    "未知分类排在已知分类之后成页签，且不出现清单里没有的分类页签");
+
+  // 切到旧索引里不存在的分类（模拟换了索引后选中项失效）→ 回落到全部且不空列表
+  h.sandbox.__testSelectMarketCategory("code-quality");
+  render(legacy);
+  assert.equal(h.document.getElementById("market-grid").children.length, 3,
+    "选中分类在新清单里消失后应回落到全部");
+  assert.ok(tabLabels(h).includes("全部"));
+
+  // 新索引：新增分类出现，且固定顺序在已知分类之间
+  render(fakeTools());
+  assert.deepEqual(tabLabels(h), ["全部", "语言 SDK"], "fakeTools 只有 language-sdk");
 });
 
 test("预检 needs-confirm：舞台切到预检页并渲染问题清单与操作按钮", () => {

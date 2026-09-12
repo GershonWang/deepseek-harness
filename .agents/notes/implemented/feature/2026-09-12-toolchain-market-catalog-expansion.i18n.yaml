@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-toolchain-market-catalog-expansion.md
-2026-09-12-toolchain-market-catalog-expansion.md: b594e2c7f87318b9b695a02c7a0ddc326b9163e1
-2026-09-12-toolchain-market-catalog-expansion.zh.md: f20607ea22f2989a6f40f5b0f6542fd690796e62
+2026-09-12-toolchain-market-catalog-expansion.md: a634c4da421123790243479f33d80fa499d6596c
+2026-09-12-toolchain-market-catalog-expansion.zh.md: 5909d15a6879ae4b7d7274c96a71a8289e7e5f7c

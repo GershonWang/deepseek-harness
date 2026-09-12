@@ -199,14 +199,9 @@
     <div class="modal-body market-body">
       <!-- 分类页签 + 搜索 + 刷新索引 -->
       <div class="market-toolbar">
-        <div id="market-tabs" class="market-tabs">
-          <button class="market-tab active" data-cat="all">全部</button>
-          <button class="market-tab" data-cat="language-sdk">语言 SDK</button>
-          <button class="market-tab" data-cat="build-tools">构建与编译</button>
-          <button class="market-tab" data-cat="modern-cli">现代 CLI</button>
-          <button class="market-tab" data-cat="code-quality">代码质量</button>
-          <button class="market-tab" data-cat="debug">调试</button>
-        </div>
+        <!-- 分类页签由 renderMarketTabs 按清单里实际出现的分类生成：清单来自独立发布的
+             远程索引，客户端与它版本错配时，写死的页签会变成点不出内容的空页签。 -->
+        <div id="market-tabs" class="market-tabs"></div>
         <input id="market-search" type="text" placeholder="搜索工具…" spellcheck="false" aria-label="搜索工具">
         <button id="market-refresh" class="btn btn-quiet" title="刷新远程索引">刷新索引</button>
       </div>

@@ -25,7 +25,7 @@ Fifteen tools were added, each with a sha256 measured by downloading the archive
 - `code-quality`: ruff 0.16.7, golangci-lint 2.13.2, actionlint 1.7.12, shellcheck 0.11.0
 - `language-sdk`: php 8.5.8
 
-`compiler` is renamed `build-tools` in the catalog, the label map, and the dialog tabs; `code-quality` and `debug` gain tabs. The frontend test reads the categories out of `tools/index.json` and asserts each one has both a Chinese label and a tab, so a tool added under a new category without a tab fails the suite.
+`compiler` is renamed `build-tools` in the catalog, the label map, and the dialog tabs; `code-quality` and `debug` gain tabs. The dialog builds its tabs from the categories present in the loaded catalog rather than from a fixed list. The remote index is a separately published artifact, so a client and an index can disagree about the category set, and hardcoded tabs are wrong in both directions: a new client against an old index renders tabs that match nothing, and an old client against a new index hides whole categories. Known categories keep a fixed order, unknown ones follow sorted by id, a category with no tools never gets a tab, and a selection whose category disappears falls back to 全部. The frontend test reads the categories out of `tools/index.json`, asserts each has a Chinese label, and renders a legacy-shaped catalog to pin both skew directions.
 
 `ToolVersion.BinNames` maps archive file names to the command names they are exposed as; an empty value suppresses the file. `linkExecutables` applies the map and records the exposed name in its `seen` set, so `cleanStaleLinks` keeps renamed links and drops suppressed ones. `ReconcileBinLinks` is the only path that creates these symlinks, so the map has a single application point.
 
@@ -63,7 +63,9 @@ Installing gradle or maven now pulls jdk21 first when the market copy is absent 
 
 The maven URL points at `archive.apache.org` because `dlcdn.apache.org` keeps only the current release. The php URL points at the `common` channel of `dl.static-php.dev`, which is not versioned and can rotate; both were reachable when added, and only an audit run will catch a later rotation.
 
-The remote index is still published by hand; this change reached the in-repo `tools/index.json` and `linglong/tools.yaml` only. Until the index is published to the `linglong` branch, clients keep reading the previous catalog, and the built-in copy remains the fallback.
+The remote index is still published by hand; this change reached the in-repo `tools/index.json` and `linglong/tools.yaml` only. Until the index is published to the `linglong` branch, clients keep reading the previous catalog, and the built-in copy remains the fallback. That skew is visible: an old index carries `compiler` and no `code-quality` or `debug`, so before publishing, those tabs simply do not appear, and only a published index brings them back.
+
+The tab set now follows the index, so its width varies with the index version. Measured against the shipped stylesheet at the 560px dialog width, four tabs already wrapped the toolbar onto two rows — tabs and search, then the refresh button — and six tabs also occupy two rows, at 66px against 64px. The dialog keeps its fixed 86vh height, and switching categories does not change the tab set, so the presentation note's height invariance still holds.
 
 ## Testing
 
@@ -71,9 +73,9 @@ Every added sha256 was verified by download: yq, ruff, golangci-lint, actionlint
 
 `DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` installed every added tool for real and reported each one's exposed commands; `bin/` held exactly the declared commands for yq, renamed from `yq_linux_amd64` with `install-man-page.sh` suppressed. The gradle and maven runs also exercised the jdk21 dependency path. The audit earned its place immediately: the first grpcurl run failed on a one-character transcription error in the catalog sha256, which no amount of sidecar reading would have caught.
 
-`go test ./internal/toolchain` covers the rename and suppression behavior with `TestReconcileBinLinks_RenamesArchiveBinary`. Breaking either the rename map or the dialog tab fails a test: with the map ignored, the case reports the archive name reaching `bin/`; with `data-cat="build-tools"` removed from `index.html`, the category case reports a missing tab. `node --test frontend/test-app.cjs` passes 38 cases, and `linglong/verify-tools.sh` reports the `installable` set and `index.json` as consistent.
+`go test ./internal/toolchain` covers the rename and suppression behavior with `TestReconcileBinLinks_RenamesArchiveBinary`. `node --test frontend/test-app.cjs` passes 38 cases, including the category case that renders a legacy-shaped catalog and asserts its tabs, plus the fallback when a selected category disappears; replacing the derived tab list with the fixed one makes that case fail. `linglong/verify-tools.sh` reports the `installable` set and `index.json` as consistent, and `node frontend/tools/preview.mjs verify` passes, though it does not cover the market dialog.
 
-Not verified: no run happened inside the Linglong container, so glibc compatibility for the new binaries rests on host runs. The `frontend/tools/preview.mjs` layout check was not rerun for the two added tabs; it does not reference the tab list, but the dialog-height claim in the presentation note still describes the four-tab dialog.
+Not verified: no run happened inside the Linglong container, so glibc compatibility for the new binaries rests on host runs.
 
 ## Related
 
