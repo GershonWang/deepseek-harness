@@ -2,7 +2,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop
   name: deepseek-harness-desktop
-  version: 0.1.2.5
+  version: 0.1.2.6
   kind: app
   description: |
     DeepSeek Harness 桌面客户端。
@@ -151,6 +151,16 @@ build: |
   ln -sf ${WEBKIT_SO} ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
   ln -sf libwebkit2gtk-4.1.so.0 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so
 
+  # 容器级字体：基础镜像清空了 /usr/share/fonts，运行容器的该目录又被宿主整体
+  # 挂载覆盖（/share/fonts → /usr/share/fonts, ro），所以字体不能放进层内的
+  # usr/share/fonts——实测层内 5 个文件、容器 fc-list 查不到，即被该挂载遮住。
+  # 改落 ${PREFIX}/share/dsh-fonts：拉丁用 Noto Sans Display、等宽用 JetBrains Mono
+  # （都在仓库内），中文族由下面的 apt 依赖 fonts-wqy-microhei 提供。
+  sh /project/apps/desktop-launcher/linglong/install-container-fonts.sh \
+    "$PREFIX" \
+    /project/apps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
+    /project/apps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono
+
 buildext:
   apt:
     build_depends:
@@ -160,6 +170,10 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
+      # 中文族：容器 base 清空了 /usr/share/fonts，不随包则分发到未装中文字体的
+      # 机器上会退化成豆腐块。仅装字体文件，family 解析由 install-container-fonts.sh
+      # 生成的别名配置负责（指向 WenQuanYi Micro Hei）。
+      - fonts-wqy-microhei
       # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
       # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
