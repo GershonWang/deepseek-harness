@@ -235,21 +235,6 @@
 - **问题**：守卫是 `[ ! -f "$dest/lib/index.js" ]`，而 `@deepseek-ai/schemastery` 的入口是 `lib/index.cjs`（`vendor/schemastery/package.json` 的 `main`）→ 守卫恒真、每次都进入「注入」分支；目标 `lib` 已存在时 `cp -a "$pkgdir/lib" "$dest/lib"` **嵌套复制**。`:84-87` 的 `2>/dev/null || true` 还会吞掉 `package.json`/`bin` 的复制失败。
 - **影响**：日志假装在补闭包，**真正缺文件时永远补不上**；实测产物含 `@deepseek-ai/schemastery/lib/lib/` = 184 KB 重复内容。
 
-## N15 `clean-linglong.sh` 清理路径整体漂移
-
-- **状态**：已修｜✅ 实测复核
-- **位置**：`apps/desktop-launcher/clean-linglong.sh:49-60`（基准常量）、`:81-90`（清理块）、`:104-107`（Go 二进制）
-- **问题**：脚本删 `apps/desktop-launcher/linglong/{output,cache}`，而 ll-builder 的产物在**仓库根** `linglong/output`（769 MB）、`linglong/cache`（344 KB）与 `linglong/overlay`（1.2 GB）——脚本要找的两个目录都不存在，`for` 循环静默跳过。Go 二进制路径同样错位（真实位置 `apps/desktop-launcher/dsh-desktop-launcher`）。脚本实际只清掉了最小的 `*.uab`。
-- **影响**：脚本自称「确保下一次构建从干净状态开始」，却把层缓存、output/ 与基础 overlay 全留着——正是它自己注释里警告的「上游升级后旧闭包」场景；基础 overlay 还带着首轮审计记录的 `.dpkg-new` 脏文件。
-- **已修**：
-  1. 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`：`stage/` 归源码目录，`linglong/{output,cache,overlay}` 归仓库根的 ll-builder 工作区，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore:41` 的 `/linglong/` 同基准；Go 二进制改指 `APP_DIR`。
-  2. 一并清掉 `.gitignore:39` 预留的 `linglong/linglong/` 嵌套变体（在 `linglong.yaml` 所在目录内直接跑 ll-builder 会产生）。
-  3. 删除恒不命中的 `apps/cli/deploy` 块：`prepare-offline.sh:34` 的 deploy 目标是 `$STAGE/harness`，该目录已不存在。
-  4. 补齐未覆盖的清理目标（同一「自称干净状态却清不干净」缺陷的另一半）：普通清理收根 `lib/`（旧配置留下的 solution 输出——根级 tsconfig 现已全部无 `outDir`、`tsconfig.host.json`/`client.json` 均 `noEmit`，不会再生成）与 `apps/desktop-launcher/{frontend/.preview,.preview-cache}`（几秒可再生的预览工具产物，与 `.typecheck`/`.dsh-build` 同档）；深度清理收仓库根的 `profiles/`、`sessions/`、`backups/`（DSH home 形状的**数据类**残留，只在显式重置档删除，避免普通清理误删会话数据）。
-- **已知遗留（未改）**：`clean-linglong.sh` 的通用构建产物段与仓库统一入口 `pnpm run clean`（`scripts/clean.ts` 的 `RepositoryCleaner`）重复；后者按 TS project references 图推导输出、拒绝越界与软链穿越、遇未知条目非零退出，且已覆盖 `.typecheck`/根 `*.tsbuildinfo` 等同类的旧配置遗留项，**唯独漏了根 `lib/`**（实跑 `scripts/clean.ts` 两次，第二次报 `clean: already clean` 而根 `lib/` 仍在）。是否收敛为调用统一入口，需权衡「普通清理不依赖 node_modules」这一定位，另行决定。
-- **实测补充（改对路径后才暴露）**：ll-builder 异常退出会在 `linglong/cache/*/overlay/workdir/` 留下 `mode=0000` 的 overlayfs `work` 残渣，`rm -rf` 无法遍历；在 `set -e` 下这会中断**后续全部**清理（`*.uab`/`lib`/`types` 一个都不清）。现于删除前 `chmod -R u+rwX` 补回属主权限（确认无 overlay 挂载引用仓库、无 ll-builder 进程存活后才删）。
-- **验证**：真仓库执行普通清理回收 2.2 GB（4.2 G → 2.0 G）；另造 dummy 目标逐档复跑，确认普通档命中 `stage/`、`linglong/`、`linglong/linglong/`、`dsh-desktop-launcher`、`*.uab`、根 `lib/`、`*/*/lib`、`*/*/types`、预览产物、`.dsh-build`、`.typecheck`、根 `*.tsbuildinfo` 且 `profiles/`/`sessions/`/`backups/` 幸存；`--deep` 档确认 DSH home 残留被清除。
-
 ## N16 `verify-tools.sh` 的一致性校验可静默跳过
 
 - **状态**：未修｜✅ 已复核
@@ -428,6 +413,7 @@
 | 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
 | N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
 | N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
+| N15 `clean-linglong.sh` 清理路径整体漂移 | ✅ 已修复 | 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore` 的 `/linglong/` 对齐；补收根 `lib/`、启动器预览产物（普通档）与 `profiles/`/`sessions/`/`backups/`（深度档）；ll-builder 异常退出留下的 `mode=0000` overlayfs workdir 在删除前 `chmod -R u+rwX`。提交 `4eb3a44acb`、`9f5fe65709`。附注：`pnpm run clean`（`scripts/clean.ts`）未覆盖根 `lib/`，收敛为调用统一入口的决定不做 |
 | N17 builder 的 `failed to copy` 只警告不中止 | ❌ 未修（工具链侧） | 连续两轮构建在同一位置失败后照常出包，见正文 N17 |
 | N18 `buildext.apt.depends` 吞掉安装错误 | ❌ 未修 | 生成脚本 `linglong/buildext.sh` 两条 apt 命令均以 `\|\| echo "$?"` 结尾，见正文 N18 |
 | N19 容器内新装的文件不落盘 | ❌ 未修 | 清缓存后仍复现；overlay upperdir 内只有 `c 0,0` 的 `.dpkg-new`，实体仍是 2026-04-07 的 2.48.5，见正文 N19 |
