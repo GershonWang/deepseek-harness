@@ -26,18 +26,6 @@
 
 # 一、高危
 
-## N2 打包的容器工具清单 overlay 是死代码，且该副本已过期
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/linglong/linglong.yaml:75-81`、`apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/standard/agent.cordis.yml:41`
-- **问题**：`linglong.yaml` 把上游预设抽到 `${PREFIX}/harness/config/agent-presets/`，再用 overlay 覆盖 `standard`。这条链路两个环节都不成立：
-  1. **没有消费者**。`dsh-agent-presets` 的 shipped root 是包内路径（`node_modules/@deepseek-ai/dsh-agent-presets/lib/index.js:203`，`new URL("../presets/", import.meta.url)`）；打包闭包里 `agent-presets` 的唯一配置是 `default: standard`（`node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml:482`），**没有任何 `roots` 指向 `config/agent-presets`**，`configTrees` 在闭包内零命中。
-  2. **副本本身已过期**。它用 `persona.config.text`，而 `packages/preset/persona/src/index.ts:50` 是 `prefix: z.string().required()`；`vendor/cordis/src/fiber.ts:57-58` 在 schema 报错时抛 `ValidationError`。用打包闭包自带的 `dsh-persona` 实测 `Config({text:'...'})` → `$.prefix missing required value`。
-- **影响**：① 文档承诺的「模型可见容器工具清单」**从未到达模型**（静默失效、无日志）；② 定时炸弹——一旦有人按 overlay 注释补上 `roots`，桌面默认预设立刻挂载失败；③ 该副本还静默回退了上游变更（`tool-web.fetch` 由 `true` 变 `false`、`modelSelectionSettings: true` 被删、`command-goal`/`present` 两行被删）。
-- **回归点**：`f94495e527`（2026-08-21）"bundle the shipped presets inside dsh-agent-presets" 把 shipped root 移进包内，overlay 自此失效。
-- **覆盖缺口**：无任何测试覆盖该 overlay。
-- **待验证（❓）**：尚未触发一次真实会话观察 preset 挂载失败（需真实 API key 与 RPC 调用）。验证方法：在打包产物里发一条消息，看是否报 `agent-preset/invalid`。
-
 ## N3 工具索引来自个人 fork 的可变分支，且无签名
 
 - **状态**：未修｜✅ 已复核
@@ -114,7 +102,7 @@
 
 - **状态**：未修｜✅ 已复核
 - **位置**：`scripts/fix-deploy-closure.mjs`（152 行）、`apps/desktop-launcher/linglong/prepare-offline.sh:59-100`、`apps/desktop-launcher/linglong/inject-link-bridge.sh`
-- **问题**：让打包态跑起来至少依赖三层对 `pnpm deploy` 与上游架构的补丁。上游迭代时任何一层都可能失效，而失效方式通常是静默的（见 N2、N14）。
+- **问题**：让打包态跑起来至少依赖三层对 `pnpm deploy` 与上游架构的补丁。上游迭代时任何一层都可能失效，而失效方式通常是静默的——N2 就是这样失效的（见附录 A），N14 是仍在的一例。
 - **建议**：上游把 desktop launcher 的闭包打成官方 preset / bundle，下游只做组装。
 
 ## 35 外链桥只在容器模式生效
@@ -396,6 +384,19 @@
 | 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/x11.go:76-79` + `readWaylandImage`（`:871-925`）。**注意**：依赖宿主/容器存在 `wl-paste`，而 `wl-clipboard` 未随包（`tools.yaml` 与 `buildext.apt.depends` 都没有） |
 | 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
 | N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
+| N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
+
+### N2 的修复记录
+
+原先两个独立故障，现已一并处理：
+
+1. **注入点**。`linglong.yaml` 不再把预设抽到 `${PREFIX}/harness/config/agent-presets`，改为用 `install -Dm644` 直接覆盖 `dsh-agent-presets` 真正读取的 shipped root（`${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`）；预设包布局若变化则构建 fail loud。
+2. **副本**。persona 由已移除的 `text` 改为 `prefix`/`suffix`，并按上游 `packages/preset/agent-presets/presets/standard/agent.cordis.yml` 重新同步 roster（此前静默落后四处：`command-goal` 与 `present` 两行被删、`tool-web.fetch` 由 true 变 false、`modelSelectionSettings` 被删）。
+3. **防线**。新增 `linglong/verify-preset-overlay.mjs`，在 `build-linglong.sh` 组装前拼接失败即中止：persona 之外的 roster 必须与上游逐行一致，persona 增量与 `tools.yaml` 对账，并把 persona 配置喂给随包 `dsh-persona` 的 schema。`test-verify-preset-overlay.sh` 覆盖通过路径与四条失败路径。
+
+**验证证据**：用打包闭包自己的 `discoverPresets` 实测——注入前后都是同样的四个预设（`cordis[创造模式] minimal[极简模式] ptc[PTC 模式] standard[标准模式]`），条目数与元数据未变，注入后 `standard` 文件含容器段落。UI 预设列表因此不变。闸门与自测各 5 项全过。
+
+**未做的端到端**：仍未触发一次真实会话观察系统提示（headless profile 不挂 `agent-presets`，只有 web-app bundle 设 `default: standard`）。已验证的链路是「发现 → persona 配置通过随包 schema」，而 `resolveConfig` 正是挂载时的校验点。
 
 **原编号 18 的遗留待验证点**：Wails 把消息处理器注册在 webview 的 content manager 上，而 `wails/v2@v2.15.0/internal/frontend/desktop/linux/window.c:56` 回传的是**顶层** URI。请在 iframe 内打开 Web Inspector，试 `window.go` 与 `window.webkit.messageHandlers` 是否可达——可达即为真漏洞，不可达则彻底结案。
 
@@ -405,7 +406,7 @@
 
 - 附录 A 中「已完成」条目，以及正文标注 ✅ 的条目，均经逐行读取代码或实跑命令验证。
 - 标注 ⚠️ 的条目来自静态代码审查，审计者未逐条复跑；标注 ❓ 的条目依赖尚未执行的端到端运行。
-- N2 未做端到端复现（需真实 API key 与会话 RPC 调用），已验证的是「同一 schema + 同一配置 + `resolveConfig` 必然抛错」这条完整函数链。
+- 保留本条以说明历史判据：N2 修复前「同一 schema + 同一配置 + `resolveConfig` 必然抛错」的函数链已实测，但那只是链路推演；修复后改为用打包闭包的 `discoverPresets` 做运行时发现验证（见附录 A 的修复记录）。两者的共同缺口是仍未触发真实会话观察系统提示。
 - 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。
 - 仓库当前的文档闸门并非全绿：`verify-translation-pairing` 语料为 837 ok / 1 out-of-sync / 33 missing（含 `docs/superpowers/**` 与 `linglong/` 下被扫到的构建产物），`verify-md-wrap`、`verify-md-links`、`verify-package-readme-*` 亦有既有失败。这些与本文条目无关，但会影响「闸门全绿」的判断。
 
@@ -415,6 +416,7 @@
 
 1. **9 / 10 / 13**（一条流水线带体积断言与 `depends.yaml` 比对）——一次性止住体积与工具链回归。
 2. **20**（宿主挂载二次确认）——复用现成两击确认模式，改动最小、安全收益最大。
-3. **N2**（overlay：修好或删掉死链路，两者都优于现状）。
-4. **N3 / N4 / N7**——供应链来源认证，以及两处「用户可见的静默无效」。
-5. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，约 50 MB+。
+3. **N3 / N4 / N7**——供应链来源认证，以及两处「用户可见的静默无效」。
+4. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，约 50 MB+。
+
+（原第 3 项 N2 已完成，见附录 A。）
