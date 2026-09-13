@@ -59,15 +59,15 @@
 - **证据**：`/home/Jokul/Desktop/日志.txt` 两轮构建各自出现两次 apt 阶段（`L683`/`L834`、`L1657`/`L1888`，`Unpacking`/`Setting up libwebkit2gtk-4.1-0 (2.50.4-1~deb12u1deepin2)`），但容器内的 2.50.4 内容一个字节都没有落进包；两轮全程没有任何环节报错。
 - **建议**：改为失败即中止（`set -e` 语义），或在 `build:` 段加一条"关键包必须存在于容器"的断言（与第 33 条第一步同源）。
 
-## N19 构建器缓存静默复用陈旧产物，依赖升级被无声丢弃
+## N19 容器内新装的文件不落盘，包内实体停留在基础层旧版本
 
 - **状态**：未修｜✅ 已复核
-- **位置**：`~/.cache/linglong-builder/merged/<hash>/files/`（构建器状态；仓库内没有任何脚本生成或清理它）
-- **问题**：该目录下留着打包时使用的 `lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`（**92,804,704 字节**，与包内实体 sha256 `765432e2…` 一致）。构建容器里 apt 装的是 2.50.4，最终包却带 2.48.5；`find linglong ~/.cache/linglong-builder -name 'libwebkit2gtk-4.1.so.0.2*'` 为零——**新版本从未落盘**。
-- **影响**：只要构建器缓存被复用，`buildext`/依赖升级就不会生效，且没有任何报错。这是 N17 所述「包内沿用旧库」得以复现两轮的原因；两轮独立构建的产物声明完成、`.uab` 照常导出。
-- **建议**：
-  1. **仓库侧防线**：打包完成后断言 `${PREFIX}` 中的 webkit 实体与构建容器 `/usr` 中的实体一致（文件名 + 大小 / sha256），不一致即失败——不依赖上游修复；
-  2. 在打包流程或文档中明确 `~/.cache/linglong-builder` 的清理时机（本轮复现前删掉 `linglong/` 工作区并不足以使缓存失效）。
+- **位置**：`linglong/overlay/prepare_base/upperdir/`（构建器 base overlay）；受影响实体 `usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`
+- **问题**：构建容器里 apt 装的是 webkit2gtk **2.50.4**，但整个 overlay 的 upperdir 里**没有任何 2.50.4 的实体内容**。每个新解包的文件只留下一个**字符设备 `c 0,0` 的 `<名字>.dpkg-new`**（例如 `libwebkit2gtk-4.1.so.0.19.7.dpkg-new`、`webkit2gtk-4.1/MiniBrowser.dpkg-new`），而实体文件保持 **2026-04-07** 的旧版本（`.so.0.19.7`，92,804,704 字节）不变。
+- **已排除**：**不是构建器缓存**。清空 `~/.cache/linglong-builder` 后重建（缓存内 webkit 副本 52 份 → 2 份），失败原样复现，sha256 仍是 `765432e2…`；清空 `linglong/` 工作区重建同样无效。因此本条**替代**原先「缓存复用」的定性。
+- **影响**：`buildext.apt.depends` 声明的依赖升级无法进入产物；`find linglong ~/.cache/linglong-builder -name 'libwebkit2gtk-4.1.so.0.2*'` 恒为零——新版内容从未落盘。附带结论：**修复前不要指望「升级 WebKit」带来任何行为变化**，包内恒定 2.48.5。
+- **旁证**：该次打包日志中 `failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 出现 3 次（见 N17），构建仍声明完成并导出 345 MB 产物。
+- **建议**：不要在 prepare_base/overlay 路径上继续投入；改为在 `build:` 段自行 `apt-get download` + `dpkg-deb -x`，把目标库直接装进 `${PREFIX}`（普通文件写入，不经 overlay 合并）。
 
 ## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
 
@@ -422,7 +422,7 @@
 | N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
 | N17 builder 的 `failed to copy` 只警告不中止 | ❌ 未修（工具链侧） | 连续两轮构建在同一位置失败后照常出包，见正文 N17 |
 | N18 `buildext.apt.depends` 吞掉安装错误 | ❌ 未修 | 生成脚本 `linglong/buildext.sh` 两条 apt 命令均以 `\|\| echo "$?"` 结尾，见正文 N18 |
-| N19 构建器缓存静默复用陈旧产物 | ❌ 未修 | `~/.cache/linglong-builder/merged/<hash>/files/` 内实测 2.48.5 实体（92,804,704 字节），见正文 N19 |
+| N19 容器内新装的文件不落盘 | ❌ 未修 | 清缓存后仍复现；overlay upperdir 内只有 `c 0,0` 的 `.dpkg-new`，实体仍是 2026-04-07 的 2.48.5，见正文 N19 |
 
 ### N2 的修复记录
 
