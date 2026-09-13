@@ -20,6 +20,12 @@ else
   sh apps/desktop-launcher/linglong/prepare-offline.sh
 fi
 
+# 容器工具清单 overlay 是上游 standard 预设的整文件副本,落后就会让打包会话静默
+# 少挂插件。这里在容器组装之前拦截漂移,顺带确认 persona 配置能被随包
+# dsh-persona 解析(否则挂载时才会抛 ValidationError,那已经在用户机器上了)。
+echo "==> 校验预设 overlay 与上游 standard 的一致性"
+node apps/desktop-launcher/linglong/verify-preset-overlay.mjs
+
 ll-builder build -f "$YAML"
 echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
 sh apps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files

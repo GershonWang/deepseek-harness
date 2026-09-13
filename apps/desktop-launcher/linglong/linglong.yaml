@@ -74,7 +74,8 @@ build: |
   # dsh-agent-presets 的 shipped root 是包内硬编码路径（lib/index.js 的
   # new URL('../presets/', import.meta.url)），且 root 解析按 id 先到先得、
   # shipped 恒排在最前——另建目录不会被扫描。preset.yml 元数据与其余预设保持
-  # 上游原样，只覆盖 standard/agent.cordis.yml。
+  # 上游原样，只覆盖 standard/agent.cordis.yml。漂移与 persona 可解析性由
+  # verify-preset-overlay.mjs 在 build-linglong.sh 里于容器组装前拦截。
   PRESETS=${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets
   if [ ! -d "$PRESETS/standard" ]; then
     echo "预设包布局变化：$PRESETS/standard 不存在，overlay 无法注入" >&2
