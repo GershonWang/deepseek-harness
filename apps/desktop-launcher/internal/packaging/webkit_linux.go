@@ -3,10 +3,25 @@
 package packaging
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// webkitExecPathRaw 是短路径的单一来源文件内容。打包脚本
+// （linglong/patch-webkit-exec-path.sh）与 launcher 都读这一个文件：补丁把 .so 里的
+// 硬编码路径替换成它，launcher 再把同名路径建为指向真实 helper 目录的符号链接。
+// 两边各写一遍字面量的话，改一处就会产出「装得上、GUI 起不来」的包，而两边都不会报错。
+//
+//go:embed webkit-exec-path.txt
+var webkitExecPathRaw string
+
+// webkitExecPath 返回去空白后的短路径。文件按仓库约定以单个换行结尾，读取时去掉。
+func webkitExecPath() string {
+	return strings.TrimSpace(webkitExecPathRaw)
+}
 
 // ConfigureWebKitHelperPath 让 webkit2gtk 找到其辅助进程
 // （WebKitNetworkProcess / WebKitWebProcess / WebKitGPUProcess）。
@@ -14,10 +29,10 @@ import (
 // 背景：Debian 正式构建的 webkit2gtk 把 helper 目录硬编码在
 // libwebkit2gtk-4.1.so.0 里（/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1），
 // 运行时 /usr 只读、玲珑 layer 不导出 /usr 写入。打包时已用
-// patch-webkit-exec-path.sh 把该字符串字节替换为 /tmp/dsh-webkit-4.1，
-// 这里在启动时把 /tmp/dsh-webkit-4.1 建为指向 ${PREFIX} 下真实 helper
-// 目录的符号链接。注入 bundle 用 WEBKIT_INJECTED_BUNDLE_PATH 覆盖。
-// 开发态（未打包）不动：helper 在系统标准路径，默认即正确。
+// patch-webkit-exec-path.sh 把该字符串字节替换为 webkitExecPath()，这里在启动时把
+// 该短路径建为指向 ${PREFIX} 下真实 helper 目录的符号链接。注入 bundle 用
+// WEBKIT_INJECTED_BUNDLE_PATH 覆盖。开发态（未打包）不动：helper 在系统标准路径，
+// 默认即正确。
 func ConfigureWebKitHelperPath() {
 	prefix := HarnessPrefix()
 	if prefix == "" {
@@ -28,10 +43,9 @@ func ConfigureWebKitHelperPath() {
 	if _, statErr := os.Stat(network); statErr != nil {
 		return // 开发态：helper 在系统路径，无需处理
 	}
-	// /tmp 可写，建符号链接 /tmp/dsh-webkit-4.1 -> 真实 helper 目录。链接可
-	// 残留自旧包运行（包 id 变更或卸载后成悬空），复用前必须验证目标仍指向
-	// 当前包目录。
-	const shortPath = "/tmp/dsh-webkit-4.1"
+	// 短路径所在目录可写，建符号链接指向真实 helper 目录。链接可能残留自旧包运行
+	// （包 id 变更或卸载后成悬空），复用前必须验证目标仍指向当前包目录。
+	shortPath := webkitExecPath()
 	if !webkitHelperLinkUsable(shortPath, helperDir) {
 		_ = os.Remove(shortPath)
 		if err := os.Symlink(helperDir, shortPath); err != nil {

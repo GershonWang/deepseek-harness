@@ -40,13 +40,27 @@
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`apps/desktop-launcher/linglong/patch-webkit-exec-path.sh`、`apps/desktop-launcher/linglong/linglong.yaml:137-140`
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`apps/desktop-launcher/linglong/patch-webkit-exec-path.sh`、`apps/desktop-launcher/internal/packaging/webkit-exec-path.txt`（短路径单一来源）、`apps/desktop-launcher/linglong/linglong.yaml`（`build:` 段的 webkit 块）
 - **问题**：直接对 `libwebkit2gtk-4.1.so` 做二进制字符串替换，且 `linglong.yaml:137-138` 把版本号硬编码为 `libwebkit2gtk-4.1.so.0.19.7`。webkit 小版本一变，这两行直接找不到文件。
 - **附加缺陷**：`patch-webkit-exec-path.sh:40-42` 在两个计数都为 0 时打印一行说明并 `sys.exit(0)`，调用方不看 stdout，随后无条件建软链并继续打包导出 → **补丁未生效也能产出「安装成功但 GUI 起不来」的包**。建议改为非零退出，或在构建后断言 `/tmp/dsh-webkit-4.1` 字符串确实已替换。
 - **长期方案**：`WEBKIT_EXEC_PATH`（需 `DEVELOPER_MODE` 构建）或让玲珑 layer 正确导出 `/usr/lib/...`。
 - **已修（第一步）**：版本号不再硬编码——`linglong.yaml` 用 `set -- .../libwebkit2gtk-4.1.so.0.*` 解析构建容器内的唯一实体，命中 0 个（`sh` 不展开 glob 时 `$#` 仍为 1，故同时判 `[ -e "$1" ]`）或多个都硬失败；补丁脚本在找不到硬编码路径、替代串比原串长、替换后仍残留原路径三种情况下均非零退出，写盘前完成全部自检，替换失败不再产出畸形 `.so`。
-- **仍待办（第二步）**：运行时改用 `WEBKIT_EXEC_PATH` / layer 路径导出，去掉字节补丁。届时 `internal/packaging/webkit_linux.go:34-42` 的 `/tmp/dsh-webkit-4.1` 短路径约定必须同步修改（该函数目前无法注入短路径与前缀，尚无单测），否则会造出同一类「装得上、起不来」的包。
+- **已修（本次，第一步收尾 + 消除一处现存隐患）**：
+  1. **短路径单源化**。`/tmp/dsh-webkit-4.1` 原本在补丁脚本与 `webkit_linux.go` 里各写一遍，改一处就会让包内 helper 路径与 launcher 建的符号链接不一致——正是最坏的「装得上、GUI 起不来」，而打包与启动两个环节都不会报错。现落到 `internal/packaging/webkit-exec-path.txt`：Go 侧 `//go:embed`，补丁脚本读同一文件。两条守卫测试固定契约：短路径必须短于原路径（等长字节替换的前提）、打包脚本不得再出现该路径的字节字面量；两条都做了变异验证（注入回归后确实失败，非摆设）。
+  2. **补丁脚本增加反向自检**：除"旧路径必须消失"外，新增"新路径必须出现"——写坏或漏写同样会让旧路径消失，而 launcher 会据此建一个指向不存在路径的符号链接。
+  3. `build:` 段的 webkit 唯一命中断言由 `-e` 收紧为 `-f`（见 N19）。
+- **仍待办（第二步）与新增证据**：原计划改走 `WEBKIT_EXEC_PATH` 或让 layer 导出 `/usr/lib/...`，本轮取证后判定**两条都不可行**：
+  1. `WEBKIT_EXEC_PATH` —— 实测已发布包的 `libwebkit2gtk-4.1.so.0.19.7` 里 `strings` **不存在**该字符串，说明该代码路径未编入发行版构建（与 `linglong.yaml` 注释"需 DEVELOPER_MODE"一致）。
+  2. layer 导出 `/usr/lib/...` —— 被 **N19** 阻塞：字节补丁存在的前提正是"运行时 `/usr` 只读、layer 不导出 `/usr` 写入"，而这正是 N19 记录的上游 overlay 缺陷。N19 不解决，这一步无法落地。
+  因此第二步的可行前提不在本仓库：要么上游给出 `DEVELOPER_MODE` 的 webkit 发行物，要么 N19 的上游缺陷修复。原先担心的"届时 `webkit_linux.go` 的短路径约定必须同步修改"已由本次单源化消解——改 `webkit-exec-path.txt` 一处即同时作用于打包与启动两侧。
+- **对审计原文的更正**：原文称 `internal/packaging/webkit_linux.go` 的该函数"尚无单测"，该说法已过时——`webkit_linux_test.go` 早已覆盖 `webkitHelperLinkUsable`（链接缺失/悬空/指向非当前包目录）与渲染后端两条路径；本轮又补上面两条契约测试。
+- **验证**：
+  1. `sh apps/desktop-launcher/linglong/test-patch-webkit-exec-path.sh` 4 项全过（替换成功且新旧路径一增一减、无硬编码路径、短路径过长、单一来源文件缺失）。
+  2. `go test ./internal/packaging` 全绿（含新增两条契约测试）。
+  3. 变异检查：把短路径字面量写回脚本 → `TestPatchScriptReadsSharedShortPath` 失败；把短路径改长 → `TestWebkitExecPathIsEqualLengthReplacement` 失败。两者还原后复绿。
+  4. **真实产物往返**：取已发布包里的 `libwebkit2gtk-4.1.so.0.19.7`（92,804,704 字节），先用脚本同构的方式还原出原始形态（`exec` 2 处、`bundle` 1 处），再用改动后的脚本重新打补丁，结果与已发布包 **sha256 逐字节一致**（`765432e2…`，即审计正文引用的那个哈希）——证明本次改动没有改变补丁产物。对已打过补丁的文件再跑一次则正确拒绝（退出码 1，不写盘）。
+  5. **边界**：本环境无 ll-builder 与玲珑容器，未在真实构建里跑过；上述往返验证用的是已安装的 0.1.2.7 产物，不是新构建。
 
 ## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
 
