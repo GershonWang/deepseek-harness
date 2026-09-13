@@ -12,9 +12,12 @@
 #  4. 正文拉丁与中文必须分开成两条：fontconfig 的 <prefer> 是整条 family 的备选
 #     列表，不是「仅缺字回退」；若把等宽字体与中文族混进同一条，同一行里会出现
 #     两套度量（等宽 7.80 与中文 13.00）并排。
-#  5. CSS 栈以 -apple-system 开头，该名字是 fontconfig 内建兜底、别名改不动它；
-#     未命中时引擎沿栈回退，而栈尾是 sans-serif——故这里同时注册 sans-serif。
-#     （层内可见的其它族名如 BlinkMacSystemFont / PingFang SC 也一并别名，冗余覆盖。）
+#  5. CSS 栈以 -apple-system 开头，该名字是 fontconfig 内建兜底、别名改不动它
+#     （实测 fc-match 恒返回宿主默认，加不加别名都一样）；WebKit 遇到它会落到
+#     CSS 栈里我们已别名的名字上，无法命中时才回落到栈尾的 sans-serif——故
+#     sans-serif 与栈中其它族名一并别名，二者共同兜住正文拉丁。
+#     当前环境宿主自带的 99-deepin.conf 以 prepend+strong 把 sans-serif 指向
+#     思源黑体，我们的别名只在其后生效；分发到没有该配置的机器上则由我们这条接管。
 #
 # 中文族不随包：由构建容器的 apt 依赖提供（fonts-wqy-microhei），与 webkit 同一机制。
 #
@@ -28,14 +31,12 @@ MONO_SRC=${3:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽
 [ -d "$MONO_SRC" ] || { echo "install-container-fonts: 目录不存在: $MONO_SRC" >&2; exit 1; }
 
 FONTDIR=$PREFIX/share/dsh-fonts
-CONFDIR=$PREFIX/etc/fonts/conf.d
-CONF=$CONFDIR/99-dsh-fonts.conf
 # 启动器把它作为 FONTCONFIG_FILE 交给 fontconfig：层内 etc/ 不进容器命名空间，
 # 不能依赖 conf.d 被自动读取，因此这份文件必须自包含（include 系统配置）。
 LOADCONF=$PREFIX/etc/fonts/dsh-fonts.conf
 CACHEDIR=$PREFIX/var/cache/fontconfig
 
-install -d "$FONTDIR" "$CONFDIR" "$CACHEDIR"
+install -d "$FONTDIR" "$CACHEDIR" "$(dirname "$LOADCONF")"
 install -m644 "$LATIN_SRC"/*.ttf "$FONTDIR/"
 install -m644 "$MONO_SRC"/*.ttf "$FONTDIR/"
 # 许可随字体一起分发，避免只在仓库里留存。
@@ -43,14 +44,6 @@ for d in "$LATIN_SRC" "$MONO_SRC"; do
   [ -f "$d/OFL.txt" ] || continue
   install -m644 "$d/OFL.txt" "$FONTDIR/OFL-$(basename "$d").txt"
 done
-
-# 分片配置：仅列目录。当前不被读出（见背景 2），保留以便未来 conf.d 可用的场景。
-printf '%s\n' \
-  '<?xml version="1.0"?>' \
-  '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
-  '<fontconfig>' \
-  "  <dir>${FONTDIR}</dir>" \
-  '</fontconfig>' > "$CONF"
 
 # 自包含配置：include 系统配置（保留宿主既有的字体解析与中文回退）+ 可写缓存目录
 # + 包内字体目录 + 家族别名。
@@ -90,8 +83,7 @@ printf '%s\n' \
   '  <alias binding="strong"><family>Fira Code</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '  <alias binding="strong"><family>Menlo</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '  <alias binding="strong"><family>Consolas</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
-  '  <alias binding="strong"><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '</fontconfig>' > "$LOADCONF"
 
 echo "install-container-fonts: $(ls "$FONTDIR" | tr '\n' ' ')→ $FONTDIR"
-echo "install-container-fonts: 配置 $CONF 与 $LOADCONF"
+echo "install-container-fonts: 配置 $LOADCONF"
