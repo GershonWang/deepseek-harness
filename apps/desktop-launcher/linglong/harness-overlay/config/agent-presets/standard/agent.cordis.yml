@@ -1,16 +1,13 @@
-# Packaging overlay for the Linglong desktop bundle: a copy of
-# apps/cli/config/agent-presets/standard/agent.cordis.yml whose persona text is
-# extended with a container-toolchain paragraph. linglong.yaml build copies
-# this over ${PREFIX}/harness/config/agent-presets/standard/. Re-sync the roster
-# from the source preset whenever the standard preset evolves.
+# 打包 overlay：覆盖 dsh-agent-presets 自带的 standard 组合。
 #
-# Why overlay `standard` instead of a new preset: a preset only mounts when a
-# session selects it, and packaged desktop sessions default to `standard`
-# (packages/bundle/web-app/cordis.patch.yml sets `default: standard`). A new
-# preset would never reach the model, so the tool paragraph rides on the
-# existing default. The paragraph is model-visible, and the system prompt is
-# reconstructable from the session log via the `request/header` event's
-# `header.system` field, so "model-visible ⟺ logged" holds.
+# 与上游 packages/preset/agent-presets/presets/standard/agent.cordis.yml 的唯一
+# 差异是 persona 的 prefix 末尾追加了一段容器工具链说明——打包会话跑在玲珑沙箱
+# 内，模型需要知道哪些命令随包、哪些要走工具链市场按需安装。
+#
+# linglong.yaml 的 build 段把它覆盖到
+# ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml，
+# 即 dsh-agent-presets 真正读取的 shipped root。上游预设演进后必须同步 roster；
+# 漂移与 persona 可解析性由 verify-preset-overlay.mjs 在导出前拦截。
 
 # The `standard` agent preset: the full coding agent, mounted once per process.
 #
@@ -38,10 +35,11 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
-    text: >-
-      You are a coding agent powered by the {{model}} model. Your working directory is {{cwd}}.
+    suffix: Your working directory is {{cwd}}.
+    prefix: >-
+      You are a coding agent powered by the {{model}} model.
 
-      This deployment runs inside a Linglong sandbox container, so commands executed through the shell tools run there. The container ships this toolchain: git, python3, node, pnpm (via corepack), dsh, curl, wget, jq, unzip, zip, xxd, tar. Prefer these over other command-line tools — anything else may be absent. The pip package manager and heavier tools (go, ripgrep) are not bundled and only become available after on-demand installation via the toolchain market.
+      This deployment runs inside a Linglong sandbox container, so commands executed through the shell tools run there. The container ships this toolchain: git, git-lfs, python3, node, pnpm, dsh, curl, wget, jq, unzip, xxd. Prefer these over other command-line tools — anything else may be absent. The pip package manager and heavier tools (go, ripgrep) are not bundled and only become available after on-demand installation via the toolchain market.
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
@@ -104,12 +102,12 @@
 
 # ── goals ───────────────────────────────────────────────────────────────────
 
-# Only the model-facing tool. The goal SERVICE, its session driver, and the
-# `/goal` command stay on the host plane: the Gateway serves the goal domain as
-# Remote endpoints whose receiver comes from a generated descriptor, so it
-# resolves `goals` on the host and an entry-local realm here would hide it. The
-# registry is keyed by session anyway, so one host instance serves every
-# session. What a preset chooses is whether its agent can call the goal tool.
+# The goal service and session driver stay on the host plane, where the Gateway
+# can resolve them. The human command and model-facing tool register into this
+# preset's scoped layers.
+- id: command-goal
+  name: '@deepseek-ai/dsh-command-goal'
+
 - id: tool-goal
   name: '@deepseek-ai/dsh-tool-goal'
 
@@ -181,12 +179,6 @@
 # `workflows` is different — nothing outside an agent reads it — so every row
 # that reaches it shares one entry-local realm here, and a consumer left
 # outside would resolve a host registry this preset does not populate.
-#
-# `tool-subagent-report` is host-plane for the same reason as the registry,
-# not because a preset may not want it: it registers a CONTINUABLE SETUP on
-# that singleton rather than a tool this agent calls, and the setup list is
-# not scope-aware — one copy per mounted preset means every child gets
-# `report` registered once per live session, which throws on the second.
 - id: delegation
   name: cordis:group
   group: true
@@ -204,8 +196,13 @@
       config:
         provider: spawn
         toolName: subagent
+        modelSelectionSettings: true
         backgroundMode: continuable
 
+    # Fork omits model selection so provider/model stay equal to the parent and
+    # the inherited history remains eligible for KV Cache reuse. This preset
+    # keeps fork continuable; parent and child inherit the same messaging tool,
+    # while the parent id and return guidance follow the inherited history.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
@@ -213,9 +210,10 @@
         toolName: subagent_fork
         backgroundMode: continuable
 
-    # Production dsh does not install these optional providers. An opting-in
-    # Profile mounts each provider once on the host plane; copy this preset,
-    # then remove `disabled` from the matching tool row.
+    # Production dsh does not install these optional providers. Install the
+    # matching Bundle in this Profile and restart the Host, then copy this
+    # preset and remove `disabled` from the matching tool row. Host availability
+    # alone grants no tool.
     - id: tool-subagent-codex
       name: '@deepseek-ai/dsh-tool-subagent'
       disabled: true
@@ -263,5 +261,8 @@
 - id: tool-web
   name: '@deepseek-ai/dsh-tool-web'
   config:
-    fetch: false
+    fetch: true
     searchTimeoutMs: 60000
+
+- id: present
+  name: '@deepseek-ai/dsh-tool-present'
