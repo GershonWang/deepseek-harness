@@ -31,6 +31,8 @@ func main() {
 	packaging.ConfigureWebKitHelperPath()
 	// 须在 wails.Run 之前：webkit2gtk 只在 GTK/WebKit 初始化时读取渲染后端的开关。
 	packaging.ConfigureWebKitRendering()
+	// 同样须在 wails.Run 之前：GTK/WebKit 首次读取 FONTCONFIG_FILE 时即固定字体配置。
+	packaging.ConfigureFontConfig()
 
 	resolved := appenv.Resolve()
 	controller := app.New(resolved.Config, home, app.ExternalConfigFilePath())

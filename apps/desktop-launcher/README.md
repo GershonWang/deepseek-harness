@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-`apps/desktop-launcher` is the desktop client for deepseek-harness. It is a Go launcher built with [Wails v2](https://wails.io): it spawns `dsh web` as a supervised child process and embeds the harness Web GUI in an iframe inside a thin launcher shell (status bar, server/settings dialogs, guide page). It is packaged as a Linglong bundle distributed on Deepin 25, plus Linux `.deb` and `.rpm`.
+`apps/desktop-launcher` is the desktop client for deepseek-harness. It is a Go launcher built with [Wails v2](https://wails.io): it spawns `dsh web` as a supervised child process and embeds the harness Web GUI in an iframe inside a thin launcher shell (status bar, server/settings dialogs, guide page). It is packaged as a Linglong bundle distributed on Deepin 25.
 
 > Independent Go module, not part of the pnpm workspace. The launcher shell is a static HTML/CSS/JS page (no Node toolchain) embedded into the binary via `go:embed`.
 
@@ -116,7 +116,7 @@ The market catalog has a comparable opt-in audit: `DSH_TC_E2E=1 go test ./intern
 
 ## Linglong packaging
 
-**One-click scripts**: `build-linglong.sh` (Linglong `.uab`, assembled in a container) and `build-deb.sh` (a Linux `.deb` installed to `/opt/apps/<id>/files`, webkit uses the system build) both run from the repo root; by default both fully rerun `prepare-offline.sh`, and adding `--no-prepare` reuses the existing `stage/` to only repackage.
+**One-click script**: `build-linglong.sh` (Linglong `.uab`, assembled in a container) runs from the repo root; by default it fully reruns `prepare-offline.sh`, and adding `--no-prepare` reuses the existing `stage/` to only repackage.
 
 **Two-step assemble build**: heavy toolchains (pnpm/tsc/tsdown/go) all run on the host; the container only copies and assembles. This avoids the build container's environment problems (Debian npm proxy bug, no HOME, no Node 22 on beige, tsdown failing to load config under Node 22), and the container no longer touches the repo's node_modules.
 

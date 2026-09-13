@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-`apps/desktop-launcher` 是 deepseek-harness 的桌面客户端。它基于 [Wails v2](https://wails.io) 用 Go 编写：spawn `dsh web` 子进程并监护，把 harness Web GUI 以 iframe 嵌进一层薄的启动器壳（状态栏、服务器/设置弹框、引导页）。最终打成如意玲珑（Linglong）包在 Deepin 25 上分发，另支持 Linux `.deb` 与 `.rpm`。
+`apps/desktop-launcher` 是 deepseek-harness 的桌面客户端。它基于 [Wails v2](https://wails.io) 用 Go 编写：spawn `dsh web` 子进程并监护，把 harness Web GUI 以 iframe 嵌进一层薄的启动器壳（状态栏、服务器/设置弹框、引导页）。最终打成如意玲珑（Linglong）包在 Deepin 25 上分发。
 
 > 独立 Go module，不纳入 pnpm workspace。壳 UI 是静态 HTML/CSS/JS（无 Node 构建链），经 `go:embed` 打进二进制。
 
@@ -116,7 +116,7 @@ DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场
 
 ## 玲珑打包
 
-**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）与 `build-deb.sh`（linux .deb，安装到 `/opt/apps/<id>/files`、webkit 用系统版）都在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。
+**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。
 
 **组装式两步构建**：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，容器只复制组装。规避了构建容器的环境问题（Debian npm 代理 bug、无 HOME、beige 无 Node 22、tsdown 在 Node 22 下加载配置失败），且容器不再碰仓库的 node_modules。
 

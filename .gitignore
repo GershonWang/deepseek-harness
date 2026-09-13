@@ -41,7 +41,6 @@ apps/desktop-launcher/linglong/stage/
 /linglong/
 # 玲珑打包导出产物（ll-builder export）
 com.deepseek.dsh-desktop_*.uab
-com.deepseek.dsh-desktop_*.deb
 .artifacts/
 .dsh-build/
 # 测试残留的 DSH home 目录（dsh doctor / profile 测试生成的根目录临时文件）

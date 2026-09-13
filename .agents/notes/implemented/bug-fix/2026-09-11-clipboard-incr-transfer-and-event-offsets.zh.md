@@ -13,7 +13,7 @@ Status: implemented
 1. `getProperty` 只在 `bytes-after != 0` 时才进入 INCR 分支，而标记回复本身报告的 `bytes-after` 就是 0 —— 整个标记只有 4 字节，一次读就把它读尽。于是这 4 字节标记被当成载荷返回，PNG 魔数校验失败：108253 字节的 1098×699 截图变成了一个 4 字节的“图片”，读取以 `errSelectionEmpty` 结束。
 2. `installWindow` 创建请求方窗口时 value-list 为空，导致没有任何 `PropertyNotify` 投递到它，分块循环只能等到超时。
 3. `PropertyNotify` 的字段偏移晚读了 4 字节（window 读 8、atom 读 12，实际是 4 和 8），于是通知被拿去和 `time` 字段比较，全部被丢弃。
-4. 标准 `SelectionNotify`（事件码 31）的 property 偏移晚读了 4 字节（读 24，而线上偏移是 20 —— `property` 排在 `time`、`requestor`、`selection`、`target` 之后）。容器经玲珑 X 桥访问 X，桥把事件改写成事件码 159、property 仍在偏移 20，恰好正确的那条分支让这个缺陷在打包版里一直不可见；而 `.deb` 包运行在容器外、直连普通 X 服务端，那里每一次转换都会被读成“owner 拒绝”。
+4. 标准 `SelectionNotify`（事件码 31）的 property 偏移晚读了 4 字节（读 24，而线上偏移是 20 —— `property` 排在 `time`、`requestor`、`selection`、`target` 之后）。容器经玲珑 X 桥访问 X，桥把事件改写成事件码 159、property 仍在偏移 20，恰好正确的那条分支让这个缺陷在打包版里一直不可见；而在直连普通 X 服务端的场景里，每一次转换都会被读成“owner 拒绝”。
 
 ## Decision
 
@@ -39,6 +39,6 @@ Status: implemented
 
 ## Consequences
 
-截图以及任何以 INCR 交付的位图都能经壳的桥接粘贴进输入框 —— 那是打包版 WebKitGTK 渲染器唯一的位图通道。`.deb` 安装同样有了可用的读取实现：标准事件码及其偏移都能正确解析，桥不再是剪贴板可用的前提。
+截图以及任何以 INCR 交付的位图都能经壳的桥接粘贴进输入框 —— 那是打包版 WebKitGTK 渲染器唯一的位图通道。读取实现按标准 `SelectionNotify` 事件码与其 property 偏移解析，因此剪贴板读取不再依赖容器桥的改写恰好落在读取端预期的偏移上。
 
 被中途放弃的 INCR 传输会被读成空而不是损坏的载荷，因此读取失败会报告“没有图片”，输入框回退到 WebKitGTK 自己交付的粘贴数据，而不是附上一个垃圾文件。读取实现依旧不读 selection 里的 `text/plain`，所以复制非图片文件仍然粘贴不出任何内容；这个缺口属于 owner 侧的回退策略，而不是传输协议。

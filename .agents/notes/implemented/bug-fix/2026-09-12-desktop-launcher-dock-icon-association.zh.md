@@ -16,7 +16,7 @@ Status: implemented
 
 ## Decision
 
-桌面条目声明 `StartupWMClass=dsh-desktop-launcher`，即用 `xprop` 实测到的窗口类 instance 字段。同一个源文件同时服务两条打包路径——`linglong/linglong.yaml` 装进玲珑包，`build-deb.sh` 装进 `.deb`——因此一行改动让两种分发都获得关联能力。
+桌面条目声明 `StartupWMClass=dsh-desktop-launcher`，即用 `xprop` 实测到的窗口类 instance 字段。这条字段只有一个来源：`linglong/linglong.yaml` 把条目装进玲珑包，因此一行改动就让打包分发获得关联能力。
 
 取值用 instance 而不是 class 字段（`Dsh-desktop-launcher`）：任务栏实现实践中匹配的是小写的 instance，同类第三方条目也是这么写的（Sublime Text 的窗口是 `"sublime_text", "Sublime_text"`）。
 
@@ -24,7 +24,7 @@ Status: implemented
 
 **让 launcher 自己设置窗口图标，使兜底路径可用。** 它能修好所有关联失败的条目，而不只是这一个，而且 launcher 已经知道自己的图标在哪（`packaging.AboutIconPath`）。否决：Wails v2 的 Linux 前端没有窗口图标 API——`pkg/runtime/window.go` 只有标题、尺寸、位置、背景色与主题，没有图标；`window.c` 里那句 `gtk_window_set_icon` 从 Go 侧不可达。要让它可达就得给 Wails 打补丁或自己写 cgo，为一个纯观感的兜底付出太大代价。
 
-**改二进制名去对齐条目，或改条目名去对齐二进制。** 否决：`dsh-desktop-launcher` 是 Makefile、玲珑入口脚本与 `.deb` 打包共同引用的构建产物名，而 `com.deepseek.dsh-desktop` 是沙箱、桌面条目与已发布产物共同依赖的玲珑应用 id。改名的影响远超任务栏图标。
+**改二进制名去对齐条目，或改条目名去对齐二进制。** 否决：`dsh-desktop-launcher` 是 Makefile 与玲珑入口脚本共同引用的构建产物名，而 `com.deepseek.dsh-desktop` 是沙箱、桌面条目与已发布产物共同依赖的玲珑应用 id。改名的影响远超任务栏图标。
 
 **改由应用代码设置 `WM_CLASS`。** 否决：GTK 从程序名推导窗口类，而窗口由 Wails 创建，覆盖它意味着对这个程序并未创建的窗口发 cgo 调用——比一个声明式字段多出太多活动件。
 

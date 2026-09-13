@@ -2,7 +2,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop
   name: deepseek-harness-desktop
-  version: 0.1.2.5
+  version: 0.1.2.7
   kind: app
   description: |
     DeepSeek Harness 桌面客户端。
@@ -67,18 +67,22 @@ build: |
   fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
-  # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
-  # 段),使打包会话的模型可见输入带上可用工具清单。cp 只覆盖同名文件,其余预设保留。
-  # 上游 v0.1.2 后 agent-presets 通过 dsh.configTrees 从源码路径解析，pnpm deploy
-  # 不复制源码目录树；这里从 node_modules 里的包中提取 presets 到 config 目录，
-  # 保持 overlay 叠加的安装布局不变。
-  mkdir -p ${PREFIX}/harness/config/agent-presets
-  if [ -d ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets ]; then
-    cp -a ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/. \
-          ${PREFIX}/harness/config/agent-presets/
+  # 容器工具清单注入：overlay 覆盖 dsh-agent-presets 自带的 standard 组合，把
+  # 容器工具链段落追加进 persona，使打包会话的模型可见输入带上可用工具清单。
+  #
+  # 必须写进 shipped root（包内 presets/），不能另建 ${PREFIX}/harness/config：
+  # dsh-agent-presets 的 shipped root 是包内硬编码路径（lib/index.js 的
+  # new URL('../presets/', import.meta.url)），且 root 解析按 id 先到先得、
+  # shipped 恒排在最前——另建目录不会被扫描。preset.yml 元数据与其余预设保持
+  # 上游原样，只覆盖 standard/agent.cordis.yml。漂移与 persona 可解析性由
+  # verify-preset-overlay.mjs 在 build-linglong.sh 里于容器组装前拦截。
+  PRESETS=${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets
+  if [ ! -d "$PRESETS/standard" ]; then
+    echo "预设包布局变化：$PRESETS/standard 不存在，overlay 无法注入" >&2
+    exit 1
   fi
-  cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
-        ${PREFIX}/harness/config/agent-presets/
+  install -Dm644 /project/apps/desktop-launcher/linglong/harness-overlay/agent-presets/standard/agent.cordis.yml \
+    "$PRESETS/standard/agent.cordis.yml"
   cp -a "$STAGE/node/." ${PREFIX}/node/
   # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
   # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的
@@ -132,12 +136,30 @@ build: |
   # 关键：buildext.apt.depends 的 webkit 在构建后（preCommit）才合并进
   # $PREFIX，若等那时再补丁为时已晚。因此这里直接从 build 容器 /usr
   # （build_depends 已装 libwebkit2gtk-4.1-0）复制并打补丁；preCommit 的
-  # mergeOutput 用 skip_existing 不会覆盖我们预置的补丁版。
+  # mergeOutput 不让位就会覆盖掉补丁版——当前依赖 ll-builder 的默认去重
+  # （skip_existing 只写在注释里，见 AUDIT 第 8/13 条），改动此处前先确认。
+  #
+  # 版本号由构建容器决定：apt 装的是哪个小版本就以哪个为准，只接受唯一命中。
+  # 两个条件都要：sh 在 glob 不匹配时会把字面量原样留下，只看 $# 会把「什么都没
+  # 装」当成命中；多命中（版本并存）则交人工决策，不猜。
   mkdir -p ${PREFIX}/lib/x86_64-linux-gnu
-  cp -a /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7 ${PREFIX}/lib/x86_64-linux-gnu/
-  sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7
-  ln -sf libwebkit2gtk-4.1.so.0.19.7 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
+  set -- /usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.*
+  [ "$#" -eq 1 ] && [ -e "$1" ] || { echo "webkit 实体未唯一命中（$# 个: $*）" >&2; exit 1; }
+  WEBKIT_SO=${1##*/}
+  cp -a "$1" ${PREFIX}/lib/x86_64-linux-gnu/
+  sh /project/apps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/${WEBKIT_SO}
+  ln -sf ${WEBKIT_SO} ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
   ln -sf libwebkit2gtk-4.1.so.0 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so
+
+  # 容器级字体：基础镜像清空了 /usr/share/fonts，运行容器的该目录又被宿主整体
+  # 挂载覆盖（/share/fonts → /usr/share/fonts, ro），所以字体不能放进层内的
+  # usr/share/fonts——实测层内 5 个文件、容器 fc-list 查不到，即被该挂载遮住。
+  # 改落 ${PREFIX}/share/dsh-fonts：拉丁用 Noto Sans Display、等宽用 JetBrains Mono
+  # （都在仓库内），中文族由下面的 apt 依赖 fonts-wqy-microhei 提供。
+  sh /project/apps/desktop-launcher/linglong/install-container-fonts.sh \
+    "$PREFIX" \
+    /project/apps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
+    /project/apps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono
 
 buildext:
   apt:
@@ -148,6 +170,10 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
+      # 中文族：容器 base 清空了 /usr/share/fonts，不随包则分发到未装中文字体的
+      # 机器上会退化成豆腐块。仅装字体文件，family 解析由 install-container-fonts.sh
+      # 生成的别名配置负责（指向 WenQuanYi Micro Hei）。
+      - fonts-wqy-microhei
       # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
       # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
