@@ -64,8 +64,8 @@
 
 ## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/linglong.yaml`（`build:` 段开头）
 - **问题**：生成脚本的两条命令都以 `|| echo "$?"` 结尾——
 
   ```sh
