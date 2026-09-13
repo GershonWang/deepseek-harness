@@ -12,7 +12,7 @@ Status: implemented
 
 三层防线，除 harness 清单注入（预设 overlay，不新增 `packages/` 包）外全部落在 `apps/desktop-launcher/`。以自包含为普通用户分发基线，宿主环境视为不可依赖。
 
-**层 1 —— 构建期清单与校验。** `linglong/tools.yaml` 是单一事实来源：`tools:` 段（git、git-lfs、python3、curl、wget、jq、unzip、xxd、pnpm），`installable:` 按需白名单（jdk21、go、ripgrep），`excluded:`（gcc、clang、rustc，永不随包）。`linglong.yaml` 经 `buildext.apt.depends` 随包带入工具（python3、python3-pip、curl、wget、unzip、zip、jq、xxd、ca-certificates；git 更早已加入）。`verify-tools.sh` 在 `ll-builder build` 之后、`export` 之前于宿主侧校验合并产物树 `linglong/output/binary/files`，因为 buildext 在 preCommit 才合并进 `$PREFIX`，构建容器看不到合并结果。任一二进制缺失或版本校验失败即非零退出并中止导出；`test-verify-tools.sh` 固定通过与失败两条路径。
+**层 1 —— 构建期清单与校验。** `linglong/tools.yaml` 是单一事实来源：`tools:` 段（git、git-lfs、python3、curl、wget、jq、unzip、xxd、node、pnpm、dsh、xdg-open），`installable:` 按需白名单（43 项，含 jdk21、go、ripgrep），`excluded:`（gcc、clang，永不随包）。`linglong.yaml` 经 `buildext.apt.depends` 随包带入工具（python3、curl、wget、unzip、zip、jq、xxd、ca-certificates、xdg-utils；git 与 git-lfs 更早已加入）。`python3-pip` 有意不带入：它的 Recommends 会拉进完整的 gcc-12 编译器与 python3-dev 头文件。`verify-tools.sh` 在 `ll-builder build` 之后、`export` 之前于宿主侧校验合并产物树 `linglong/output/binary/files`，因为 buildext 在 preCommit 才合并进 `$PREFIX`，构建容器看不到合并结果。任一二进制缺失、版本校验失败，或 `installable` 的 sha256 仍是占位，都会非零退出；`build-linglong.sh` 会打印该失败但仍然导出，因此在链路里它是建议性的。`test-verify-tools.sh` 固定通过与失败两条路径。
 
 **层 2 —— 运行时自检与模型可见工具清单。** 启动器状态栏打开设置弹框，其工具链分区经 `CheckTools(DefaultToolSpecs())` 探测 `git/python3/node/curl/jq/pnpm` 并列出已安装与可安装工具；git 凭据经容器 HOME 继承宿主 `~/.git-credentials`。`configurePackagedEnvForHome` 在目录存在时把 `$HOME/.dsh-tools/bin` 前置进 PATH、`$HOME/.dsh-tools/lib` 进 LD_LIBRARY_PATH，按需安装经 harness 重启后生效。harness 侧注入复用随包的 `standard` 预设（见下方 Phase D）。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 **凭据与数据可达性。** 凭据面板与 `20-host-credentials.json` 模板已移除：容器经 HOME 直接继承宿主 `~/.git-credentials` 与 `~/.ssh`，打包会话直接用宿主已存凭据。容器 HOME 即宿主主目录，且 `ll-cli uninstall` 不清用户数据（源码核实），已存凭据在重装后保留；文档建议导出备份。`ca-certificates` 随包进 `$PREFIX` 供 git/https/python 校验；私有 CA 是文档化的追加 + `update-ca-certificates` 项。linyaps 默认转发代理环境变量。
 
-**Phase D —— 模型可见容器工具清单。** 调查结论为分支 A：渲染后的系统提示已被日志化——`packages/core/agent-loop/src/agent.ts` 以 `request/header.header.system` 写盘，指令内容另以 `user/message` 事件落账——因此向 persona 追加工具文本即可满足"model-visible ⟺ logged"，无需新增 `SessionEventMap` 成员。预设只在会话选中时才挂载，且随包默认是 `standard`（由 web-app bundle 补丁设定），新增预设永远不会到达模型。因此部署改为 overlay `standard`：`linglong/harness-overlay/config/agent-presets/standard/agent.cordis.yml` 是仓库标准 roster 并在 persona 的 `text` 末尾追加容器工具链段；`linglong.yaml` build 将其复制覆盖到 `${PREFIX}/harness/config/agent-presets/standard/`。默认 id 与其余 roster 保持不变，所有打包会话都携带工具清单。
+**Phase D —— 模型可见容器工具清单。** 调查结论为分支 A：渲染后的系统提示已被日志化——`packages/core/agent-loop/src/agent.ts` 以 `request/header.header.system` 写盘，指令内容另以 `user/message` 事件落账——因此向 persona 追加工具文本即可满足"model-visible ⟺ logged"，无需新增 `SessionEventMap` 成员。预设只在会话选中时才挂载，且随包默认是 `standard`（由 web-app bundle 补丁设定），新增预设永远不会到达模型。因此部署改为 overlay `standard`：`linglong/harness-overlay/agent-presets/standard/agent.cordis.yml` 是仓库标准 roster 并在 persona 的 `prefix` 末尾追加容器工具链段；`linglong.yaml` build 将其覆盖到包内 shipped roster 文件 `${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`。写进包内自己的预设根才能被读到：`dsh-agent-presets` 由自身模块 URL 推导 shipped root，且同一预设 id 按先到先得解析，因此写在 `${PREFIX}/harness/config` 下的 roster 遮不住任何东西，也永远不会被扫描。默认 id 与其余 roster 保持不变，所有打包会话都携带工具清单。
 
 ## Alternatives considered
 
@@ -38,7 +38,7 @@ Status: implemented
 
 ## Consequences
 
-包体增大：python3 + pip 约 +100 MB，git 拖入 perl 依赖栈（数十 MB），再加小工具，`.uab` 从 302 MB 基线增长到估计 375–400 MB；按需层正是 go 与 ripgrep 不进包体的原因。非静态产物（例如按需安装 go 后编译出的用户代码）依赖容器 glibc，属用户责任且已文档化。玲珑的私有映射隐藏 `~/.linglong/<appid>` 并隔离 `~/.ssh`；凭据面板展示真实宿主路径，挂载模板覆盖 `.ssh`。`standard` overlay 是冻结副本，源预设演进时会产生漂移，故带再同步注释；`tools.yaml` 的 installable 条目已随包填实 sha256 并与运行时清单同步，`verify-tools.sh` 对占位哈希直接中止构建；按需安装依赖网络。
+包体增大：python3 约 +100 MB，git 拖入 perl 依赖栈（数十 MB），再加小工具，`.uab` 远超 302 MB 基线（0.1.2.5 包实测 361 MB）；按需层正是 go 与 ripgrep 不进包体的原因。非静态产物（例如按需安装 go 后编译出的用户代码）依赖容器 glibc，属用户责任且已文档化。玲珑的私有映射隐藏 `~/.linglong/<appid>` 并隔离 `~/.ssh`；凭据面板展示真实宿主路径，挂载模板覆盖 `.ssh`。`standard` overlay 是冻结副本，源预设演进时会产生漂移：`linglong/verify-preset-overlay.mjs` 在 persona 之外的任何行与源预设不一致时中止构建，并把 persona 配置拿去校验随包 `dsh-persona` 的 schema；`tools.yaml` 的 installable 条目已填实 sha256 并与运行时清单同步，`verify-tools.sh` 拒绝占位哈希，按需安装依赖网络。
 
 ## Testing
 
