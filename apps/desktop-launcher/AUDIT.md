@@ -423,13 +423,13 @@
 | N17 builder 的 `failed to copy` 只警告不中止 | ❌ 未修（工具链侧） | 连续两轮构建在同一位置失败后照常出包，见正文 N17 |
 | N18 `buildext.apt.depends` 吞掉安装错误 | ❌ 未修 | 生成脚本 `linglong/buildext.sh` 两条 apt 命令均以 `\|\| echo "$?"` 结尾，见正文 N18 |
 | N19 容器内新装的文件不落盘 | ❌ 未修 | 清缓存后仍复现；overlay upperdir 内只有 `c 0,0` 的 `.dpkg-new`，实体仍是 2026-04-07 的 2.48.5，见正文 N19 |
-| 字体方案（时间文本挤压） | ✅ 已完成 | 随包字体 + `FONTCONFIG_FILE` 注入 + 前端字体栈前置；提交 `c1ea5016fa`、`38a44fe892`、`2fc0de8ef5`。**前端改动尚未打包**，见下方验证与保留的边界 |
+| 字体方案（时间文本挤压） | ✅ 已完成 | 随包字体 + `FONTCONFIG_FILE` 注入 + 前端字体栈前置；提交 `c1ea5016fa`、`38a44fe892`、`2fc0de8ef5`，已在 0.1.2.7 实机验证通过 |
 
 ### 字体方案（时间文本挤压）的记录
 
 客户端中 `6分32秒`、`17小时53分` 一类时间文本出现数字与汉字互相挤压，同一页面在 Chrome 中正常，仅基于 WebKitGTK 的客户端复现。
 
-**根因**：CSS 字体栈（`packages/client/ui-theme/src/styles/base.css` 的 `--dsw-font-family`）在容器内全部候选族缺失，退化到「一个同时覆盖拉丁与 CJK 的族」（思源黑体），同一行内拉丁与 CJK 共用一套度量而挤压。候选族中出现纯拉丁族即可解除，因此**客户端 CSS 未作任何改动**。
+**根因**：CSS 字体栈（`packages/client/ui-theme/src/styles/base.css` 的 `--dsw-font-family`）在容器内全部候选族缺失，退化到「一个同时覆盖拉丁与 CJK 的族」（思源黑体），同一行内拉丁与 CJK 共用一套度量而挤压。宿主用户级 fontconfig 配置会持续把通用族名改指 CJK 族（见下方「前端字体栈」），因此该问题必须在 CSS 字体栈层面收口：单纯在打包侧注册字体与别名不足以解决。
 
 **方案**：随包携带 Noto Sans Display（拉丁）与 JetBrains Mono（等宽，补 Regular 字重），落入 `${PREFIX}/share/dsh-fonts`——层内 `usr/` 与 `etc/` 均不进容器命名空间，`usr/share/fonts` 另被宿主挂载遮蔽，故不能沿用；由启动器在 WebKit 初始化前以 `FONTCONFIG_FILE` 指向 `install-container-fonts.sh` 生成的 `dsh-fonts.conf`，该配置 include 系统配置、显式声明可写 `<cachedir>`（容器 `/var/cache/fontconfig` 只读）、注册字体目录并把 CSS 栈中的族名别名到随包字体。中文族由 `buildext.apt.depends` 的 `fonts-wqy-microhei` 提供，与 webkit 同一机制。
 
@@ -437,11 +437,11 @@
 
 **已知限制**：fontconfig 按家族名匹配，宿主已装同名字体（思源黑体、微软雅黑等）时随包字体不会被选中；该限制只影响本机观感，不影响分发到缺字体机器上的行为。
 
-**验证证据**：改后脚本生成的配置与容器内实际生效那份逐行 diff，差异仅为删除 `monospace` 一行；用新旧两份配置对 CSS 栈的 17 个候选族名逐条复跑 `fc-match`，结果全部一致（`sans-serif` 命中思源黑体、`BlinkMacSystemFont` 与 `PingFang SC` 等命中 `NotoSansDisplay-Regular.ttf`、等宽族命中 `JetBrainsMono-*.ttf`）；`go test ./internal/packaging/` 通过；`sh -n` 语法检查通过。
+**验证证据**：改后脚本生成的配置与容器内实际生效那份逐行 diff，差异仅为删除 `monospace` 一行；用新旧两份配置对 CSS 栈的 17 个候选族名逐条复跑 `fc-match`，结果全部一致（`sans-serif` 命中思源黑体、`BlinkMacSystemFont` 与 `PingFang SC` 等命中 `NotoSansDisplay-Regular.ttf`、等宽族命中 `JetBrainsMono-*.ttf`）；`go test ./internal/packaging/` 通过；`sh -n` 语法检查通过；ui-theme 测试 81 通过（1 个既有失败与本次无关）。
 
-**保留的未验证边界**：`fc-match` 只反映 fontconfig 的解析结果，WebKit 的实际渲染选择由引擎内部逻辑决定，二者可能不同；完整重打包链路本次未复跑（`stage/` 与 `linglong/` 构建缓存已清理）。
+**保留的未验证边界**：`fc-match` 只反映 fontconfig 的解析结果，WebKit 的实际渲染选择由引擎内部逻辑决定，二者可能不同。**重新打包 0.1.2.7 后的实机验证已闭环**：时间文本不再挤压。
 
-**前端字体栈**：只靠打包侧的别名不足。宿主用户级 `~/.config/fontconfig/conf.d/99-deepin.conf` 以 `prepend`+`binding="strong"` 把 `sans-serif` 改指思源黑体，该方式胜过任何别名 `<prefer>`；而 CSS 栈尾正是 `sans-serif`，`-apple-system` 也无法用别名改变。实测在当前宿主上 `-apple-system` 与 `sans-serif` 均落到思源黑体——一个同时覆盖拉丁与 CJK 的族，数字与汉字因而共用一套度量。因此 `packages/client/ui-theme/src/styles/base.css` 把 `'Noto Sans Display'`、`'WenQuanYi Micro Hei'` 前置（提交 `2fc0de8ef5`）；`--dsw-font-family` 是全部 `--dsw-font-*` 排版 token 的基础族，33 个组件文件消费这些 token，时间文本用的 `--dsw-font-xs-13` 即由其派生。等宽栈同时前置 `'JetBrains Mono'`。**该改动尚未进入任何已构建的包**，运行中的 0.1.2.6 仍会挤压。
+**前端字体栈**：只靠打包侧的别名不足。宿主用户级 `~/.config/fontconfig/conf.d/99-deepin.conf` 以 `prepend`+`binding="strong"` 把 `sans-serif` 改指思源黑体，该方式胜过任何别名 `<prefer>`；而 CSS 栈尾正是 `sans-serif`，`-apple-system` 也无法用别名改变。实测在当前宿主上 `-apple-system` 与 `sans-serif` 均落到思源黑体——一个同时覆盖拉丁与 CJK 的族，数字与汉字因而共用一套度量。因此 `packages/client/ui-theme/src/styles/base.css` 把 `'Noto Sans Display'`、`'WenQuanYi Micro Hei'` 前置（提交 `2fc0de8ef5`）；`--dsw-font-family` 是全部 `--dsw-font-*` 排版 token 的基础族，33 个组件文件消费这些 token，时间文本用的 `--dsw-font-xs-13` 即由其派生。等宽栈同时前置 `'JetBrains Mono'`。该改动已在 0.1.2.7 的实机运行中验证：时间文本不再挤压。
 
 ### N2 的修复记录
 
@@ -464,7 +464,7 @@
 - 附录 A 中「已完成」条目，以及正文标注 ✅ 的条目，均经逐行读取代码或实跑命令验证。
 - 标注 ⚠️ 的条目来自静态代码审查，审计者未逐条复跑；标注 ❓ 的条目依赖尚未执行的端到端运行。
 - 保留本条以说明历史判据：N2 修复前「同一 schema + 同一配置 + `resolveConfig` 必然抛错」的函数链已实测，但那只是链路推演；修复后改为用打包闭包的 `discoverPresets` 做运行时发现验证（见附录 A 的修复记录）。两者的共同缺口是仍未触发真实会话观察系统提示。
-- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。审计收尾时这些构建缓存已清理，复现体积数据需先重新构建。
+- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。审计收尾时这些构建缓存曾清理，随后为验证字体方案重新生成。
 - 仓库当前的文档闸门并非全绿：`verify-translation-pairing` 语料为 837 ok / 1 out-of-sync / 33 missing（含 `docs/superpowers/**` 与清理前 `linglong/` 下被扫到的构建产物），`verify-md-wrap`、`verify-md-links`、`verify-package-readme-*` 亦有既有失败。这些与本文条目无关，但会影响「闸门全绿」的判断。
 - 字体方案的验证边界见附录 A 的对应记录。
 
