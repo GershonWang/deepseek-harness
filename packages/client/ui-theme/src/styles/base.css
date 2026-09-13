@@ -2,11 +2,23 @@
  * upstream (deepsuite theme/global.css) — supplied here so the composite
  * --dsw-font-* variables resolve and motion rides the upstream curve. Code
  * font stack deliberately omits a bare `monospace` tail (Windows CJK falls
- * back to SimSun otherwise). */
+ * back to SimSun otherwise).
+ *
+ * The desktop launcher packages these two families into the Linglong
+ * container and registers them via FONTCONFIG_FILE; naming them first keeps
+ * the rendered face independent of which fonts the host happens to provide.
+ * Host-level fontconfig rules can retarget a generic name such as
+ * `sans-serif` at any CJK face, so the stack must not rely on it.
+ * Latin and CJK stay separate entries on purpose: fontconfig resolves a
+ * family list per glyph, so a resource containing both scripts would hand the
+ * digits to the CJK face and mix two sets of metrics inside one line.
+ * The previous stack is retained behind them as a fallback for deployments
+ * that never ship the packaged fonts. */
 :root {
-  --dsw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --ds-font-family-code: 'SF Mono', 'JetBrains Mono', 'Fira Code', Consolas,
+  --dsw-font-family: 'Noto Sans Display', 'WenQuanYi Micro Hei', -apple-system, BlinkMacSystemFont,
+    'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica,
+    Arial, sans-serif;
+  --ds-font-family-code: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
     'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei';
   --ds-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ds-transition-duration: 0.2s;
