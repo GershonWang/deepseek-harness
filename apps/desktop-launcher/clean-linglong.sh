@@ -16,8 +16,10 @@
 #   - linglong/          ll-builder 构建工作区（output、cache、overlay）
 #   - *.uab              仓库根导出的安装包
 #   - apps/desktop-launcher/dsh-desktop-launcher  Go 编译的二进制产物
-#   - */*/lib/           所有包的 tsc 构建产物（重建代价低）
+#   - lib/ 与 */*/lib/  根 solution 的遗留输出 + 所有包的 tsc 构建产物
 #   - */*/types/         所有包的类型声明输出
+#   - apps/desktop-launcher/frontend/.preview/    启动器前端预览产物
+#   - apps/desktop-launcher/.preview-cache/       预览工具的浏览器状态
 #   - .dsh-build/        客户端构建环境元数据
 #   - .typecheck/        TypeScript 类型检查缓存
 #   - native/landlock-run/packages/entry/lib/  Native 模块编译产物
@@ -28,6 +30,7 @@
 #   - 以上全部
 #   - node_modules/      全部依赖（需重新 pnpm install）
 #   - .eslintcache 等    工具缓存文件
+#   - profiles/ sessions/ backups/  DSH home 残留（数据类，普通清理不碰）
 #
 # 彻底清理（最极端，慎用）：
 #   - 以上全部
@@ -107,15 +110,18 @@ if [ -f "$APP_DIR/dsh-desktop-launcher" ]; then
 fi
 
 # 3b. lib/ 编译产物
+#     根 lib/ 单独列出：根程序已按 solution 双聚合改造（tsconfig.host.json 与
+#     tsconfig.client.json 均 noEmit，根 tsconfig 无 outDir），不会再生成它，
+#     属旧配置留下的输出；与各包的 lib/ 同类同代价，一并列入普通清理。
 lib_count=0
-for d in packages/*/*/lib apps/*/lib vendor/*/lib native/landlock-run/packages/entry/lib; do
+for d in lib packages/*/*/lib apps/*/lib vendor/*/lib native/landlock-run/packages/entry/lib; do
   if [ -d "$d" ]; then
     lib_count=$((lib_count + 1))
     rm -rf "$d"
   fi
 done
 if [ "$lib_count" -gt 0 ]; then
-  echo "  - lib/ (共 $lib_count 个包的编译产物)"
+  echo "  - lib/ (共 $lib_count 个编译产物目录)"
 fi
 
 # 3c. types/ 类型声明
@@ -138,19 +144,31 @@ for d in apps/*/dist; do
   fi
 done
 
-# 3e. .dsh-build/ 客户端构建元数据
+# 3e. 启动器前端预览工具的产物
+#     frontend/.preview/ 是截图与运行时生成的预览页；.preview-cache/ 是 Chromium
+#     的 profile/HOME/XDG。后者必须留在 go:embed 根 frontend/ 之外，否则
+#     Chromium 的缓存文件名会让启动器的 go build 直接失败（.gitignore:62-65）。
+#     两者都是几秒可再生的小缓存，与 .typecheck/.dsh-build 同档。
+for d in "$APP_DIR/frontend/.preview" "$APP_DIR/.preview-cache"; do
+  if [ -d "$d" ]; then
+    echo "  - $d/"
+    rm -rf "$d"
+  fi
+done
+
+# 3f. .dsh-build/ 客户端构建元数据
 if [ -d ".dsh-build" ]; then
   echo "  - .dsh-build/"
   rm -rf .dsh-build
 fi
 
-# 3f. .typecheck/ 类型检查缓存
+# 3g. .typecheck/ 类型检查缓存
 if [ -d ".typecheck" ]; then
   echo "  - .typecheck/"
   rm -rf .typecheck
 fi
 
-# 3g. *.tsbuildinfo 增量编译缓存
+# 3h. *.tsbuildinfo 增量编译缓存
 tsbuildinfo_count=0
 for f in *.tsbuildinfo; do
   if [ -f "$f" ]; then
@@ -191,6 +209,17 @@ if [ "$DEEP" = true ]; then
     if [ -f "$f" ]; then
       echo "  - $f"
       rm -f "$f"
+    fi
+  done
+
+  # 8. DSH home 残留 — 测试、或把仓库根当 DSH home 的源码运行，会在根留下
+  #    profiles/<name>（profile 脚手架）、sessions/、backups/。它们的形状是
+  #    用户数据目录而非构建产物（.gitignore:47-49 已标注为测试残留），因此只在
+  #    --deep 这个显式重置档里清，普通清理不碰，避免误删会话数据。
+  for d in profiles sessions backups; do
+    if [ -d "$d" ]; then
+      echo "  - $d/  (DSH home 残留)"
+      rm -rf "$d"
     fi
   done
 

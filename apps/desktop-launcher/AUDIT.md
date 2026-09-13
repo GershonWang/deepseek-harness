@@ -245,8 +245,10 @@
   1. 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`：`stage/` 归源码目录，`linglong/{output,cache,overlay}` 归仓库根的 ll-builder 工作区，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore:41` 的 `/linglong/` 同基准；Go 二进制改指 `APP_DIR`。
   2. 一并清掉 `.gitignore:39` 预留的 `linglong/linglong/` 嵌套变体（在 `linglong.yaml` 所在目录内直接跑 ll-builder 会产生）。
   3. 删除恒不命中的 `apps/cli/deploy` 块：`prepare-offline.sh:34` 的 deploy 目标是 `$STAGE/harness`，该目录已不存在。
+  4. 补齐未覆盖的清理目标（同一「自称干净状态却清不干净」缺陷的另一半）：普通清理收根 `lib/`（旧配置留下的 solution 输出——根级 tsconfig 现已全部无 `outDir`、`tsconfig.host.json`/`client.json` 均 `noEmit`，不会再生成）与 `apps/desktop-launcher/{frontend/.preview,.preview-cache}`（几秒可再生的预览工具产物，与 `.typecheck`/`.dsh-build` 同档）；深度清理收仓库根的 `profiles/`、`sessions/`、`backups/`（DSH home 形状的**数据类**残留，只在显式重置档删除，避免普通清理误删会话数据）。
+- **已知遗留（未改）**：`clean-linglong.sh` 的通用构建产物段与仓库统一入口 `pnpm run clean`（`scripts/clean.ts` 的 `RepositoryCleaner`）重复；后者按 TS project references 图推导输出、拒绝越界与软链穿越、遇未知条目非零退出，且已覆盖 `.typecheck`/根 `*.tsbuildinfo` 等同类的旧配置遗留项，**唯独漏了根 `lib/`**（实跑 `scripts/clean.ts` 两次，第二次报 `clean: already clean` 而根 `lib/` 仍在）。是否收敛为调用统一入口，需权衡「普通清理不依赖 node_modules」这一定位，另行决定。
 - **实测补充（改对路径后才暴露）**：ll-builder 异常退出会在 `linglong/cache/*/overlay/workdir/` 留下 `mode=0000` 的 overlayfs `work` 残渣，`rm -rf` 无法遍历；在 `set -e` 下这会中断**后续全部**清理（`*.uab`/`lib`/`types` 一个都不清）。现于删除前 `chmod -R u+rwX` 补回属主权限（确认无 overlay 挂载引用仓库、无 ll-builder 进程存活后才删）。
-- **验证**：真仓库执行普通清理回收 2.2 GB（4.2 G → 2.0 G）；另造 dummy 目标复跑，确认 `stage/`、`linglong/`、`linglong/linglong/`、`dsh-desktop-launcher`、`*.uab` 五个分支逐条命中并全部清除。
+- **验证**：真仓库执行普通清理回收 2.2 GB（4.2 G → 2.0 G）；另造 dummy 目标逐档复跑，确认普通档命中 `stage/`、`linglong/`、`linglong/linglong/`、`dsh-desktop-launcher`、`*.uab`、根 `lib/`、`*/*/lib`、`*/*/types`、预览产物、`.dsh-build`、`.typecheck`、根 `*.tsbuildinfo` 且 `profiles/`/`sessions/`/`backups/` 幸存；`--deep` 档确认 DSH home 残留被清除。
 
 ## N16 `verify-tools.sh` 的一致性校验可静默跳过
 
