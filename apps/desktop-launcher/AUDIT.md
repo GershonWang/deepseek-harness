@@ -36,11 +36,13 @@
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
-- **状态**：未修｜✅ 已复核
+- **状态**：部分修复｜✅ 已复核
 - **位置**：`apps/desktop-launcher/linglong/patch-webkit-exec-path.sh`、`apps/desktop-launcher/linglong/linglong.yaml:137-140`
 - **问题**：直接对 `libwebkit2gtk-4.1.so` 做二进制字符串替换，且 `linglong.yaml:137-138` 把版本号硬编码为 `libwebkit2gtk-4.1.so.0.19.7`。webkit 小版本一变，这两行直接找不到文件。
 - **附加缺陷**：`patch-webkit-exec-path.sh:40-42` 在两个计数都为 0 时打印一行说明并 `sys.exit(0)`，调用方不看 stdout，随后无条件建软链并继续打包导出 → **补丁未生效也能产出「安装成功但 GUI 起不来」的包**。建议改为非零退出，或在构建后断言 `/tmp/dsh-webkit-4.1` 字符串确实已替换。
 - **长期方案**：`WEBKIT_EXEC_PATH`（需 `DEVELOPER_MODE` 构建）或让玲珑 layer 正确导出 `/usr/lib/...`。
+- **已修（第一步）**：版本号不再硬编码——`linglong.yaml` 用 `set -- .../libwebkit2gtk-4.1.so.0.*` 解析构建容器内的唯一实体，命中 0 个（`sh` 不展开 glob 时 `$#` 仍为 1，故同时判 `[ -e "$1" ]`）或多个都硬失败；补丁脚本在找不到硬编码路径、替代串比原串长、替换后仍残留原路径三种情况下均非零退出，写盘前完成全部自检，替换失败不再产出畸形 `.so`。
+- **仍待办（第二步）**：运行时改用 `WEBKIT_EXEC_PATH` / layer 路径导出，去掉字节补丁。届时 `internal/packaging/webkit_linux.go:34-42` 的 `/tmp/dsh-webkit-4.1` 短路径约定必须同步修改（该函数目前无法注入短路径与前缀，尚无单测），否则会造出同一类「装得上、起不来」的包。
 
 ---
 
