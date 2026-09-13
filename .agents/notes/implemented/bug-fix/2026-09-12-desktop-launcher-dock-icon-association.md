@@ -16,7 +16,7 @@ That is why the defect only appeared on the command line: the launcher path neve
 
 ## Decision
 
-The desktop entry declares `StartupWMClass=dsh-desktop-launcher`, the window class instance field measured with `xprop`. One source file serves both packaging paths — `linglong/linglong.yaml` installs it into the bundle and `build-deb.sh` into the `.deb` — so both distributions gain the association from one line.
+The desktop entry declares `StartupWMClass=dsh-desktop-launcher`, the window class instance field measured with `xprop`. One source file carries it: `linglong/linglong.yaml` installs the entry into the bundle, so the packaged distribution gains the association from one line.
 
 The value is the instance rather than the class field (`Dsh-desktop-launcher`): dock implementations in practice match the lowercased instance, which is also what comparable third-party entries do for windows whose class is capitalised (Sublime Text runs `"sublime_text", "Sublime_text"`).
 
@@ -24,7 +24,7 @@ The value is the instance rather than the class field (`Dsh-desktop-launcher`): 
 
 **Have the launcher set the window icon, so the fallback works.** It would fix every entry that fails to associate, not just this one, and the launcher already knows where its icon lives (`packaging.AboutIconPath`). Rejected: Wails v2's Linux frontend exposes no window-icon API — `pkg/runtime/window.go` has title, size, position, background colour and theme, but nothing for the icon, and the `gtk_window_set_icon` call inside `window.c` is not reachable from Go. Making it reachable means patching Wails or adding cgo of our own, which is a large dependency for a cosmetic fallback.
 
-**Rename the binary to match the entry, or the entry to match the binary.** Rejected: `dsh-desktop-launcher` is the build output named by the Makefile, the Linglong entry script and the `.deb` packaging, while `com.deepseek.dsh-desktop` is the Linglong application id that the sandbox, the desktop entry and the published bundle all key on. Either rename reaches far past the dock.
+**Rename the binary to match the entry, or the entry to match the binary.** Rejected: `dsh-desktop-launcher` is the build output named by the Makefile and the Linglong entry script, while `com.deepseek.dsh-desktop` is the Linglong application id that the sandbox, the desktop entry and the published bundle all key on. Either rename reaches far past the dock.
 
 **Set `WM_CLASS` from application code instead.** Rejected: GTK derives the class from the program name, and Wails owns window creation, so overriding it means cgo calls against a window this program does not create — more moving parts than one declarative field.
 

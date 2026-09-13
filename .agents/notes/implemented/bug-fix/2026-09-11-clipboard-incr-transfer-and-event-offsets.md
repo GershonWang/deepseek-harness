@@ -13,7 +13,7 @@ The owners of a raster capture — `deepin-screen-recorder` and the `dde-clipboa
 1. `getProperty` entered its INCR branch only when `bytes-after != 0`, but the marker reply itself reports `bytes-after` 0 — the whole marker was 4 bytes and one read consumed it. The 4-byte marker was therefore returned as the payload and failed the PNG magic check, so a 108253-byte 1098×699 capture became a 4-byte "image" and the read ended as `errSelectionEmpty`.
 2. `installWindow` created the requestor window with an empty value-list, so no `PropertyNotify` reached it and the chunk loop could only wait for its deadline.
 3. The `PropertyNotify` field offsets were read four bytes late (window at 8, atom at 12 instead of 4 and 8), so a notification was compared against the `time` field and discarded.
-4. The standard `SelectionNotify` (event code 31) property offset was read four bytes late (24 instead of the wire offset 20, where `property` sits after `time`, `requestor`, `selection`, and `target`). The container reaches X through the Linglong bridge, which rewrites the event to code 159 with the property at offset 20, so the branch that happened to be correct kept the defect invisible in the packaged build; a `.deb` install runs outside the container against a plain X server, where every conversion would have been read as refused.
+4. The standard `SelectionNotify` (event code 31) property offset was read four bytes late (24 instead of the wire offset 20, where `property` sits after `time`, `requestor`, `selection`, and `target`). The container reaches X through the Linglong bridge, which rewrites the event to code 159 with the property at offset 20, so the branch that happened to be correct kept the defect invisible in the packaged build; against a plain X server, every conversion would have been read as refused.
 
 ## Decision
 
@@ -39,6 +39,6 @@ Live verification used the real owner: with `dde-clipboard-daemon` holding the s
 
 ## Consequences
 
-Screenshots and any other INCR-served capture paste into the composer through the shell bridge, which is the only bitmap channel the packaged WebKitGTK renderer has. A `.deb` install now has a working reader as well: the standard event code and its offsets are read correctly, so the bridge is no longer a precondition for the clipboard to work.
+Screenshots and any other INCR-served capture paste into the composer through the shell bridge, which is the only bitmap channel the packaged WebKitGTK renderer has. The reader resolves the standard `SelectionNotify` event code and its property offset, so clipboard reads do not depend on the container bridge's rewrite happening to land on the offset the reader expects.
 
 An abandoned INCR transfer is read as empty rather than as a corrupt payload, so a failed read reports "no image" and the composer falls back to WebKitGTK's own paste data instead of attaching a garbage file. The reader still never reads `text/plain` from the selection, so a copied non-image file continues to paste nothing; that gap belongs to the owner's fallback policy rather than to the transfer protocol.

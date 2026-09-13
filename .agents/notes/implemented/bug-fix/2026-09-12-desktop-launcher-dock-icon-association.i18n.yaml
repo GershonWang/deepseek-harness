@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-desktop-launcher-dock-icon-association.md
-2026-09-12-desktop-launcher-dock-icon-association.md: ddcb8ea9383b8da1aaeb77f39d76df74f2ded3d7
-2026-09-12-desktop-launcher-dock-icon-association.zh.md: b2ddd3b0f5f3c50f71bc37e7d17633cc543d229f
+2026-09-12-desktop-launcher-dock-icon-association.md: e4f792bfbc5a8e7e217af9dda8125531f0771d90
+2026-09-12-desktop-launcher-dock-icon-association.zh.md: 85ee3a43a8148d22a6bf7a9b2db5165a55ec8e6c
