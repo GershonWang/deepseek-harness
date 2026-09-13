@@ -6,8 +6,7 @@
 #
 # linglong.yaml 的 build 段把它覆盖到
 # ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml，
-# 即 dsh-agent-presets 真正读取的 shipped root。上游预设演进后必须同步 roster；
-# 漂移与 persona 可解析性由 verify-preset-overlay.mjs 在导出前拦截。
+# 即 dsh-agent-presets 真正读取的 shipped root。上游预设演进后必须同步 roster。
 
 # The `standard` agent preset: the full coding agent, mounted once per process.
 #

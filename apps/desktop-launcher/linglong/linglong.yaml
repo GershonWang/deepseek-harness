@@ -67,18 +67,21 @@ build: |
   fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
-  # 容器工具清单注入:overlay 覆盖 standard 预设的 persona 文本(追加容器工具链
-  # 段),使打包会话的模型可见输入带上可用工具清单。cp 只覆盖同名文件,其余预设保留。
-  # 上游 v0.1.2 后 agent-presets 通过 dsh.configTrees 从源码路径解析，pnpm deploy
-  # 不复制源码目录树；这里从 node_modules 里的包中提取 presets 到 config 目录，
-  # 保持 overlay 叠加的安装布局不变。
-  mkdir -p ${PREFIX}/harness/config/agent-presets
-  if [ -d ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets ]; then
-    cp -a ${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/. \
-          ${PREFIX}/harness/config/agent-presets/
+  # 容器工具清单注入：overlay 覆盖 dsh-agent-presets 自带的 standard 组合，把
+  # 容器工具链段落追加进 persona，使打包会话的模型可见输入带上可用工具清单。
+  #
+  # 必须写进 shipped root（包内 presets/），不能另建 ${PREFIX}/harness/config：
+  # dsh-agent-presets 的 shipped root 是包内硬编码路径（lib/index.js 的
+  # new URL('../presets/', import.meta.url)），且 root 解析按 id 先到先得、
+  # shipped 恒排在最前——另建目录不会被扫描。preset.yml 元数据与其余预设保持
+  # 上游原样，只覆盖 standard/agent.cordis.yml。
+  PRESETS=${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets
+  if [ ! -d "$PRESETS/standard" ]; then
+    echo "预设包布局变化：$PRESETS/standard 不存在，overlay 无法注入" >&2
+    exit 1
   fi
-  cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
-        ${PREFIX}/harness/config/agent-presets/
+  install -Dm644 /project/apps/desktop-launcher/linglong/harness-overlay/agent-presets/standard/agent.cordis.yml \
+    "$PRESETS/standard/agent.cordis.yml"
   cp -a "$STAGE/node/." ${PREFIX}/node/
   # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
   # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的
