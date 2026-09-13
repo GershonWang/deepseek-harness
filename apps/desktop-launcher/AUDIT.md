@@ -237,10 +237,16 @@
 
 ## N15 `clean-linglong.sh` 清理路径整体漂移
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/clean-linglong.sh:51`、`:65-75`、`:95-98`
-- **问题**：脚本删 `apps/desktop-launcher/linglong/{output,cache}`，而 ll-builder 的产物在**仓库根** `linglong/output`（766 MB）与 `linglong/cache`（344 KB）——脚本要找的两个目录都不存在。Go 二进制路径同样错位（真实位置 `apps/desktop-launcher/dsh-desktop-launcher`）。脚本也只清 `*.uab`。
-- **影响**：脚本自称「确保下一次构建从干净状态开始」并删掉了 `stage/`，但层缓存与 `output/` 全留着——正是它自己注释里警告的「上游升级后旧闭包」场景。
+- **状态**：已修｜✅ 实测复核
+- **位置**：`apps/desktop-launcher/clean-linglong.sh:49-60`（基准常量）、`:81-90`（清理块）、`:104-107`（Go 二进制）
+- **问题**：脚本删 `apps/desktop-launcher/linglong/{output,cache}`，而 ll-builder 的产物在**仓库根** `linglong/output`（769 MB）、`linglong/cache`（344 KB）与 `linglong/overlay`（1.2 GB）——脚本要找的两个目录都不存在，`for` 循环静默跳过。Go 二进制路径同样错位（真实位置 `apps/desktop-launcher/dsh-desktop-launcher`）。脚本实际只清掉了最小的 `*.uab`。
+- **影响**：脚本自称「确保下一次构建从干净状态开始」，却把层缓存、output/ 与基础 overlay 全留着——正是它自己注释里警告的「上游升级后旧闭包」场景；基础 overlay 还带着首轮审计记录的 `.dpkg-new` 脏文件。
+- **已修**：
+  1. 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`：`stage/` 归源码目录，`linglong/{output,cache,overlay}` 归仓库根的 ll-builder 工作区，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore:41` 的 `/linglong/` 同基准；Go 二进制改指 `APP_DIR`。
+  2. 一并清掉 `.gitignore:39` 预留的 `linglong/linglong/` 嵌套变体（在 `linglong.yaml` 所在目录内直接跑 ll-builder 会产生）。
+  3. 删除恒不命中的 `apps/cli/deploy` 块：`prepare-offline.sh:34` 的 deploy 目标是 `$STAGE/harness`，该目录已不存在。
+- **实测补充（改对路径后才暴露）**：ll-builder 异常退出会在 `linglong/cache/*/overlay/workdir/` 留下 `mode=0000` 的 overlayfs `work` 残渣，`rm -rf` 无法遍历；在 `set -e` 下这会中断**后续全部**清理（`*.uab`/`lib`/`types` 一个都不清）。现于删除前 `chmod -R u+rwX` 补回属主权限（确认无 overlay 挂载引用仓库、无 ll-builder 进程存活后才删）。
+- **验证**：真仓库执行普通清理回收 2.2 GB（4.2 G → 2.0 G）；另造 dummy 目标复跑，确认 `stage/`、`linglong/`、`linglong/linglong/`、`dsh-desktop-launcher`、`*.uab` 五个分支逐条命中并全部清除。
 
 ## N16 `verify-tools.sh` 的一致性校验可静默跳过
 
