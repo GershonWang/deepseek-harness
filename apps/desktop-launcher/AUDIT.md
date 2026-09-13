@@ -44,6 +44,39 @@
 - **已修（第一步）**：版本号不再硬编码——`linglong.yaml` 用 `set -- .../libwebkit2gtk-4.1.so.0.*` 解析构建容器内的唯一实体，命中 0 个（`sh` 不展开 glob 时 `$#` 仍为 1，故同时判 `[ -e "$1" ]`）或多个都硬失败；补丁脚本在找不到硬编码路径、替代串比原串长、替换后仍残留原路径三种情况下均非零退出，写盘前完成全部自检，替换失败不再产出畸形 `.so`。
 - **仍待办（第二步）**：运行时改用 `WEBKIT_EXEC_PATH` / layer 路径导出，去掉字节补丁。届时 `internal/packaging/webkit_linux.go:34-42` 的 `/tmp/dsh-webkit-4.1` 短路径约定必须同步修改（该函数目前无法注入短路径与前缀，尚无单测），否则会造出同一类「装得上、起不来」的包。
 
+## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）
+- **问题**：生成脚本的两条命令都以 `|| echo "$?"` 结尾——
+
+  ```sh
+  apt -o APT::Sandbox::User=root update || echo "$?"
+  apt -o APT::Sandbox::User=root -y install libwebkit2gtk-4.1-0 … xdg-utils || echo "$?"
+  ```
+
+  apt 失败（网络、锁、磁盘、文件系统错误）不会中止构建，只打印一个数字；`README.zh.md` 声明的运行时依赖全部经由这一条路径拉入。
+- **证据**：`/home/Jokul/Desktop/日志.txt` 两轮构建各自出现两次 apt 阶段（`L683`/`L834`、`L1657`/`L1888`，`Unpacking`/`Setting up libwebkit2gtk-4.1-0 (2.50.4-1~deb12u1deepin2)`），但容器内的 2.50.4 内容一个字节都没有落进包；两轮全程没有任何环节报错。
+- **建议**：改为失败即中止（`set -e` 语义），或在 `build:` 段加一条"关键包必须存在于容器"的断言（与第 33 条第一步同源）。
+
+## N19 构建器缓存静默复用陈旧产物，依赖升级被无声丢弃
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`~/.cache/linglong-builder/merged/<hash>/files/`（构建器状态；仓库内没有任何脚本生成或清理它）
+- **问题**：该目录下留着打包时使用的 `lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`（**92,804,704 字节**，与包内实体 sha256 `765432e2…` 一致）。构建容器里 apt 装的是 2.50.4，最终包却带 2.48.5；`find linglong ~/.cache/linglong-builder -name 'libwebkit2gtk-4.1.so.0.2*'` 为零——**新版本从未落盘**。
+- **影响**：只要构建器缓存被复用，`buildext`/依赖升级就不会生效，且没有任何报错。这是 N17 所述「包内沿用旧库」得以复现两轮的原因；两轮独立构建的产物声明完成、`.uab` 照常导出。
+- **建议**：
+  1. **仓库侧防线**：打包完成后断言 `${PREFIX}` 中的 webkit 实体与构建容器 `/usr` 中的实体一致（文件名 + 大小 / sha256），不一致即失败——不依赖上游修复；
+  2. 在打包流程或文档中明确 `~/.cache/linglong-builder` 的清理时机（本轮复现前删掉 `linglong/` 工作区并不足以使缓存失效）。
+
+## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
+
+- **状态**：未修（工具链侧）｜✅ 已复核
+- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`
+- **问题**：`failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 之后 `[Install Files]`（`L1942`）、`[Commit Contents]`（`L1945`）、`[Runtime Check]`（`L1949`）照常执行，产物以 345 MB 导出。最终包内仍是 4 月的 2.48.5。
+- **影响**：依赖升级会被静默丢弃。比第 33 条更隐蔽——第 33 条至少会在下一次找不到文件时炸掉，这条连炸都不炸。
+- **建议**：仓库侧按 N19 第 1 条加构建后硬断言；并向上游反馈该 `failed to copy`（附带 `linglong/overlay/prepare_base/upperdir` 下 5,830 个 `.dpkg-new` 字符设备与 `.wh..opq` 白障的证据）。
+
 ---
 
 # 二、中危
@@ -387,6 +420,9 @@
 | 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
 | N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
 | N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
+| N17 builder 的 `failed to copy` 只警告不中止 | ❌ 未修（工具链侧） | 连续两轮构建在同一位置失败后照常出包，见正文 N17 |
+| N18 `buildext.apt.depends` 吞掉安装错误 | ❌ 未修 | 生成脚本 `linglong/buildext.sh` 两条 apt 命令均以 `\|\| echo "$?"` 结尾，见正文 N18 |
+| N19 构建器缓存静默复用陈旧产物 | ❌ 未修 | `~/.cache/linglong-builder/merged/<hash>/files/` 内实测 2.48.5 实体（92,804,704 字节），见正文 N19 |
 
 ### N2 的修复记录
 
