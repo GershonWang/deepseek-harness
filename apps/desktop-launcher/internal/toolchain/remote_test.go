@@ -5,10 +5,15 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+// indexRefPattern 匹配 git 的不可变引用形式：40 位小写十六进制提交哈希。
+var indexRefPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
 
 // restoreBuiltin 把有效目录恢复为内置兜底，避免远程测试污染其他用例。
 func restoreBuiltin(t *testing.T) {
@@ -136,5 +141,29 @@ func TestLoadIndex_FallbackToBuiltin(t *testing.T) {
 func TestIndexCachePath(t *testing.T) {
 	if indexCachePath(filepath.Join("a", "b")) != filepath.Join("a", "b", "index.json") {
 		t.Fatal("indexCachePath 应为 <dir>/index.json")
+	}
+}
+
+// TestDefaultIndexURL_PinnedToCommit 守卫默认索引地址不退回可变引用。
+//
+// 索引同时提供每个工具的下载地址与 sha256，两者出自同一份数据，因此 sha256 只证明
+// 归档与清单一致（完整性），不证明清单本身可信（来源认证）。引用若仍是分支名，
+// 控制该分支即可整体替换索引及其哈希。固定到提交哈希后，索引内容由客户端自身的
+// 发布过程锚定；代价是索引更新需要重新发版，这是安全性与更新敏捷性之间的取舍。
+func TestDefaultIndexURL_PinnedToCommit(t *testing.T) {
+	const rawPrefix = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/"
+	rest, ok := strings.CutPrefix(defaultIndexURL, rawPrefix)
+	if !ok {
+		t.Fatalf("默认索引地址不再位于预期的发布位置：%s", defaultIndexURL)
+	}
+	ref, path, ok := strings.Cut(rest, "/")
+	if !ok {
+		t.Fatalf("默认索引地址缺少文件路径：%s", defaultIndexURL)
+	}
+	if !indexRefPattern.MatchString(ref) {
+		t.Fatalf("默认索引引用 %q 不是 40 位提交哈希；可变引用会让索引内容被整体替换", ref)
+	}
+	if path != "apps/desktop-launcher/internal/toolchain/tools/index.json" {
+		t.Fatalf("默认索引地址指向意外路径：%s", path)
 	}
 }

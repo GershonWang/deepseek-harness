@@ -26,9 +26,21 @@ type Index struct {
 // indexCacheTTL 是远程索引缓存有效期。超过后下次加载会尝试重新拉取。
 const indexCacheTTL = 24 * time.Hour
 
-// defaultIndexURL 是远程索引默认地址。可在构建/部署时用
-// DSH_TOOLCHAIN_INDEX_URL 环境变量覆盖（便于内网镜像或自托管）。
-const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json"
+// defaultIndexURL 是远程索引默认地址，引用固定到提交哈希而非分支名。
+//
+// 索引自带每个工具的下载地址与 sha256，两者出自同一份数据：sha256 只能证明归档与
+// 清单一致，不能证明清单本身可信。引用一旦是分支名，控制该分支就能整体替换索引与
+// 哈希，而校验方无从察觉。固定提交后，索引内容由客户端自身的发布过程锚定——信任
+// 对象从「上游账号」收敛为「这份二进制」。
+//
+// 代价与更新方式：索引更新不再能只发索引，必须改这个常量并重新发客户端。
+// 升级时把 <sha> 换成 origin/linglong 上承载新 index.json 的提交（用
+// `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`
+// 确认 blob 与工作区一致），并保持 TestDefaultIndexURL_PinnedToCommit 通过。
+//
+// DSH_TOOLCHAIN_INDEX_URL 仍可在构建/部署时覆盖该地址（内网镜像或自托管）；
+// 环境变量与二进制同属一个信任域，不构成额外的攻击面。
+const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/47d123e212ced431eb582e83f7d58a081b39d43c/apps/desktop-launcher/internal/toolchain/tools/index.json"
 
 // indexURL 返回生效的远程索引地址。
 func indexURL() string {

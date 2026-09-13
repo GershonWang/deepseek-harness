@@ -28,11 +28,15 @@
 
 ## N3 工具索引来自个人 fork 的可变分支，且无签名
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:31`（另见 `:147-159`、`internal/toolchain/install.go:190-251`、`internal/appenv/env.go:203-205`）
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:43`（常量）、`:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
 - **问题**：索引地址是 `https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json`——**个人账号 fork 的 `linglong` 分支**，可变引用。索引同时提供下载 URL 与 `sha256`，因此「sha256 校验」与下载来源出自同一份未经认证的数据，只保证传输完整，**不提供来源认证**。`DSH_TOOLCHAIN_INDEX_URL` 还可直接覆盖该地址。
 - **影响**：控制该账号/分支、或能改写该 URL 的中间人，可让用户在「工具链市场」安装任意代码；解压产物经 `ReconcileBinLinks` 软链进 `~/.dsh-tools/bin`，而该目录被前置进 harness 子进程 `PATH`。`README.md:147` 把 "after sha256 verification" 当作安全属性，实际不成立。
-- **建议**：索引引入离线公钥签名，或把 URL 固定到不可变提交/发行物；sha256 退回「索引内一致性校验」的定位，并撤掉文档里的安全表述。
+- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希** `47d123e212ced431eb582e83f7d58a081b39d43c`（即发布 43 项清单的那个提交，其 `index.json` blob 与工作区一致）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
+  1. 新增回归守卫 `TestDefaultIndexURL_PinnedToCommit`——断言默认引用是 40 位提交哈希、且路径未被改到别处（先写测试确认它在旧值 `linglong` 上失败，再改常量使其通过）。
+  2. 中英 README 撤掉「sha256 即安全」的表述，改写为「对清单的一致性校验，清单自身由客户端固定的提交哈希锚定」；并同步修正同段末尾「增删工具不必发客户端」——该句在固定引用后已不成立，现说明发布索引需改常量并重发客户端。
+- **仍待决定（需产品决策，本次未做）**：审计建议的第一选项——**离线公钥签名**。它能在保留「只发索引不发客户端」更新方式的同时提供来源认证，但需要密钥托管与签名发布流程，属于用户尚未持有的流程变更，故不在无人确认时擅自引入。
+- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
