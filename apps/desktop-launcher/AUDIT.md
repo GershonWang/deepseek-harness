@@ -81,11 +81,14 @@
 
 ## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
 
-- **状态**：未修（工具链侧）｜✅ 已复核
-- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`
+- **状态**：部分修复（仓库侧已拦截）｜✅ 实测复核
+- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`；仓库侧落点 `build-linglong.sh:29-42`、`linglong/verify-builder-log.sh`
 - **问题**：`failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 之后 `[Install Files]`（`L1942`）、`[Commit Contents]`（`L1945`）、`[Runtime Check]`（`L1949`）照常执行，产物以 345 MB 导出。最终包内仍是 4 月的 2.48.5。
 - **影响**：依赖升级会被静默丢弃。比第 33 条更隐蔽——第 33 条至少会在下一次找不到文件时炸掉，这条连炸都不炸。
 - **建议**：仓库侧按 N19 第 1 条加构建后硬断言；并向上游反馈该 `failed to copy`（附带 `linglong/overlay/prepare_base/upperdir` 下 5,830 个 `.dpkg-new` 字符设备与 `.wh..opq` 白障的证据）。
+- **已修（本次）**：仓库侧事后拦截。`build-linglong.sh` 把 `ll-builder build` 的完整输出保留到 `linglong/build.log`（该路径在 `.gitignore:41` 的 `/linglong/` 内），导出前调用 `verify-builder-log.sh`，命中 `failed to copy` 即打印命中条数与位置并非零退出。同时保住构建器自身的退出码：POSIX `sh` 没有 `pipefail`，因此用子 shell 把 `$?` 写进状态文件再读回，避免 `tee` 的退出码掩盖构建失败。
+- **未修（工具链侧）**：构建器仍把复制失败降级为警告。仓库侧只能拦住"带着旧文件出包"，无法让它别丢文件；上游反馈仍是必要动作。
+- **验证**：`sh apps/desktop-launcher/linglong/test-verify-builder-log.sh` 3 项全过（正常日志通过；含 `failed to copy` 时非零退出并指明位置；日志缺失时非零退出）。另单独实测了状态捕获惯用法：子 shell 内 `exit 7` 被正确读回为 7，`tee` 同时把输出落盘。
 
 ---
 

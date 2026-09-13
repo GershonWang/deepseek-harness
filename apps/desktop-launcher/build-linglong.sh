@@ -26,7 +26,20 @@ fi
 echo "==> 校验预设 overlay 与上游 standard 的一致性"
 node apps/desktop-launcher/linglong/verify-preset-overlay.mjs
 
-ll-builder build -f "$YAML"
+# 构建器把「拷不进去」降级成警告：实测 libwebkit2gtk-4.1.so.0 复制失败（无效的参数）
+# 之后仍照常 [Install Files]/[Commit Contents] 并导出 345 MB 产物，而包内沿用基础层
+# 的旧库——比第 33 条更隐蔽，连报错都没有（AUDIT N17）。因此保留完整日志，并在导出
+# 前把该告警升级为硬失败：能出包不等于出的是这次构建的东西。
+BUILD_LOG=linglong/build.log
+STATUS_FILE=$(mktemp)
+trap 'rm -f "$STATUS_FILE"' EXIT
+( set +e; ll-builder build -f "$YAML"; echo $? > "$STATUS_FILE" ) 2>&1 | tee "$BUILD_LOG"
+BUILD_STATUS=$(cat "$STATUS_FILE")
+if [ "$BUILD_STATUS" -ne 0 ]; then
+  echo "ll-builder build 失败（退出码 $BUILD_STATUS），完整日志: $BUILD_LOG" >&2
+  exit 1
+fi
+sh apps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
 echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
 sh apps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files
 echo "==> 校验合并产物树工具清单（含 git-core helper，launcher 以 GIT_EXEC_PATH 指回它）"
