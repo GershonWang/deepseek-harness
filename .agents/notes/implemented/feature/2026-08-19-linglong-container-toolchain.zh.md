@@ -20,7 +20,7 @@ Status: implemented
 
 **凭据与数据可达性。** 凭据面板与 `20-host-credentials.json` 模板已移除：容器经 HOME 直接继承宿主 `~/.git-credentials` 与 `~/.ssh`，打包会话直接用宿主已存凭据。容器 HOME 即宿主主目录，且 `ll-cli uninstall` 不清用户数据（源码核实），已存凭据在重装后保留；文档建议导出备份。`ca-certificates` 随包进 `$PREFIX` 供 git/https/python 校验；私有 CA 是文档化的追加 + `update-ca-certificates` 项。linyaps 默认转发代理环境变量。
 
-**Phase D —— 模型可见容器工具清单。** 调查结论为分支 A：渲染后的系统提示已被日志化——`packages/core/agent-loop/src/agent.ts` 以 `request/header.header.system` 写盘，指令内容另以 `user/message` 事件落账——因此向 persona 追加工具文本即可满足"model-visible ⟺ logged"，无需新增 `SessionEventMap` 成员。预设只在会话选中时才挂载，且随包默认是 `standard`（由 web-app bundle 补丁设定），新增预设永远不会到达模型。因此部署改为 overlay `standard`：`linglong/harness-overlay/agent-presets/standard/agent.cordis.yml` 是仓库标准 roster 并在 persona 的 `prefix` 末尾追加容器工具链段；`linglong.yaml` build 将其覆盖到包内 shipped roster 文件 `${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`。写进包内自己的预设根才能被读到：`dsh-agent-presets` 由自身模块 URL 推导 shipped root，且同一预设 id 按先到先得解析，因此写在 `${PREFIX}/harness/config` 下的 roster 遮不住任何东西，也永远不会被扫描。默认 id 与其余 roster 保持不变，所有打包会话都携带工具清单。
+**Phase D —— 模型可见容器工具清单。** 调查结论为分支 A：渲染后的系统提示已被日志化——`packages/core/agent-loop/src/agent.ts` 以 `system/message` 事件落账，其 `role: "system"` 消息承载完整文本；`request/header` 的载荷只含模型配置、适配器默认值与工具 schema——指令内容另以 `user/message` 事件落账——因此向 persona 追加工具文本即可满足"model-visible ⟺ logged"，无需新增 `SessionEventMap` 成员。预设只在会话选中时才挂载，且随包默认是 `standard`（由 web-app bundle 补丁设定），新增预设永远不会到达模型。因此部署改为 overlay `standard`：`linglong/harness-overlay/agent-presets/standard/agent.cordis.yml` 是仓库标准 roster 并在 persona 的 `prefix` 末尾追加容器工具链段；`linglong.yaml` build 将其覆盖到包内 shipped roster 文件 `${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`。写进包内自己的预设根才能被读到：`dsh-agent-presets` 由自身模块 URL 推导 shipped root，且同一预设 id 按先到先得解析，因此写在 `${PREFIX}/harness/config` 下的 roster 遮不住任何东西，也永远不会被扫描。默认 id 与其余 roster 保持不变，所有打包会话都携带工具清单。
 
 ## Alternatives considered
 
@@ -34,7 +34,7 @@ Status: implemented
 
 **新增 `desktop-tools` 预设而非 overlay `standard`（Phase D）。** 调查后否决：预设只在会话选中时挂载，打包默认是 `standard`，新预设只会出现在 roster 上却永远不组合默认会话（除非改 `packages/` bundle）。overlay `standard` 的 persona 能在保持默认 id 的同时触达每个会话。
 
-**为工具清单新增 `SessionEventMap` 成员（Phase D 分支 B）。** 不需要：persona/系统提示文本可经 `request/header.header.system` 从会话日志完整重放，注入本身已被日志化。
+**为工具清单新增 `SessionEventMap` 成员（Phase D 分支 B）。** 不需要：persona/系统提示文本可经会话日志的 `system/message` 事件完整重放，注入本身已被日志化。
 
 ## Consequences
 
