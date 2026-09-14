@@ -29,6 +29,19 @@ expect_fail() {
   ok "$desc"
 }
 
+# expect_absent <说明> <输出文件> <不得出现的子串...>
+expect_absent() {
+  desc=$1; out=$2; shift 2
+  for needle in "$@"; do
+    if grep -qF -- "$needle" "$out"; then
+      bad "$desc（输出不应出现「$needle」）"
+      sed 's/^/       /' "$out" >&2
+      return
+    fi
+  done
+  ok "$desc"
+}
+
 write_stubs() {
   bindir=$1
   cat > "$bindir/dpkg-query" <<'STUB'
@@ -123,62 +136,56 @@ run_case() {
   return $status
 }
 
-# 三个依赖的健康状态；各场景再按需打破其中一处。
-healthy_state() {
-  install_pkg libfoo-1.0 1.0
-  install_pkg libbar-2.0 2.0
-  install_pkg libbaz-3.0 3.0
-  install_file libfoo-1.0
-  install_file libbar-2.0
-  install_file libbaz-3.0
-}
-
-# --- 场景 1：依赖齐全、版本一致、无残留 → 通过 ---
+# --- 场景 1：只装 build_depends 即通过 ---
+# 这是本脚本 2026-09-14 修正后的核心语义：depends 由 ll-builder 在 build 段之后才安装，
+# 本阶段看不到它们；要求它们已装会让构建永远失败（真实构建的 8 个 depends 包即因此误报）。
 new_case healthy
-healthy_state
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
 write_yaml
 if run_case "$TMP/out-healthy"; then
-  ok "依赖齐全时应通过（build_depends/depends 去重与注释剥离同时成立）"
+  ok "只装 build_depends 时应通过（depends 未装不算失败）"
 else
-  bad "依赖齐全时未通过"; sed 's/^/       /' "$TMP/out-healthy" >&2
+  bad "只装 build_depends 时未通过"; sed 's/^/       /' "$TMP/out-healthy" >&2
 fi
 
-# --- 场景 2：已装版本落后于 apt 候选（本次安装未生效）→ 失败 ---
+# --- 场景 2：build_depends 已装版本落后于 apt 候选（本次安装未生效）→ 失败 ---
 new_case stale
-healthy_state
-printf '3.1' > "$STATE/candidate/libbaz-3.0"
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
+printf '1.1' > "$STATE/candidate/libfoo-1.0"
 write_yaml
 if run_case "$TMP/out-stale"; then
   bad "版本落后于候选时应失败"
 else
-  expect_fail "版本落后于 apt 候选时非零退出并指名" "$TMP/out-stale" "FAIL libbaz-3.0" "本次安装未生效"
+  expect_fail "版本落后于 apt 候选时非零退出并指名" "$TMP/out-stale" "FAIL libfoo-1.0" "本次安装未生效"
 fi
 
-# --- 场景 3：依赖根本没装上（apt 失败被 '|| echo $?' 吞掉）→ 失败 ---
+# --- 场景 3：build_depends 根本没装上 → 失败 ---
 new_case missing
-healthy_state
-rm -f "$STATE/installed/libbaz-3.0" "$STATE/candidate/libbaz-3.0"
 write_yaml
 if run_case "$TMP/out-missing"; then
-  bad "依赖未安装时应失败"
+  bad "build_depends 未安装时应失败"
 else
-  expect_fail "依赖未安装时非零退出并指名" "$TMP/out-missing" "FAIL libbaz-3.0" "没有装上"
+  expect_fail "build_depends 未安装时非零退出并指名" "$TMP/out-missing" "FAIL libfoo-1.0" "没有装上"
 fi
 
 # --- 场景 4：包内条目是字符设备（overlay 写入未落盘）→ 失败 ---
 new_case chardev
-healthy_state
-replace_with_chardev libbaz-3.0
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
+replace_with_chardev libfoo-1.0
 write_yaml
 if run_case "$TMP/out-chardev"; then
   bad "包内条目为字符设备时应失败"
 else
-  expect_fail "字符设备实体非零退出并指名" "$TMP/out-chardev" "FAIL libbaz-3.0" "字符设备"
+  expect_fail "字符设备实体非零退出并指名" "$TMP/out-chardev" "FAIL libfoo-1.0" "字符设备"
 fi
 
 # --- 场景 5：/usr 下残留 *.dpkg-new → 失败 ---
 new_case residue
-healthy_state
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
 ln -s /dev/null "$SYSROOT/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7.dpkg-new"
 write_yaml
 if run_case "$TMP/out-residue"; then
@@ -187,26 +194,54 @@ else
   expect_fail "dpkg 中间态残留非零退出" "$TMP/out-residue" "残留 dpkg 中间态文件" "libwebkit2gtk-4.1.so.0.19.7.dpkg-new"
 fi
 
-# --- 场景 6：dpkg --verify 报不一致（实体与包记录不符）→ 失败 ---
+# --- 场景 6：dpkg --verify 报实体缺失（库文件不在）→ 失败 ---
 new_case mismatch
-healthy_state
-printf '??5?????? /usr/lib/x86_64-linux-gnu/libbaz-3.0.so\n' > "$STATE/verify/libbaz-3.0"
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
+printf 'missing     /usr/lib/x86_64-linux-gnu/libfoo-1.0.so\n' > "$STATE/verify/libfoo-1.0"
 write_yaml
 if run_case "$TMP/out-mismatch"; then
-  bad "dpkg --verify 报不一致时应失败"
+  bad "dpkg --verify 报实体缺失时应失败"
 else
-  expect_fail "实体与包记录不一致非零退出" "$TMP/out-mismatch" "FAIL libbaz-3.0" "dpkg --verify"
+  expect_fail "实体与包记录不一致非零退出" "$TMP/out-mismatch" "FAIL libfoo-1.0" "dpkg --verify"
 fi
 
-# --- 场景 7：真实 linglong.yaml 必须能被完整解析 ---
+# --- 场景 7：dpkg --verify 只报基础镜像裁剪的文档/手册缺失 → 通过 ---
+# 基座层 org.deepin.base 保留 .list 条目却裁剪了实体（实测：614 个包、/usr/share/doc
+# 实体 0 条）。这类「missing」不是本次安装失败，放行它才能让继承自基座的包不被误判。
+new_case docpruned
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
+printf 'missing     /usr/share/doc/libfoo-1.0\nmissing     /usr/share/man/man1/foo.1.gz\n' > "$STATE/verify/libfoo-1.0"
+write_yaml
+if run_case "$TMP/out-docpruned"; then
+  ok "仅文档/手册缺失时通过（基础镜像裁剪放行）"
+else
+  bad "仅文档/手册缺失时不应失败"; sed 's/^/       /' "$TMP/out-docpruned" >&2
+fi
+
+# --- 场景 8：同一次 verify 里既有文档缺失又有实体缺失 → 仍失败 ---
+new_case docandlib
+install_pkg libfoo-1.0 1.0
+install_file libfoo-1.0
+printf 'missing     /usr/share/doc/libfoo-1.0\nmissing     /usr/lib/x86_64-linux-gnu/libfoo-1.0.so\n' > "$STATE/verify/libfoo-1.0"
+write_yaml
+if run_case "$TMP/out-docandlib"; then
+  bad "文档缺失掩盖实体缺失时应失败"
+else
+  expect_fail "文档缺失不掩盖实体缺失" "$TMP/out-docandlib" "FAIL libfoo-1.0" "libfoo-1.0.so"
+fi
+
+# --- 场景 9：真实 linglong.yaml 必须能被解析，且只校验 build_depends ---
 new_case realyaml
 cp "$ROOT/apps/desktop-launcher/linglong/linglong.yaml" "$CASE/linglong.yaml"
 if run_case "$TMP/out-real"; then
   bad "空状态下真实 yaml 不应通过"
 else
-  # 三个包分别只在 depends 段、且带注释或行尾注释，命中才能证明真实 yaml 被完整解析
-  expect_fail "真实 linglong.yaml 依赖被完整解析" "$TMP/out-real" \
-    "FAIL libwebkit2gtk-4.1-0" "FAIL fonts-wqy-microhei" "FAIL xdg-utils"
+  expect_fail "真实 linglong.yaml 的 build_depends 被解析并报缺失" "$TMP/out-real" "FAIL libwebkit2gtk-4.1-0"
+  # depends 包在本阶段不应被要求（它们由 ll-builder 在 build 段之后安装）
+  expect_absent "真实 linglong.yaml 不再要求 depends 已装" "$TMP/out-real" \
+    "FAIL fonts-wqy-microhei" "FAIL git:" "FAIL xdg-utils" "FAIL jq" "FAIL xxd" "FAIL wget"
 fi
 
 echo

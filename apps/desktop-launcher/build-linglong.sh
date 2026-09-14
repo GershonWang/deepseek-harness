@@ -42,6 +42,13 @@ fi
 sh apps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
 echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
 sh apps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files
+echo "==> 校验 depends 实体是否真的进了合并产物树（容器内看不到它们）"
+if sh apps/desktop-launcher/linglong/verify-merged-deps.sh linglong/output/binary/files; then
+  echo "==> depends 实体校验通过"
+else
+  echo "==> ✗ depends 实体校验失败：产物与 buildext.apt 声明不符，中止导出" >&2
+  exit 1
+fi
 echo "==> 校验合并产物树工具清单（含 git-core helper，launcher 以 GIT_EXEC_PATH 指回它）"
 if sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files; then
   echo "==> 工具清单校验通过"

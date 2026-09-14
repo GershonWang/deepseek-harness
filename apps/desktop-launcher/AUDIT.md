@@ -9,10 +9,11 @@
 - 分支 `linglong-dev`，基点提交 `dfd0e9d186`（与 `linglong` 的文件树完全相同，tree 均为 `eea557d697a7bce2b28f435e1ca070ef70ef73d7`）。
 - 玲珑包版本 `0.1.2.5`，产物 `com.deepseek.dsh-desktop_0.1.2.5_x86_64_main.uab` = **361 MB**（361,331,344 字节），解压后 **759 MB**。
 - 体积分布：`lib/` 320 MB（其中 `lib/x86_64-linux-gnu` **293 MB / 352 个 `.so`**）、`harness/` 254 MB、`node/` 147 MB、`bin/` 39 MB；生产闭包含 **264 个** `@deepseek-ai/*` 包。
-- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N25`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
+- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N26`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
 - 行号以审计基点为准，代码改动后可能漂移。
 - `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 - `N25` 的基点：提交 `9621d91bff`（JDK 17 下架前的清单状态）；行号以该提交为准。
+- `N26` 与 N18/N19 的修正基点：提交 `54483bf5c7`（2026-09-14 首次带依赖闸门的真实构建）；证据来自 `~/.cache/linglong-builder/merged/` 下真实产物层与基座层的实体清点。
 
 ## 状态与验证等级
 
@@ -66,8 +67,8 @@
 
 ## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
 
-- **状态**：部分修复｜✅ 实测复核
-- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/linglong.yaml`（`build:` 段开头）
+- **状态**：部分修复（2026-09-14 修正落点）｜✅ 实测复核
+- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/verify-merged-deps.sh`、`linglong/linglong.yaml`（`build:` 段开头与导出前）
 - **问题**：生成脚本的两条命令都以 `|| echo "$?"` 结尾——
 
   ```sh
@@ -81,6 +82,13 @@
 - **已修（本次，采纳建议的后半）**：`build:` 段开头新增 `linglong/verify-container-deps.sh`，从 `linglong.yaml` 的 `buildext.apt` 段（`build_depends` + `depends`，去重并剥离注释）解析依赖清单，逐项硬断言：dpkg 状态为 `install ok installed`；已装版本等于 apt 候选（本次安装确实生效）；`dpkg --verify` 无输出；包内实体是普通文件；`/usr` 下无 `*.dpkg-new` 残留。任一不满足即非零退出，构建在组装之前中止，不再产出"依赖没装上却照常导出"的包。
 - **未修（工具链侧）**：`|| echo "$?"` 由 ll-builder 从声明生成，`linglong.yaml` 的 `buildext:` 只有包名列表（`apt.build_depends`/`apt.depends`），本仓库改不掉那两行命令。本次改动把"apt 失败不中止"从静默变成构建故障，但没有消除它。
 - **验证**：`sh apps/desktop-launcher/linglong/test-verify-container-deps.sh` 7 项全过——依赖齐全（含两段重复包名去重与整行/行尾注释剥离）、版本落后于候选、依赖未安装、字符设备实体、`*.dpkg-new` 残留、`dpkg --verify` 不一致，以及真实 `linglong.yaml` 的完整解析。
+- **2026-09-14 修正（首次真实构建暴露）**：上一版把 `build_depends` 与 `depends` 一起放在 `build:` 段首校验，**首次真实构建即被它拦下**——8 个 `depends` 包（`fonts-wqy-microhei`、`git`、`git-lfs`、`wget`、`jq`、`xxd`、`zip`、`xdg-utils`）全部报「没有装上」，另有 6 个基础层包报 `dpkg --verify` 不一致。根因有两处，且都不在被校验的依赖身上：
+
+  1. **时机错位**：ll-builder 只把 `build_depends` 装进构建容器——实测本次生成的 `linglong/buildext.sh` 全文只有 `apt update` 与 `apt -y install libwebkit2gtk-4.1-0`；`depends` 是在 build 段**之后**（preCommit 的合并阶段）才安装并合进 `$PREFIX`。同一事实 `verify-tools.sh` 的头部注释与 `linglong.yaml` 的 webkit 注释早已写明，闸门却与之矛盾。旧日志佐证：`[Start Build]`（`日志.txt:878`）之后才出现 `Setting up wget/xdg-utils/git/git-lfs`（`:1722`–`:1871`），随后才是 `[Install Files]`（`:1937`）；而上一版成功导出的产物层 `~/.cache/linglong-builder/merged/50f29c89…/files` 里 `bin/git`、`bin/git-lfs`、`bin/wget`、`bin/jq`、`bin/xxd`、`bin/xdg-open` 一应俱全——depends 确实进了包，只是在 `build:` 阶段还看不见。
+  2. **继承包的文档被基础镜像裁剪**：基座层 `org.deepin.base` 的 `.list` 保留 `/usr/share/doc`、`/usr/share/man` 条目而实体在镜像制作时已删除（实测该层 614 个包、`/usr/share/doc` 实体 0 条，`libgtk-3-0:amd64.list` 列 6 条 doc 路径且全部缺失）。因此 `libgtk-3-0`、`libglib2.0-0`、`python3`、`curl`、`unzip`、`ca-certificates` 的 `dpkg --verify` 永远非空。失败输出里**没有** `*.dpkg-new` 残留、也没有字符设备，说明 N19 的真实故障本轮并未发生。
+
+- **修正后的落点**：`build:` 段只校验 `build_depends`（并放行基座裁剪的 `/usr/share/doc`、`/usr/share/man` 路径，理由写在比对处注释里）；`depends` 改由宿主侧 `verify-merged-deps.sh` 在**合并产物树**上校验，`build-linglong.sh` 在 export 前调用，失败即中止导出。
+- **验证（修正后）**：`test-verify-container-deps.sh` 10 项全过（新增「只装 build_depends 即通过」「仅文档/手册缺失放行」「文档缺失不掩盖实体缺失」「真实 yaml 不再要求 depends 已装」四项）；`test-verify-merged-deps.sh` 7 项全过；`verify-merged-deps.sh` 对**上一版真实产物层**（`merged/50f29c89…/files`）实跑 16/16 OK、退出码 0。
 
 ## N19 容器内新装的文件不落盘，包内实体停留在基础层旧版本
 
@@ -94,6 +102,7 @@
 - **已修（本次）**：把该症状变成构建期硬失败。① `build:` 段开头调用 `verify-container-deps.sh`，其中两条直接针对本条的现场特征：包内实体若是字符设备即失败；`/usr` 下存在任何 `*.dpkg-new` 残留即失败（另加 `dpkg --verify` 比对实体与包记录）。② `build:` 段原有的 webkit 唯一命中断言从 `-e` 收紧为 `-f`——`-e` 对字符设备同样为真，而下面紧接着就是 `cp -a "$1"`，会把设备节点原样复制进产物。
 - **未采纳审计的替代实现（需说明）**：`apt-get download` + `dpkg-deb -x` 直接写 `${PREFIX}` 未在本轮实施。两个原因：其一，buildext 的合并发生在 **preCommit**（`build:` 之后），直接写进 `${PREFIX}` 的内容与随后合并进来的 `/usr` 旧实体谁胜出取决于 ll-builder 的去重时序，而该时序在仓库里只有注释、没有可核对的声明（见第 8/13 条）；其二，本环境没有 ll-builder 与玲珑容器，任何对依赖交付机制的改写都无法端到端验证，只能在用户机器上盲试。断言是当前唯一"改了就能验证"的一步。
 - **验证边界（如实说明）**：日志证据表明 webkit **实体**在容器内确实停在旧版本，`dpkg --verify` 因而会对不上——但这条推断**未在真实容器里复跑**（本环境无 ll-builder，见上）。已在本机用 fixture + stub 覆盖该分支：`test-verify-container-deps.sh` 的"字符设备实体"与"`*.dpkg-new` 残留"两项。
+- **2026-09-14 修正（首次真实构建暴露）**：① 里的容器内断言原先连 `depends` 一并要求，而 `depends` 在该阶段根本不存在（见 N18 修正），首次真实构建即因此被拦下；现已收窄为只校验 `build_depends`，并把基座裁剪的文档/手册路径从 `dpkg --verify` 比对中放行。产物侧的字符设备扫描移入 `verify-merged-deps.sh`——`find -type c` 直接认真实设备节点，比原先 `[ -c ]`（跟随软链）更贴近本条现场，且不受基座包影响。②的 webkit `-f` 断言不变：`build:` 段复制的正是 `build_depends` 提供的实体。
 
 ## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
 
@@ -476,6 +485,15 @@
   - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」与 `preview.mjs` 的预览下拉已同步为两版本。
 - **发布前置（已完成的部分）**：承载新 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。
 - **建议**：N7 / N20 / N21 的修复已于同日完成（见各条状态），与本次重钉一并发布即可，不必再分两次。
+
+## N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它
+
+- **状态**：未修（记录待查）｜✅ 实测复核
+- **位置**：`linglong/linglong.yaml`（`buildext.apt.depends` 里的 `fonts-wqy-microhei`，以及 `build:` 段那段"中文族由下面的 apt 依赖提供"的注释）
+- **问题**：该依赖被声明为容器里中文字体的来源，但实测三版已导出产物层（`~/.cache/linglong-builder/merged/{50f29c89,db95460f,f3e4963d}/files`）里**没有任何 wqy／微米黑字体**：`find -name '*wqy*' -o -name '*microhei*' -o -name '*.ttc'` 为空，`share/` 下只有 `applications`、`dsh-fonts`、`icons`；基座层同样没有该字体。
+- **影响**：中文回退字体实际不来自这个依赖。运行时 `/usr/share/fonts` 又被宿主目录整体挂载覆盖（同一段注释自己写明），所以该依赖既进不了包、也改变不了运行时——注释描述的链路与事实不符，排查中文显示问题时会把人引向错误方向。本条的产物侧后果已由 `verify-merged-deps.sh` 显式记为 `none:` 认领（不阻塞构建），避免它在依赖清单里继续"看起来有人管"。
+- **证据边界**：结论来自对三版产物层与基座层的实体清点；**未**在真实容器里跑 `fc-list` 确认最终渲染走的是哪一路字体（本环境无 ll-builder 与玲珑容器）。
+- **建议**：确认运行时中文来源（宿主挂载 vs 随包字体）后二选一——删掉该依赖并更正注释，或让中文字体随包落到 `${PREFIX}/share/dsh-fonts`（`install-container-fonts.sh` 已在该目录装配拉丁与等宽字体，可复用同一路径）。
 
 ---
 

@@ -30,6 +30,9 @@ build: |
   # 不中止构建；实测还遇到 apt 报告成功但写入未落盘（overlay upperdir 只剩字符设备
   # *.dpkg-new）。两种情况下后面每一步都会照常跑、照常出包，只是包内沿用基础层旧
   # 依赖。这里提前失败，避免把静默缺陷带进产物（AUDIT N18/N19）。
+  # 只校验 build_depends：depends 要到 build 段之后（preCommit 合并）才装进 $PREFIX，
+  # 本阶段看不到它们，要求它们已装会让每次构建都失败；depends 的落点由宿主侧的
+  # verify-merged-deps.sh 在合并产物树上校验（build-linglong.sh 在 export 前调用）。
   sh /project/apps/desktop-launcher/linglong/verify-container-deps.sh
   # harness 运行时需要 Node >=24（node:zlib.createZstdDecompress、
   # Promise.withResolvers、node:module.stripTypeScriptTypes），
