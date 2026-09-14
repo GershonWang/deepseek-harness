@@ -292,10 +292,16 @@ function sourceMapSnapshot(clientPath: string): WebPluginRecord['sourceMap'] {
   return { body, parsed }
 }
 
-/** Count generated lines while assembling indexed-map section offsets. */
+/**
+ * Count generated lines while assembling indexed-map section offsets.
+ *
+ * Scans with `indexOf` instead of per-code-point iteration: positioned sources
+ * reach several megabytes, and the per-character loop costs roughly 80x more on
+ * that input for the same count.
+ */
 function newlineCount(value: string): number {
   let count = 0
-  for (const char of value) if (char === '\n') count += 1
+  for (let index = value.indexOf('\n'); index !== -1; index = value.indexOf('\n', index + 1)) count += 1
   return count
 }
 

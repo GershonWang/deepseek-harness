@@ -513,6 +513,31 @@ describe('client bundle activation', () => {
     })
   })
 
+  it('maps every line of a multi-line identity section', async () => {
+    const packageName = '@fixture/multiline-identity'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'const first = 1\nconst second = 2\nconst third = 3\n')
+
+    const { service, route } = constructWithRoute([packageName])
+    const batch = service.graph().batches[0]!
+    const payload = JSON.parse((await routeRequest(route, mapUrl(batch.url))).body.toString('utf8')) as {
+      sections: { map: { mappings: string; sources: string[]; sourcesContent: string[] } }[]
+    }
+    expect(payload.sections).toEqual([
+      {
+        offset: { line: 0, column: 0 },
+        map: {
+          version: 3,
+          names: [],
+          mappings: 'AAAA;AACA;AACA',
+          sources: ['/plugins/@fixture/multiline-identity/client.js'],
+          sourcesContent: ['const first = 1\nconst second = 2\nconst third = 3\n'],
+        },
+      },
+    ])
+  })
+
   it('retains one prior immutable batch generation across rebuild recomposition', async () => {
     const packageName = '@fixture/batch-rebuild-race'
     const clientPath = writePackage(packageName)
