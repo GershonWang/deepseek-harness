@@ -34,13 +34,14 @@ const indexCacheTTL = 24 * time.Hour
 // 对象从「上游账号」收敛为「这份二进制」。
 //
 // 代价与更新方式：索引更新不再能只发索引，必须改这个常量并重新发客户端。
-// 升级时把 <sha> 换成 origin/linglong 上承载新 index.json 的提交（用
+// 升级时把 <sha> 换成承载新 index.json 的不可变提交（该提交随合并进入 linglong，
+// 因而永久可达；用
 // `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`
 // 确认 blob 与工作区一致），并保持 TestDefaultIndexURL_PinnedToCommit 通过。
 //
 // DSH_TOOLCHAIN_INDEX_URL 仍可在构建/部署时覆盖该地址（内网镜像或自托管）；
 // 环境变量与二进制同属一个信任域，不构成额外的攻击面。
-const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/47d123e212ced431eb582e83f7d58a081b39d43c/apps/desktop-launcher/internal/toolchain/tools/index.json"
+const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/ee9c181bf66f655d24810012c4c9f61e59c9940c/apps/desktop-launcher/internal/toolchain/tools/index.json"
 
 // indexURL 返回生效的远程索引地址。
 func indexURL() string {
