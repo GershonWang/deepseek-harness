@@ -1078,36 +1078,62 @@ func (a *App) checkToolUpdatesBackground() {
 
 // UpdateAllTools 一键更新所有过时工具。异步执行，进度通过
 // toolchain:progress 事件推送，最终状态通过 toolchain:status 推送。
+//
+// 更新意味着「现在起用新版本」，因此显式要求激活：下载完成后必须把推荐版本设为当前
+// 激活版本，否则用户按提示操作后命令仍在跑旧版本（AUDIT N7）。旧版本保留在磁盘上
+// （多版本并存是有意能力），完成通知里说明它的去向。
 func (a *App) UpdateAllTools() string {
 	outdated := toolchain.OutdatedTools(toolchain.InstallDir(a.home))
 	if len(outdated) == 0 {
 		return ""
 	}
 	go func() {
-		success, failed := 0, 0
+		dir := toolchain.InstallDir(a.home)
+		activate := true
+		failed := 0
+		updated := make([]string, 0, len(outdated))
 		for _, id := range outdated {
-			if _, ok := toolchain.LookupTool(id); !ok {
+			tool, ok := toolchain.LookupTool(id)
+			if !ok {
 				failed++
 				continue
 			}
 			a.emitProgress(id, "queued", 0, "等待更新")
-			err := toolchain.InstallTool(toolchain.InstallDir(a.home), id, "", &toolchain.InstallOptions{
+			err := toolchain.InstallTool(dir, id, "", &toolchain.InstallOptions{
+				Activate: &activate,
 				Progress: func(phase string, percent int, message string) {
 					a.emitProgress(id, phase, percent, message)
 				},
 			})
 			if err != nil {
 				failed++
-			} else {
-				success++
+				continue
 			}
+			updated = append(updated, tool.Name+" → "+tool.LatestVersion().Version)
 		}
 		appenv.ConfigureChildEnv(a.home)
 		st := a.collectTools()
-		st.Notice = fmt.Sprintf("已更新 %d 个工具，失败 %d 个", success, failed)
+		st.Notice = updateNotice(updated, failed)
 		a.emitToolchain(st)
 	}()
 	return ""
+}
+
+// updateNotice 组装一键更新的结果通知：列出每个成功工具的目标版本，并说明旧版本的去向。
+// 措辞集中在此，避免「旧版本保留」这条多版本事实分散在多处、说法不一致。
+func updateNotice(updated []string, failed int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "已更新 %d 个工具", len(updated))
+	if len(updated) > 0 {
+		b.WriteString("：" + strings.Join(updated, "、"))
+	}
+	if failed > 0 {
+		fmt.Fprintf(&b, "；失败 %d 个", failed)
+	}
+	if len(updated) > 0 {
+		b.WriteString("。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载")
+	}
+	return b.String()
 }
 
 // sandboxed 判断是否玲珑打包（沙箱）环境：打包态可执行文件在 $PREFIX/bin，
@@ -1149,6 +1175,8 @@ func (a *App) InstallToolVersion(id, version string) string {
 }
 
 // installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
+// 用户在卡片上显式点安装或选了版本，都视为「要用这个版本」，因此显式要求激活：
+// 只有依赖自动安装与并存安装才走 InstallTool 的默认规则（不覆盖当前激活版本）。
 // 安装进度通过 toolchain:progress 事件实时推给前端（下载百分比等），
 // 结束后通过 toolchain:status 推送最终状态与结果通知。
 func (a *App) installToolAsync(tool toolchain.Tool, version string) {
@@ -1156,9 +1184,11 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 	a.emitProgress(tool.ID, "queued", 0, "等待下载")
 	go func() {
 		dir := toolchain.InstallDir(a.home)
+		activate := true
 		// 把安装器内部的阶段回调转发成前端进度事件；下载回调频率高，
 		// 前端按 ID 定向更新进度条（见 emitProgress 注释）。
 		opts := &toolchain.InstallOptions{
+			Activate: &activate,
 			Progress: func(phase string, percent int, message string) {
 				a.emitProgress(tool.ID, phase, percent, message)
 			},
@@ -1168,7 +1198,7 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		if version != "" {
 			label += " " + version
 		}
-		notice := "工具链 " + label + " 安装成功"
+		notice := "工具链 " + label + " 已安装并设为当前版本"
 		if err != nil {
 			notice = "工具链 " + label + " 安装失败: " + err.Error()
 		} else {

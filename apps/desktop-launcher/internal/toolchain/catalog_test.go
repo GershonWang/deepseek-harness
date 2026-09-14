@@ -243,3 +243,130 @@ func TestCatalog_EveryCategoryHasLabel(t *testing.T) {
 		}
 	}
 }
+
+// mkToolVersion 在安装目录里预置一个工具版本目录（含可执行 bin/<cmd>）。
+// 供不联网的用例把「已装」「已下载未激活」这类磁盘状态直接摆出来。
+func mkToolVersion(t *testing.T, dir, id, version, cmd string) {
+	t.Helper()
+	bindir := filepath.Join(versionDir(dir, id, version), "bin")
+	if err := os.MkdirAll(bindir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bindir, cmd), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// statusOf 返回某个工具在给定安装目录下的状态快照。
+func statusOf(t *testing.T, dir, id string) ToolStatus {
+	t.Helper()
+	for _, st := range ToolStatuses(dir) {
+		if st.ID == id {
+			return st
+		}
+	}
+	t.Fatalf("清单里找不到工具 %s", id)
+	return ToolStatus{}
+}
+
+// TestHasUpdate_VersionOrder 固定「可更新」的判定语义（AUDIT N20）：它取决于版本号大小，
+// 而不是「当前激活是否等于清单首项」。字符串不等会把刻意固定旧版本的用户永久标成可更新，
+// 并在清单首项低于当前激活版本（回退清单）时给出相反结论。
+func TestHasUpdate_VersionOrder(t *testing.T) {
+	jdk, ok := LookupTool("jdk21")
+	if !ok {
+		t.Fatal("catalog 应含 jdk21")
+	}
+	recommended := jdk.LatestVersion().Version
+
+	cases := []struct {
+		name   string
+		active string // 空串表示不建 current 软链
+		want   bool
+	}{
+		{"激活版本低于推荐版本应提示", "8u504", true},
+		{"激活版本等于推荐版本不提示", recommended, false},
+		{"激活版本高于推荐版本不提示", "99.0.0", false},
+		{"current 链接缺失时报更新，作为修复入口", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			mkToolVersion(t, dir, "jdk21", "8u504", "java")
+			if c.active != "" {
+				mkToolVersion(t, dir, "jdk21", c.active, "java")
+				if err := SetActiveVersion(dir, "jdk21", c.active); err != nil {
+					t.Fatalf("激活 %s: %v", c.active, err)
+				}
+			}
+			if got := statusOf(t, dir, "jdk21").HasUpdate; got != c.want {
+				t.Fatalf("激活=%q 时 HasUpdate=%v, want %v", c.active, got, c.want)
+			}
+		})
+	}
+}
+
+// TestToolStatuses_InstalledVersionsOrderedByVersion 固定已装版本的展示顺序：
+// 卡片下拉按版本号从高到低，而不是让 `8u504` 靠字母序排在 `21.0.12.1` 之后。
+func TestToolStatuses_InstalledVersionsOrderedByVersion(t *testing.T) {
+	dir := t.TempDir()
+	for _, v := range []string{"8u504", "17.0.20.1", "21.0.12.1"} {
+		mkToolVersion(t, dir, "jdk21", v, "java")
+	}
+	got := statusOf(t, dir, "jdk21").InstalledVersions
+	want := []string{"21.0.12.1", "17.0.20.1", "8u504"}
+	if len(got) != len(want) {
+		t.Fatalf("InstalledVersions = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("InstalledVersions = %v, want %v", got, want)
+		}
+	}
+}
+
+// TestUninstall_FallbackByVersionOrder 固定卸载激活版本后的接替规则（AUDIT N21）：
+// 优先回到清单里的推荐版本；推荐版本已被卸载时取剩余里版本号最高的一个。
+// 早期实现取字母序最后一个，在 `8u504`/`17.0.20.1`/`21.0.12.1` 这组标签下会静默
+// 把 PATH 上的 java 换成 JDK 8。
+func TestUninstall_FallbackByVersionOrder(t *testing.T) {
+	jdk, ok := LookupTool("jdk21")
+	if !ok {
+		t.Fatal("catalog 应含 jdk21")
+	}
+	recommended := jdk.LatestVersion().Version
+
+	t.Run("推荐版本仍在时回到推荐版本", func(t *testing.T) {
+		dir := t.TempDir()
+		// 额外造一个数值高于推荐版本的 99.0.0：规则是「回到推荐版本」而不是「取最高」。
+		for _, v := range []string{"8u504", recommended, "99.0.0"} {
+			mkToolVersion(t, dir, "jdk21", v, "java")
+		}
+		if err := SetActiveVersion(dir, "jdk21", "8u504"); err != nil {
+			t.Fatal(err)
+		}
+		if err := Uninstall(dir, "jdk21", "8u504"); err != nil {
+			t.Fatalf("卸载: %v", err)
+		}
+		if got := ActiveVersion(dir, "jdk21"); got != recommended {
+			t.Fatalf("卸载激活版本后应回到推荐版本 %s, got %q", recommended, got)
+		}
+	})
+
+	t.Run("推荐版本已卸载时取版本号最高的剩余版本", func(t *testing.T) {
+		dir := t.TempDir()
+		for _, v := range []string{"8u504", "17.0.20.1", recommended} {
+			mkToolVersion(t, dir, "jdk21", v, "java")
+		}
+		if err := SetActiveVersion(dir, "jdk21", recommended); err != nil {
+			t.Fatal(err)
+		}
+		if err := Uninstall(dir, "jdk21", recommended); err != nil {
+			t.Fatalf("卸载: %v", err)
+		}
+		// 字母序实现会在这里选中 8u504。
+		if got := ActiveVersion(dir, "jdk21"); got != "17.0.20.1" {
+			t.Fatalf("卸载推荐版本后应回退到数值最高的 17.0.20.1, got %q", got)
+		}
+	})
+}
