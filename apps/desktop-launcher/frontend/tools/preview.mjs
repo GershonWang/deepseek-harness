@@ -198,14 +198,24 @@ function probeMarketGrid() {
   const metaRow = '<div class="tool-card-meta">语言 SDK · java javac jdb jar · 197.9 MB</div>'
   const progress = '<div class="tool-progress"><div class="tool-progress-fill" style="width:8%"></div></div>'
     + '<div class="tool-progress-label">8%</div>'
-  const actions = '<div class="tool-card-actions"><select class="version-select">'
-    + '<option>v21.0.12.1</option><option>v8u504</option></select>'
+  // 动作区按已装卡片的最宽组合搭建：版本下拉（已装 + 可安装两种标记）+ 卸载按钮。
+  // 预览的价值在于量出卡片最坏宽度，用只含已装版本的旧结构会低估它。
+  // 动作区按两种真实形态各搭一份：已装卡片是最宽的（下拉 + 卸载，下拉里还带标记），
+  // 安装中卡片则是下拉 + 禁用的安装按钮。用同一份结构量宽度会低估已装卡片那一档。
+  const installedActions = '<div class="tool-card-actions"><select class="version-select">'
+    + '<option>v21.0.12.1 · 当前</option><option>v8u504 · 已装</option>'
+    + '<option>v17.0.20.1 · 可安装</option></select>'
+    + '<button class="btn btn-danger">卸载</button></div>'
+  const installingActions = '<div class="tool-card-actions"><select class="version-select">'
+    + '<option>v21.0.12.1 · 当前</option><option>v8u504 · 已装</option>'
+    + '<option>v17.0.20.1 · 可安装</option></select>'
     + '<button class="btn btn-primary" disabled>安装中…</button></div>'
   const runtimeHint = '<div class="tool-card-runtime">容器内已可用：node v24（随包）</div>'
   const build = (cls, withProgress, withRuntime) => {
     const card = document.createElement('div')
     card.className = 'tool-card-item' + (cls ? ' ' + cls : '')
-    card.innerHTML = head + desc + metaRow + (withProgress ? progress : '') + actions
+    card.innerHTML = head + desc + metaRow + (withProgress ? progress : '')
+      + (withProgress ? installingActions : installedActions)
       + (withRuntime ? runtimeHint : '')
     return card
   }

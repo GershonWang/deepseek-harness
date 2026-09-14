@@ -208,10 +208,12 @@
 
 ## N7 「全部更新」从不激活新版本
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/toolchain/install.go:115`、`:158-163`、`internal/app/app.go:1086-1109`
-- **问题**：`activate` 默认 `false`，生产代码**无任何调用点**传 `InstallOptions.Activate`（`grep Activate` 仅命中定义）；而激活条件是 `if activate || !hadOther`，更新时 `hadOther=true` → 装完不激活。
+- **状态**：已修（2026-09-14）｜✅ 已复核
+- **位置**：`internal/toolchain/install.go`（`InstallTool` 的已安装分支、`installVersion` 的激活条件）、`internal/app/app.go`（`UpdateAllTools`、`installToolAsync`）
+- **问题**：`activate` 默认 `false`，生产代码**无任何调用点**传 `InstallOptions.Activate`；而激活条件是 `if activate || !hadOther`，更新时 `hadOther=true` → 装完不激活。
 - **影响**：命令仍跑旧版本、`HasUpdate` 恒真、可更新徽标永不清除；再点一次会因 `IsInstalled` 提前返回，却仍提示「已更新 N 个工具，失败 0 个」。
+- **修复**：`UpdateAllTools` 与 `installToolAsync`（用户在卡片上安装/选版本）显式传 `Activate: true`；`InstallTool` 的已安装分支不再无条件早退，要求激活时执行一次幂等 `SetActiveVersion`——这条路径正是原缺陷的死局出口（更新下载完成、用户点多少次都不收敛）。依赖自动安装与并存安装仍走默认规则：首次安装自动激活，已有其它版本时不覆盖当前激活（`TestInstallVersion_SecondVersionKeepsActive` 继续守住该语义）。
+- **验证**：新增 `TestUpdateAllTools_ActivatesRecommendedVersion`（临时 home 预置「旧版本已激活 + 推荐版本已下载」，不联网）——把 `UpdateAllTools` 的 `Activate` 临时改回 `false` 时该用例以 30s 超时失败，改回后通过；新增 `TestInstallTool_AlreadyInstalledHonorsActivate` 分别固定「不要求激活则不动当前版本」与「要求激活则切过去」两条分支。`go test ./...`（desktop-launcher 全包）通过。
 
 ## N8 下载与解压无体积上限
 
@@ -321,22 +323,21 @@
 
 ## N20 多版本下「非推荐版本」恒显可更新，且「全部更新」不会切换
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/toolchain/catalog.go:487`（`HasUpdate` 判定）、`internal/app/app.go:1081-1111`（`UpdateAllTools`）、`internal/toolchain/install.go:158-163`（激活条件，见 N7）
+- **状态**：已修（2026-09-14）｜✅ 已复核
+- **位置**：`internal/toolchain/catalog.go`（`ToolStatuses` 的 `HasUpdate` 判定）、`internal/app/app.go`（`UpdateAllTools`）、`internal/toolchain/install.go`（激活条件，见 N7）、`frontend/app.js`（徽标与横幅文案）
 - **问题**：`HasUpdate` 是 `active != versions[0]` 的字符串比较，而 `versions[0]` 的语义是「推荐版本」而不是「更高版本」。清单在 2026-09-14 首次出现多版本数据后，用户从市场刻意安装并激活 `8u504` 或 `17.0.20.1` 时，卡片会**永久**显示「可更新」。点「全部更新」也纠正不了：`UpdateAllTools` 传空 version（即 `versions[0]`），`InstallTool` 在目标版本已安装时提前返回，而 `Activate` 在生产代码里无人传（N7）——于是既不下载也不切换，却仍提示「已更新 N 个工具，失败 0 个」。
 - **影响**：多版本能力的正常用法（项目指定 JDK 8）被界面判成「该更新」；卡片徽标与状态栏的「N 个可更新」长期不收敛，用户按提示操作不会产生任何变化。
-- **建议**：把「推荐」与「更高版本」分开表达——`HasUpdate` 改为按版本比较、只在 `active` 低于 `versions[0]` 时置位，或在卡片上区分「推荐版本」与「不是推荐版本」两种措辞。需与 N7 一并处理，否则「全部更新」仍然不激活。
-- **2026-09-14 下架 17 后复核**：`17.0.20.1` 已不在清单（见 N25），本条的实例改为「用户刻意安装并激活 `8u504` 时卡片永久显示可更新」——两版本下同样成立，判定逻辑未变。
+- **修复**：新增 `compareVersions`（`internal/toolchain/version.go`），`HasUpdate` 改为「推荐版本确实高于当前激活版本」；`current` 软链缺失时仍报可更新，让「更新」充当一键修复入口。前端横幅改为点明每个工具的目标版本（`JDK (Temurin) → 21.0.12.1`），卡片徽标保持短文案，卡片宽度约 170px 放不下完整句子（目标版本放在徽标 `title` 与横幅里）。更新流程的切换问题随 N7 一并解决。
+- **验证**：`TestHasUpdate_VersionOrder` 覆盖「低于推荐→提示 / 等于推荐→不提示 / 高于推荐→不提示 / 链接缺失→提示」四种情况；`TestCompareVersions` 固定比较规则（含 `8u504` 与 `21.0.12.1` 的跨风格比较、无数字标签退化为字节序）；`go test ./...` 通过。
 
 ## N21 `Uninstall` 卸载激活版本后按字母序回退，多版本下会激活错误版本
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/toolchain/catalog.go:239-247`（回退选择）、`:166-182`（`ListVersions` 用 `sort.Strings`）
-- **问题**：卸载激活版本后取 `vers[len(vers)-1]`，即**字母序最大**的剩余版本。单版本时代这等价于「唯一的那个」；`jdk21` 现有 `8u504`/`17.0.20.1`/`21.0.12.1` 三条，字母序为 `17.0.20.1` < `21.0.12.1` < `8u504`，因此回退会选中 **`8u504`**。
-- **影响**：用户卸载当前 JDK 后，`current/jdk21` 与 `~/.dsh-tools/bin` 下的 `java` 等命令**静默**切到更旧的版本；多版本工具越多、标签风格越杂，选错的面越大。
-- **证据边界**：结论来自 `ListVersions` 的 `sort.Strings` 与 `vers[len-1]` 逐行阅读；现有 `TestUninstall` 用的是 `1.23.2`/`1.24.0`（字母序与版本序恰好一致），因此**没有用例固定这条错误回退**——补一条用 `8u504`/`17.0.20.1`/`21.0.12.1` 的用例即可复现。
-- **建议**：按版本号数值排序（或回退到 `versions[0]`），并补上那条用例。
-- **2026-09-14 下架 17 后复核**：清单只剩 `8u504`/`21.0.12.1`，字母序最大仍是 `8u504`，卸载激活版本后的错误回退不变；三条版本的复现用例改为两条即可（见 N25）。
+- **状态**：已修（2026-09-14）｜✅ 已复核
+- **位置**：`internal/toolchain/catalog.go`（`Uninstall` 的回退选择、`fallbackVersion`）、`internal/toolchain/version.go`（`sortVersionsDesc`、`highestVersion`）
+- **问题**：卸载激活版本后取 `vers[len(vers)-1]`，即**字母序最大**的剩余版本。单版本时代这等价于「唯一的那个」；`jdk21` 曾有 `8u504`/`17.0.20.1`/`21.0.12.1` 三条，字母序为 `17.0.20.1` < `21.0.12.1` < `8u504`，因此回退会选中 **`8u504`**。
+- **影响**：用户卸载当前 JDK 后，`current/jdk21` 与 `~/.dsh-tools/bin` 下的 `java` 等命令**静默**切到更旧的版本。
+- **修复**：`fallbackVersion` 优先回到清单里的推荐版本（用户按推荐装过它时，回到推荐最符合预期），推荐版本不在时用 `compareVersions` 取数值最高的剩余版本；工具已不在清单里（孤儿目录）时同样走数值最高。顺带把 `InstalledVersions` 按版本号降序展示，卡片下拉不再出现 `17.0.20.1`/`21.0.12.1`/`8u504` 这种字母序。
+- **验证**：`TestUninstall_FallbackByVersionOrder` 两条子用例分别固定「推荐版本仍在→回到推荐版本（即使存在数值更高的其它版本）」与「推荐版本已卸载→取数值最高的 `17.0.20.1` 而不是字母序最大的 `8u504`」；`TestToolStatuses_InstalledVersionsOrderedByVersion` 与 `TestSortVersionsDesc`/`TestHighestVersion` 固定排序语义；`go test ./...` 通过。
 
 ## N22 端到端审计只覆盖 `versions[0]`，新增版本没有实证防线
 
@@ -474,7 +475,7 @@
   - **索引已重钉，但仍待发版**：`defaultIndexURL` 已从 `ee9c181bf6`（含 17）移到承载新清单的 `ff0b924d11`，实现侧取证见 N3。已发布的旧客户端在带这次重钉的版本发布前仍会提供 17；本机 `~/.dsh-tools/index.json` 缓存在 24 小时 TTL 内也仍是旧内容，需等 TTL 过期或点「刷新索引」。
   - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」与 `preview.mjs` 的预览下拉已同步为两版本。
 - **发布前置（已完成的部分）**：承载新 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。
-- **建议**：与 N7/N20/N21 的修复一并发布，避免两次重钉索引。
+- **建议**：N7 / N20 / N21 的修复已于同日完成（见各条状态），与本次重钉一并发布即可，不必再分两次。
 
 ---
 
@@ -555,8 +556,8 @@
 
 1. **9 / 10 / 13**（一条流水线带体积断言与 `depends.yaml` 比对）——一次性止住体积与工具链回归。
 2. **20**（宿主挂载二次确认）——复用现成两击确认模式，改动最小、安全收益最大。
-3. **N3 / N4 / N7**——供应链来源认证，以及两处「用户可见的静默无效」。
+3. **N3 / N4**——供应链来源认证与 X11 cookie 字节序（N7 那处「用户可见的静默无效」已于 2026-09-14 修复）。
 4. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，约 50 MB+。
-5. **N22 / N16**（把多版本纳入两道门禁）与 **N20 / N21**（多版本的两处用户可见错误）——JDK 8/21 已在市场（17 已下架，见 N25），这四条是同一批多版本语义的收尾；**N23** 的 ID 改名与一次性迁移可与此一并做。
+5. **N22 / N16**（把多版本纳入两道门禁）——多版本的三处用户可见错误（N7 / N20 / N21）已于 2026-09-14 修复，门禁这两条仍待做；**N23** 的 ID 改名与一次性迁移可与此一并做。
 
 （原第 3 项 N2 已完成，见附录 A。）

@@ -747,6 +747,8 @@ function renderTools(t) {
 }
 
 // renderUpdateBadge 更新工具链图标的小红点和弹框内的更新提示条。
+// 横幅是唯一有整行空间的地方，因此在这里点明每个工具会更新到哪个版本：
+// 卡片徽标只放得下短文案（见 toolCard），而「会切到哪一版」正是用户点更新前要知道的。
 function renderUpdateBadge(t) {
   var count = Number(t.UpdateCount) || 0;
   var badge = $("#tools-update-badge");
@@ -755,7 +757,14 @@ function renderUpdateBadge(t) {
   var text = $("#market-update-text");
   if (banner && text) {
     if (count > 0) {
-      text.textContent = "检测到 " + count + " 个工具可更新";
+      var targets = (t.Catalog || [])
+        .filter(function (c) { return c.HasUpdate; })
+        .map(function (c) { return c.Name + " → " + c.AvailableVersion; });
+      text.textContent = "检测到 " + count + " 个工具可更新"
+        + (targets.length ? "：" + targets.join("、") : "");
+      text.title = targets.length
+        ? "一键更新会切到这些版本：" + targets.join("、") + "；旧版本保留在磁盘上，可在卡片下拉中切换或卸载"
+        : "";
       banner.classList.remove("hidden");
     } else {
       banner.classList.add("hidden");
@@ -923,8 +932,11 @@ function toolCard(c) {
   name.textContent = c.Name;
   const status = document.createElement("span");
   if (c.Installed && c.HasUpdate) {
+    // 徽标保持短文案：卡片仅约 170px 宽，写上「可更新到 v21.0.12.1」会把工具名挤成
+    // 省略号。目标版本由横幅（有整行空间）与这里的 title 共同给出。
     status.className = "pill warn";
     status.textContent = "可更新";
+    status.title = "可更新到 v" + c.AvailableVersion + "：点顶部「一键更新」切过去；旧版本保留在磁盘上，可在下拉中切换或卸载";
   } else if (c.Installed) {
     status.className = "pill ok";
     status.textContent = "✓ 已安装";
@@ -974,23 +986,34 @@ function toolCard(c) {
   actions.className = "tool-card-actions";
 
   if (c.Installed) {
-    // 已装：版本切换下拉（只列已装版本）+ 两击确认卸载。
+    // 已装：版本下拉（已装版本 + 清单里尚未安装的版本）+ 安装 / 两击确认卸载。
+    // 多版本工具若只能「卸载再重装」换版本，等于把多版本能力藏起来：这里让未装版本
+    // 也能在卡片上直接安装，并沿用后端的「安装即激活」语义。
+    const installed = c.InstalledVersions || [];
     const sel = document.createElement("select");
     sel.className = "version-select";
-    sel.title = "切换激活版本";
-    for (const v of c.InstalledVersions || []) {
+    sel.title = "已装版本选中即切换；未装版本点「安装」";
+    const appendOption = (v, isInstalled) => {
       const opt = document.createElement("option");
       opt.value = v;
-      opt.textContent = "v" + v + (v === c.ActiveVersion ? " · 当前" : "");
+      opt.textContent = "v" + v + (v === c.ActiveVersion ? " · 当前" : (isInstalled ? " · 已装" : " · 可安装"));
       if (v === c.ActiveVersion) opt.selected = true;
       sel.appendChild(opt);
+    };
+    for (const v of installed) appendOption(v, true);
+    for (const v of c.AvailableVersions || []) {
+      if (!installed.includes(v)) appendOption(v, false);
     }
-    sel.addEventListener("change", async () => {
-      const err = await api().SetActiveToolVersion(c.ID, sel.value);
-      if (err) { $("#toolchain-notice").textContent = err; }
-      api().RefreshTools();
+    const isInstalled = () => installed.includes(sel.value);
+
+    const install = document.createElement("button");
+    install.className = "btn btn-primary";
+    install.textContent = "安装";
+    install.addEventListener("click", () => {
+      install.disabled = true;
+      install.textContent = "安装中…";
+      api().InstallToolVersion(c.ID, sel.value);
     });
-    actions.appendChild(sel);
 
     const un = document.createElement("button");
     un.className = "btn btn-danger";
@@ -1006,7 +1029,25 @@ function toolCard(c) {
       if (err) { $("#toolchain-notice").textContent = err; }
       api().RefreshTools();
     });
-    actions.appendChild(un);
+
+    // 选中的是未装版本时，「卸载」对那个版本无意义（后端会返回不存在），
+    // 因此两者互斥显示：安装按钮只为未装版本出现，卸载只为已装版本出现。
+    const syncActions = () => {
+      const ok = isInstalled();
+      install.classList.toggle("hidden", ok);
+      un.classList.toggle("hidden", !ok);
+      if (!ok) install.textContent = "安装 " + sel.value;
+    };
+
+    sel.addEventListener("change", async () => {
+      syncActions();
+      if (!isInstalled()) return; // 未装版本等用户点「安装」
+      const err = await api().SetActiveToolVersion(c.ID, sel.value);
+      if (err) { $("#toolchain-notice").textContent = err; }
+      api().RefreshTools();
+    });
+    syncActions();
+    actions.append(sel, install, un);
   } else {
     // 未装：可选版本（多版本时给下拉，默认推荐）+ 安装按钮。
     const vers = c.AvailableVersions || [];
