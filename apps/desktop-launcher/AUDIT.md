@@ -34,11 +34,11 @@
 - **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:44`（常量）、`apps/desktop-launcher/internal/toolchain/remote_test.go:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
 - **问题**：索引地址是 `https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json`——**个人账号 fork 的 `linglong` 分支**，可变引用。索引同时提供下载 URL 与 `sha256`，因此「sha256 校验」与下载来源出自同一份未经认证的数据，只保证传输完整，**不提供来源认证**。`DSH_TOOLCHAIN_INDEX_URL` 还可直接覆盖该地址。
 - **影响**：控制该账号/分支、或能改写该 URL 的中间人，可让用户在「工具链市场」安装任意代码；解压产物经 `ReconcileBinLinks` 软链进 `~/.dsh-tools/bin`，而该目录被前置进 harness 子进程 `PATH`。`README.md:147` 把 "after sha256 verification" 当作安全属性，实际不成立。
-- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希**。首次钉的是 `47d123e212ced431eb582e83f7d58a081b39d43c`（发布 43 项清单的那个提交）；2026-09-14 随 JDK 多版本清单前移到 `ee9c181bf66f655d24810012c4c9f61e59c9940c`（该提交的 `index.json` blob `acf8d0ce…` 与工作区一致，动机与后续条目见 N20–N24）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
+- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希**。首次钉的是 `47d123e212ced431eb582e83f7d58a081b39d43c`（发布 43 项清单的那个提交）；2026-09-14 随 JDK 多版本清单前移到 `ee9c181bf66f655d24810012c4c9f61e59c9940c`（该提交的 `index.json` blob `acf8d0ce…` 与工作区一致，动机与后续条目见 N20–N24）；同日 JDK 17 下架后二次前移到 `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`（该提交的 `index.json` blob `599f8341…` 与工作区一致，见 N25）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
   1. 新增回归守卫 `TestDefaultIndexURL_PinnedToCommit`——断言默认引用是 40 位提交哈希、且路径未被改到别处（先写测试确认它在旧值 `linglong` 上失败，再改常量使其通过）。
   2. 中英 README 撤掉「sha256 即安全」的表述，改写为「对清单的一致性校验，清单自身由客户端固定的提交哈希锚定」；并同步修正同段末尾「增删工具不必发客户端」——该句在固定引用后已不成立，现说明发布索引需改常量并重发客户端。
 - **仍待决定（需产品决策，本次未做）**：审计建议的第一选项——**离线公钥签名**。它能在保留「只发索引不发客户端」更新方式的同时提供来源认证，但需要密钥托管与签名发布流程，属于用户尚未持有的流程变更，故不在无人确认时擅自引入。
-- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**2026-09-14 复核（换钉后）**：`go test ./internal/toolchain` 通过；实跑 curl 新钉住的 `ee9c181b…` 取回 HTTP 200、sha256 `7f4ea9bb6914294aafca7a055f299fc3d9790e8adcd6f8baeea3df752081f046`，与仓库内 `index.json` 逐字节一致（43 项工具，`jdk21` 三个版本）。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
+- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**2026-09-14 复核（换钉后）**：`go test ./internal/toolchain` 通过；实跑 curl 新钉住的 `ee9c181b…` 取回 HTTP 200、sha256 `7f4ea9bb6914294aafca7a055f299fc3d9790e8adcd6f8baeea3df752081f046`，与仓库内 `index.json` 逐字节一致（43 项工具，`jdk21` 三个版本）。**2026-09-14 二次换钉复核（JDK 17 下架后）**：`go test ./internal/toolchain` 通过（含 `TestDefaultIndexURL_PinnedToCommit`）；实跑 curl 按 `ff0b924d11…` 取回 HTTP 200、sha256 `8742a8e633260fa4102475b59e5f0d08889e0ef247b6f460125fb06416b615a2`，与仓库内 `index.json` 逐字节一致（43 项工具，`jdk21` 两个版本）。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
@@ -466,14 +466,14 @@
 
 ## N25 JDK 17 从清单下架，远端索引重钉仍未完成
 
-- **状态**：已执行（本地清单与文档）｜⏳ 远端索引待重钉｜✅ 已复核
-- **位置**：`internal/toolchain/tools/index.json`（`jdk21.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 仍钉在 `ee9c181bf6`）、`frontend/tools/preview.mjs:202`（预览 mock）
+- **状态**：已执行（本地清单、文档与索引重钉）｜⏳ 待随发版到达用户｜✅ 已复核
+- **位置**：`internal/toolchain/tools/index.json`（`jdk21.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 已重钉到 `ff0b924d11`）、`frontend/tools/preview.mjs:202`（预览 mock）
 - **说明**：多版本清单上线当天先收窄版本面——`jdk21` 只保留推荐版本 `21.0.12.1` 与 `8u504`，移除 `17.0.20.1`，`description` 同步改为「可选 8 / 21」。动机是把 N20/N21/N22 三条未修的多版本语义缺陷的暴露面从三版本压到两版本，并为随后修复「更新不切换」（N7）留出更小的改动面。**不是 17 自身有故障**：其下载地址在 2026-09-14 实测 `HTTP/2 302` 可达，清单里的 url/sha256/size 未被改动，本次只是不再提供。
 - **影响**：
   - 已装 `jdk21-17.0.20.1` 的机器不受影响——`ListVersions` 扫目录而非查清单，该版本仍可切换与卸载；但「可安装版本」下拉里不再出现 17，且因 N20 未修，激活 17 时卡片仍显示「可更新」。
-  - **远端索引尚未生效**：运行时索引取自 `defaultIndexURL` 钉住的提交 `ee9c181bf6`，其中仍含 17。本次只改本地清单，已发版客户端在重钉前仍能看到并安装 17。
+  - **索引已重钉，但仍待发版**：`defaultIndexURL` 已从 `ee9c181bf6`（含 17）移到承载新清单的 `ff0b924d11`，实现侧取证见 N3。已发布的旧客户端在带这次重钉的版本发布前仍会提供 17；本机 `~/.dsh-tools/index.json` 缓存在 24 小时 TTL 内也仍是旧内容，需等 TTL 过期或点「刷新索引」。
   - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」与 `preview.mjs` 的预览下拉已同步为两版本。
-- **待办**：把承载新 `index.json` 的提交推送后，用 `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json` 确认 blob 与工作区一致，再改 `defaultIndexURL` 重钉（步骤同 `92d150b3cb`）。
+- **发布前置（已完成的部分）**：承载新 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。
 - **建议**：与 N7/N20/N21 的修复一并发布，避免两次重钉索引。
 
 ---

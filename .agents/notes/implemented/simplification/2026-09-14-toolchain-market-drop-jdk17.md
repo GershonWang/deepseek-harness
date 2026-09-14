@@ -22,7 +22,7 @@ Two versions are kept rather than one so the multi-version code paths still carr
 
 ## Republishing the index
 
-The catalog clients actually read is not this file: `internal/toolchain/remote.go` pins `defaultIndexURL` to commit `ee9c181bf6`, whose copy of `index.json` still contains 17. Editing the working tree therefore removes 17 from nothing that has shipped. Making it effective repeats the re-pin that `92d150b3cb` performed: push the commit carrying the new `index.json`, confirm its blob with `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`, then point `defaultIndexURL` at that commit. Until the re-pin ships in a release, an already-released launcher keeps offering 17.
+The catalog clients actually read is not this file: `internal/toolchain/remote.go` pins `defaultIndexURL` to a commit hash rather than to a branch. The re-pin that `92d150b3cb` performed was repeated for this removal: `defaultIndexURL` names `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`, whose `index.json` blob (`599f8341…`, from `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`) matches the working tree and whose raw URL returned HTTP 200 with the same sha256. A launcher released before that commit keeps offering 17 until one carrying the new pin ships.
 
 ## Consequences
 

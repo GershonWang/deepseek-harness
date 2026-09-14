@@ -22,7 +22,7 @@ Status: implemented
 
 ## 索引的重新发布
 
-客户端真正读取的清单不是这个文件：`internal/toolchain/remote.go` 把 `defaultIndexURL` 钉在提交 `ee9c181bf6`，该提交里的 `index.json` 仍含 17。因此只改工作区，对任何已发布的东西都不构成下架。要真正生效，需重走 `92d150b3cb` 做过的重钉：推送承载新 `index.json` 的提交，用 `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json` 确认 blob 与工作区一致，再把 `defaultIndexURL` 指到该提交。在带这次重钉的版本发布前，已发布的启动器仍会提供 17。
+客户端真正读取的清单不是这个文件：`internal/toolchain/remote.go` 把 `defaultIndexURL` 钉在提交哈希而不是分支上。本次下架重走了 `92d150b3cb` 做过的重钉：`defaultIndexURL` 现指向 `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`，该提交的 `index.json` blob（`599f8341…`，由 `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json` 取得）与工作区一致，实跑其 raw 地址返回 HTTP 200 且 sha256 相同。在该提交之前发布的启动器，要等到带这次重钉的版本发布才不再提供 17。
 
 ## 后果
 
