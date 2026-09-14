@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-toolchain-card-install-overflow.md
+2026-09-14-toolchain-card-install-overflow.md: 2cabb0671758ba91e014376420d9848d8500e321
+2026-09-14-toolchain-card-install-overflow.zh.md: 2f7ca42785e5fef079d766250d9c3380263e9c69

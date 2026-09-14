@@ -1076,6 +1076,11 @@ button, input, select, textarea { font: inherit; }
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
   flex: 1; min-height: 0; overflow-y: auto;
   align-content: start;
+  /* 行高跟内容走。WebKitGTK 对 auto 行的自动尺寸取的是卡片的「最小贡献」，也就是
+     .tool-card-item 的 min-height 档位：内容一旦超过档位就只溢出、不撑高行（实机
+     截图为证——卡片盒 170–304px，动作行却画到 317px）。显式声明 max-content 后，
+     认这个值的引擎会按内容撑高该行，档位退化为下限；不认的引擎仍由档位兜住。 */
+  grid-auto-rows: max-content;
   /* 滚动条与卡片之间要有一条通道。滚动条画在滚动视口的右缘，卡片一直排到那里
      就会被压住：实机截图逐列取色，滑块左缘与卡片右缘只差 0–1px，而滑块右侧到
      弹框边线还空着约 12px。右内边距留出通道，等量的右外边距再把网格（连同它的
@@ -1119,6 +1124,14 @@ button, input, select, textarea { font: inherit; }
   min-height: 141px;
 }
 .tool-card-item.has-runtime { min-height: 160px; }
+/* 安装中比常规卡片多两行（进度条与其百分比读数），内容比 141 档高 30px 以上。档位是
+   WebKitGTK 撑高那一行的唯一依据（见 .market-grid 的 grid-auto-rows 注释），缺了它
+   动作行会越过卡片下边框压到下一排——实机截图量得卡片盒 170–304px、动作行
+   291–317px、下一排卡片顶边 321px（即该卡片自然高约 160px、行高却停在 141px）。
+   取值以预览门禁的实测内容高为下限再留 4px：Chromium 172/194，实机 160/182。
+   装 go/ripgrep 这类「容器内已可用」的工具时，运行时提示那一行会同时出现，故再抬一档。 */
+.tool-card-item.installing { min-height: 176px; }
+.tool-card-item.installing.has-runtime { min-height: 198px; }
 /* 强调色只留给要用户动作的两种卡片。已安装是这里的常态（首屏 11/19），整排绿描边
    只会让网格发花；未安装卡片则有品牌色按钮与"可安装"徽标，也不缺强调。 */
 .tool-card-item.updatable { border-color: color-mix(in srgb, var(--warn) 55%, var(--border-strong)); }
@@ -1153,9 +1166,11 @@ button, input, select, textarea { font: inherit; }
 .tool-card-actions { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .tool-card-actions > .btn-primary:only-child { flex: 1; }
 .tool-card-actions > .btn-danger { flex: 0 0 auto; min-width: 92px; }
-/* 安装进度条：toolchain:progress 事件按 data-tool-id 定向更新 fill 宽度 */
+/* 安装进度条：toolchain:progress 事件按 data-tool-id 定向更新 fill 宽度。
+   轨道色不能用 --bg-input：浅色主题下它就是 #ffffff，与卡片同色，进度条只剩填充
+   可见（实机浅色截图里 8% 的状态看不到轨道）。--bg-hover 在两套配色里都与卡片有区分。 */
 .tool-progress {
-  height: 6px; border-radius: 3px; background: var(--bg-input);
+  height: 6px; border-radius: 3px; background: var(--bg-hover);
   overflow: hidden; margin-top: 2px;
 }
 .tool-progress-fill {
