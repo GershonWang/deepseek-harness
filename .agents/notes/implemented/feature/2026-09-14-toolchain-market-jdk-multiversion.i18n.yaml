@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-toolchain-market-jdk-multiversion.md
-2026-09-14-toolchain-market-jdk-multiversion.md: e5174d3f05d08809dd5e000e516948ecf73ac989
-2026-09-14-toolchain-market-jdk-multiversion.zh.md: bbd4eda698d2cae2cba1eeef6466d346e6e336f4
+2026-09-14-toolchain-market-jdk-multiversion.md: 09466ebbbf3b7dbe2fed4fc8bc3db3e6099e6168
+2026-09-14-toolchain-market-jdk-multiversion.zh.md: eb2e921974b6eb122479a6bdef24f20e3a5d5c26

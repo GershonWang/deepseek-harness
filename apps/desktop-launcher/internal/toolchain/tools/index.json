@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-14T04:50:47Z",
+  "updated_at": "2026-09-14T05:32:09Z",
   "category_labels": {
     "language-sdk": "语言 SDK",
     "build-tools": "构建与编译",
@@ -29,7 +29,7 @@
       "id": "jdk21",
       "name": "JDK (Temurin)",
       "category": "language-sdk",
-      "description": "Eclipse Temurin OpenJDK，可选 8 / 17 / 21",
+      "description": "Eclipse Temurin OpenJDK，可选 8 / 21",
       "provides": ["java", "javac", "jdb", "jar"],
       "dependencies": [],
       "versions": [
@@ -38,14 +38,6 @@
           "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
           "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
           "size": 207473347,
-          "bin_rel": "bin",
-          "lib_rel": "lib"
-        },
-        {
-          "version": "17.0.20.1",
-          "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz",
-          "sha256": "3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e",
-          "size": 193252603,
           "bin_rel": "bin",
           "lib_rel": "lib"
         },

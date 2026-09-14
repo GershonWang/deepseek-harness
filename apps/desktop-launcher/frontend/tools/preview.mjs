@@ -199,7 +199,7 @@ function probeMarketGrid() {
   const progress = '<div class="tool-progress"><div class="tool-progress-fill" style="width:8%"></div></div>'
     + '<div class="tool-progress-label">8%</div>'
   const actions = '<div class="tool-card-actions"><select class="version-select">'
-    + '<option>v21.0.12.1</option><option>v17.0.20.1</option><option>v8u504</option></select>'
+    + '<option>v21.0.12.1</option><option>v8u504</option></select>'
     + '<button class="btn btn-primary" disabled>安装中…</button></div>'
   const runtimeHint = '<div class="tool-card-runtime">容器内已可用：node v24（随包）</div>'
   const build = (cls, withProgress, withRuntime) => {
