@@ -47,6 +47,10 @@ tools:
 # internal/toolchain/tools/index.json（校验 sha256 后原子安装到
 # $HOME/.dsh-tools）；本段与其保持同步，供打包文档与 verify-tools.sh 校验
 # （sha256 含 "<" 占位符即失败）。
+# 每项只登记该工具的推荐版本，且必须与 index.json 的 versions[0] 一致;多版本
+# 工具的其余版本只存在于 index.json（版本顺序即语义,首个为推荐版本）。因此
+# verify-tools.sh 的 sha256 占位校验只覆盖推荐版本,不覆盖其余版本——多版本
+# 清单的唯一事实来源是 index.json,新增版本时必须实测 sha256 后再写入。
 installable:
   bat:
     version: "0.24.0"
