@@ -538,6 +538,45 @@ describe('client bundle activation', () => {
     ])
   })
 
+  it('reuses an unchanged row artifact when another row recomposes the graph', async () => {
+    const stable = '@fixture/stable-row'
+    const stablePath = writePackage(stable)
+    mkdirSync(dirname(stablePath), { recursive: true })
+    writeFileSync(stablePath, 'module.exports = { stable: true }\n')
+    const moving = '@fixture/moving-row'
+    const movingPath = writePackage(moving)
+    mkdirSync(dirname(movingPath), { recursive: true })
+    writeFileSync(movingPath, 'module.exports = { generation: 1 }\n')
+
+    const { service, route } = constructWithRoute([stable, moving])
+    const stableRow = service.graph().entries.find(entry => entry.id === stable)!
+    const stableUrl = stableRow.url
+    const stableBody = (await routeRequest(route, stableUrl)).body
+
+    writeFileSync(movingPath, 'module.exports = { generation: 2 }\n')
+    service.rebuilt(moving)
+
+    expect(service.graph().entries.find(entry => entry.id === stable)!.url).toBe(stableUrl)
+    expect((await routeRequest(route, stableUrl)).body).toEqual(stableBody)
+  })
+
+  it('drops the cached row artifact once HMR assigns the row a new revision', async () => {
+    const packageName = '@fixture/cached-row-rebuilt'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = { generation: 1 }\n')
+    const { service, route } = constructWithRoute([packageName])
+    const first = service.graph().entries[0]!.url
+    expect((await routeRequest(route, first)).status).toBe(200)
+
+    writeFileSync(clientPath, 'module.exports = { generation: 2 }\n')
+    service.rebuilt(packageName)
+    const second = service.graph().entries[0]!.url
+    expect(second).not.toBe(first)
+    expect((await routeRequest(route, second)).status).toBe(200)
+    expect((await routeRequest(route, first)).status).toBe(404)
+  })
+
   it('retains one prior immutable batch generation across rebuild recomposition', async () => {
     const packageName = '@fixture/batch-rebuild-race'
     const clientPath = writePackage(packageName)
@@ -684,6 +723,23 @@ describe('client bundle activation', () => {
     expect(JSON.parse(nextMap.body.toString('utf8'))).toMatchObject({
       sections: [{ map: { sources: ['/plugins/@fixture/source-map/src/changed.tsx'] } }],
     })
+  })
+
+  it('serves the current row on demand and rejects unadvertised combinations', async () => {
+    const packageName = '@fixture/on-demand-row'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = { onDemand: true }\n')
+    const { service, route } = constructWithRoute([packageName])
+    const row = service.graph().entries[0]!
+
+    const served = await routeRequest(route, row.url)
+    expect(served.status).toBe(200)
+    expect(served.body.toString('utf8')).toContain('onDemand')
+
+    const combined = `/plugins/??${packageName}/client.js,${packageName}/client.js&rev=${row.rev}`
+    expect((await routeRequest(route, combined)).status).toBe(404)
+    expect((await routeRequest(route, '/plugins/??@fixture/absent/client.js&rev=deadbeef')).status).toBe(404)
   })
 
   it('applies sourceRoot before relocating absolute-looking section sources', async () => {
