@@ -13,6 +13,11 @@ REAL_TOOLS="$ROOT/apps/desktop-launcher/linglong/tools.yaml"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
+# 脚本用 dirname $0 定位单一来源文件（../internal/packaging/webkit-exec-path.txt）；
+# 用例都在 $TMP/<name>/ 下，把它按同样的相对位置放一份。
+mkdir -p "$TMP/internal/packaging"
+cp "$ROOT/apps/desktop-launcher/internal/packaging/webkit-exec-path.txt" "$TMP/internal/packaging/"
+
 pass=0
 fail=0
 ok()  { echo "PASS: $1"; pass=$((pass + 1)); }
@@ -40,9 +45,10 @@ mkentity() {
 
 # healthy_prefix <prefix>：按规则表造出全部"期望出现在产物里"的实体，
 # 路径取自真实产物层的实测落点（见 verify-merged-deps.sh 的规则表注释）。
+# webkit 那份带 exec-path 补丁标记——产物断言要求进包的是打过补丁的那一份。
+WEBKIT_SHORT_PATH=$(tr -d '[:space:]' < "$ROOT/apps/desktop-launcher/internal/packaging/webkit-exec-path.txt")
 healthy_prefix() {
   p=$1
-  mkentity "$p" lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
   mkentity "$p" lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so.0
   mkentity "$p" bin/zip
   mkentity "$p" bin/git
@@ -51,6 +57,10 @@ healthy_prefix() {
   mkentity "$p" bin/jq
   mkentity "$p" bin/xxd
   mkentity "$p" bin/xdg-open
+  # webkit：普通文件 + 补丁短路径字符串（模拟 build 段解出并打过补丁的那一份）
+  mkdir -p "$p/lib/x86_64-linux-gnu"
+  printf 'ELF...%s.../injected-bundle/' "$WEBKIT_SHORT_PATH" \
+    > "$p/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
 }
 
 new_case() {
@@ -58,6 +68,8 @@ new_case() {
   mkdir -p "$CASE"
   cp "$SCRIPT" "$CASE/verify-merged-deps.sh"
   cp "$REAL_TOOLS" "$CASE/tools.yaml"
+  # 脚本按 dirname $0 的布局找 ../internal/packaging/webkit-exec-path.txt；用例都放在
+  # $TMP/<name>/ 下，因此单一来源文件在 $TMP/internal/ 下备一份即可（与仓库布局一致）。
   mkdir -p "$CASE/prefix"
   PREFIX="$CASE/prefix"
 }
@@ -92,7 +104,7 @@ else
   expect_fail "工具实体缺失非零退出并指名" "$TMP/out-notool" "FAIL git" "bin/git"
 fi
 
-# --- 场景 3：path 规则实体缺失（webkit 库未交付）→ 失败 ---
+# --- 场景 3：webkit 库缺失 → 失败 ---
 new_case nolib
 cp "$REAL_YAML" "$CASE/linglong.yaml"
 healthy_prefix "$PREFIX"
@@ -100,7 +112,19 @@ rm "$PREFIX/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
 if run_case "$TMP/out-nolib"; then
   bad "webkit 库缺失时应失败"
 else
-  expect_fail "path 规则实体缺失非零退出并指名" "$TMP/out-nolib" "FAIL libwebkit2gtk-4.1-0"
+  expect_fail "webkit 库缺失非零退出并指名" "$TMP/out-nolib" "FAIL libwebkit2gtk-4.1-0"
+fi
+
+# --- 场景 3b：webkit 在，但没有 exec-path 补丁标记（进包的是未打补丁的旧库）→ 失败 ---
+new_case unpatched
+cp "$REAL_YAML" "$CASE/linglong.yaml"
+healthy_prefix "$PREFIX"
+printf 'ELF.../usr/lib/x86_64-linux-gnu/webkit2gtk-4.1...' \
+  > "$PREFIX/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+if run_case "$TMP/out-unpatched"; then
+  bad "webkit 未打补丁时应失败"
+else
+  expect_fail "webkit 缺补丁标记非零退出并指名" "$TMP/out-unpatched" "FAIL libwebkit2gtk-4.1-0" "exec-path 补丁标记"
 fi
 
 # --- 场景 4：zip 实体缺失（只在 depends 里、tools.yaml 未收录的包）→ 失败 ---

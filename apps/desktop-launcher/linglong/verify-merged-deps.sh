@@ -14,11 +14,13 @@
 # 校验项（任一不满足即非零退出）：
 #   1. 产物树里不得出现字符设备，也不得残留 *.dpkg-new——AUDIT N19「写入未落盘」在产物
 #      侧的判据；
-#   2. buildext.apt 里声明的每个包都必须在下面的规则表里被认领，认领方式四选一：
-#        tool:<name>  该工具由 linglong/tools.yaml 声明，断言 $PREFIX/<binary> 存在
-#        path:<rel>   本脚本直接断言产物内该实体存在且是普通文件
-#        base:<理由>  由基础运行时 org.deepin.base 提供，按设计不进 $PREFIX
-#        none:<理由>  声明了但当前不交付任何实体到产物（附实测理由，见 AUDIT）
+#   2. buildext.apt 里声明的每个包都必须在下面的规则表里被认领，认领方式五选一：
+#        tool:<name>     该工具由 linglong/tools.yaml 声明，断言 $PREFIX/<binary> 存在
+#        path:<rel>      本脚本直接断言产物内该实体存在且是普通文件
+#        patched:<rel>   同上，且实体里必须能找到 exec-path 补丁的短路径（说明交付的是
+#                        build 段打过补丁的那一份，而不是基础层或容器里的原样旧库）
+#        base:<理由>     由基础运行时 org.deepin.base 提供，按设计不进 $PREFIX
+#        none:<理由>     声明了但当前不交付任何实体到产物（附实测理由，见 AUDIT）
 #      未认领即失败：新增依赖不允许静默地无人校验。
 #
 # 用法: verify-merged-deps.sh <merged-prefix>   e.g. linglong/output/binary/files
@@ -27,6 +29,12 @@ set -eu
 PREFIX=${1:?usage: verify-merged-deps.sh <merged-prefix>}
 YAML=$(dirname "$0")/linglong.yaml
 TOOLS_YAML=$(dirname "$0")/tools.yaml
+# exec-path 补丁的短路径与 launcher、patch 脚本共用同一份单一来源文件；两侧各写一遍
+# 就会在改一处时静默失配（patch-webkit-exec-path.sh 的头部注释记录了同样的理由）。
+WEBKIT_SHORT_PATH_FILE=$(dirname "$0")/../internal/packaging/webkit-exec-path.txt
+[ -f "$WEBKIT_SHORT_PATH_FILE" ] || { echo "verify-merged-deps: 缺少短路径单一来源文件 $WEBKIT_SHORT_PATH_FILE" >&2; exit 1; }
+WEBKIT_SHORT_PATH=$(tr -d '[:space:]' < "$WEBKIT_SHORT_PATH_FILE")
+[ -n "$WEBKIT_SHORT_PATH" ] || { echo "verify-merged-deps: $WEBKIT_SHORT_PATH_FILE 为空" >&2; exit 1; }
 DEPS=$(mktemp)
 RULES=$(mktemp)
 trap 'rm -f "$DEPS" "$RULES"' EXIT
@@ -34,7 +42,7 @@ trap 'rm -f "$DEPS" "$RULES"' EXIT
 # 规则表：包名|认领方式。每一行的理由都来自对真实产物层的实测（见 AUDIT N19/N26），
 # 不是按包名猜的：基础镜像已有的包不会进 $PREFIX（buildext 只合并"新装差异"）。
 cat > "$RULES" <<'EOF'
-libwebkit2gtk-4.1-0|path:lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
+libwebkit2gtk-4.1-0|patched:lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
 libjavascriptcoregtk-4.1-0|path:lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so.0
 libgtk-3-0|base:基础层已提供 libgtk-3（实测三版产物层均无该 .so）
 libglib2.0-0|base:基础层已提供 libglib-2.0（实测同上）
@@ -122,6 +130,20 @@ while IFS= read -r pkg; do
       else
         echo "FAIL $pkg: 产物树缺少 $arg" >&2
         fail=1
+      fi
+      ;;
+    patched)
+      if [ ! -f "$PREFIX/$arg" ]; then
+        echo "FAIL $pkg: 产物树缺少 $arg" >&2
+        fail=1
+      elif ! grep -qaF -- "$WEBKIT_SHORT_PATH" "$PREFIX/$arg"; then
+        # 交付的必须是 build 段从 apt 候选 .deb 解出、打过 exec-path 补丁的那一份。
+        # 缺这个标记说明进包的还是基础层/容器里的原样旧库——补丁失效意味着 helper
+        # 进程路径指向容器内不存在的 /usr/lib/...，产物会「装得上但 GUI 起不来」。
+        echo "FAIL $pkg: $arg 里找不到 exec-path 补丁标记 $WEBKIT_SHORT_PATH（进包的不是打过补丁的那一份）" >&2
+        fail=1
+      else
+        echo "OK   $pkg ($arg，已打 exec-path 补丁)"
       fi
       ;;
     base)

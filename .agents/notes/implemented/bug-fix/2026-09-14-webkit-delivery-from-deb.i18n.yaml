@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-webkit-delivery-from-deb.md
+2026-09-14-webkit-delivery-from-deb.md: a5ebd8ad1811b73b2a3d87ba33121bdad9eb4c46
+2026-09-14-webkit-delivery-from-deb.zh.md: 04ae250a27a3f9f423d9dd27d361497ac61d259c

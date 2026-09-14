@@ -92,8 +92,8 @@
 
 ## N19 容器内新装的文件不落盘，包内实体停留在基础层旧版本
 
-- **状态**：部分修复｜✅ 实测复核
-- **位置**：`linglong/overlay/prepare_base/upperdir/`（构建器 base overlay）；受影响实体 `usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/linglong.yaml`（`build:` 段）
+- **状态**：已修（2026-09-14，采纳本条建议的实现；待真实构建验证）｜✅ 实测复核
+- **位置**：`linglong/overlay/prepare_base/upperdir/`（构建器 base overlay）；受影响实体 `usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`；仓库侧落点 `linglong/linglong.yaml`（`build:` 段）、`linglong/verify-container-deps.sh`、`linglong/verify-merged-deps.sh`
 - **问题**：构建容器里 apt 装的是 webkit2gtk **2.50.4**，但整个 overlay 的 upperdir 里**没有任何 2.50.4 的实体内容**。每个新解包的文件只留下一个**字符设备 `c 0,0` 的 `<名字>.dpkg-new`**（例如 `libwebkit2gtk-4.1.so.0.19.7.dpkg-new`、`webkit2gtk-4.1/MiniBrowser.dpkg-new`），而实体文件保持 **2026-04-07** 的旧版本（`.so.0.19.7`，92,804,704 字节）不变。
 - **已排除**：**不是构建器缓存**。清空 `~/.cache/linglong-builder` 后重建（缓存内 webkit 副本 52 份 → 2 份），失败原样复现，sha256 仍是 `765432e2…`；清空 `linglong/` 工作区重建同样无效。因此本条**替代**原先「缓存复用」的定性。
 - **影响**：`buildext.apt.depends` 声明的依赖升级无法进入产物；`find linglong ~/.cache/linglong-builder -name 'libwebkit2gtk-4.1.so.0.2*'` 恒为零——新版内容从未落盘。附带结论：**修复前不要指望「升级 WebKit」带来任何行为变化**，包内恒定 2.48.5。
@@ -102,18 +102,22 @@
 - **已修（本次）**：把该症状变成构建期硬失败。① `build:` 段开头调用 `verify-container-deps.sh`，其中两条直接针对本条的现场特征：包内实体若是字符设备即失败；`/usr` 下存在任何 `*.dpkg-new` 残留即失败（另加 `dpkg --verify` 比对实体与包记录）。② `build:` 段原有的 webkit 唯一命中断言从 `-e` 收紧为 `-f`——`-e` 对字符设备同样为真，而下面紧接着就是 `cp -a "$1"`，会把设备节点原样复制进产物。
 - **未采纳审计的替代实现（需说明）**：`apt-get download` + `dpkg-deb -x` 直接写 `${PREFIX}` 未在本轮实施。两个原因：其一，buildext 的合并发生在 **preCommit**（`build:` 之后），直接写进 `${PREFIX}` 的内容与随后合并进来的 `/usr` 旧实体谁胜出取决于 ll-builder 的去重时序，而该时序在仓库里只有注释、没有可核对的声明（见第 8/13 条）；其二，本环境没有 ll-builder 与玲珑容器，任何对依赖交付机制的改写都无法端到端验证，只能在用户机器上盲试。断言是当前唯一"改了就能验证"的一步。
 - **验证边界（如实说明）**：日志证据表明 webkit **实体**在容器内确实停在旧版本，`dpkg --verify` 因而会对不上——但这条推断**未在真实容器里复跑**（本环境无 ll-builder，见上）。已在本机用 fixture + stub 覆盖该分支：`test-verify-container-deps.sh` 的"字符设备实体"与"`*.dpkg-new` 残留"两项。
+- **2026-09-14 修复（采纳本条建议的实现）**：`build:` 段不再从容器 `/usr` 复制 webkit，改为 `apt-get download libwebkit2gtk-4.1-0` + `dpkg-deb -x` 解出实体，**显式比对「下载到的版本 == apt 候选」**（不符即中止），打 exec-path 补丁后写进 `${PREFIX}`，并打印交付版本（`webkit: 交付 2.50.4-1~deb12u1deepin2（来自 apt 候选 .deb，已打 exec-path 补丁）`）。这条路径写的是普通文件，不经过 overlay，因此不经 ll-builder 的合并时序。上一轮"未采纳"的两条理由就此解除：其一，唯一依赖合并时序的地方是**我们**写进 `${PREFIX}` 的那份与基础层旧实体的去重，而既有版本已经证明补丁版胜出（日志里 `patch-webkit` 后产物带补丁，见 N17 修正）；其二，本环境仍无 ll-builder，端到端只能等真实构建，故本条状态写作"待真实构建验证"。
+- **同时给的产物侧判据**：构建器那条冗余的 `failed to copy` 在 `verify-builder-log.sh` 里按已知项放行（其余照旧硬失败），而"到底交付了哪一份 webkit"改由 `verify-merged-deps.sh` 断言：`lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0` 存在、是普通文件、且含 exec-path 补丁短路径（短路径取自 `internal/packaging/webkit-exec-path.txt`）。若将来那份合并覆盖了我们的补丁版，补丁标记消失，构建即失败——这正是原先"静默沿用旧库"的可观测替代。
+- **仍未解决（上游）**：overlay 写入不落盘本身没有变——容器内 `/usr` 下的实体依旧是旧版、`*.dpkg-new` 字符设备依旧产生。本条的修法是**绕开**它（不再从那棵树取物），而不是修好它；`build_depends` 里的 webkit 因此只用来拉齐 apt 列表，产物不再依赖容器里那份实体。
 - **2026-09-14 修正（首次真实构建暴露）**：① 里的容器内断言原先连 `depends` 一并要求，而 `depends` 在该阶段根本不存在（见 N18 修正），首次真实构建即因此被拦下；现已收窄为只校验 `build_depends`，并把基座裁剪的文档/手册路径从 `dpkg --verify` 比对中放行。产物侧的字符设备扫描移入 `verify-merged-deps.sh`——`find -type c` 直接认真实设备节点，比原先 `[ -c ]`（跟随软链）更贴近本条现场，且不受基座包影响。②的 webkit `-f` 断言不变：`build:` 段复制的正是 `build_depends` 提供的实体。
 
 ## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
 
-- **状态**：部分修复（仓库侧已拦截）｜✅ 实测复核
-- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`；仓库侧落点 `build-linglong.sh:29-42`、`linglong/verify-builder-log.sh`
+- **状态**：已修（2026-09-14，待真实构建验证）｜✅ 实测复核
+- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`；仓库侧落点 `build-linglong.sh`、`linglong/verify-builder-log.sh`、`linglong/verify-merged-deps.sh`
 - **问题**：`failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 之后 `[Install Files]`（`L1942`）、`[Commit Contents]`（`L1945`）、`[Runtime Check]`（`L1949`）照常执行，产物以 345 MB 导出。最终包内仍是 4 月的 2.48.5。
 - **影响**：依赖升级会被静默丢弃。比第 33 条更隐蔽——第 33 条至少会在下一次找不到文件时炸掉，这条连炸都不炸。
 - **建议**：仓库侧按 N19 第 1 条加构建后硬断言；并向上游反馈该 `failed to copy`（附带 `linglong/overlay/prepare_base/upperdir` 下 5,830 个 `.dpkg-new` 字符设备与 `.wh..opq` 白障的证据）。
 - **已修（本次）**：仓库侧事后拦截。`build-linglong.sh` 把 `ll-builder build` 的完整输出保留到 `linglong/build.log`（该路径在 `.gitignore:41` 的 `/linglong/` 内），导出前调用 `verify-builder-log.sh`，命中 `failed to copy` 即打印命中条数与位置并非零退出。同时保住构建器自身的退出码：POSIX `sh` 没有 `pipefail`，因此用子 shell 把 `$?` 写进状态文件再读回，避免 `tee` 的退出码掩盖构建失败。
 - **未修（工具链侧）**：构建器仍把复制失败降级为警告。仓库侧只能拦住"带着旧文件出包"，无法让它别丢文件；上游反馈仍是必要动作。
-- **验证**：`sh apps/desktop-launcher/linglong/test-verify-builder-log.sh` 3 项全过（正常日志通过；含 `failed to copy` 时非零退出并指明位置；日志缺失时非零退出）。另单独实测了状态捕获惯用法：子 shell 内 `exit 7` 被正确读回为 7，`tee` 同时把输出落盘。
+- **验证**：`sh apps/desktop-launcher/linglong/test-verify-builder-log.sh` 5 项全过（正常日志通过；仅 webkit 的已知冗余失败通过并说明豁免处数；webkit 之外仍失败；豁免与真实失败并存时仍失败；日志缺失时非零退出）。另单独实测了状态捕获惯用法：子 shell 内 `exit 7` 被正确读回为 7，`tee` 同时把输出落盘。
+- **2026-09-14 修正（首次真实构建暴露）**：首次带该门禁的真实构建被它拦下，而它在本次构建里抓到的**只有 webkit 这一条**——实测两次历史构建 + 本次共 3 处 `failed to copy`，**全部是同一个文件** `libwebkit2gtk-4.1.so.0`（从 overlay 复制到 `output/_build`）。而产物里那份 webkit 是 `build:` 段自己解出并打过补丁的（日志 `patch-webkit: replaced 2 exec path + 1 injected-bundle path` 为证），构建器那次复制是冗余的：它的失败恰恰避免了基础层的旧库覆盖我们的补丁版。因此判据从"日志里出现 `failed to copy`"改成"**产物里有没有一份打过补丁的 webkit**"：`verify-builder-log.sh` 只放行 webkit 这一种并打印豁免处数，其余照旧硬失败；`verify-merged-deps.sh` 断言 `lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0` 存在、是普通文件、且含 exec-path 补丁短路径（短路径取自 `internal/packaging/webkit-exec-path.txt` 这一单一来源）。本次真实日志实跑：`共 1 处，豁免 webkit 1 处`、退出码 0。
 
 ---
 
