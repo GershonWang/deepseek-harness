@@ -9,8 +9,9 @@
 - 分支 `linglong-dev`，基点提交 `dfd0e9d186`（与 `linglong` 的文件树完全相同，tree 均为 `eea557d697a7bce2b28f435e1ca070ef70ef73d7`）。
 - 玲珑包版本 `0.1.2.5`，产物 `com.deepseek.dsh-desktop_0.1.2.5_x86_64_main.uab` = **361 MB**（361,331,344 字节），解压后 **759 MB**。
 - 体积分布：`lib/` 320 MB（其中 `lib/x86_64-linux-gnu` **293 MB / 352 个 `.so`**）、`harness/` 254 MB、`node/` 147 MB、`bin/` 39 MB；生产闭包含 **264 个** `@deepseek-ai/*` 包。
-- 条目编号：首轮审计的条目沿用原编号 1–37；本轮新增条目为 `N1`–`N16`；审计者未编号的其余静态审查发现为 `S1`–`S7`。
+- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N24`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
 - 行号以审计基点为准，代码改动后可能漂移。
+- `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 
 ## 状态与验证等级
 
@@ -29,14 +30,14 @@
 ## N3 工具索引来自个人 fork 的可变分支，且无签名
 
 - **状态**：部分修复｜✅ 实测复核
-- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:43`（常量）、`:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
+- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:44`（常量）、`apps/desktop-launcher/internal/toolchain/remote_test.go:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
 - **问题**：索引地址是 `https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json`——**个人账号 fork 的 `linglong` 分支**，可变引用。索引同时提供下载 URL 与 `sha256`，因此「sha256 校验」与下载来源出自同一份未经认证的数据，只保证传输完整，**不提供来源认证**。`DSH_TOOLCHAIN_INDEX_URL` 还可直接覆盖该地址。
 - **影响**：控制该账号/分支、或能改写该 URL 的中间人，可让用户在「工具链市场」安装任意代码；解压产物经 `ReconcileBinLinks` 软链进 `~/.dsh-tools/bin`，而该目录被前置进 harness 子进程 `PATH`。`README.md:147` 把 "after sha256 verification" 当作安全属性，实际不成立。
-- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希** `47d123e212ced431eb582e83f7d58a081b39d43c`（即发布 43 项清单的那个提交，其 `index.json` blob 与工作区一致）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
+- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希**。首次钉的是 `47d123e212ced431eb582e83f7d58a081b39d43c`（发布 43 项清单的那个提交）；2026-09-14 随 JDK 多版本清单前移到 `ee9c181bf66f655d24810012c4c9f61e59c9940c`（该提交的 `index.json` blob `acf8d0ce…` 与工作区一致，动机与后续条目见 N20–N24）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
   1. 新增回归守卫 `TestDefaultIndexURL_PinnedToCommit`——断言默认引用是 40 位提交哈希、且路径未被改到别处（先写测试确认它在旧值 `linglong` 上失败，再改常量使其通过）。
   2. 中英 README 撤掉「sha256 即安全」的表述，改写为「对清单的一致性校验，清单自身由客户端固定的提交哈希锚定」；并同步修正同段末尾「增删工具不必发客户端」——该句在固定引用后已不成立，现说明发布索引需改常量并重发客户端。
 - **仍待决定（需产品决策，本次未做）**：审计建议的第一选项——**离线公钥签名**。它能在保留「只发索引不发客户端」更新方式的同时提供来源认证，但需要密钥托管与签名发布流程，属于用户尚未持有的流程变更，故不在无人确认时擅自引入。
-- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
+- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**2026-09-14 复核（换钉后）**：`go test ./internal/toolchain` 通过；实跑 curl 新钉住的 `ee9c181b…` 取回 HTTP 200、sha256 `7f4ea9bb6914294aafca7a055f299fc3d9790e8adcd6f8baeea3df752081f046`，与仓库内 `index.json` 逐字节一致（43 项工具，`jdk21` 三个版本）。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
@@ -265,9 +266,10 @@
 ## N16 `verify-tools.sh` 的一致性校验可静默跳过
 
 - **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/linglong/verify-tools.sh:108-143`
+- **位置**：`apps/desktop-launcher/linglong/verify-tools.sh:108-143`、`apps/desktop-launcher/linglong/tools.yaml:50-53`（边界声明在注释里）
 - **问题**：`if [ -f "$INDEX_JSON" ]` **没有 else**——`index.json` 缺失或改名时，校验与失败判定一起静默消失；缺 `python3` 时只打印 SKIP、不置 `fail=1`。校验也只 `diff` ID 集合，不比对 `version`/`url`/`sha256`。
 - **影响**：「界面可安装、实际必失败」的防线形同虚设，且构建照常成功。
+- **多版本下的覆盖面（2026-09-14 补充）**：`installable` 每个工具只有一组 `version`/`url`/`sha256`，因此「sha256 含占位符即失败」这条检查只覆盖**推荐版本**：`jdk21` 新加的 `17.0.20.1` 与 `8u504` 即便写成占位符也能通过构建。多版本清单的唯一事实来源是 `index.json`，`tools.yaml` 只在注释里声明这条边界（见 N20–N24）。要恢复覆盖面，需把该段扩展为多版本格式并让脚本逐版本比对。
 
 ## S1 supervisor 保留已退出子进程的 `cmd`
 
@@ -315,6 +317,31 @@
 - **状态**：未修｜⚠️ 静态审查
 - **位置**：`frontend/tools/preview.mjs:386`、`:230-238`、`main.go:22`
 - **问题**：默认产物写入 `frontend/.preview/`，而 `//go:embed all:frontend` 会把它嵌进二进制（该目录已在 `.gitignore`，但 `all:` 前缀不看 gitignore）。另外 `buildPreview` 只把 `styles.css` 改写成绝对路径，`vendor/xterm.css` 保持相对路径 → 在 `.preview/preview.html` 下 404，xterm 样式从未生效。
+
+## N20 多版本下「非推荐版本」恒显可更新，且「全部更新」不会切换
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`internal/toolchain/catalog.go:487`（`HasUpdate` 判定）、`internal/app/app.go:1081-1111`（`UpdateAllTools`）、`internal/toolchain/install.go:158-163`（激活条件，见 N7）
+- **问题**：`HasUpdate` 是 `active != versions[0]` 的字符串比较，而 `versions[0]` 的语义是「推荐版本」而不是「更高版本」。清单在 2026-09-14 首次出现多版本数据后，用户从市场刻意安装并激活 `8u504` 或 `17.0.20.1` 时，卡片会**永久**显示「可更新」。点「全部更新」也纠正不了：`UpdateAllTools` 传空 version（即 `versions[0]`），`InstallTool` 在目标版本已安装时提前返回，而 `Activate` 在生产代码里无人传（N7）——于是既不下载也不切换，却仍提示「已更新 N 个工具，失败 0 个」。
+- **影响**：多版本能力的正常用法（项目指定 JDK 8/17）被界面判成「该更新」；卡片徽标与状态栏的「N 个可更新」长期不收敛，用户按提示操作不会产生任何变化。
+- **建议**：把「推荐」与「更高版本」分开表达——`HasUpdate` 改为按版本比较、只在 `active` 低于 `versions[0]` 时置位，或在卡片上区分「推荐版本」与「不是推荐版本」两种措辞。需与 N7 一并处理，否则「全部更新」仍然不激活。
+
+## N21 `Uninstall` 卸载激活版本后按字母序回退，多版本下会激活错误版本
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`internal/toolchain/catalog.go:239-247`（回退选择）、`:166-182`（`ListVersions` 用 `sort.Strings`）
+- **问题**：卸载激活版本后取 `vers[len(vers)-1]`，即**字母序最大**的剩余版本。单版本时代这等价于「唯一的那个」；`jdk21` 现有 `8u504`/`17.0.20.1`/`21.0.12.1` 三条，字母序为 `17.0.20.1` < `21.0.12.1` < `8u504`，因此回退会选中 **`8u504`**。
+- **影响**：用户卸载当前 JDK 后，`current/jdk21` 与 `~/.dsh-tools/bin` 下的 `java` 等命令**静默**切到更旧的版本；多版本工具越多、标签风格越杂，选错的面越大。
+- **证据边界**：结论来自 `ListVersions` 的 `sort.Strings` 与 `vers[len-1]` 逐行阅读；现有 `TestUninstall` 用的是 `1.23.2`/`1.24.0`（字母序与版本序恰好一致），因此**没有用例固定这条错误回退**——补一条用 `8u504`/`17.0.20.1`/`21.0.12.1` 的用例即可复现。
+- **建议**：按版本号数值排序（或回退到 `versions[0]`），并补上那条用例。
+
+## N22 端到端审计只覆盖 `versions[0]`，新增版本没有实证防线
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`internal/toolchain/e2e_install_test.go:39`（`InstallTool(dir, tool.ID, "")`）、`internal/toolchain/install.go:105-112`（空 version 落到 `LatestVersion()`）
+- **问题**：`TestE2E_CatalogInstall` 是清单里「地址可达、归档与清单 sha256 一致、解压布局符合 `bin_rel`/`bin_names`、声明的命令都出现在 `bin/`」的唯一实证手段，但它对每个工具只装 `versions[0]`；`DSH_TC_E2E_IDS` 也只能按工具 ID 过滤。`jdk21` 的 `17.0.20.1` 与 `8u504` 因此不在任何自动化覆盖内，只能靠人工下载实测（见附录 B）。
+- **影响**：镜像站轮换或 sha256 抄错一个字符，只会在用户点安装时暴露——这正是该审计当初被加进来的原因（grpcurl 的 sha256 抄错一字符由它首次跑出）。
+- **建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
 
 ---
 
@@ -417,6 +444,22 @@
 - **问题**：捆绑 Node 版本硬编码两处（均为 `24.9.0`）；pnpm「是否已下载」的守卫一处查 `bin/pnpm.cjs`、一处查目录存在 + `bin/pnpm.mjs`；三行包装器在两地逐字重复。升级 Node 时只改一处会让 stage 与容器 fallback 下载不同版本。
 - **另**：`prepare-offline.sh:86-88` 的 `for f in README*` 在 CWD 已切到仓库根后展开，匹配的是**仓库根**的 README，而不是 `$pkgdir` 的。
 
+## N23 工具 ID `jdk21` 与内容不符（现含 8/17/21），改名需要一次性迁移
+
+- **状态**：未修（有意延期）｜✅ 已复核
+- **位置**：`internal/toolchain/tools/index.json`（`id: jdk21`，`versions` 三条）、`linglong/tools.yaml`、`internal/toolchain/catalog_test.go:14`/`:158`、`internal/toolchain/install.go:131-142`（依赖解析）
+- **问题**：ID 在 2026-09-14 扩为三版本后成为误称。改名为 `jdk` 会连带四处：`gradle` 与 `maven` 的 `dependencies: ["jdk21"]`（不改则新用户装这两个工具直接在 `unknown tool: jdk21` 失败，已有 `jdk21-*` 目录的用户因 `ListVersions` 非空而侥幸跳过）、`linglong/tools.yaml` 的 `installable` 键（不改则 `verify-tools.sh` 的 ID 集合 diff 失败）、`catalog_test.go` 的两条断言，以及**已装用户的状态迁移**——安装目录 `~/.dsh-tools/jdk21-<version>`、`current/jdk21` 软链，还有 `.dsh-toolchain.yml` 里手写的工具 ID（该能力后端已实现而前端未接，见 S6）。
+- **迁移期风险（尚未发生，记录以备将来）**：改名而不同时迁移时，残留的 `current/jdk21` 仍会被 `ReconcileBinLinks` 扫描（它不校验工具是否还在清单里，`toolBinDirs` 未命中即回退默认布局探测），继续把 `java`/`javac` 软链进 `~/.dsh-tools/bin`；`os.ReadDir` 按名排序使 `jdk` 先于 `jdk21` 处理，**旧目录的软链最后写入并覆盖新的**，表现为「装了新 `jdk`，`PATH` 上的 `java` 仍指向旧目录」。该推导为逐行阅读所得，**未实跑复现**。
+- **建议**：下一次代码改动时一并做：改 ID、依赖声明、白名单键与断言，并写一次性迁移（把 `jdk21-*` 目录转为 `jdk-*`、重建 `current` 与 `bin` 软链、清理孤儿目录）。本次选择先铺多版本、后改 ID，代价是届时迁移的目录从 1 个变成 1–3 个。
+
+## N24 `ToolVersion.LibRel` 无消费点
+
+- **状态**：未修｜✅ 已复核
+- **位置**：`internal/toolchain/catalog.go:18`（字段声明）、`:338-351`（`ReconcileBinLinks` 无条件探测 `lib/`/`lib64/`）、`internal/toolchain/install.go:312-317`（只写进 `tool.yml`）
+- **问题**：`lib_rel` 被声明、被解析、被写进安装目录的 `tool.yml`，但**没有任何读取点**：库目录绑定按 `root/lib`、`root/lib64` 是否存在决定，与清单声明的 `lib_rel` 无关。`jdk21` 三条版本都写着 `"lib_rel": "lib"`，读起来像有约束，实际不是。
+- **影响**：清单作者以为改 `lib_rel` 就能改变 `LD_LIBRARY_PATH` 注入的库目录；`appenv` 注入的是 `~/.dsh-tools/lib` 整目录，绑定由探测决定，发行包布局与声明不符时不会报错，只会静默少绑或不绑。
+- **建议**：要么让 `ReconcileBinLinks` 真正消费该字段（未声明时保留现有探测作为回退），要么删掉字段与 `tool.yml` 里那一行，避免清单里留下没有效果的配置。
+
 ---
 
 # 附录 A：已结案
@@ -488,6 +531,7 @@
 - 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。审计收尾时这些构建缓存曾清理，随后为验证字体方案重新生成。
 - 仓库当前的文档闸门并非全绿：`verify-translation-pairing` 语料为 837 ok / 1 out-of-sync / 33 missing（含 `docs/superpowers/**` 与清理前 `linglong/` 下被扫到的构建产物），`verify-md-wrap`、`verify-md-links`、`verify-package-readme-*` 亦有既有失败。这些与本文条目无关，但会影响「闸门全绿」的判断。
 - 字体方案的验证边界见附录 A 的对应记录。
+- JDK 多版本条目（N20–N24）的证据边界：两份新增归档经真实下载，size 与 sha256 和 Adoptium v3 API 报出的值一致（`8u504` 103542511 字节 / `9c70e102…`；`17.0.20.1` 193252603 字节 / `3808d1d1…`），解包后为单一顶层目录且含 `bin/` 与 `lib/`，`java`/`javac`/`jdb`/`jar` 均可执行、`java -version` 分别报 `1.8.0_504` 与 `17.0.20.1`；`21.0.12.1` 未重下，API 当前 21 资产的 sha256 与清单现值相同。**未在玲珑容器内实跑**，也未走通 launcher 的真实安装路径——市场唯一入口是 Wails 绑定，端到端审计只覆盖 `versions[0]`（见 N22）。索引发布侧已实跑 curl 复核（见 N3 的验证）。
 
 ---
 
@@ -497,5 +541,6 @@
 2. **20**（宿主挂载二次确认）——复用现成两击确认模式，改动最小、安全收益最大。
 3. **N3 / N4 / N7**——供应链来源认证，以及两处「用户可见的静默无效」。
 4. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，约 50 MB+。
+5. **N22 / N16**（把多版本纳入两道门禁）与 **N20 / N21**（多版本的两处用户可见错误）——JDK 8/17/21 已进入市场，这四条是同一批多版本语义的收尾；**N23** 的 ID 改名与一次性迁移可与此一并做。
 
 （原第 3 项 N2 已完成，见附录 A。）
