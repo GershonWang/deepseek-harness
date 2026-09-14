@@ -28,26 +28,44 @@
 
 ## N3 工具索引来自个人 fork 的可变分支，且无签名
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:31`（另见 `:147-159`、`internal/toolchain/install.go:190-251`、`internal/appenv/env.go:203-205`）
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:43`（常量）、`:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
 - **问题**：索引地址是 `https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json`——**个人账号 fork 的 `linglong` 分支**，可变引用。索引同时提供下载 URL 与 `sha256`，因此「sha256 校验」与下载来源出自同一份未经认证的数据，只保证传输完整，**不提供来源认证**。`DSH_TOOLCHAIN_INDEX_URL` 还可直接覆盖该地址。
 - **影响**：控制该账号/分支、或能改写该 URL 的中间人，可让用户在「工具链市场」安装任意代码；解压产物经 `ReconcileBinLinks` 软链进 `~/.dsh-tools/bin`，而该目录被前置进 harness 子进程 `PATH`。`README.md:147` 把 "after sha256 verification" 当作安全属性，实际不成立。
-- **建议**：索引引入离线公钥签名，或把 URL 固定到不可变提交/发行物；sha256 退回「索引内一致性校验」的定位，并撤掉文档里的安全表述。
+- **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希** `47d123e212ced431eb582e83f7d58a081b39d43c`（即发布 43 项清单的那个提交，其 `index.json` blob 与工作区一致）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
+  1. 新增回归守卫 `TestDefaultIndexURL_PinnedToCommit`——断言默认引用是 40 位提交哈希、且路径未被改到别处（先写测试确认它在旧值 `linglong` 上失败，再改常量使其通过）。
+  2. 中英 README 撤掉「sha256 即安全」的表述，改写为「对清单的一致性校验，清单自身由客户端固定的提交哈希锚定」；并同步修正同段末尾「增删工具不必发客户端」——该句在固定引用后已不成立，现说明发布索引需改常量并重发客户端。
+- **仍待决定（需产品决策，本次未做）**：审计建议的第一选项——**离线公钥签名**。它能在保留「只发索引不发客户端」更新方式的同时提供来源认证，但需要密钥托管与签名发布流程，属于用户尚未持有的流程变更，故不在无人确认时擅自引入。
+- **验证**：`TestDefaultIndexURL_PinnedToCommit` 先失败（`默认索引引用 "linglong" 不是 40 位提交哈希`）后通过；`go test ./internal/toolchain ./internal/appenv` 通过；`gofmt -l` 无输出；`CGO_ENABLED=0 go vet ./...` 退出码 0；实跑 curl 按该提交哈希取回的索引 HTTP 200 且 sha256 `74d548e3…` 与仓库内 `index.json` 逐字节一致。**边界**：本环境无 gcc（审计已记录 gcc 工具链被裁），`CGO_ENABLED=1 go vet ./...`（含 wails cgo 路径）无法执行。
 
 ## 33 WebKit helper 字节补丁与版本号硬编码
 
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`apps/desktop-launcher/linglong/patch-webkit-exec-path.sh`、`apps/desktop-launcher/linglong/linglong.yaml:137-140`
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`apps/desktop-launcher/linglong/patch-webkit-exec-path.sh`、`apps/desktop-launcher/internal/packaging/webkit-exec-path.txt`（短路径单一来源）、`apps/desktop-launcher/linglong/linglong.yaml`（`build:` 段的 webkit 块）
 - **问题**：直接对 `libwebkit2gtk-4.1.so` 做二进制字符串替换，且 `linglong.yaml:137-138` 把版本号硬编码为 `libwebkit2gtk-4.1.so.0.19.7`。webkit 小版本一变，这两行直接找不到文件。
 - **附加缺陷**：`patch-webkit-exec-path.sh:40-42` 在两个计数都为 0 时打印一行说明并 `sys.exit(0)`，调用方不看 stdout，随后无条件建软链并继续打包导出 → **补丁未生效也能产出「安装成功但 GUI 起不来」的包**。建议改为非零退出，或在构建后断言 `/tmp/dsh-webkit-4.1` 字符串确实已替换。
 - **长期方案**：`WEBKIT_EXEC_PATH`（需 `DEVELOPER_MODE` 构建）或让玲珑 layer 正确导出 `/usr/lib/...`。
 - **已修（第一步）**：版本号不再硬编码——`linglong.yaml` 用 `set -- .../libwebkit2gtk-4.1.so.0.*` 解析构建容器内的唯一实体，命中 0 个（`sh` 不展开 glob 时 `$#` 仍为 1，故同时判 `[ -e "$1" ]`）或多个都硬失败；补丁脚本在找不到硬编码路径、替代串比原串长、替换后仍残留原路径三种情况下均非零退出，写盘前完成全部自检，替换失败不再产出畸形 `.so`。
-- **仍待办（第二步）**：运行时改用 `WEBKIT_EXEC_PATH` / layer 路径导出，去掉字节补丁。届时 `internal/packaging/webkit_linux.go:34-42` 的 `/tmp/dsh-webkit-4.1` 短路径约定必须同步修改（该函数目前无法注入短路径与前缀，尚无单测），否则会造出同一类「装得上、起不来」的包。
+- **已修（本次，第一步收尾 + 消除一处现存隐患）**：
+  1. **短路径单源化**。`/tmp/dsh-webkit-4.1` 原本在补丁脚本与 `webkit_linux.go` 里各写一遍，改一处就会让包内 helper 路径与 launcher 建的符号链接不一致——正是最坏的「装得上、GUI 起不来」，而打包与启动两个环节都不会报错。现落到 `internal/packaging/webkit-exec-path.txt`：Go 侧 `//go:embed`，补丁脚本读同一文件。两条守卫测试固定契约：短路径必须短于原路径（等长字节替换的前提）、打包脚本不得再出现该路径的字节字面量；两条都做了变异验证（注入回归后确实失败，非摆设）。
+  2. **补丁脚本增加反向自检**：除"旧路径必须消失"外，新增"新路径必须出现"——写坏或漏写同样会让旧路径消失，而 launcher 会据此建一个指向不存在路径的符号链接。
+  3. `build:` 段的 webkit 唯一命中断言由 `-e` 收紧为 `-f`（见 N19）。
+- **仍待办（第二步）与新增证据**：原计划改走 `WEBKIT_EXEC_PATH` 或让 layer 导出 `/usr/lib/...`，本轮取证后判定**两条都不可行**：
+  1. `WEBKIT_EXEC_PATH` —— 实测已发布包的 `libwebkit2gtk-4.1.so.0.19.7` 里 `strings` **不存在**该字符串，说明该代码路径未编入发行版构建（与 `linglong.yaml` 注释"需 DEVELOPER_MODE"一致）。
+  2. layer 导出 `/usr/lib/...` —— 被 **N19** 阻塞：字节补丁存在的前提正是"运行时 `/usr` 只读、layer 不导出 `/usr` 写入"，而这正是 N19 记录的上游 overlay 缺陷。N19 不解决，这一步无法落地。
+  因此第二步的可行前提不在本仓库：要么上游给出 `DEVELOPER_MODE` 的 webkit 发行物，要么 N19 的上游缺陷修复。原先担心的"届时 `webkit_linux.go` 的短路径约定必须同步修改"已由本次单源化消解——改 `webkit-exec-path.txt` 一处即同时作用于打包与启动两侧。
+- **对审计原文的更正**：原文称 `internal/packaging/webkit_linux.go` 的该函数"尚无单测"，该说法已过时——`webkit_linux_test.go` 早已覆盖 `webkitHelperLinkUsable`（链接缺失/悬空/指向非当前包目录）与渲染后端两条路径；本轮又补上面两条契约测试。
+- **验证**：
+  1. `sh apps/desktop-launcher/linglong/test-patch-webkit-exec-path.sh` 4 项全过（替换成功且新旧路径一增一减、无硬编码路径、短路径过长、单一来源文件缺失）。
+  2. `go test ./internal/packaging` 全绿（含新增两条契约测试）。
+  3. 变异检查：把短路径字面量写回脚本 → `TestPatchScriptReadsSharedShortPath` 失败；把短路径改长 → `TestWebkitExecPathIsEqualLengthReplacement` 失败。两者还原后复绿。
+  4. **真实产物往返**：取已发布包里的 `libwebkit2gtk-4.1.so.0.19.7`（92,804,704 字节），先用脚本同构的方式还原出原始形态（`exec` 2 处、`bundle` 1 处），再用改动后的脚本重新打补丁，结果与已发布包 **sha256 逐字节一致**（`765432e2…`，即审计正文引用的那个哈希）——证明本次改动没有改变补丁产物。对已打过补丁的文件再跑一次则正确拒绝（退出码 1，不写盘）。
+  5. **边界**：本环境无 ll-builder 与玲珑容器，未在真实构建里跑过；上述往返验证用的是已安装的 0.1.2.7 产物，不是新构建。
 
 ## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖；`linglong/` 被 `.gitignore:41` 忽略）；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/linglong.yaml`（`build:` 段开头）
 - **问题**：生成脚本的两条命令都以 `|| echo "$?"` 结尾——
 
   ```sh
@@ -58,24 +76,33 @@
   apt 失败（网络、锁、磁盘、文件系统错误）不会中止构建，只打印一个数字；`README.zh.md` 声明的运行时依赖全部经由这一条路径拉入。
 - **证据**：`/home/Jokul/Desktop/日志.txt` 两轮构建各自出现两次 apt 阶段（`L683`/`L834`、`L1657`/`L1888`，`Unpacking`/`Setting up libwebkit2gtk-4.1-0 (2.50.4-1~deb12u1deepin2)`），但容器内的 2.50.4 内容一个字节都没有落进包；两轮全程没有任何环节报错。
 - **建议**：改为失败即中止（`set -e` 语义），或在 `build:` 段加一条"关键包必须存在于容器"的断言（与第 33 条第一步同源）。
+- **已修（本次，采纳建议的后半）**：`build:` 段开头新增 `linglong/verify-container-deps.sh`，从 `linglong.yaml` 的 `buildext.apt` 段（`build_depends` + `depends`，去重并剥离注释）解析依赖清单，逐项硬断言：dpkg 状态为 `install ok installed`；已装版本等于 apt 候选（本次安装确实生效）；`dpkg --verify` 无输出；包内实体是普通文件；`/usr` 下无 `*.dpkg-new` 残留。任一不满足即非零退出，构建在组装之前中止，不再产出"依赖没装上却照常导出"的包。
+- **未修（工具链侧）**：`|| echo "$?"` 由 ll-builder 从声明生成，`linglong.yaml` 的 `buildext:` 只有包名列表（`apt.build_depends`/`apt.depends`），本仓库改不掉那两行命令。本次改动把"apt 失败不中止"从静默变成构建故障，但没有消除它。
+- **验证**：`sh apps/desktop-launcher/linglong/test-verify-container-deps.sh` 7 项全过——依赖齐全（含两段重复包名去重与整行/行尾注释剥离）、版本落后于候选、依赖未安装、字符设备实体、`*.dpkg-new` 残留、`dpkg --verify` 不一致，以及真实 `linglong.yaml` 的完整解析。
 
 ## N19 容器内新装的文件不落盘，包内实体停留在基础层旧版本
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`linglong/overlay/prepare_base/upperdir/`（构建器 base overlay）；受影响实体 `usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`
+- **状态**：部分修复｜✅ 实测复核
+- **位置**：`linglong/overlay/prepare_base/upperdir/`（构建器 base overlay）；受影响实体 `usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7`；仓库侧落点 `linglong/verify-container-deps.sh`、`linglong/linglong.yaml`（`build:` 段）
 - **问题**：构建容器里 apt 装的是 webkit2gtk **2.50.4**，但整个 overlay 的 upperdir 里**没有任何 2.50.4 的实体内容**。每个新解包的文件只留下一个**字符设备 `c 0,0` 的 `<名字>.dpkg-new`**（例如 `libwebkit2gtk-4.1.so.0.19.7.dpkg-new`、`webkit2gtk-4.1/MiniBrowser.dpkg-new`），而实体文件保持 **2026-04-07** 的旧版本（`.so.0.19.7`，92,804,704 字节）不变。
 - **已排除**：**不是构建器缓存**。清空 `~/.cache/linglong-builder` 后重建（缓存内 webkit 副本 52 份 → 2 份），失败原样复现，sha256 仍是 `765432e2…`；清空 `linglong/` 工作区重建同样无效。因此本条**替代**原先「缓存复用」的定性。
 - **影响**：`buildext.apt.depends` 声明的依赖升级无法进入产物；`find linglong ~/.cache/linglong-builder -name 'libwebkit2gtk-4.1.so.0.2*'` 恒为零——新版内容从未落盘。附带结论：**修复前不要指望「升级 WebKit」带来任何行为变化**，包内恒定 2.48.5。
 - **旁证**：该次打包日志中 `failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 出现 3 次（见 N17），构建仍声明完成并导出 345 MB 产物。
 - **建议**：不要在 prepare_base/overlay 路径上继续投入；改为在 `build:` 段自行 `apt-get download` + `dpkg-deb -x`，把目标库直接装进 `${PREFIX}`（普通文件写入，不经 overlay 合并）。
+- **已修（本次）**：把该症状变成构建期硬失败。① `build:` 段开头调用 `verify-container-deps.sh`，其中两条直接针对本条的现场特征：包内实体若是字符设备即失败；`/usr` 下存在任何 `*.dpkg-new` 残留即失败（另加 `dpkg --verify` 比对实体与包记录）。② `build:` 段原有的 webkit 唯一命中断言从 `-e` 收紧为 `-f`——`-e` 对字符设备同样为真，而下面紧接着就是 `cp -a "$1"`，会把设备节点原样复制进产物。
+- **未采纳审计的替代实现（需说明）**：`apt-get download` + `dpkg-deb -x` 直接写 `${PREFIX}` 未在本轮实施。两个原因：其一，buildext 的合并发生在 **preCommit**（`build:` 之后），直接写进 `${PREFIX}` 的内容与随后合并进来的 `/usr` 旧实体谁胜出取决于 ll-builder 的去重时序，而该时序在仓库里只有注释、没有可核对的声明（见第 8/13 条）；其二，本环境没有 ll-builder 与玲珑容器，任何对依赖交付机制的改写都无法端到端验证，只能在用户机器上盲试。断言是当前唯一"改了就能验证"的一步。
+- **验证边界（如实说明）**：日志证据表明 webkit **实体**在容器内确实停在旧版本，`dpkg --verify` 因而会对不上——但这条推断**未在真实容器里复跑**（本环境无 ll-builder，见上）。已在本机用 fixture + stub 覆盖该分支：`test-verify-container-deps.sh` 的"字符设备实体"与"`*.dpkg-new` 残留"两项。
 
 ## N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库
 
-- **状态**：未修（工具链侧）｜✅ 已复核
-- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`
+- **状态**：部分修复（仓库侧已拦截）｜✅ 实测复核
+- **位置**：`.uab` 组装阶段的构建器（ll-builder / linyaps builder，仓库外工具）；本体日志见 `/home/Jokul/Desktop/日志.txt:1941`；仓库侧落点 `build-linglong.sh:29-42`、`linglong/verify-builder-log.sh`
 - **问题**：`failed to copy …/libwebkit2gtk-4.1.so.0 …: 无效的参数` 之后 `[Install Files]`（`L1942`）、`[Commit Contents]`（`L1945`）、`[Runtime Check]`（`L1949`）照常执行，产物以 345 MB 导出。最终包内仍是 4 月的 2.48.5。
 - **影响**：依赖升级会被静默丢弃。比第 33 条更隐蔽——第 33 条至少会在下一次找不到文件时炸掉，这条连炸都不炸。
 - **建议**：仓库侧按 N19 第 1 条加构建后硬断言；并向上游反馈该 `failed to copy`（附带 `linglong/overlay/prepare_base/upperdir` 下 5,830 个 `.dpkg-new` 字符设备与 `.wh..opq` 白障的证据）。
+- **已修（本次）**：仓库侧事后拦截。`build-linglong.sh` 把 `ll-builder build` 的完整输出保留到 `linglong/build.log`（该路径在 `.gitignore:41` 的 `/linglong/` 内），导出前调用 `verify-builder-log.sh`，命中 `failed to copy` 即打印命中条数与位置并非零退出。同时保住构建器自身的退出码：POSIX `sh` 没有 `pipefail`，因此用子 shell 把 `$?` 写进状态文件再读回，避免 `tee` 的退出码掩盖构建失败。
+- **未修（工具链侧）**：构建器仍把复制失败降级为警告。仓库侧只能拦住"带着旧文件出包"，无法让它别丢文件；上游反馈仍是必要动作。
+- **验证**：`sh apps/desktop-launcher/linglong/test-verify-builder-log.sh` 3 项全过（正常日志通过；含 `failed to copy` 时非零退出并指明位置；日志缺失时非零退出）。另单独实测了状态捕获惯用法：子 shell 内 `exit 7` 被正确读回为 7，`tee` 同时把输出落盘。
 
 ---
 
