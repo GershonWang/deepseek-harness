@@ -218,7 +218,8 @@ func SetActiveVersion(dir, id, version string) error {
 	return ReconcileBinLinks(dir)
 }
 
-// Uninstall 卸载指定版本。如果卸载的是当前激活版本，自动激活最新的剩余版本。
+// Uninstall 卸载指定版本。如果卸载的是当前激活版本，自动激活推荐版本（仍在时），
+// 否则激活剩余里版本号最高的一个。
 func Uninstall(dir, id, version string) error {
 	if !IsInstalled(dir, id, version) {
 		return os.ErrNotExist
@@ -235,13 +236,10 @@ func Uninstall(dir, id, version string) error {
 		return err
 	}
 
-	// 如果卸载的是激活版本，尝试激活最新的剩余版本
+	// 如果卸载的是激活版本，接替者由 fallbackVersion 决定
 	if active == version {
-		vers := ListVersions(dir, id)
-		if len(vers) > 0 {
-			// 激活最后一个（字母序最新）
-			latest := vers[len(vers)-1]
-			if err := SetActiveVersion(dir, id, latest); err != nil {
+		if next := fallbackVersion(id, ListVersions(dir, id)); next != "" {
+			if err := SetActiveVersion(dir, id, next); err != nil {
 				return err
 			}
 		}
@@ -249,6 +247,27 @@ func Uninstall(dir, id, version string) error {
 
 	// 重建软链
 	return ReconcileBinLinks(dir)
+}
+
+// fallbackVersion 决定卸载激活版本后接替的版本：优先清单里的推荐版本（用户按推荐装过它
+// 时，回到推荐最符合预期），否则取剩余里版本号最高的一个。
+//
+// 早期实现取 ListVersions 的字母序最后一个：单版本时代它等价于「唯一的那个」，多版本下
+// 却会选中 `8u504` 这种字母序靠后、版本号反而最低的标签，把 PATH 上的 java 静默换成更旧的
+// 版本（AUDIT N21）。工具已不在清单里（孤儿目录）时没有推荐版本可依，同样走数值最高。
+func fallbackVersion(id string, remaining []string) string {
+	if len(remaining) == 0 {
+		return ""
+	}
+	if tool, ok := LookupTool(id); ok {
+		recommended := tool.LatestVersion().Version
+		for _, v := range remaining {
+			if v == recommended {
+				return recommended
+			}
+		}
+	}
+	return highestVersion(remaining)
 }
 
 // —— 软链与自愈 ——
@@ -467,7 +486,7 @@ type ToolStatus struct {
 	ActiveVersion     string   // 当前激活版本
 	InstalledVersions []string // 所有已装版本
 	Size              int64    // 字节
-	HasUpdate         bool     // 已安装且有更新版本
+	HasUpdate         bool     // 推荐版本高于当前激活版本（激活链接缺失时也为 true，作为修复入口）
 	// 以下三项描述"容器内运行时可用性"：该工具提供的命令已在当前 PATH 命中
 	// （随包/宿主导入/系统提供），与市场仓库安装状态（Installed）相互独立。
 	// 由 app 层组装填充，toolchain 包只声明字段；未命中均为空。
@@ -483,8 +502,15 @@ func ToolStatuses(dir string) []ToolStatus {
 	for _, t := range tools {
 		latest := t.LatestVersion().Version
 		installedVersions := ListVersions(dir, t.ID)
+		// 已装版本按版本号从高到低展示：字母序会把 `8u504` 排在 `21.0.12.1` 之后，
+		// 卡片下拉里「越靠前越新」的预期就不成立了。
+		sortVersionsDesc(installedVersions)
 		active := ActiveVersion(dir, t.ID)
-		hasUpdate := len(installedVersions) > 0 && active != latest && latest != ""
+		// 「可更新」按版本号比较，而不是「当前激活是否等于推荐版本」的字符串不等：
+		// 推荐版本只是清单首项，它可以低于当前激活版本（清单回退时），那时不该报更新。
+		// active 为空（current 软链缺失或损坏）时仍报更新，让「更新」成为一键修复入口。
+		hasUpdate := len(installedVersions) > 0 && latest != "" &&
+			(active == "" || compareVersions(active, latest) < 0)
 		ts := ToolStatus{
 			ID:                t.ID,
 			Name:              t.Name,

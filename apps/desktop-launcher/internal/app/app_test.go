@@ -363,3 +363,85 @@ func TestAnnotateRuntime(t *testing.T) {
 		t.Fatalf("已安装工具不应提示运行时来源: %+v", got)
 	}
 }
+
+// mkMarketVersion 在临时 HOME 的市场目录里预置一个工具版本（含 bin/<cmd>）。
+// 用例以此把「旧版本已激活、推荐版本已下载」的状态摆出来，全程不联网。
+func mkMarketVersion(t *testing.T, dir, id, version, cmd string) {
+	t.Helper()
+	bindir := filepath.Join(dir, id+"-"+version, "bin")
+	if err := os.MkdirAll(bindir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bindir, cmd), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// waitFor 轮询条件成立，超时即判定失败。异步安装完成的通知路径没有回调可等，
+// 因此按可观察的磁盘/环境状态轮询。
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("等待 %s 超时", what)
+}
+
+// TestUpdateAllTools_ActivatesRecommendedVersion 固定「一键更新即切换」的接线（AUDIT N7）：
+// 推荐版本已在磁盘、当前仍激活旧版本时，更新必须把推荐版本设为当前版本，而不是下载/
+// 假装成功之后仍停在旧版本上。
+func TestUpdateAllTools_ActivatesRecommendedVersion(t *testing.T) {
+	home := t.TempDir()
+	dir := toolchain.InstallDir(home)
+	goTool, ok := toolchain.LookupTool("go")
+	if !ok {
+		t.Fatal("catalog 应含 go")
+	}
+	recommended := goTool.LatestVersion().Version
+	const old = "1.0.0"
+	mkMarketVersion(t, dir, "go", old, "go")
+	mkMarketVersion(t, dir, "go", recommended, "go")
+	if err := toolchain.SetActiveVersion(dir, "go", old); err != nil {
+		t.Fatalf("激活 %s: %v", old, err)
+	}
+
+	a := &App{home: home}
+	if got := a.UpdateAllTools(); got != "" {
+		t.Fatalf("UpdateAllTools 返回 %q, want 空串", got)
+	}
+	waitFor(t, "更新切换到推荐版本", func() bool {
+		return toolchain.ActiveVersion(dir, "go") == recommended
+	})
+	// 再等 goroutine 走过 ConfigureChildEnv，避免用例结束回收临时目录时与它相撞。
+	waitFor(t, "市场 bin 注入 PATH", func() bool {
+		return strings.Contains(os.Getenv("PATH"), filepath.Join(dir, "bin"))
+	})
+}
+
+// TestUpdateNotice 固定更新结果通知的要点：成功项给出目标版本，并说明旧版本的去向
+// （多版本并存是既定行为，通知不说清楚用户会以为旧版本被删了或没生效）。
+func TestUpdateNotice(t *testing.T) {
+	cases := []struct {
+		name    string
+		updated []string
+		failed  int
+		want    string
+	}{
+		{"全部成功", []string{"JDK (Temurin) → 21.0.12.1"}, 0,
+			"已更新 1 个工具：JDK (Temurin) → 21.0.12.1。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载"},
+		{"部分失败", []string{"Go → 1.23.2"}, 2,
+			"已更新 1 个工具：Go → 1.23.2；失败 2 个。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载"},
+		{"全部失败只说数量", nil, 3, "已更新 0 个工具；失败 3 个"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := updateNotice(c.updated, c.failed); got != c.want {
+				t.Fatalf("updateNotice = %q, want %q", got, c.want)
+			}
+		})
+	}
+}

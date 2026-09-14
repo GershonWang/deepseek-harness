@@ -10,11 +10,11 @@ Status: implemented
 
 ## 决策
 
-本次只改数据，ID 保持 `jdk21`。`tools/index.json` 里 `name` 改为 `JDK (Temurin)`，`description` 写明可选 8 / 17 / 21，`versions` 增加 17 与 8u504，而 `21.0.12.1` 保持在首位：首个条目就是推荐版本，「可更新」判定与「全部更新」都以它为目标，因此顺序即语义。
+本次只改数据，ID 保持 `jdk21`。`tools/index.json` 里 `name` 改为 `JDK (Temurin)`，`description` 写明可选版本，`versions` 在首位的 `21.0.12.1` 之外带上 `8u504`：首个条目就是推荐版本，「可更新」判定与「全部更新」都以它为目标，因此顺序即语义。
 
-版本标签沿用发行标签去掉 build 号的形式：`21.0.12.1`、`17.0.20.1`，8 用 Adoptium 的发行标签 `8u504`。`21.0.12.1` 这一串逐字不变，因为它决定安装目录 `jdk21-21.0.12.1` 与 `current/jdk21` 软链的指向；改动会让已装用户变成「未安装」并留下孤儿目录。
+版本标签沿用发行标签去掉 build 号的形式：`21.0.12.1`，8 用 Adoptium 的发行标签 `8u504`。`21.0.12.1` 这一串逐字不变，因为它决定安装目录 `jdk21-21.0.12.1` 与 `current/jdk21` 软链的指向；改动会让已装用户变成「未安装」并留下孤儿目录。
 
-三个版本都声明 `bin_rel: "bin"` 与 `lib_rel: "lib"`，这正是两个归档存放命令与库的位置。每个 url、sha256 与 size 都取自 Adoptium v3 API，并用真实下载的字节复核；21 那条没有重下，因为 API 当前的 21 资产报出的 sha256 与清单里的值相同。
+两个版本都声明 `bin_rel: "bin"` 与 `lib_rel: "lib"`，这正是两个归档存放命令与库的位置。每个 url、sha256 与 size 都取自 Adoptium v3 API，并用真实下载的字节复核；21 那条没有重下，因为 API 当前的 21 资产报出的 sha256 与清单里的值相同。
 
 `linglong/tools.yaml` 仍只登记推荐版本，并在注释里写明这条边界：它每个工具只有一个 `version`/`url`/`sha256`，表达不了多出来的版本。
 
@@ -22,9 +22,9 @@ ID 改名（`jdk21` → `jdk`）与随之而来的迁移（`jdk21-*` 转 `jdk-*`
 
 ## 新增版本的覆盖情况
 
-`verify-tools.sh` 只检查每个工具那一个 sha256 是否填实，也只 diff `installable` 与 `index.json` 的工具 ID 集合，因此新加的 17 或 8u504 即便写成占位哈希也能通过构建——这正是 `AUDIT.md` N16 记录的缺口。本次改以人工实测补上：两个归档都下载、sha256 与清单比对、解包确认只有一个顶层目录且含 `bin/` 与 `lib/`，并实跑 `bin/java -version`。
+`verify-tools.sh` 只检查每个工具那一个 sha256 是否填实，也只 diff `installable` 与 `index.json` 的工具 ID 集合，因此新加的 `8u504` 即便写成占位哈希也能通过构建——这正是 `AUDIT.md` N16 记录的缺口。本次改以人工实测补上：该归档下载后 sha256 与清单比对、解包确认只有一个顶层目录且含 `bin/` 与 `lib/`，并实跑 `bin/java -version`。
 
-`TestE2E_CatalogInstall` 只装 `versions[0]`，所以新增的两个版本不在它的覆盖里。把审计改成遍历版本是下次代码改动的候选项。
+`TestE2E_CatalogInstall` 只装 `versions[0]`，所以新增的版本不在它的覆盖里。把审计改成遍历版本是下次代码改动的候选项。
 
 ## 备选方案
 
@@ -40,9 +40,9 @@ ID 改名（`jdk21` → `jdk`）与随之而来的迁移（`jdk21-*` 转 `jdk-*`
 
 ## 后果
 
-市场卡片显示「JDK (Temurin)」并列出 8 / 17 / 21：未装时出现版本下拉，已装后可在已装版本之间切换。21 仍是推荐版本，因此已装 21 的用户看不到更新提示。
+市场卡片显示「JDK (Temurin)」并列出可选版本：未装时出现版本下拉，已装后可在已装版本之间切换。21 仍是推荐版本，因此已装 21 的用户看不到更新提示。
 
-每个已装版本占一份完整 JDK（归档分别约 103 MB、193 MB、207 MB），同一时刻只有一个生效：`~/.dsh-tools/current/jdk21` 指向它，`bin/` 由它重建。
+每个已装版本占一份完整 JDK（归档分别约 103 MB 与 207 MB），同一时刻只有一个生效：`~/.dsh-tools/current/jdk21` 指向它，`bin/` 由它重建。
 
 两处已知缺口随本次一起交付：打包侧的占位哈希校验与端到端审计都只覆盖推荐版本。
 
@@ -52,16 +52,17 @@ ID 改名（`jdk21` → `jdk`）与随之而来的迁移（`jdk21-*` 转 `jdk-*`
 
 ## 测试
 
-人工实测：`jdk8.tar.gz` 为 103542511 字节、sha256 `9c70e102…`，`jdk17.tar.gz` 为 193252603 字节、sha256 `3808d1d1…`，两者与 Adoptium API 报出的 size 与 checksum 一致。解包后顶层目录是 `jdk8u504-b01/` 与 `jdk-17.0.20.1+1/`，各自含 `bin/` 与 `lib/`，`java`、`javac`、`jdb`、`jar` 均可执行，`bin/java -version` 分别输出 `1.8.0_504` 与 `17.0.20.1`。
+人工实测：`jdk8.tar.gz` 为 103542511 字节、sha256 `9c70e102…`，与 Adoptium API 报出的 size 与 checksum 一致。解包后顶层目录是 `jdk8u504-b01/`，含 `bin/` 与 `lib/`，`java`、`javac`、`jdb`、`jar` 均可执行，`bin/java -version` 输出 `1.8.0_504`。推荐版本 `21.0.12.1` 没有重下：API 当前的 21 资产报出的 sha256 与清单里的值相同。
 
-`go test ./internal/toolchain` 继续通过：它对 `jdk21` 的断言（sha256 已填实、未安装、给出推荐版本）在三个版本下仍成立。
+`go test ./internal/toolchain` 继续通过：它对 `jdk21` 的断言（sha256 已填实、未安装、给出推荐版本）在多版本下仍成立。
 
 `sh apps/desktop-launcher/linglong/test-verify-tools.sh` 通过，`tools.yaml` 仍可解析，`installable` 的 ID 与 `index.json` 仍一致。
 
-未验证：没有在玲珑容器内实跑；17 与 8 也没有走通 launcher 自己的安装路径——市场唯一的入口是 Wails 绑定，而端到端审计只覆盖 `versions[0]`。
+未验证：没有在玲珑容器内实跑；`8u504` 也没有走通 launcher 自己的安装路径——市场唯一的入口是 Wails 绑定，而端到端审计只覆盖 `versions[0]`。
 
 ## 关联
 
 - [工具链市场的清单扩容与命令暴露](2026-09-12-toolchain-market-catalog-expansion.zh.md) 拥有清单数据形状，包括 `bin_names` 与本次沿用的 sha256 取证规则。
 - [容器内工具链的三层防线](2026-08-19-linglong-container-toolchain.zh.md) 拥有 `installable` 白名单与三层防线。
 - [工具链市场的呈现](2026-09-12-desktop-launcher-toolchain-market-presentation.zh.md) 拥有弹框的卡片布局与控件样式，包括版本下拉的外观。
+- [工具链市场下架 JDK 17](../simplification/2026-09-14-toolchain-market-drop-jdk17.zh.md) 移除了本次加入的 `17.0.20.1` 条目；上面的决策对 `8u504` 与 `21.0.12.1` 仍然有效。

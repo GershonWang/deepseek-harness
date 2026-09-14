@@ -91,6 +91,41 @@ func TestInstallVersion_SecondVersionKeepsActive(t *testing.T) {
 	}
 }
 
+// TestInstallTool_AlreadyInstalledHonorsActivate 固定「目标版本已安装 + Activate」这条路径
+// （AUDIT N7）。它是「更新下载完成却停在旧版本」的死局出口：目标版本已在磁盘上时无条件早退，
+// 会让用户无论点多少次更新都收不到切换，却拿到成功提示。
+func TestInstallTool_AlreadyInstalledHonorsActivate(t *testing.T) {
+	dir := t.TempDir()
+	goTool, ok := LookupTool("go")
+	if !ok {
+		t.Fatal("catalog 应含 go")
+	}
+	recommended := goTool.LatestVersion().Version
+	const old = "1.0.0"
+	mkToolVersion(t, dir, "go", old, "go")
+	mkToolVersion(t, dir, "go", recommended, "go")
+	if err := SetActiveVersion(dir, "go", old); err != nil {
+		t.Fatalf("激活 %s: %v", old, err)
+	}
+
+	// 不带 Activate：并存安装不覆盖当前激活（见 TestInstallVersion_SecondVersionKeepsActive）
+	if err := InstallTool(dir, "go", "", nil); err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if got := ActiveVersion(dir, "go"); got != old {
+		t.Fatalf("未要求激活时当前版本应保持 %s, got %q", old, got)
+	}
+
+	// 带 Activate：目标版本已安装也要完成切换
+	activate := true
+	if err := InstallTool(dir, "go", "", &InstallOptions{Activate: &activate}); err != nil {
+		t.Fatalf("install with activate: %v", err)
+	}
+	if got := ActiveVersion(dir, "go"); got != recommended {
+		t.Fatalf("要求激活时当前版本应为 %s, got %q", recommended, got)
+	}
+}
+
 func TestInstallVersion_ShaMismatch(t *testing.T) {
 	home := t.TempDir()
 	dir := InstallDir(home)

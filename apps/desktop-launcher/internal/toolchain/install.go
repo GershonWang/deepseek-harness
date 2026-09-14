@@ -88,6 +88,8 @@ func classifyError(err error) string {
 type InstallOptions struct {
 	// Activate 安装后是否自动设为激活版本（首次安装默认为 true，
 	// 已装其他版本时默认为 false，不覆盖用户当前激活版本）。
+	// 更新与用户显式选版本的安装路径都会传 true：调用方点的是「用这个版本」，
+	// 而默认的 false 只适用于「并存安装、不动当前选择」的场景。
 	Activate *bool
 	// Progress 进度回调，可为 nil。
 	Progress InstallProgress
@@ -95,7 +97,7 @@ type InstallOptions struct {
 
 // InstallTool 安装指定工具的指定版本。
 // 若 version 为空，安装推荐版本。
-// 若已安装，不重复下载，直接返回。
+// 若已安装，不重复下载；但调用方显式要求激活（Activate=true）时仍会完成切换。
 func InstallTool(dir string, toolID, version string, opts *InstallOptions) error {
 	tool, ok := LookupTool(toolID)
 	if !ok {
@@ -122,8 +124,18 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 		}
 	}
 
-	// 已安装则直接返回（不重复下载）
+	// 目标版本已安装：不再下载，但必须尊重 Activate——「新版已装好却没激活」是本工具的
+	// 正常中间状态（更新下载完成、用户手选版本后切换失败等），此处的无条件早退会让用户
+	// 无论点多少次「更新」都停在旧版本上，却收到成功提示（AUDIT N7）。
 	if IsInstalled(dir, toolID, tv.Version) {
+		if activate {
+			progress("linking", 90, "设置为当前版本")
+			if err := SetActiveVersion(dir, toolID, tv.Version); err != nil {
+				return err
+			}
+			progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, tv.Version))
+			return nil
+		}
 		progress("done", 100, "已安装")
 		return nil
 	}

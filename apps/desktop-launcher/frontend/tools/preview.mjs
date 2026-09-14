@@ -157,7 +157,12 @@ function probeGeometry() {
  * （等价 minmax(auto, 1fr)），这个宽度会把轨道顶到超过均分，轨道之和超出网格宽度后
  * 网格横向溢出、右侧整列被裁掉——这条只有真实布局看得见，DOM 桩与截图都无法固定它。
  * 预览页剥掉了脚本，因此这里手搭 DOM，而不是调用 renderTools。
- * @returns {object} 网格客户宽/内容宽、轨道列宽与首行列宽。
+ *
+ * 同一趟还量「卡片形状容量」：卡片能画几行由 app.js 决定，能装下几行由 CSS 的
+ * min-height 档位决定。WebKitGTK 拿这个档位当行高（内容超出就溢出、压到下一排），
+ * 所以每个形状都必须「档位 ≥ 内容高」。把卡片从网格拉伸里摘出来（align-self:start
+ * + min-height:0）即可量到它的自然内容高，再与档位比较。
+ * @returns {object} 网格客户宽/内容宽、轨道列宽、首行列宽，以及各卡片形状的档位与内容高。
  */
 function probeMarketGrid() {
   const $ = (id) => document.getElementById(id)
@@ -178,12 +183,65 @@ function probeMarketGrid() {
   const cards = Array.from(grid.children)
   const top0 = Math.round(cards[0].getBoundingClientRect().top)
   const firstRow = cards.filter((c) => Math.round(c.getBoundingClientRect().top) === top0)
-  return JSON.stringify({
+  const widths = {
     clientWidth: grid.clientWidth,
     scrollWidth: grid.scrollWidth,
     tracks: getComputedStyle(grid).gridTemplateColumns,
     rowWidths: firstRow.map((c) => Math.round(c.getBoundingClientRect().width)),
+  }
+
+  // 形状容量：四个形状对应 app.js 的四类卡片（常规 / 带运行时提示 / 安装中 / 两者叠加）。
+  grid.innerHTML = ''
+  const head = '<div class="tool-card-head"><span class="tool-card-name">工具</span>'
+    + '<span class="pill brand">可安装</span></div>'
+  const desc = '<div class="tool-card-desc">描述文本，占两行高度</div>'
+  const metaRow = '<div class="tool-card-meta">语言 SDK · java javac jdb jar · 197.9 MB</div>'
+  const progress = '<div class="tool-progress"><div class="tool-progress-fill" style="width:8%"></div></div>'
+    + '<div class="tool-progress-label">8%</div>'
+  // 动作区按已装卡片的最宽组合搭建：版本下拉（已装 + 可安装两种标记）+ 卸载按钮。
+  // 预览的价值在于量出卡片最坏宽度，用只含已装版本的旧结构会低估它。
+  // 动作区按两种真实形态各搭一份：已装卡片是最宽的（下拉 + 卸载，下拉里还带标记），
+  // 安装中卡片则是下拉 + 禁用的安装按钮。用同一份结构量宽度会低估已装卡片那一档。
+  const installedActions = '<div class="tool-card-actions"><select class="version-select">'
+    + '<option>v21.0.12.1 · 当前</option><option>v8u504 · 已装</option>'
+    + '<option>v17.0.20.1 · 可安装</option></select>'
+    + '<button class="btn btn-danger">卸载</button></div>'
+  const installingActions = '<div class="tool-card-actions"><select class="version-select">'
+    + '<option>v21.0.12.1 · 当前</option><option>v8u504 · 已装</option>'
+    + '<option>v17.0.20.1 · 可安装</option></select>'
+    + '<button class="btn btn-primary" disabled>安装中…</button></div>'
+  const runtimeHint = '<div class="tool-card-runtime">容器内已可用：node v24（随包）</div>'
+  const build = (cls, withProgress, withRuntime) => {
+    const card = document.createElement('div')
+    card.className = 'tool-card-item' + (cls ? ' ' + cls : '')
+    card.innerHTML = head + desc + metaRow + (withProgress ? progress : '')
+      + (withProgress ? installingActions : installedActions)
+      + (withRuntime ? runtimeHint : '')
+    return card
+  }
+  const shapes = [
+    ['plain', build('', false, false)],
+    ['has-runtime', build('has-runtime', false, true)],
+    ['installing', build('installing', true, false)],
+    ['installing has-runtime', build('installing has-runtime', true, true)],
+  ].map(([name, card]) => {
+    grid.appendChild(card)
+    const bucket = Math.round(parseFloat(getComputedStyle(card).minHeight) || 0)
+    // 摘掉拉伸与档位，量到的才是内容本身的高度。
+    card.style.alignSelf = 'start'
+    card.style.minHeight = '0px'
+    const natural = Math.round(card.getBoundingClientRect().height * 10) / 10
+    card.removeAttribute('style')
+    const track = card.querySelector('.tool-progress')
+    return {
+      name,
+      bucket,
+      natural,
+      cardBg: getComputedStyle(card).backgroundColor,
+      trackBg: track ? getComputedStyle(track).backgroundColor : null,
+    }
   })
+  return JSON.stringify({ ...widths, shapes })
 }
 
 /**
@@ -506,6 +564,16 @@ function verify(measurements, market) {
     const rowSpread = Math.max(...m.rowWidths) - Math.min(...m.rowWidths)
     if (m.rowWidths.length > 1 && rowSpread > HEIGHT_TOLERANCE) {
       failures.push(`${m.theme}: 市场网格同一行列宽不等（${m.rowWidths.join(' / ')}）——轨道没有均分`)
+    }
+    // 卡片形状容量：WebKitGTK 用 min-height 档位当行高，档位装不下内容就会溢出压到下一排。
+    for (const s of m.shapes ?? []) {
+      console.log(`[${m.theme}] 卡片形状 ${s.name.padEnd(22)} 档位=${s.bucket}px 内容高=${s.natural}px`)
+      if (s.bucket + HEIGHT_TOLERANCE < s.natural) {
+        failures.push(`${m.theme}/${s.name}: min-height 档位 ${s.bucket}px 装不下内容 ${s.natural}px——卡片内容会溢出压到下一排`)
+      }
+      if (s.name.includes('installing') && s.trackBg === s.cardBg) {
+        failures.push(`${m.theme}/${s.name}: 进度条轨道色与卡片同色（${s.trackBg}），轨道不可见`)
+      }
     }
   }
   if (failures.length > 0) {

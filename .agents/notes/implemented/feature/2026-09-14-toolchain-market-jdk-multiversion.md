@@ -10,11 +10,11 @@ The catalog shipped one version per tool. `ToolVersion` is already an array, and
 
 ## Decision
 
-This change is data only; the ID stays `jdk21`. In `tools/index.json`, `name` becomes `JDK (Temurin)`, `description` states the available 8 / 17 / 21, and `versions` gains 17 and 8u504 while `21.0.12.1` stays first: the first entry is the recommended version, and both update detection and update-all compare against it, so the order is semantic.
+This change is data only; the ID stays `jdk21`. In `tools/index.json`, `name` becomes `JDK (Temurin)`, `description` states the available versions, and `versions` carries `8u504` alongside `21.0.12.1`, which stays first: the first entry is the recommended version, and both update detection and update-all compare against it, so the order is semantic.
 
-Version labels follow the release tag minus the build number: `21.0.12.1`, `17.0.20.1`, and `8u504` for Adoptium's JDK 8 tag. The `21.0.12.1` string stays byte-identical because it forms the install directory `jdk21-21.0.12.1` and the target of the `current/jdk21` symlink; changing it would turn existing installs into "not installed" and strand orphan directories.
+Version labels follow the release tag minus the build number: `21.0.12.1` and `8u504` for Adoptium's JDK 8 tag. The `21.0.12.1` string stays byte-identical because it forms the install directory `jdk21-21.0.12.1` and the target of the `current/jdk21` symlink; changing it would turn existing installs into "not installed" and strand orphan directories.
 
-All three versions declare `bin_rel: "bin"` and `lib_rel: "lib"`, which is where both archives put their commands and libraries. Every url, sha256 and size came from the Adoptium v3 API and was checked against the bytes actually downloaded; the 21 entry was not re-downloaded because the API's current 21 asset reports the sha256 already in the catalog.
+Both versions declare `bin_rel: "bin"` and `lib_rel: "lib"`, which is where both archives put their commands and libraries. Every url, sha256 and size came from the Adoptium v3 API and was checked against the bytes actually downloaded; the 21 entry was not re-downloaded because the API's current 21 asset reports the sha256 already in the catalog.
 
 `linglong/tools.yaml` keeps recording the recommended version only, with a comment stating that boundary: it holds one `version`/`url`/`sha256` per tool, so it cannot express the extra versions.
 
@@ -22,9 +22,9 @@ Renaming the ID to `jdk`, and the migration it needs (`jdk21-*` to `jdk-*` plus 
 
 ## Coverage of the added versions
 
-`verify-tools.sh` checks each tool's single sha256 for placeholder values and diffs only the `installable` and `index.json` tool-ID sets, so a placeholder hash on the added 17 or 8u504 would still pass the build — the same gap `AUDIT.md` N16 records. This change closes it by hand instead: both archives were downloaded, their sha256 compared with the catalog, the extracted trees confirmed to hold one top-level directory with `bin/` and `lib/`, and `bin/java -version` run.
+`verify-tools.sh` checks each tool's single sha256 for placeholder values and diffs only the `installable` and `index.json` tool-ID sets, so a placeholder hash on the added `8u504` would still pass the build — the same gap `AUDIT.md` N16 records. This change closes it by hand instead: the added archive was downloaded, its sha256 compared with the catalog, the extracted tree confirmed to hold one top-level directory with `bin/` and `lib/`, and `bin/java -version` run.
 
-`TestE2E_CatalogInstall` installs `versions[0]` only, so the two added versions stay outside that audit. Making the audit iterate versions is a candidate for the next code change.
+`TestE2E_CatalogInstall` installs `versions[0]` only, so the added version stays outside that audit. Making the audit iterate versions is a candidate for the next code change.
 
 ## Alternatives considered
 
@@ -40,9 +40,9 @@ Renaming the ID to `jdk`, and the migration it needs (`jdk21-*` to `jdk-*` plus 
 
 ## Consequences
 
-The market card reads "JDK (Temurin)" and lists 8 / 17 / 21: a version dropdown appears before install, switching between installed versions afterwards. 21 stays the recommended version, so an existing 21 install shows no update.
+The market card reads "JDK (Temurin)" and lists the available versions: a version dropdown appears before install, switching between installed versions afterwards. 21 stays the recommended version, so an existing 21 install shows no update.
 
-Each installed version holds a complete JDK (about 103 MB, 193 MB and 207 MB of archive respectively), and exactly one is active: `~/.dsh-tools/current/jdk21` points at it and `bin/` is rebuilt from it.
+Each installed version holds a complete JDK (about 103 MB and 207 MB of archive respectively), and exactly one is active: `~/.dsh-tools/current/jdk21` points at it and `bin/` is rebuilt from it.
 
 Two known gaps ship with it: the packaging-side placeholder-hash check and the end-to-end audit both cover the recommended version only.
 
@@ -52,16 +52,17 @@ The index still has to be published. Its URL is pinned to a commit hash, so this
 
 ## Testing
 
-Manual evidence: `jdk8.tar.gz` is 103542511 bytes with sha256 `9c70e102…`, `jdk17.tar.gz` is 193252603 bytes with sha256 `3808d1d1…`, and both match the size and checksum the Adoptium API reports. The extracted trees are `jdk8u504-b01/` and `jdk-17.0.20.1+1/`, each holding `bin/` and `lib/` with executable `java`, `javac`, `jdb` and `jar`, and `bin/java -version` prints `1.8.0_504` and `17.0.20.1`.
+Manual evidence: `jdk8.tar.gz` is 103542511 bytes with sha256 `9c70e102…`, matching the size and checksum the Adoptium API reports. The extracted tree is `jdk8u504-b01/`, holding `bin/` and `lib/` with executable `java`, `javac`, `jdb` and `jar`, and `bin/java -version` prints `1.8.0_504`. The recommended `21.0.12.1` was not re-downloaded: the API's current 21 asset reports the sha256 already in the catalog.
 
-`go test ./internal/toolchain` keeps passing: its `jdk21` assertions (sha256 filled in, not installed, recommended version present) hold with three versions.
+`go test ./internal/toolchain` keeps passing: its `jdk21` assertions (sha256 filled in, not installed, recommended version present) hold with more than one version.
 
 `sh apps/desktop-launcher/linglong/test-verify-tools.sh` passes, so `tools.yaml` still parses and its `installable` IDs still match `index.json`.
 
-Not verified: nothing ran inside the Linglong container, and the launcher's own install path was not exercised for 17 or 8 — the market's only entry point is a Wails binding, and the end-to-end audit covers `versions[0]`.
+Not verified: nothing ran inside the Linglong container, and the launcher's own install path was not exercised for `8u504` — the market's only entry point is a Wails binding, and the end-to-end audit covers `versions[0]`.
 
 ## Related
 
 - [Toolchain market catalog expansion and command exposure](2026-09-12-toolchain-market-catalog-expansion.md) owns the catalog data shape, including `bin_names` and the sha256 provenance rule this entry follows.
 - [Container toolchain layers](2026-08-19-linglong-container-toolchain.md) owns the `installable` whitelist and the three-layer defense.
 - [Toolchain market presentation](2026-09-12-desktop-launcher-toolchain-market-presentation.md) owns the dialog's card layout and control styling, including the version dropdown's appearance.
+- [Dropping JDK 17 from the toolchain market catalog](../simplification/2026-09-14-toolchain-market-drop-jdk17.md) removes the `17.0.20.1` entry this change added; the decision above stays in force for `8u504` and `21.0.12.1`.

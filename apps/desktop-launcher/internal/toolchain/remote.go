@@ -41,7 +41,7 @@ const indexCacheTTL = 24 * time.Hour
 //
 // DSH_TOOLCHAIN_INDEX_URL 仍可在构建/部署时覆盖该地址（内网镜像或自托管）；
 // 环境变量与二进制同属一个信任域，不构成额外的攻击面。
-const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/ee9c181bf66f655d24810012c4c9f61e59c9940c/apps/desktop-launcher/internal/toolchain/tools/index.json"
+const defaultIndexURL = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8/apps/desktop-launcher/internal/toolchain/tools/index.json"
 
 // indexURL 返回生效的远程索引地址。
 func indexURL() string {
