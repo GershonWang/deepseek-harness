@@ -45,7 +45,7 @@ The window exists before harness is ready, so the startup window has to explain 
 | `plugins` | Counts reported | Same copy plus a bar and 已加载 n/m 个插件 |
 | `serving` | Counts complete; only the port listen remains | 插件已就绪，正在启动服务端口 |
 
-The counts come from `internal/appenv/startup_progress.mjs`: `appenv` writes it beside the overlay on every spawn and the same overlay's `insert` row injects it into harness. The plugin imports nothing and throws nothing — an entry that fails activation aborts the boot, and progress is only presentation — counting settled loader entries and writing `dsh-desktop: startup <loaded>/<total>` to stderr. `internal/supervisor` parses that line, `internal/app` maps it to the phases above, and a throttled `startup:progress` event plus the 1 s status snapshot carry the view to the frontend. The denominator is the set of rows that actually mount (groups and disabled rows excluded) and stays stable through boot; late insertions are rendered monotonically by the frontend while the printed counts stay exact.
+The counts come from `internal/appenv/startup_progress.mjs`: `appenv` writes it beside the overlay on every spawn and the same overlay's `insert` row injects it into harness. The plugin imports nothing and throws nothing — an entry that fails activation aborts the boot, and progress is only presentation — counting settled loader entries and writing `dsh-desktop: startup <loaded>/<total>` to stderr. `internal/supervisor` parses that line, `internal/app` maps it to the phases above, and a throttled `startup:progress` event plus the 1 s status snapshot carry the view to the frontend. The denominator is the set of rows that actually mount (groups and disabled rows excluded) and stays stable through boot; late insertions are rendered monotonically by the frontend while the printed counts stay exact. Reporting stops once the counts first reach the total: this channel serves the startup window only, and harness keeps recomposing its tree afterwards (client HMR, the user patch-layer watcher, market plugins), which would otherwise log rows whose numerator exceeds the denominator (measured `161/136`) — polluting the startup-timing record and contradicting the contract above.
 
 When the plugin file cannot be written, or an in-flight harness build does not inject it, the loading page falls back to the first two coarse phases with its spinner and shows no progress block — it never invents a time-based percentage. The harness's own `Loading plugins…` inside the WebView is a separate, browser-side segment and is not part of this mechanism.
 
@@ -121,6 +121,7 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```

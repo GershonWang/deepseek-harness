@@ -45,7 +45,7 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 | `plugins` | 已收到条目计数 | 同上 + 进度条与「已加载 n/m 个插件」 |
 | `serving` | 计数已到齐，只剩监听端口 | 插件已就绪，正在启动服务端口 |
 
-计数来自 `internal/appenv/startup_progress.mjs`：`appenv` 在每次 spawn 时把它与 overlay 一起写进 launcher 运行时目录，并由同一份 overlay 的 `insert` 行注入 harness。该插件不 import 任何模块、不抛异常（entry 激活失败会中止启动，而进度只是体验增强），统计「已 settle 的 loader 条目数」并向 stderr 写 `dsh-desktop: startup <已激活>/<总数>`；`internal/supervisor` 解析该行，`internal/app` 映射成上表的阶段，经节流的 `startup:progress` 事件与 1 秒状态快照送到前端。分母取「真正会挂载的条目」（排除 group 与 disabled），启动期基本稳定；偶发新增的行由前端按单调不减渲染，计数本身原样显示。
+计数来自 `internal/appenv/startup_progress.mjs`：`appenv` 在每次 spawn 时把它与 overlay 一起写进 launcher 运行时目录，并由同一份 overlay 的 `insert` 行注入 harness。该插件不 import 任何模块、不抛异常（entry 激活失败会中止启动，而进度只是体验增强），统计「已 settle 的 loader 条目数」并向 stderr 写 `dsh-desktop: startup <已激活>/<总数>`；`internal/supervisor` 解析该行，`internal/app` 映射成上表的阶段，经节流的 `startup:progress` 事件与 1 秒状态快照送到前端。分母取「真正会挂载的条目」（排除 group 与 disabled），启动期基本稳定；偶发新增的行由前端按单调不减渲染，计数本身原样显示。计数首次到齐后上报即停止：这条通道只服务启动期，而就绪之后 harness 仍会重组配置树（客户端 HMR、用户补丁层 watcher、市场插件等），继续上报只会让日志出现分子大于分母的行（实测过 `161/136`），既污染启动耗时记录，也与上面的契约矛盾。
 
 插件文件写不出来、或 harness 尚未注入它时（在途版本），加载页退回前两档粗粒度文案与转圈，不显示进度块，也绝不补一个按时间估算的百分比。WebView 里 harness 自己的 `Loading plugins…` 属于浏览器侧的另一段，不在本机制范围内。
 
@@ -121,6 +121,7 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```

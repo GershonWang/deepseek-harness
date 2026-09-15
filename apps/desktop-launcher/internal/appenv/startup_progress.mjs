@@ -15,6 +15,8 @@
  * - stderr 前缀 `dsh-desktop: startup ` 是与壳的契约，解析器在
  *   internal/supervisor/supervisor.go 的 startupProgressPattern；格式改动必须
  *   同步改壳，否则加载页静默退回粗粒度阶段。
+ * - 上报在计数首次到齐后停止：就绪之后的重组不属于启动期，继续上报会让分子超过
+ *   分母（见 start() 里 complete 的说明）。
  */
 
 /** 插件名：出现在 harness 的插件树与诊断输出里，需能一眼看出归属。 */
@@ -63,20 +65,35 @@ function start(ctx) {
   /** 已登记的条目 id：internal/plugin 在构造与销毁两个方向都会发射，需去重。 */
   const tracked = new Set()
   let settled = 0
+  /**
+   * 首次出现「已激活 ≥ 总数」后置位：这条通道只服务启动期，就绪之后 harness 仍会
+   * 重组配置树（客户端 HMR、用户补丁层 watcher、市场插件等），那些新条目会继续被
+   * internal/plugin 报进来。不停止的话，日志里会接着出现分子大于分母的行（实测
+   * `161/136`），既污染启动耗时记录，也和「已激活/总数」这一契约矛盾。
+   */
+  let complete = false
 
   /** 真正会挂载的条目（排除 group 容器与 disabled 条目）。 */
   const mountable = () =>
     [...loader.entries()].filter((entry) => !entry.options?.group && !entry.disabled)
 
-  /** 向 stderr 写一次进度行；分母为 0 时不写，避免壳拿到无意义的 0/0。 */
+  /**
+   * 向 stderr 写一次进度行；分母为 0 时不写，避免壳拿到无意义的 0/0。
+   * 这一行到齐（已激活 ≥ 总数）后再置位 complete，因此 100% 那行一定发出，
+   * 其后的行被丢弃。分母不会永远到齐时（有条目拿不到 fiber）不置位，此时继续
+   * 上报才有诊断价值。
+   */
   const report = () => {
+    if (complete) return
     const total = mountable().length
     if (total === 0) return
     process.stderr.write(`${PREFIX}${settled}/${total}\n`)
+    if (settled >= total) complete = true
   }
 
   /** 登记一个新建的 fiber，并在它 settle 时计数。 */
   const watch = (fiber) => {
+    if (complete) return
     const entry = fiber?.entry
     if (entry === undefined || entry === null) return
     if (entry.options?.group || entry.disabled) return
