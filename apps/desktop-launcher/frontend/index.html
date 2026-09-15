@@ -90,7 +90,16 @@
       <section id="loading-page" class="loading-page hidden">
         <div class="loading-spinner" aria-hidden="true"></div>
         <h2>正在启动...</h2>
-        <p class="loading-hint">DeepSeek Harness 正在加载插件和服务，请稍候</p>
+        <p id="loading-hint" class="loading-hint">DeepSeek Harness 正在加载插件和服务，请稍候</p>
+        <!-- 真实进度：harness 侧注入的上报插件逐条上报已激活条目数（见
+             internal/appenv/startup_progress.mjs）。没有上报时整块隐藏，
+             页面退回上面的转圈与静态文案，不出现按时间猜的假进度。 -->
+        <div id="loading-progress" class="loading-progress hidden">
+          <div id="loading-track" class="loading-track" role="progressbar" aria-labelledby="loading-progress-text">
+            <div id="loading-bar" class="loading-bar"></div>
+          </div>
+          <p id="loading-progress-text" class="loading-hint"></p>
+        </div>
       </section>
 
       <!-- 启动前预检页：预检进行中 / 发现问题等待决策 / 修复穷尽降级建议 -->

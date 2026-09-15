@@ -4,7 +4,9 @@
  * 为什么需要它：`test-app.cjs` 用的 DOM 桩既不实现样式表也不实现布局，弹框高度、
  * 面板拉伸、主题配色这类问题它一个都看不见。本工具把 index.html 原样放进无头
  * Chromium 里渲染，用 DevTools 协议量真实几何，于是「切换连接模式时弹框高度是否
- * 变化」这种问题变成可断言的事实，而不是靠人盯截图。
+ * 变化」这种问题变成可断言的事实，而不是靠人盯截图。除弹框外还量两处只有真实布局
+ * 才看得见的地方：工具链市场的网格轨道与卡片形状容量，以及加载页进度条按计数比例
+ * 的宽度映射（进度条写成固定宽或超出轨道时，DOM 桩一样不会报）。
  *
  * 不引入依赖：浏览器取本地 Playwright 缓存里的 Chromium（或 DSH_PREVIEW_BROWSER
  * / PATH 上的 chrome），协议走 Node 内置 WebSocket。前端本身是零构建的静态资源，
@@ -48,6 +50,9 @@ const INITIALLY_HIDDEN = [
   'server-modal', 'server-address', 'server-copy',
   'safe-mode-row', 'safe-mode-active', 'fresh-home-active', 'external-panel',
 ]
+
+/** 除加载页之外的舞台元素：量加载页时先隐藏它们，免得 iframe/引导页与加载页叠在一起。 */
+const STAGE_IDS = ['harness', 'guidance', 'failed-page', 'preflight-page']
 
 /**
  * 状态夹具：每个条目按 app.js 的真实写法描述弹框那一刻的 DOM。
@@ -146,6 +151,59 @@ function probeGeometry() {
     external: height('#external-panel'),
     address: height('#server-address'),
     textarea: height('#ext-url'),
+  })
+}
+
+/**
+ * 在页面里执行：把舞台切到「加载页 + 真实进度」并量几何。
+ *
+ * 加载页的进度条宽度由 app.js 按「已激活条目 / 条目总数」写成百分比，预览页剥掉了
+ * 脚本，这里就按同一写法直接设内联样式。要断的是宽度映射与不溢出这两件 DOM 桩看不见
+ * 的事：桩不实现样式表，进度条写成 0% 或超出轨道它都不会报。
+ * @param {string[]} stageIds - 除加载页之外的舞台元素 id（量之前先全部隐藏）。
+ * @returns {object} 轨道宽、半程与满格条宽、进度块与文案几何。
+ */
+function probeLoadingProgress(stageIds) {
+  const $ = (id) => document.getElementById(id)
+  for (const id of stageIds) $(id).classList.add('hidden')
+  $('loading-page').classList.remove('hidden')
+  $('loading-progress').classList.remove('hidden')
+
+  const box = (el) => el.getBoundingClientRect()
+  const track = $('loading-track')
+  const bar = $('loading-bar')
+  const text = $('loading-progress-text')
+  // 进度条带 width 过渡：量的是"宽度映射"而非动画过程，关掉过渡再取几何，
+  // 否则即时几何停在动画起点（0px），断言会误判成映射失效。
+  bar.style.transition = 'none'
+
+  // 两种计数长度下的文案高度：长计数若换行，说明进度文案在最窄窗口下装不下。
+  text.textContent = '已加载 5/100 个插件'
+  const shortHeight = box(text).height
+  text.textContent = '已加载 127/127 个插件'
+  const longHeight = box(text).height
+
+  bar.style.width = '50%'
+  const barHalf = box(bar).width
+  bar.style.width = '100%'
+  const barFull = box(bar).width
+
+  const stage = box($('stage'))
+  const block = box($('loading-progress'))
+  return JSON.stringify({
+    track: box(track).width,
+    barHalf,
+    barFull,
+    blockLeft: block.left,
+    blockRight: block.right,
+    stageLeft: stage.left,
+    stageRight: stage.right,
+    shortHeight,
+    longHeight,
+    hintBottom: box($('loading-hint')).bottom,
+    blockTop: block.top,
+    textScroll: text.scrollWidth,
+    textClient: text.clientWidth,
   })
 }
 
@@ -470,6 +528,7 @@ async function run(command, args) {
 
   const measurements = []
   const market = []
+  const loading = []
   const scratch = await createScratch()
   try {
     await withBrowser(pageUrl, scratch, async (cdp) => {
@@ -498,6 +557,27 @@ async function run(command, args) {
         })
         market.push({ theme, ...JSON.parse(probe.result.value) })
       }
+      // 加载页进度同样只与样式有关，按主题各测一次；render 也在这里出一张截图，
+      // 让加载页在预览产物里可见。
+      for (const theme of themes) {
+        await cdp.send('Emulation.setEmulatedMedia', {
+          media: 'screen',
+          features: [{ name: 'prefers-color-scheme', value: theme }],
+        })
+        const loaded = cdp.once('Page.loadEventFired')
+        await cdp.send('Page.navigate', { url: pageUrl })
+        await loaded
+        const probe = await cdp.send('Runtime.evaluate', {
+          expression: `(${probeLoadingProgress})(${JSON.stringify(STAGE_IDS)})`, returnByValue: true,
+        })
+        loading.push({ theme, ...JSON.parse(probe.result.value) })
+        if (command === 'render') {
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          const file = join(out, `${theme}-loading-progress.png`)
+          await writeFile(file, Buffer.from(shot.data, 'base64'))
+          console.log(`已截图 ${file}`)
+        }
+      }
     })
   } finally {
     // profile 与 HOME/XDG 都是本次运行的一次性状态，跑完即删，避免残留累积。
@@ -505,15 +585,16 @@ async function run(command, args) {
   }
 
   if (command === 'measure') {
-    if (args.json) console.log(JSON.stringify({ measurements, market }, null, 2))
+    if (args.json) console.log(JSON.stringify({ measurements, market, loading }, null, 2))
     else {
       for (const m of measurements) console.log(`${m.theme}\t${m.name}\t${JSON.stringify(m)}`)
       for (const m of market) console.log(`${m.theme}\tmarket-grid\t${JSON.stringify(m)}`)
+      for (const m of loading) console.log(`${m.theme}\tloading-progress\t${JSON.stringify(m)}`)
     }
     return 0
   }
   if (command === 'render') return 0
-  return verify(measurements, market)
+  return verify(measurements, market, loading)
 }
 
 /**
@@ -521,9 +602,10 @@ async function run(command, args) {
  * 才看得见、DOM 桩看不见的性质。
  * @param {Array<object>} measurements - 各主题各状态的实测几何。
  * @param {Array<object>} market - 各主题下市场网格的实测几何。
+ * @param {Array<object>} loading - 各主题下加载页进度的实测几何。
  * @returns {number} 进程退出码。
  */
-function verify(measurements, market) {
+function verify(measurements, market, loading) {
   const failures = []
   for (const theme of [...new Set(measurements.map((m) => m.theme))]) {
     const rows = measurements.filter((m) => m.theme === theme)
@@ -574,6 +656,28 @@ function verify(measurements, market) {
       if (s.name.includes('installing') && s.trackBg === s.cardBg) {
         failures.push(`${m.theme}/${s.name}: 进度条轨道色与卡片同色（${s.trackBg}），轨道不可见`)
       }
+    }
+  }
+  // 加载页进度：宽度必须是轨道的真实比例，且在最窄窗口下不溢出、不换行。
+  for (const m of loading) {
+    console.log(`[${m.theme}] 加载页进度 轨道=${m.track}px 半程=${m.barHalf}px 满格=${m.barFull}px`)
+    if (Math.abs(m.barHalf - m.track / 2) > HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 加载页进度条 50% 宽度 ${m.barHalf}px 与轨道一半 ${m.track / 2}px 不符——宽度不是按计数比例映射`)
+    }
+    if (Math.abs(m.barFull - m.track) > HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 加载页进度条满格 ${m.barFull}px 未铺满轨道 ${m.track}px`)
+    }
+    if (m.blockLeft < m.stageLeft - HEIGHT_TOLERANCE || m.blockRight > m.stageRight + HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 加载页进度块越出舞台（${m.blockLeft}~${m.blockRight} vs ${m.stageLeft}~${m.stageRight}）`)
+    }
+    if (m.longHeight > m.shortHeight + HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 长计数文案换行（${m.shortHeight}px → ${m.longHeight}px）——最窄窗口下装不下`)
+    }
+    if (m.textScroll > m.textClient + HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 加载页计数文案横向溢出（${m.textScroll} > ${m.textClient}）`)
+    }
+    if (m.blockTop < m.hintBottom - HEIGHT_TOLERANCE) {
+      failures.push(`${m.theme}: 加载页进度块与提示行重叠（块顶 ${m.blockTop} < 提示底 ${m.hintBottom}）`)
     }
   }
   if (failures.length > 0) {

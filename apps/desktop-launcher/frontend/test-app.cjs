@@ -7,6 +7,8 @@
  *   - 浏览器预览（无 window.go）分支自动弹窗逻辑安全跳过
  *   - 现有 #btn-failed-doctor 手动入口仍可用
  *   - 终端：会话建立走真实按钮路径，标签状态按运行/退出/非零退出码取语义类
+ *   - 加载页进度：有上报时显示计数与按比例宽度，无上报/旧快照退回粗粒度文案，
+ *     分母增长时进度条不倒退，离开启动态后归零
  * 运行：node --test frontend/test-app.cjs（工作目录 apps/desktop-launcher）
  *
  * 注意：init() 末尾的 api().Status() 在微任务里落地首个状态，用例在驱动事件前
@@ -254,6 +256,7 @@ function buildHtml(document) {
   const ids = [
     "status-dot", "status-text",
     "harness", "guidance", "loading-page", "failed-page", "preflight-page",
+    "loading-hint", "loading-progress", "loading-bar", "loading-progress-text",
     "failed-reason", "btn-failed-doctor", "btn-failed-safe-mode", "failed-log-hint",
     "preflight-icon", "preflight-title", "preflight-hint", "preflight-repairs",
     "preflight-issues", "preflight-actions", "preflight-note",
@@ -306,6 +309,7 @@ function buildHtml(document) {
   // 与 index.html 一致的初始 hidden 态
   for (const id of [
     "harness", "loading-page", "failed-page", "preflight-page",
+    "loading-progress",
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
     "server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal",
     "doctor-content", "doctor-repair-output",
@@ -579,6 +583,13 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
       events["harness:status"](s);
+    },
+    /* 驱动一条启动进度事件。Go 侧 startup:progress 的载荷就是 StartupView，
+     * 与快照里的 Startup 字段同源（internal/app/startup_progress.go）。 */
+    startupEvent: (v) => {
+      assert.equal(typeof events["startup:progress"], "function",
+        "startup:progress 事件未注册（需 Wails 环境）");
+      events["startup:progress"](v);
     },
     /* 驱动一条后端终端事件。EventsOn 的桩把回调存进 events，名称与 index.html
      * 脚本注册的一致（terminal:output / terminal:status）。 */
@@ -1128,6 +1139,74 @@ test("预检放行后（ok）回到加载页", () => {
   assert.equal(page.classList.contains("hidden"), true, "预检页应隐藏");
   const loading = h.document.getElementById("loading-page");
   assert.equal(loading.classList.contains("hidden"), false, "应回到加载页");
+});
+
+/* ---------- 加载页启动进度 ---------- */
+
+test("启动进度 plugins：显示真实计数与按比例宽度", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 40, Total: 80 } }));
+
+  assert.equal(h.document.getElementById("loading-page").classList.contains("hidden"), false);
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), false,
+    "有上报时应显示进度块");
+  assert.equal(h.document.getElementById("loading-progress-text").textContent, "已加载 40/80 个插件");
+  assert.equal(h.document.getElementById("loading-bar").style.width, "50.0%");
+});
+
+test("启动进度 serving：文案切到启动服务端口，进度条满格", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 40, Total: 80 } }));
+  h.startupEvent({ Phase: "serving", Loaded: 80, Total: 80 });
+
+  assert.equal(h.document.getElementById("loading-hint").textContent, "插件已就绪，正在启动服务端口");
+  assert.equal(h.document.getElementById("loading-bar").style.width, "100.0%");
+});
+
+test("starting/loading 阶段：只给粗粒度文案，不显示进度块", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "starting" } }));
+  assert.equal(h.document.getElementById("loading-hint").textContent, "正在启动服务进程，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true,
+    "没有计数时不得显示进度块");
+
+  h.startupEvent({ Phase: "loading" });
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+});
+
+test("没有上报或旧快照缺字段时，加载页保持改造前的文案", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "loading", Loaded: 0, Total: 0 } }));
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true);
+
+  // 未注入上报插件的在途版本：快照里根本没有 Startup 字段。
+  h.status(baseStatus({ State: "starting" }));
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true);
+});
+
+test("分母增长导致比率回退时进度条不倒退", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 90, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "90.0%");
+
+  // 92/120 低于 90%：后续行插入会抬高分母，进度条不得因此回退。
+  h.startupEvent({ Phase: "plugins", Loaded: 92, Total: 120 });
+  assert.equal(h.document.getElementById("loading-bar").style.width, "90.0%");
+});
+
+test("离开启动态后进度归零，下一轮启动从零开始", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 50, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "50.0%");
+
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:1", Startup: {} }));
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 5, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "5.0%");
 });
 
 test("freshHome 运行中：服务器弹框显示全新环境标识", () => {

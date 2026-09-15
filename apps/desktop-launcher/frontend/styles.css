@@ -363,6 +363,37 @@ button, input, select, textarea { font: inherit; }
   color: var(--fg-dim);
 }
 
+/* 加载页进度：宽度按"已激活条目 / 条目总数"设置，轨道固定宽度避免进度条
+   随文字长度抖动；配色沿用状态栏与卡片进度条既有的强调色。 */
+.loading-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 260px;
+}
+
+.loading-track {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  overflow: hidden;
+}
+
+.loading-bar {
+  width: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}
+
+/* 加载页进度文案按计数变化重排宽度，等宽数字避免文字左右跳动。 */
+#loading-progress-text {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- 启动失败页 ---------- */
 .failed-page {
   height: 100%;

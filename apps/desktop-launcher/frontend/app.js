@@ -110,6 +110,51 @@ function bindExternalLinks() {
   });
 }
 
+/* ---------- 加载页启动进度 ---------- */
+
+// 阶段文案：键是 Go 侧 startupView 的阶段名（internal/app/startup_progress.go）。
+// 阶段只由可观测事实触发，前端不做任何按时间推进的猜测。
+const LOADING_PHASE_HINT = {
+  starting: "正在启动服务进程，请稍候",
+  loading: "DeepSeek Harness 正在加载插件和服务，请稍候",
+  // 与 loading 同一句文案：区别在于此时已有真实计数，页面额外显示进度条与 n/m。
+  plugins: "DeepSeek Harness 正在加载插件和服务，请稍候",
+  serving: "插件已就绪，正在启动服务端口",
+};
+
+// 缺省文案：浏览器预览、或在途版本（未注入上报插件）时保持改造前的说法。
+const LOADING_HINT_DEFAULT = "DeepSeek Harness 正在加载插件和服务，请稍候";
+
+// 加载页进度条的单调渲染状态：分母在启动期会随新行插入小幅增长，比率因此可能
+// 回退一两个百分点；进度条按单调不减渲染，避免视觉上的倒退。离开启动态时归零。
+const loadingProgress = { ratio: 0 };
+
+/**
+ * 渲染加载页的阶段与进度。
+ *
+ * 数据全部来自 harness 侧的真实上报（阶段判定在 Go 侧 startupView），前端只做
+ * 文案与宽度映射：没有上报时不显示进度块，也绝不按时间补一个百分比。
+ * @param {?{Phase: string, Loaded: number, Total: number}} v - 启动进度视图；
+ *   缺省或零值表示当前不在启动态。
+ */
+function renderStartup(v) {
+  const phase = v && v.Phase ? v.Phase : "";
+  $("#loading-hint").textContent = LOADING_PHASE_HINT[phase] || LOADING_HINT_DEFAULT;
+
+  const showBar = phase === "plugins" || phase === "serving";
+  $("#loading-progress").classList.toggle("hidden", !showBar);
+  if (!showBar) {
+    // 还没开始挂载或已离开启动态：归零，下一轮启动不会带着上一轮的进度。
+    loadingProgress.ratio = 0;
+    return;
+  }
+
+  const ratio = v.Total > 0 ? v.Loaded / v.Total : 0;
+  loadingProgress.ratio = Math.max(loadingProgress.ratio, Math.min(1, ratio));
+  $("#loading-bar").style.width = (loadingProgress.ratio * 100).toFixed(1) + "%";
+  $("#loading-progress-text").textContent = "已加载 " + v.Loaded + "/" + v.Total + " 个插件";
+}
+
 /* ---------- 状态渲染 ---------- */
 
 // 取消挂起的 stopped 防抖定时器（状态恢复时调用）。
@@ -226,6 +271,7 @@ function applyStatus(s) {
   }
 
   updateStartupDoctor(s);
+  renderStartup(s.Startup);
   renderServerDialog(s);
 }
 
@@ -1351,6 +1397,9 @@ function init() {
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
   window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
+  // 启动进度单独走事件：条目激活在数秒内产生上百次计数变化，1s 状态轮询只能
+  // 采到一两个点，进度条会跳变。两条通道共用同一份视图与渲染函数。
+  window.runtime.EventsOn("startup:progress", (v) => renderStartup(v));
   setupBuiltinToggle();
   setupHostsToggle();
 
