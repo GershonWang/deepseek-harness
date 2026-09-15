@@ -408,12 +408,14 @@
 
 ## 26 启动进度细化
 
-- **状态**：未修（有意延期）｜✅ 已复核
-- **位置**：`frontend/index.html:90-94`
-- **问题**：只有 spinner + 「正在启动...」+ 静态提示。现有进度条仅属工具链安装（`app.js:962-970`）。
-- **延期理由（2026-09-15）**：本条的诉求是「等待期间缺少反馈」，其主因是等待过长。客户端启动耗时已由 `packages/client/modules` 的三项修复降到约 5.4 s（`8b0b0e4078` 行数统计改用 `indexOf`；`edcec454ab` 行工件按 rev 复用、单文件响应改为按需生成），实测见下；启动页既有 spinner 与静态说明，暂不实施进度细化。
-- **实测数据（`~/.cache/dsh-desktop/harness.log`，`stderr` 首行 → `dsh web:` 就绪）**：新版（2026-09-14 22:41 起三轮）5.36 s / 5.38 s / 6.63 s；此前最近十轮 11.18–14.64 s，中位数 12.20 s。降至约 44%。
-- **不采纳「假进度」**：按时间猜测阶段的进度条与实际阶段不符时会误导。真实进度须在 harness 插件加载路径埋点（新增一处上游定制点），而该阶段恰是耗时最长且最难细分的 4.0–4.8 s，收益不足；如后续机器性能显著更差，再单独评估。
+- **状态**：已修（2026-09-15）｜✅ 已复核
+- **位置**：`frontend/index.html`（加载页）、`internal/app/startup_progress.go`、`internal/appenv/startup_progress.go`、`internal/supervisor/supervisor.go`
+- **问题**：只有 spinner + 「正在启动...」+ 静态提示。现有进度条仅属工具链安装。
+- **修复**：加载页改为四个由观测事实触发的阶段（`starting` / `loading` / `plugins` / `serving`），其中 `plugins` 显示进度条与「已加载 n/m 个插件」。计数由 launcher 随 overlay 注入的上报插件（`internal/appenv/startup_progress.mjs`）统计已 settle 的 loader 条目数并向 stderr 上报，supervisor 解析、app 映射阶段、经节流的 `startup:progress` 事件与 1 秒状态快照送到前端；上报不可用时退回前两档粗粒度文案且不显示进度条。设计与取舍见 [Agent Note](../../.agents/notes/implemented/feature/2026-09-15-desktop-launcher-startup-progress.md)。
+- **历史数据（`~/.cache/dsh-desktop/harness.log`，`stderr` 首行 → `dsh web:` 就绪）**：新版（2026-09-14 22:41 起三轮）5.36 s / 5.38 s / 6.63 s；此前最近十轮 11.18–14.64 s，中位数 12.20 s。降至约 44%。
+- **进度实测（同一测法，开发态与打包态各一次）**：上报器在 spawn 后约 1.2 s 报出第一行，两处都从 `0/127` 走到 `130/130`，且计数到齐与就绪行几乎同时（打包态首行 1.13 s、终值 3.53 s）。分母在启动后期多出 3 行（HMR 兜底与目录选择器），前端按单调不减渲染。
+- **仍不采纳「按时间猜阶段」**：进度只来自真实计数；没有上报时宁可不显示进度条。
+- **不在范围内**：WebView 里 harness 自己的 `Loading plugins…`（浏览器侧客户端启动）仍无进度反馈，本次未动。
 
 ## 27 窗口位置未记忆
 
