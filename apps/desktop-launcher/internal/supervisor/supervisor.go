@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +30,11 @@ var readyPattern = regexp.MustCompile(`^dsh web:\s+(https?://127\.0\.0\.1:\d+[^\
 var fatalLoadPattern = regexp.MustCompile(
 	`plugin tree failed to load|host preparation failed|ERR_MODULE_NOT_FOUND`,
 )
+
+// startupProgressPattern 匹配 launcher 注入的启动进度上报插件写入 stderr 的进度行。
+// 前缀与行格式是壳与插件的约定，插件源码见 internal/appenv/startup_progress.mjs；
+// 只接受形如 "dsh-desktop: startup 12/127" 的整行，避免把插件的其它输错当进度。
+var startupProgressPattern = regexp.MustCompile(`^dsh-desktop: startup (\d+)/(\d+)$`)
 
 // Options 监护参数。
 type Options struct {
@@ -81,6 +87,11 @@ type Supervisor struct {
 	gated           bool // 首次 spawn 前等待 Release（预检编排用）；消耗后不再生效
 	sawReady        bool // 当前 spawn 周期是否已匹配就绪行
 	sawFatalLoad    bool // 当前 spawn 周期是否已出现确定性加载失败特征
+	// startup 是本轮 spawn 的启动进度事实（见 domain.StartupProgress）；随
+	// 每次 spawn 重置。onStartupProgress 是进度变化回调，在锁外调用，供 app
+	// 层即时推送前端事件；为 nil 时只有 1s 状态轮询会看到新值。
+	startup           domain.StartupProgress
+	onStartupProgress func()
 }
 
 // NewSupervisor 创建监护器并启动监护循环（初始态为 StateStarting，首次
@@ -433,8 +444,8 @@ drained:
 		killTree(cmd)
 		return nil
 	}
-	cmd.Stdout = io.MultiWriter(stdoutLog, &readyScanner{sup: s})
-	cmd.Stderr = io.MultiWriter(stderrLog, &failScanner{sup: s})
+	cmd.Stdout = io.MultiWriter(stdoutLog, newOutputMarker(s), newReadyScanner(s))
+	cmd.Stderr = io.MultiWriter(stderrLog, newOutputMarker(s), newFailScanner(s), newProgressScanner(s))
 
 	exited := make(chan struct{})
 	s.mu.Lock()
@@ -450,6 +461,9 @@ drained:
 	s.url = ""
 	s.pid = 0
 	s.lastExit = ""
+	// 启动进度按周期重置：上一轮的数字/时刻不能泄漏到这一轮，否则加载页会先
+	// 显示旧进度。StartedAt 取 spawn 开始时刻，让加载页的"已等待"从拉起算起。
+	s.startup = domain.StartupProgress{StartedAt: time.Now()}
 	s.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
@@ -509,30 +523,79 @@ func exitReason(cmd *exec.Cmd, err error) string {
 	return ""
 }
 
-// readyScanner 逐行扫描 stdout，匹配就绪行。
-type readyScanner struct {
-	sup *Supervisor
+// lineSink 把写入的字节按行切分后逐行回调，不完整行留到下一次写入。
+// stdout/stderr 上的就绪、失败特征、启动进度、首次输出四个关注点共用同一套切分，
+// 避免每个关注点各写一份行缓冲逻辑。
+type lineSink struct {
 	buf []byte
+	on  func(line string)
 }
 
-func (r *readyScanner) Write(p []byte) (n int, err error) {
-	r.buf = append(r.buf, p...)
+func newLineSink(on func(line string)) *lineSink {
+	return &lineSink{on: on}
+}
+
+func (l *lineSink) Write(p []byte) (n int, err error) {
+	l.buf = append(l.buf, p...)
 	for {
-		idx := bytes.IndexByte(r.buf, '\n')
+		idx := bytes.IndexByte(l.buf, '\n')
 		if idx < 0 {
 			break
 		}
-		line := string(r.buf[:idx])
-		r.buf = r.buf[idx+1:]
+		line := string(l.buf[:idx])
+		l.buf = l.buf[idx+1:]
+		l.on(line)
+	}
+	return len(p), nil
+}
+
+// newReadyScanner 逐行扫描 stdout，匹配就绪行。
+func newReadyScanner(s *Supervisor) *lineSink {
+	return newLineSink(func(line string) {
 		if match := readyPattern.FindStringSubmatch(line); match != nil {
-			r.sup.markReady(match[1])
+			s.markReady(match[1])
 			select {
-			case r.sup.ready <- match[1]:
+			case s.ready <- match[1]:
 			default:
 			}
 		}
-	}
-	return len(p), nil
+	})
+}
+
+// newFailScanner 逐行扫描 stderr，匹配确定性加载失败特征（插件树无法加载）。
+// 匹配即标记，run() 在进程退出后据此直接进入失败态，不再等待熔断。
+func newFailScanner(s *Supervisor) *lineSink {
+	return newLineSink(func(line string) {
+		if fatalLoadPattern.MatchString(line) {
+			s.markFatalLoad()
+		}
+	})
+}
+
+// newProgressScanner 逐行扫描 stderr，匹配注入插件上报的条目激活进度。
+// 匹配即更新快照并回调，供加载页显示确定进度；没有上报时加载页退回粗粒度阶段。
+func newProgressScanner(s *Supervisor) *lineSink {
+	return newLineSink(func(line string) {
+		match := startupProgressPattern.FindStringSubmatch(line)
+		if match == nil {
+			return
+		}
+		loaded, err := strconv.Atoi(match[1])
+		if err != nil {
+			return
+		}
+		total, err := strconv.Atoi(match[2])
+		if err != nil {
+			return
+		}
+		s.markStartupProgress(loaded, total)
+	})
+}
+
+// newOutputMarker 在子进程第一行输出到达时记录时刻。加载页据此把"进程还没说话"
+// 与"已经在加载插件"区分开：前者只能显示笼统的启动文案。
+func newOutputMarker(s *Supervisor) *lineSink {
+	return newLineSink(func(string) { s.markStartupOutput() })
 }
 
 // markReady 记录就绪地址并进入运行态。
@@ -544,34 +607,50 @@ func (s *Supervisor) markReady(url string) {
 	s.url = url
 }
 
-// failScanner 逐行扫描 stderr，匹配确定性加载失败特征（插件树无法加载）。
-// 匹配即标记，run() 在进程退出后据此直接进入失败态，不再等待熔断。
-type failScanner struct {
-	sup *Supervisor
-	buf []byte
-}
-
-func (f *failScanner) Write(p []byte) (n int, err error) {
-	f.buf = append(f.buf, p...)
-	for {
-		idx := bytes.IndexByte(f.buf, '\n')
-		if idx < 0 {
-			break
-		}
-		line := string(f.buf[:idx])
-		f.buf = f.buf[idx+1:]
-		if fatalLoadPattern.MatchString(line) {
-			f.sup.markFatalLoad()
-		}
-	}
-	return len(p), nil
-}
-
 // markFatalLoad 记录本次 spawn 已出现确定性加载失败特征。
 func (s *Supervisor) markFatalLoad() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sawFatalLoad = true
+}
+
+// markStartupOutput 记录本 spawn 周期首行输出的时刻（只记第一次）。
+func (s *Supervisor) markStartupOutput() {
+	s.mu.Lock()
+	if s.startup.OutputAt.IsZero() {
+		s.startup.OutputAt = time.Now()
+	}
+	s.mu.Unlock()
+}
+
+// markStartupProgress 记录一次条目激活进度，并在锁外回调。
+// 回调由读取子进程输出的 goroutine 同步执行，因此实现必须自身非阻塞：app 层只做
+// 节流与事件发射。
+func (s *Supervisor) markStartupProgress(loaded, total int) {
+	s.mu.Lock()
+	s.startup.Loaded = loaded
+	s.startup.Total = total
+	s.startup.Reported = true
+	listener := s.onStartupProgress
+	s.mu.Unlock()
+	if listener != nil {
+		listener()
+	}
+}
+
+// StartupProgress 返回本轮 spawn 的启动进度快照。
+func (s *Supervisor) StartupProgress() domain.StartupProgress {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.startup
+}
+
+// SetStartupProgressListener 注册启动进度变化回调（app 层据此即时推送前端事件）。
+// 传入 nil 取消注册；回调在扫描器读取子进程输出的 goroutine 上同步执行。
+func (s *Supervisor) SetStartupProgressListener(listener func()) {
+	s.mu.Lock()
+	s.onStartupProgress = listener
+	s.mu.Unlock()
 }
 
 // timedWriter 为写入的每一行添加时间戳和来源标记前缀。

@@ -3,7 +3,9 @@ package appenv
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -243,5 +245,54 @@ func TestPackagedGitExecPath_Absent(t *testing.T) {
 	exe := filepath.Join(root, "files", "bin", "dsh-desktop-launcher")
 	if got, ok := packagedGitExecPath(exe); ok {
 		t.Fatalf("packagedGitExecPath(%q) = %q,true want absent", exe, got)
+	}
+}
+
+// 启动进度上报插件必须与 overlay 一起落地：插件文件写不出来时只省略插入行，
+// 监护声明照旧生效——这是"体验增强不阻断启动"的落点。
+func TestWriteSupervisorOverlay_InjectsStartupProgress(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
+
+	path, err := writeSupervisorOverlay()
+	if err != nil {
+		t.Fatalf("writeSupervisorOverlay: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("overlay not written: %v", err)
+	}
+	plugin := filepath.Join(dir, startupProgressFileName)
+	if _, err := os.Stat(plugin); err != nil {
+		t.Fatalf("startup progress plugin not written: %v", err)
+	}
+	// 绝对路径是 harness 能加载它的前提；带引号是因为运行时目录可能含空格。
+	if !strings.Contains(string(body), "- id: "+startupProgressRowID) {
+		t.Errorf("overlay missing progress row: %s", body)
+	}
+	if !strings.Contains(string(body), strconv.Quote(plugin)) {
+		t.Errorf("overlay missing quoted plugin path %q: %s", plugin, body)
+	}
+	// 监护声明与进度行共存：前者失效会让 dsh-market 与 supervisor 抢端口。
+	if !strings.Contains(string(body), "allowRestart: false") {
+		t.Errorf("overlay missing market patch: %s", body)
+	}
+}
+
+// 插件源码必须包含与壳解析器约定的前缀；前缀一旦漂移，加载页会静默退回粗粒度阶段。
+func TestStartupProgressPlugin_ContractPrefix(t *testing.T) {
+	if !strings.Contains(startupProgressPluginSource, "dsh-desktop: startup ") {
+		t.Error("plugin source lost the stderr prefix contract with supervisor")
+	}
+	// 该文件由壳写进 ~/.cache 后直接被 harness import：任何裸包名 import 都会让
+	// 这条 entry 加载失败并中止启动。
+	if regexp.MustCompile(`(?m)^\s*import\s`).MatchString(startupProgressPluginSource) {
+		t.Error("plugin must not import modules: it is loaded from the launcher runtime dir")
+	}
+}
+
+func TestStartupProgressOverlayRow_EmptyPath(t *testing.T) {
+	if got := startupProgressOverlayRow(""); got != "" {
+		t.Errorf("empty plugin path must omit the row, got %q", got)
 	}
 }

@@ -37,6 +37,7 @@ const (
 	ToolchainProgressEvent = "toolchain:progress" // 单个工具链安装的实时进度
 	TerminalOutputEvent    = "terminal:output"    // 终端输出事件
 	TerminalStatusEvent    = "terminal:status"    // 终端状态变更事件
+	StartupProgressEvent   = "startup:progress"   // 加载页的启动进度（阶段 + 条目计数）
 )
 
 // ProgressEvent 是 toolchain:progress 事件的载荷：描述某个工具链安装的
@@ -70,6 +71,7 @@ type FrontendStatus struct {
 	SafeMode           string // "" | "plugins" | "config" | "full"
 	FreshHome          bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
 	Preflight          PreflightSummary // 启动前预检状态
+	Startup            StartupView      // 加载页的启动进度（见 startup_progress.go）
 }
 
 // equal 判断两个状态快照是否完全相同，用于变化检测。
@@ -93,7 +95,8 @@ func (s FrontendStatus) equal(o FrontendStatus) bool {
 		s.CanDisconnect == o.CanDisconnect &&
 		s.SafeMode == o.SafeMode &&
 		s.FreshHome == o.FreshHome &&
-		s.Preflight.equal(o.Preflight)
+		s.Preflight.equal(o.Preflight) &&
+		s.Startup.equal(o.Startup)
 }
 
 // ToolRow 是工具链表格的一行。
@@ -200,6 +203,10 @@ type App struct {
 	// 上一次推送给前端的状态快照，用于变化检测：
 	// 仅当快照真正变化时才推送事件，避免每秒一次的无意义重渲染。
 	lastEmitted FrontendStatus
+
+	// 启动进度事件的节流状态（受 mu 保护）：上一帧视图与上次推送时刻。
+	startupLastView  StartupView
+	startupEmittedAt time.Time
 }
 
 // New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
@@ -225,6 +232,8 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 		term:            term,
 		preflightRunner: preflight.NewRunner(dshCmd, dshScript, preflightHomePath(home)),
 	}
+	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
+	a.sup.SetStartupProgressListener(a.emitStartupProgress)
 	// 预检先于 harness 首次启动：门控监护循环，预检通过/降级决策后放行。
 	a.sup.Gate()
 	go a.runPreflightGate()
@@ -597,6 +606,7 @@ func (a *App) snapshot() FrontendStatus {
 		SafeMode:           safeMode,
 		FreshHome:          freshHome,
 		Preflight:          preflightNow,
+		Startup:            a.currentStartupView(),
 	}
 	// 连接失败错误只在容器模式展示，成功后清除。
 	if mode != domain.ModeExternal {
