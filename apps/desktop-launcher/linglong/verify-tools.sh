@@ -106,7 +106,12 @@ rm -f "$INST"
 # index.json 是运行时实际生效的单一事实来源，tools.yaml 是打包侧
 # 的白名单 + sha256 占位校验，两者的 installable 工具集合必须对齐。
 INDEX_JSON=$(dirname "$0")/../internal/toolchain/tools/index.json
-if [ -f "$INDEX_JSON" ]; then
+if [ ! -f "$INDEX_JSON" ]; then
+  # 没有 else 的版本会让校验与失败判定一起消失：index.json 被改名或删除时构建
+  # 照常成功，而"界面能装、实际必失败"正是这段要拦的东西。
+  echo "FAIL installable/index: 找不到 $INDEX_JSON（运行时清单是工具安装的唯一事实来源）" >&2
+  fail=1
+else
   TOOLS_YAML_IDS=$(mktemp)
   INDEX_IDS=$(mktemp)
   trap 'rm -f "$TOOLS_YAML_IDS" "$INDEX_IDS"' EXIT
@@ -121,8 +126,13 @@ if [ -f "$INDEX_JSON" ]; then
       print name;
     }
   ' "$YAML" | sort > "$TOOLS_YAML_IDS"
-  # 用 python 提取 JSON 里的 tools[].id；python3 在 beige/宿主都有
-  if command -v python3 >/dev/null 2>&1; then
+  # 用 python 提取 JSON 里的 tools[].id
+  if ! command -v python3 >/dev/null 2>&1; then
+    # 不能只打印 SKIP 就走：跳过等于这条防线不存在，而构建仍然成功。python3 是
+    # 打包链路的既有依赖（见 tools.yaml 的 installable 段说明与 verify-container-deps.sh）。
+    echo "FAIL installable/index: 找不到 python3，无法比对 tools.yaml 与 index.json 的工具列表" >&2
+    fail=1
+  else
     python3 -c "
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -137,8 +147,6 @@ for t in sorted(t['id'] for t in data['tools']):
     else
       echo "OK   installable 与 index.json 工具列表一致"
     fi
-  else
-    echo "SKIP installable/index 一致性校验：python3 不可用"
   fi
 fi
 
