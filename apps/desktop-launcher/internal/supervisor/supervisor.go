@@ -70,7 +70,7 @@ type Supervisor struct {
 	cfg             Config
 	options         Options
 	ready           chan string
-	logFile         *os.File
+	logSink         *logSink     // 日志落盘端（带轮转）
 	stdoutLog       *timedWriter // 带时间戳的 stdout 日志 writer
 	stderrLog       *timedWriter // 带时间戳的 stderr 日志 writer
 	cancel          context.CancelFunc
@@ -390,15 +390,15 @@ func (s *Supervisor) run() {
 // spawn 启动一个子进程并注册唯一调用 cmd.Wait() 的 goroutine。
 func (s *Supervisor) spawn() {
 	s.mu.Lock()
-	if s.logFile != nil {
+	if s.logSink != nil {
 		if s.stdoutLog != nil {
 			s.stdoutLog.flush()
 		}
 		if s.stderrLog != nil {
 			s.stderrLog.flush()
 		}
-		s.logFile.Close()
-		s.logFile = nil
+		s.logSink.Close()
+		s.logSink = nil
 		s.stdoutLog = nil
 		s.stderrLog = nil
 	}
@@ -417,17 +417,11 @@ drained:
 	childEnv := s.cfg.Env
 	s.mu.Unlock()
 
-	logFile := openLogFile(filepath.Join(s.cfg.LogDir, "harness.log"))
+	logSink := newLogSink(filepath.Join(s.cfg.LogDir, "harness.log"))
 	// stdout/stderr 分别走带时间戳的 writer，便于排查问题时
 	// 直接定位每行的产生时间与来源。
-	var stdoutLog, stderrLog *timedWriter
-	if logFile != nil {
-		stdoutLog = newTimedWriter(logFile, "stdout")
-		stderrLog = newTimedWriter(logFile, "stderr")
-	} else {
-		stdoutLog = newTimedWriter(io.Discard, "stdout")
-		stderrLog = newTimedWriter(io.Discard, "stderr")
-	}
+	stdoutLog := newTimedWriter(logSink, "stdout")
+	stderrLog := newTimedWriter(logSink, "stderr")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, s.cfg.Command, s.cfg.Args...)
@@ -446,7 +440,7 @@ drained:
 
 	exited := make(chan struct{})
 	s.mu.Lock()
-	s.logFile = logFile
+	s.logSink = logSink
 	s.stdoutLog = stdoutLog
 	s.stderrLog = stderrLog
 	s.cancel = cancel
@@ -535,15 +529,83 @@ func backoffDelay(base, max, attempt int) int {
 	return delay
 }
 
-// openLogFile 打开（必要时创建）harness 日志文件；失败时返回 io.Discard，
-// 保证子进程输出永不落到 nil writer 上。
-func openLogFile(path string) *os.File {
+// 日志体积上限。日志无限增长有两个来源：跨重启只追加不裁剪，以及子进程长时间
+// 不输出换行时无上限的行缓冲（审计 S4）。
+const (
+	// maxLogBytes 是 harness.log 的单文件上限：到达即轮转为 harness.log.1
+	// （只保留一份历史），因此日志占用的磁盘上限约为它的两倍。
+	maxLogBytes = 5 << 20
+	// maxLogLineBytes 是单行缓冲上限。子进程可能一次性打印几 MB 而不带换行
+	// （例如转储整段 JSON），缓冲必须封顶。
+	maxLogLineBytes = 64 << 10
+)
+
+// logSink 是 stdout/stderr 共用的日志落盘端：累计写入到达 maxLogBytes 就把当前
+// 文件轮转为 <path>.1 并续写新文件。
+//
+// 只保留这一套轮转逻辑：打开时把已有尺寸作为起算点，因此上次运行留下的超大文件
+// 会在本次运行的首次写入时被挪走，运行中的持续增长也由同一个判断兜住。日志不可用
+// 时静默丢弃——日志写不出去不该拦住 harness 启动。
+type logSink struct {
+	mu   sync.Mutex
+	path string
+	f    *os.File
+	size int64
+}
+
+// newLogSink 打开（必要时创建）日志文件；已有内容按追加处理，尺寸作为轮转的起算点。
+func newLogSink(path string) *logSink {
+	s := &logSink{path: path}
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
-		return nil
+		return s // f 保持 nil，写入静默丢弃
 	}
-	return f
+	s.f = f
+	if info, statErr := f.Stat(); statErr == nil {
+		s.size = info.Size()
+	}
+	return s
+}
+
+// Write 实现 io.Writer：写入前按累计字节数判断轮转。
+func (s *logSink) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.f == nil {
+		return len(p), nil
+	}
+	if s.size+int64(len(p)) > maxLogBytes {
+		s.rotateLocked()
+	}
+	n, err := s.f.Write(p)
+	s.size += int64(n)
+	return n, err
+}
+
+// rotateLocked 调用者须持有 s.mu：关闭当前文件、挪成 <path>.1（覆盖上一份）、
+// 再用新文件续写。
+func (s *logSink) rotateLocked() {
+	_ = s.f.Close()
+	_ = os.Rename(s.path, s.path+".1")
+	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		s.f = nil
+		s.size = 0
+		return
+	}
+	s.f = f
+	s.size = 0
+}
+
+// Close 关闭日志文件；之后的写入静默丢弃。
+func (s *logSink) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.f != nil {
+		_ = s.f.Close()
+		s.f = nil
+	}
 }
 
 // exitReason 把进程退出状态转成诊断字符串；空表示无退出状态。
@@ -565,7 +627,10 @@ func exitReason(cmd *exec.Cmd, err error) string {
 // 避免每个关注点各写一份行缓冲逻辑。
 type lineSink struct {
 	buf []byte
-	on  func(line string)
+	// dropping 表示当前行已超过 maxLogLineBytes 且还没等到换行：后续片段在遇到
+	// 换行前一律丢弃，避免无人换行的输出把扫描器的内存撑爆（审计 S4）。
+	dropping bool
+	on       func(line string)
 }
 
 func newLineSink(on func(line string)) *lineSink {
@@ -573,6 +638,14 @@ func newLineSink(on func(line string)) *lineSink {
 }
 
 func (l *lineSink) Write(p []byte) (n int, err error) {
+	if l.dropping {
+		idx := bytes.IndexByte(p, '\n')
+		if idx < 0 {
+			return len(p), nil
+		}
+		l.dropping = false
+		p = p[idx+1:] // 换行之后重新开始正常缓冲
+	}
 	l.buf = append(l.buf, p...)
 	for {
 		idx := bytes.IndexByte(l.buf, '\n')
@@ -582,6 +655,13 @@ func (l *lineSink) Write(p []byte) (n int, err error) {
 		line := string(l.buf[:idx])
 		l.buf = l.buf[idx+1:]
 		l.on(line)
+	}
+	if len(l.buf) > maxLogLineBytes {
+		// 超长行整行丢弃，而不是截断后当整行喂给特征匹配：半行可能误配就绪或
+		// 加载失败特征。日志文件那一支（timedWriter）仍保留原文，这里只负责
+		// 让扫描器的内存有界。
+		l.buf = nil
+		l.dropping = true
 	}
 	return len(p), nil
 }
@@ -706,6 +786,10 @@ func newTimedWriter(out io.Writer, tag string) *timedWriter {
 }
 
 // Write 实现 io.Writer：按行缓冲并为每行添加 `[时间戳] [tag] ` 前缀。
+//
+// 与 lineSink 的处理刻意不同：这里的缓冲就是日志内容本身，超长行不能丢弃，
+// 否则日志会静默缺内容；改成带截断标记先落盘再继续缓冲同一行的剩余部分，
+// 内存有界的同时不丢字节（审计 S4）。
 func (w *timedWriter) Write(p []byte) (int, error) {
 	w.buf = append(w.buf, p...)
 	for {
@@ -719,6 +803,14 @@ func (w *timedWriter) Write(p []byte) (int, error) {
 		if _, err := fmt.Fprintf(w.out, "[%s] [%s] %s\n", ts, w.tag, line); err != nil {
 			return len(p), err
 		}
+	}
+	if len(w.buf) > maxLogLineBytes {
+		ts := time.Now().Format("2006-01-02 15:04:05.000")
+		if _, err := fmt.Fprintf(w.out, "[%s] [%s] %s [truncated]\n", ts, w.tag, w.buf); err != nil {
+			w.buf = nil
+			return len(p), err
+		}
+		w.buf = nil
 	}
 	return len(p), nil
 }

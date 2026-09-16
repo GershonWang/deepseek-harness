@@ -1,6 +1,10 @@
 package supervisor
 
 import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,4 +243,142 @@ func TestBackoffDelay(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLineSink_DropsOverlongLine 覆盖 S4：子进程长时间不输出换行时，扫描器的行
+// 缓冲必须有界。超长行整行丢弃，换行之后恢复正常切分。
+func TestLineSink_DropsOverlongLine(t *testing.T) {
+	var lines []string
+	l := newLineSink(func(line string) { lines = append(lines, line) })
+
+	if _, err := l.Write(bytes.Repeat([]byte("x"), maxLogLineBytes+1024)); err != nil {
+		t.Fatal(err)
+	}
+	if len(l.buf) != 0 {
+		t.Fatalf("超长行的内容仍留在缓冲里: %d 字节", len(l.buf))
+	}
+	// 仍在同一行内：换行前的后续片段同样丢弃。
+	if _, err := l.Write([]byte("tail-of-huge-line")); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 0 {
+		t.Fatalf("超长行不应产生整行回调: %v", lines)
+	}
+	// 换行之后恢复正常。
+	if _, err := l.Write([]byte("\nok\nnext\n")); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0] != "ok" || lines[1] != "next" {
+		t.Fatalf("换行后应恢复正常切行, got %v", lines)
+	}
+}
+
+// TestTimedWriter_TruncatesOverlongLine 覆盖 S4 的另一半：这里的缓冲就是日志内容，
+// 超长行必须带标记落盘而不是丢弃，内存有界的同时不丢字节。
+func TestTimedWriter_TruncatesOverlongLine(t *testing.T) {
+	var out bytes.Buffer
+	w := newTimedWriter(&out, "stdout")
+
+	if _, err := w.Write(bytes.Repeat([]byte("y"), maxLogLineBytes+1024)); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.buf) != 0 {
+		t.Fatalf("超长行落盘后缓冲应清空: %d 字节", len(w.buf))
+	}
+	if !strings.Contains(out.String(), "[truncated]") {
+		t.Fatal("被截断的记录应带 [truncated] 标记")
+	}
+	if got := strings.Count(out.String(), "\n"); got != 1 {
+		t.Fatalf("应只落盘一条被截断的记录, got %d 行", got)
+	}
+	// 同一行的剩余部分继续正常落盘。
+	if _, err := w.Write([]byte("rest-of-line\n")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "rest-of-line") {
+		t.Fatal("换行后剩余部分应正常落盘")
+	}
+}
+
+// TestLogSink_RotatesAtThreshold 覆盖 S4 的磁盘一侧：单次运行内累计写入到达阈值
+// 即轮转，只保留一份历史，且不丢字节。
+func TestLogSink_RotatesAtThreshold(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harness.log")
+	s := newLogSink(path)
+
+	chunk := bytes.Repeat([]byte("z"), 64<<10)
+	const writes = 100 // 6.4 MiB，超过 5 MiB 阈值
+	for i := 0; i < writes; i++ {
+		if _, err := s.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+
+	rotated, err := os.Stat(path + ".1")
+	if err != nil {
+		t.Fatalf("到达阈值应生成轮转文件: %v", err)
+	}
+	cur, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur.Size() >= maxLogBytes {
+		t.Fatalf("轮转后的当前文件应小于阈值: %d", cur.Size())
+	}
+	// 轮转不丢字节：两份文件之和等于实际写入量。
+	if got, want := rotated.Size()+cur.Size(), int64(writes*len(chunk)); got != want {
+		t.Fatalf("轮转后总字节 = %d, want %d", got, want)
+	}
+}
+
+// TestLogSink_RotatesPreexistingOversizeFile 覆盖 S4 的跨重启一侧：上次运行留下的
+// 超大日志会在本次运行的首次写入时被挪走，新内容不接在它后面继续追加。
+func TestLogSink_RotatesPreexistingOversizeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harness.log")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxLogBytes+1); err != nil { // 稀疏文件，不必真写
+		t.Fatal(err)
+	}
+
+	s := newLogSink(path)
+	if _, err := s.Write([]byte("fresh\n")); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	if _, err := os.Stat(path + ".1"); err != nil {
+		t.Fatalf("超大日志应在打开时被轮转: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fresh\n" {
+		t.Fatalf("轮转后当前文件应只含本次内容, got %q", data)
+	}
+}
+
+// TestLogSink_UnavailableIsNoop 覆盖日志不可用时的降级：写不出去也不能拦住子进程
+// 输出（Write 返回成功，调用方不视为错误）。
+func TestLogSink_UnavailableIsNoop(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := newLogSink(filepath.Join(blocker, "harness.log"))
+	if s.f != nil {
+		t.Fatal("父路径是文件时不应打开成功")
+	}
+	n, err := s.Write([]byte("anything\n"))
+	if err != nil || n != len("anything\n") {
+		t.Fatalf("日志不可用时 Write 应静默成功, got n=%d err=%v", n, err)
+	}
+	s.Close() // 幂等，不应 panic
 }
