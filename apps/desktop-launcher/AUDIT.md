@@ -9,7 +9,7 @@
 - 分支 `linglong-dev`，基点提交 `dfd0e9d186`（与 `linglong` 的文件树完全相同，tree 均为 `eea557d697a7bce2b28f435e1ca070ef70ef73d7`）。
 - 玲珑包版本 `0.1.2.5`，产物 `com.deepseek.dsh-desktop_0.1.2.5_x86_64_main.uab` = **361 MB**（361,331,344 字节），解压后 **759 MB**。
 - 体积分布：`lib/` 320 MB（其中 `lib/x86_64-linux-gnu` **293 MB / 352 个 `.so`**）、`harness/` 254 MB、`node/` 147 MB、`bin/` 39 MB；生产闭包含 **264 个** `@deepseek-ai/*` 包。
-- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N26`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
+- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N29`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查，`N27`–`N29` 来自 2026-09-16 对 `0.1.3.2` 产物的复核）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
 - 行号以审计基点为准，代码改动后可能漂移。
 - `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 - `N25` 的基点：提交 `9621d91bff`（JDK 17 下架前的清单状态）；行号以该提交为准。
@@ -518,6 +518,31 @@
 - **证据边界**：结论来自对三版产物层与基座层的实体清点；**未**在真实容器里跑 `fc-list` 确认最终渲染走的是哪一路字体（本环境无 ll-builder 与玲珑容器）。
 - **建议**：确认运行时中文来源（宿主挂载 vs 随包字体）后二选一——删掉该依赖并更正注释，或让中文字体随包落到 `${PREFIX}/share/dsh-fonts`（`install-container-fonts.sh` 已在该目录装配拉丁与等宽字体，可复用同一路径）。
 
+## N27 包版本只存在于工作区，未进任何提交
+
+- **状态**：未修｜✅ 本次产物复核实测（2026-09-16，`0.1.3.2`）
+- **位置**：`apps/desktop-launcher/linglong/linglong.yaml:5`，对照产物 `com.deepseek.dsh-desktop_0.1.3.2_x86_64_main.uab`
+- **问题**：HEAD 里该文件的 `package.version` 是 `0.1.2.7`，工作区被改成 `0.1.3.2` 且未提交；同日 09:14 导出的 `0.1.3.1` 同样出自未提交的版本改动。构建用的项目文件就是这一个（ll-builder 日志首行 `Using project file …/apps/desktop-launcher/linglong/linglong.yaml`），仓库根的 `linglong/` 只是被 `.gitignore:41` 忽略的工作区。
+- **影响**：已导出的 `.uab` 无法从任何提交复现，产物与源码的对应只存在于本地工作区快照；按版本号分发或排障时，git 里查不到 `0.1.3.1`／`0.1.3.2` 这两个版本所指的代码状态。
+- **建议**：版本号是发布事实，宜随对应代码一起提交；若以 tag 发布，tag 指向的提交必须含该版本号。本轮按要求未改动该文件。
+
+## N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转
+
+- **状态**：未修｜✅ 本次产物复核实测
+- **位置**：`main.go:22`、`frontend/test-app.cjs`、`frontend/tools/preview.mjs`
+- **问题**：`all:` 前缀会嵌入 `frontend/` 下所有文件。实测包内启动器（`output/binary/files/bin/dsh-desktop-launcher`，13,402,592 B）含 `frontend/test-app.cjs`（78,938 B）与 `frontend/tools/preview.mjs`（33,566 B），合计约 110 KB。另一面：`frontend/` 现有 16 个文件全部被 git 跟踪、`git status --ignored` 无任何被忽略项，即 `all:` 与不带前缀当前等价——它今天唯一的效果是让将来出现在 `frontend/` 下的游离文件静默进入二进制。S7 修的是"预览产物落到 `frontend/` 内"，而该防线现在只剩 `preview.mjs` 自己的守卫，产物侧没有断言。
+- **影响**：体积多约 110 KB；更主要的是"什么会被嵌进二进制"没有可执行的判据，回归时无人拦。
+- **建议**（二选一）：(a) 把开发用文件移出 embed 根（如 `apps/desktop-launcher/frontend-tools/`），需同步改测试与文档中的路径；(b) 保留目录结构，在 `build-linglong.sh` 组装前加断言——`frontend/` 下的文件集合必须等于一份显式清单，出现新文件即失败。前者治本但要动目录，后者改动小且恰好挡住"游离文件被静默嵌入"。
+- **注**：既然 `all:` 当前为空转，若确认 `frontend/` 下永不出现被 gitignore 的文件，直接去掉该前缀即可消除这一面；代价是构建期 vendored 资源必须保持被跟踪。
+
+## N29 49 个 `tsconfig.tsbuildinfo` 随包交付
+
+- **状态**：未修｜✅ 本次产物复核实测
+- **位置**：`harness/node_modules/@deepseek-ai/*/lib/tsconfig.tsbuildinfo`（47 个）、`harness/node_modules/gaxios/…`（2 个）；来源是 `prepare-offline.sh` 整目录复制各包的 `lib/`
+- **问题**：合计 2.6 MB 的 tsc 增量编译元数据进了产物。抽查 3 个文件未发现构建机绝对路径，但内容是纯构建态数据。
+- **影响**：体积少量增加；`.tsbuildinfo` 记录的是编译机上的文件清单与编译设置，属"把构建中间态当交付物"。
+- **建议**：`prepare-offline.sh` 在复制后统一删除 `*/lib/tsconfig.tsbuildinfo`。取舍：按 tsc 语义它只服务于增量编译，运行时无人读取；若确实想保留增量编译能力，应留在构建缓存而非产物里。
+
 ---
 
 # 附录 D：2026-09-16 修复批次
@@ -575,6 +600,37 @@ D 批完成，本节其余"未做"项仍然未做。）
 
 **本批次未做**：N3 离线签名、N14/N16 的多版本覆盖面、N17–N26 的其余条目、8/13 依赖链
 裁剪、9/10 CI 与体积门禁、S6 项目配置 tool ID 校验、N13 的跨进程文件锁。
+
+---
+
+# 附录 F：2026-09-16 `0.1.3.2` 产物复核
+
+对刚导出的 `com.deepseek.dsh-desktop_0.1.3.2_x86_64_main.uab`（363,190,928 B，sha256
+`1ce5577d…`）做的审查记录；正文 N27–N29 即出自本轮，其余条目为复核确认。
+
+**构建链自检**：`verify-tools.sh`（installable 与 `index.json` 一致）、
+`verify-merged-deps.sh`（含 webkit「已打 exec-path 补丁」）、`verify-builder-log.sh`
+（`failed to copy` 共 1 处，全部是 N19 豁免的 webkit 冗余项）均通过；ll-builder 自身
+`[Runtime Check] done` / `Build completed successfully`。日志里其余异常只有容器内的
+`/etc/sysctl.d` 缺失、`/proc/1/environ` 无权限、xdg 文档目录缺失三类环境噪音。
+
+**已核对一致的项**（均为实跑或实体清点）：
+
+| 项目 | 证据 |
+|---|---|
+| 本批 A–D 修复是否进包 | 包内启动器含 `installLockKey`/`finishInstalled`/`partPathForURL`/`ensurePrivateDir`/`openPartFile`/`linkNameOK`/`binDirOK`/`prependPathEnv`/`backoffDelay`，以及 N8/N9/S3/N10/S4 的新字面量；内嵌前端含 `审计 N12` 且已无被替换掉的旧文本 |
+| 包内容对应当前代码 | `审计 N12` 在 `0.1.3.1` 的 uab 中不存在、在 `0.1.3.2` 中存在；8 个 D 批提交（10:19–12:45）均早于构建开始 12:57 |
+| stage 与产物一致 | `harness/package.json`、`node/bin/node`、`@deepseek-ai/dsh-doctor/package.json` 三处哈希与 `linglong/stage/` 相同 |
+| 内嵌工具清单 | 与仓库 `internal/toolchain/tools/index.json` 逐条吻合（43 工具、87 个 sha256/文件名指纹、0 缺失） |
+| 运行时可用性 | 包内 `node v24.9.0` 与 `dsh 0.1.5-rc.2` 可直接执行，且与仓库根 `package.json` 版本一致 |
+| webkit 补丁 | 产物 `.so.0.19.7`（92,804,704 B）中新路径 `/tmp/dsh-webkit-4.1` 出现 2 次、bundle 1 次，原始 `/usr/lib/…` 路径 0 次；`output/develop/files/_build` 为空是 N19 的预期结果 |
+| 既有条目现状 | `lib/gcc`、`node/include` 不存在；`@deepseek-ai/*` = 264 个；N14 的 `schemastery/lib/lib` 嵌套消失；N2 的 persona 注入在产物的 `agent.cordis.yml` 中；N26 的字体在产物树里仍全无；条目 22 的 `/tmp/dsh-webkit-4.1` 仍是随包路径；条目 12 的 `export CFLAGS="-g $CFLAGS"` 仍由构建器注入；N16 的多版本缺口（jdk21 只有 `21.0.12.1` 进 `tools.yaml`，而 `index.json` 另有 `8u504`）仍在；内嵌索引已无 `17.0.20.1`（N25 的期望状态） |
+
+**验证边界**：未在真实容器或真机安装运行该 uab（会改动系统）；uab 载荷是压缩的
+（363 MB ↔ 展开 762 MB），包内字符串只能作抽样证据，因此"新代码进包"由「产物树启动器
+全量指纹 + 与旧包对照 + 提交时间」三条互证，而非解包后逐文件比对；GUI/WebKit 真实
+启动、工具链真实下载、多 GB 归档解压仍未端到端验证。另注：`0.1.3.1` 与 `0.1.3.2` 两个
+uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等当成产物等价的判据。
 
 ---
 
