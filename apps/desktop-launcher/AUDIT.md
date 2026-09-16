@@ -161,7 +161,7 @@
 
 ## 20 宿主挂载缺二次确认
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/app/app.go:1273-1292`、`internal/hosttools/hosttools.go:116`、`frontend/app.js:1118-1124`、`frontend/app.js:1280-1296`
 - **问题**：`AddHostTool` 直接写 `config.d` 挂载配置（`Options: ["rbind","ro"]`），Go 侧与前端**都没有确认步骤**。对照：卸载工具有两击确认（`app.js:1001`），全新环境启动有 `confirm()`（`app.js:1214`）——唯独能力最强、风险最高的这个动作没有。
 - **影响**：用户不清楚「挂载后沙箱内所有进程都能读这个目录」。只读（`ro`）限制了写入风险，但读取范围没有任何提示。
@@ -197,7 +197,7 @@
 
 ## N4 X11 `MIT-MAGIC-COOKIE-1` 长度字段字节序写反
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/clipboard/x11.go:387-390`
 - **问题**：连接请求声明 `'l'`（LSBFirst），协议要求所有字段按客户端字节序编码，但 auth name/data 长度用 `binary.BigEndian.PutUint16` 写入（应为 LittleEndian）。服务端读到 name 长度 `0x1200`=4608、data 长度 `0x2000`=8192，认证必然失败。此外两次尝试**复用同一条已失败的连接**（X 服务端在 Failed 后关闭连接）。
 - **影响**：需要 Xauthority 的 X11 主机上粘贴截图**永久无反应**，且无日志无提示（Wayland 有 `wl-paste` 兜底，纯 X11 会话没有）。
@@ -205,7 +205,7 @@
 
 ## N5 supervisor 重启退避整数溢出
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/supervisor/supervisor.go:368-372`
 - **问题**：`attempt` 只在收到 `startCh` 时归零，「启动成功后又崩溃」的循环会一直累加；`RestartDelayMs * (1 << (attempt-1))` 在 `int` 上溢出为负数，随后 `if delay > MaxRestartDelayMs` 对负值不成立，`time.After(负值)` 立即触发。
 - **影响**：监护循环退化为无退避的 spawn 风暴，日志疯涨、CPU/内存被打满。约 56 次连续「就绪后崩溃」即进入。
@@ -213,7 +213,7 @@
 
 ## N6 启动自动诊断的收尾判断用错变量
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/app/app.go:509-529`（配合 `:534-550`、`:711-726`）
 - **问题**：epoch 只用于清理 `cancel`/`done`，真正的「是否过期」判断却是 `if !a.startupDoctorRunning`。被取消的旧诊断在新诊断运行期间（`startupDoctorRunning` 又为 true）通过该判断，写入旧结果并把 `startupDoctorRunning` 置 false；**真正的新诊断结束时结果被 `return` 丢弃**。
 - **影响**：前端显示「诊断已就绪 + 伪造的错误」，真实结论丢失；失败路径下的自动诊断静默失效——而这正是它最该起作用的时刻。
@@ -251,7 +251,7 @@
 
 ## N11 doctor 检查行的 `Category`/`Severity` 是全行唯一漏转义字段
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`frontend/app.js:1439`（注入点）、`app.js:1448`（sink）
 - **问题**：同一行里 `Name`、`Message`、`Detail` 都过了 `escapeHtml`，只有 `[${c.Category} / ${c.Severity}]` 直接拼进模板，而模板整体赋给 `#doctor-checks` 的 `innerHTML`。字段来自 `dsh doctor --json` 的**子进程 stdout**（`internal/app/app.go:776` 解码、`:803-804` 赋值），无枚举校验。
 - **影响**：壳内任意 JS 执行 → 直接拿到 `window.go.app.App.*`（`InstallToolchain` / `AddHostTool` / `RunDoctorRepair` / `ConnectExternal` / 终端 / 剪贴板）。壳前端持有全部 Go 绑定，所以壳内 XSS 等价于拿到这些能力。
@@ -274,14 +274,14 @@
 
 ## N14 `schemastery` 闭包注入是假阳性，且 `cp -a` 语义导致嵌套
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`apps/desktop-launcher/linglong/prepare-offline.sh:78`、`:83`（另见 `:84-87`）
 - **问题**：守卫是 `[ ! -f "$dest/lib/index.js" ]`，而 `@deepseek-ai/schemastery` 的入口是 `lib/index.cjs`（`vendor/schemastery/package.json` 的 `main`）→ 守卫恒真、每次都进入「注入」分支；目标 `lib` 已存在时 `cp -a "$pkgdir/lib" "$dest/lib"` **嵌套复制**。`:84-87` 的 `2>/dev/null || true` 还会吞掉 `package.json`/`bin` 的复制失败。
 - **影响**：日志假装在补闭包，**真正缺文件时永远补不上**；实测产物含 `@deepseek-ai/schemastery/lib/lib/` = 184 KB 重复内容。
 
 ## N16 `verify-tools.sh` 的一致性校验可静默跳过
 
-- **状态**：未修｜✅ 已复核
+- **状态**：部分修复（2026-09-16：缺引用与缺 python3 已改为硬失败；多版本覆盖仍缺）｜✅ 实测复核
 - **位置**：`apps/desktop-launcher/linglong/verify-tools.sh:108-143`、`apps/desktop-launcher/linglong/tools.yaml:50-53`（边界声明在注释里）
 - **问题**：`if [ -f "$INDEX_JSON" ]` **没有 else**——`index.json` 缺失或改名时，校验与失败判定一起静默消失；缺 `python3` 时只打印 SKIP、不置 `fail=1`。校验也只 `diff` ID 集合，不比对 `version`/`url`/`sha256`。
 - **影响**：「界面可安装、实际必失败」的防线形同虚设，且构建照常成功。
@@ -289,7 +289,7 @@
 
 ## S1 supervisor 保留已退出子进程的 `cmd`
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/supervisor/supervisor.go:109`/`:206`/`:224`/`:445`、`internal/supervisor/process_unix.go:35-41`
 - **问题**：子进程退出后 Wait goroutine 只清 `s.pid`/`state`，从不清 `s.cmd`；`Restart`/`StopHarness` 会对已回收的 PID 执行 `kill(-pid, SIGTERM/SIGKILL)`。
 - **影响**：PID 回绕复用时误杀无关进程组。
@@ -317,7 +317,7 @@
 
 ## S5 `ConfigureChildEnv` 非幂等
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/appenv/env.go:203-212`（调用点 `main.go:30`、`internal/app/app.go:1105`/`:1176`/`:1190`/`:1201`/`:1233`）
 - **问题**：每次都把固定段前置到 `PATH`/`LD_LIBRARY_PATH` 并覆盖，安装/切换/卸载会重复调用，段重复累积且从不收敛。
 
@@ -330,7 +330,7 @@
 
 ## S7 `preview.mjs` 的产物目录与样式路径
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`frontend/tools/preview.mjs:386`、`:230-238`、`main.go:22`
 - **问题**：默认产物写入 `frontend/.preview/`，而 `//go:embed all:frontend` 会把它嵌进二进制（该目录已在 `.gitignore`，但 `all:` 前缀不看 gitignore）。另外 `buildPreview` 只把 `styles.css` 改写成绝对路径，`vendor/xterm.css` 保持相对路径 → 在 `.preview/preview.html` 下 404，xterm 样式从未生效。
 
@@ -444,7 +444,7 @@
 
 ## N-extra 前端转义与状态机缺口
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：部分修复（2026-09-16：转义、样式选择器与开发态提示已修）｜✅ 实测复核
 - **位置**：`frontend/app.js:375`、`:1368`、`:1388`、`:746`、`:836`、`:1241-1248`、`:1168-1174`、`:62-68`
 - **问题**：
   - `setDoctorSummary` 名为文本实为 `innerHTML`，`:1368` 与 `:1388` 的动态拼接未转义（当前错误文案不含标记，属潜伏 XSS）。
@@ -463,7 +463,7 @@
 
 ## N-extra3 打包脚本中重复与漂移的事实
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：部分修复（2026-09-16：README glob 已修）｜✅ 实测复核
 - **位置**：`linglong/prepare-offline.sh:16`/`:134`/`:146-150` ↔ `linglong/linglong.yaml:24`/`:43`/`:54-58`（README 是第三、四处）
 - **问题**：捆绑 Node 版本硬编码两处（均为 `24.9.0`）；pnpm「是否已下载」的守卫一处查 `bin/pnpm.cjs`、一处查目录存在 + `bin/pnpm.mjs`；三行包装器在两地逐字重复。升级 Node 时只改一处会让 stage 与容器 fallback 下载不同版本。
 - **另**：`prepare-offline.sh:86-88` 的 `for f in README*` 在 CWD 已切到仓库根后展开，匹配的是**仓库根**的 README，而不是 `$pkgdir` 的。
@@ -504,6 +504,37 @@
 - **影响**：中文回退字体实际不来自这个依赖。运行时 `/usr/share/fonts` 又被宿主目录整体挂载覆盖（同一段注释自己写明），所以该依赖既进不了包、也改变不了运行时——注释描述的链路与事实不符，排查中文显示问题时会把人引向错误方向。本条的产物侧后果已由 `verify-merged-deps.sh` 显式记为 `none:` 认领（不阻塞构建），避免它在依赖清单里继续"看起来有人管"。
 - **证据边界**：结论来自对三版产物层与基座层的实体清点；**未**在真实容器里跑 `fc-list` 确认最终渲染走的是哪一路字体（本环境无 ll-builder 与玲珑容器）。
 - **建议**：确认运行时中文来源（宿主挂载 vs 随包字体）后二选一——删掉该依赖并更正注释，或让中文字体随包落到 `${PREFIX}/share/dsh-fonts`（`install-container-fonts.sh` 已在该目录装配拉丁与等宽字体，可复用同一路径）。
+
+---
+
+# 附录 D：2026-09-16 修复批次
+
+本节记录一轮「快修」的落点与验证证据；正文对应条目的状态行已同步。行号基准为
+本批次开始前的 `linglong-dev` HEAD `8cd0e4a5c2`。
+
+| 条目 | 提交 | 改动 | 验证 |
+|---|---|---|---|
+| N11 Category/Severity 未转义 | `0cdfa08e70` | 补 `escapeHtml`（计数与 SuggestedLevel 由 Go 侧解成 int，不属该面） | 新增 `诊断清单转义每个取自报告的字符串字段`；还原转义后用例失败 |
+| 摘要 HTML/文本混用 | `f2af5255e1` | 拆成 `setDoctorSummaryHtml` / `setDoctorSummaryText` | 新增 `诊断摘要的错误文案按纯文本渲染`；text 版改回 innerHTML 后失败 |
+| 开发态提示被覆盖 | `97bf46b604` | 提示条收敛到 `renderTools` 单点写入，文案由 `hostToolsNotice` 合成 | 新增 `提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖`；变异后失败 |
+| 进度条选择器拼接 | `1dbdf4caef` | 在 `#market-grid` 子树内按 `dataset.toolId` 匹配，不再拼属性选择器 | 新增 `安装进度按 dataset 定位卡片…`；改回拼接后失败 |
+| 20 宿主挂载无确认 | `86349a8a27` | 抽出 `consumeConfirmClick`，扫描结果与手填目录共用；首次点击把「沙箱内所有进程都能读取 <路径>（只读）」写进提示行 | 新增三条用例；`consumeConfirmClick` 改成恒返回 true 后两条失败 |
+| N4 X11 cookie 字节序 | `17cfd94e3a` | 长度改小端；`setup` 重试经 `reconnect` 换新连接；关闭路径收敛到 `xconn.close` | 新增 `TestDialRetriesAuthOnFreshConnection` 与只回放握手的 `authFakeServer`；长度改回大端、`reconnect` 改空操作后分别失败 |
+| N5 退避整数溢出 | `0e704e378e` | 抽出 `backoffDelay`，先封顶再加倍；`max <= 0` 退回 base | 新增 `TestBackoffDelay`（含 attempt=200 与接近 int 上限）；换回旧公式后失败并触发 `negative shift amount` panic |
+| N6 诊断收尾归属 | `9382a78e6d` | 抽出 `finishStartupDoctor`，门禁改为 `doctorEpoch`；reset 递增 epoch | 新增三条用例；改回 `!startupDoctorRunning`、去掉 reset 的 epoch 递增后分别失败 |
+| S1 保留已退出 cmd | `7ab68f88eb` | Wait goroutine 在 `s.cmd == cmd` 时清零 | 新增 `TestSupervisor_ClearsExitedCmd`（先等真正拉起再断言）；删掉清空语句后失败 |
+| S5 env 非幂等 | `4ec119b1d1` | 抽出 `prependPathEnv`，先剔除同名旧段再前置，空段丢弃 | 新增两条用例；PATH 改回无条件前置后失败 |
+| S7 预览产物落进 embed 根 | `593e30a184` | 默认产物移到 `apps/desktop-launcher/.preview`；加「不得位于 frontend/ 内」守卫；删除遗留的 2.2 MB 截图 | `preview.mjs verify` 全绿且产物落在新目录；`--out frontend/.preview` 退出码 1 且不建目录 |
+| N14 注入守卫假阳性 | `8cfc13d72b` | 入口候选取自包自己的 `module`/`main`/`exports["."]`；`cp -a src/lib/.` 消除嵌套；bin/package.json 不再吞错 | 新增 `test-prepare-offline-inject.sh`（从真实脚本提取函数）；三处分别变异后失败 |
+| N-extra3 README glob | `8cfc13d72b` | `README*` 锚定 `$pkgdir` | 同上；glob 退回裸模式后失败 |
+| N16 一致性校验静默跳过 | `1fec90f79b` | 缺 `index.json`／缺 `python3` 均改为硬失败并点明参照物 | `test-verify-tools.sh` 新增两条（影子树 + 收窄 PATH）；两处分别变异后失败 |
+
+**本批次未做**（已在正文各自条目内保留）：8/13 依赖链裁剪、9/10 CI 与体积门禁、
+23 独立 `DSH_HOME`、N3 离线签名、N8/N9/N10/N12/N13/S2/S3/S4 等安全类改动、
+N17–N19 与 N22–N26 的其余部分。
+
+**验证边界**：以上均为本仓库内可复跑的用例与脚本；未涉及 ll-builder 与玲珑容器，
+没有真实构建或真实 X11 主机的端到端验证。
 
 ---
 
