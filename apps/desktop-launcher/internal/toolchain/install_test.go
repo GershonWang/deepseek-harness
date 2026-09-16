@@ -143,8 +143,26 @@ func TestInstallVersion_ShaMismatch(t *testing.T) {
 	if err := installVersion(dir, "go", tv, noopProgress, false); err == nil {
 		t.Fatal("expected sha256 mismatch error")
 	}
-	if _, statErr := os.Stat(dir); statErr == nil {
-		t.Fatal("failed install must leave no install dir")
+	// 契约是失败的安装不留下任何「已安装」痕迹。下载脚手架 <tools>/.downloads
+	// 允许存在（part 就落在那里，校验失败时已被删除），但除此以外不许有残留：
+	// 根目录里出现 <id>-<version> 或 current 才是真正的脏安装。
+	if IsInstalled(dir, "go", tv.Version) {
+		t.Fatal("failed install must not be listed as installed")
+	}
+	if _, err := os.Readlink(currentLink(dir, "go")); err == nil {
+		t.Fatal("failed install must not activate a version")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return // 连根目录都没建，更干净
+		}
+		t.Fatalf("read install dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != ".downloads" {
+			t.Fatalf("failed install left install-dir residue: %s", e.Name())
+		}
 	}
 }
 
@@ -359,13 +377,91 @@ func TestVerifyFileSHA256(t *testing.T) {
 }
 
 func TestPartPathForURL(t *testing.T) {
-	p1 := partPathForURL("https://example.com/a.tar.gz")
-	p2 := partPathForURL("https://example.com/b.zip")
+	dir := t.TempDir()
+	p1 := partPathForURL(dir, "https://example.com/a.tar.gz")
+	p2 := partPathForURL(dir, "https://example.com/b.zip")
 	if p1 == p2 {
 		t.Fatal("different URLs should have different part paths")
 	}
 	if filepath.Ext(p1) != ".part" {
 		t.Fatalf("expected .part extension, got %s", filepath.Ext(p1))
+	}
+	// 必须落在安装根目录下的私有子目录，不能再用全局可写的 os.TempDir()：
+	// part 文件名可由公开索引推算，共享目录里的同名链接会被 O_TRUNC 跟随写入。
+	if got, want := filepath.Dir(p1), filepath.Join(dir, ".downloads"); got != want {
+		t.Fatalf("part dir = %s, want %s", got, want)
+	}
+	legacy := filepath.Join(os.TempDir(), "dsh-tools-downloads")
+	if strings.HasPrefix(p1, legacy+string(os.PathSeparator)) {
+		t.Fatalf("part path must not live in the shared temp dir: %s", p1)
+	}
+}
+
+// TestDownloadToFile_RejectsSymlinkPart 覆盖 N9：末段被换成符号链接、且服务端
+// 支持断点续传（206）时，下载必须失败，链接指向的目标文件内容不得被追加写入。
+// 服务端若不支持 Range，代码会先 os.Remove 掉链接本身再从零重建，走不到 O_NOFOLLOW。
+func TestDownloadToFile_RejectsSymlinkPart(t *testing.T) {
+	content := []byte("attacker controlled payload")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
+			var start int
+			fmt.Sscanf(rangeHdr, "bytes=%d-", &start)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(content)-1, len(content)))
+			w.WriteHeader(http.StatusPartialContent)
+			w.Write(content[start:])
+			return
+		}
+		w.Write(content)
+	}))
+	defer srv.Close()
+
+	// part 目录用 TempDir 而不是 downloadsDir()：后者指向真实的用户缓存，
+	// 测试不该往里写东西。
+	partDir := t.TempDir()
+	// 目标文件必须非空，否则不会发 Range 请求、也就落不到 append 分支。
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("victim original"), 0o600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+	part := filepath.Join(partDir, "planted.part")
+	if err := os.Symlink(victim, part); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := downloadToFile(srv.URL, part, nil); err == nil {
+		t.Fatal("download through a symlinked part file must fail")
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(got) != "victim original" {
+		t.Fatalf("symlink target was modified: %q", got)
+	}
+}
+
+// TestEnsurePrivateDir_RejectsSymlinkDir 覆盖 N9 的目录一侧：
+// .downloads 本身被换成指向别处的链接时必须失败，否则文件会落到链接目标目录。
+func TestEnsurePrivateDir_RejectsSymlinkDir(t *testing.T) {
+	parent := t.TempDir()
+	link := filepath.Join(parent, "downloads")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := ensurePrivateDir(link); err == nil {
+		t.Fatal("symlinked downloads dir must be rejected")
+	}
+	// 正常路径仍应可创建（0700）
+	ok := filepath.Join(parent, "real")
+	if err := ensurePrivateDir(ok); err != nil {
+		t.Fatalf("plain dir should be accepted: %v", err)
+	}
+	info, err := os.Stat(ok)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("downloads dir perms = %o, want 700", perm)
 	}
 }
 

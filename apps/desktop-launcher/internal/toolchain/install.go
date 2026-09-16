@@ -217,7 +217,7 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	}
 
 	// 2) 无缓存 → 断点续传下载到 part 文件
-	partPath := partPathForURL(tv.URL)
+	partPath := partPathForURL(dir, tv.URL)
 	// 若旧 part 文件校验已正确，直接复用（避免重新下载）
 	if info, statErr := os.Stat(partPath); statErr == nil && info.Size() > 0 {
 		if valid, _ := verifyFileSHA256(partPath, tv.SHA256); valid {
@@ -394,7 +394,7 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 		_ = os.Remove(destPath)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+	if err := ensurePrivateDir(filepath.Dir(destPath)); err != nil {
 		return err
 	}
 	flag := os.O_CREATE | os.O_WRONLY
@@ -403,7 +403,9 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 	} else {
 		flag |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(destPath, flag, 0o644)
+	// O_NOFOLLOW 在 partfile_unix.go 里加上：末段是符号链接时直接失败，
+	// 而不是把下载内容写进链接指向的任意文件。
+	f, err := openPartFile(destPath, flag)
 	if err != nil {
 		return err
 	}
@@ -438,12 +440,39 @@ func verifyFileSHA256(path, expected string) (bool, error) {
 	return hex.EncodeToString(h.Sum(nil)) == strings.ToLower(expected), nil
 }
 
-// partPathForURL 返回 URL 对应的断点续传临时文件路径，
-// 存放在系统临时目录下的 dsh-tools-downloads 子目录。
-func partPathForURL(url string) string {
+// downloadsDir 返回断点续传文件（.part）的存放目录：<tools>/.downloads。
+//
+// 不用 os.TempDir()：/tmp 全局可写，part 名可由公开索引里的 URL 推算，同机其他
+// 用户可以预置同名符号链接，让 launcher 以自身权限写坏或删掉任意可写文件；而且
+// 不少系统把 /tmp 挂成 tmpfs，几百 MB 到几 GB 的工具归档会把内存写爆。放在安装
+// 根目录下还有两个好处：与 cache 同文件系统，校验通过后 rename 即可入缓存；
+// 目录由本用户持有（0700），攻击面收敛到本用户。
+func downloadsDir(dir string) string {
+	return filepath.Join(dir, ".downloads")
+}
+
+// partPathForURL 返回 URL 对应的断点续传文件路径。
+func partPathForURL(dir, url string) string {
 	sum := sha256.Sum256([]byte(url))
 	name := hex.EncodeToString(sum[:])[:16] + ".part"
-	return filepath.Join(os.TempDir(), "dsh-tools-downloads", name)
+	return filepath.Join(downloadsDir(dir), name)
+}
+
+// ensurePrivateDir 创建目录并确认它确实是目录本身（而非指向别处的符号链接），
+// 保证后续 openPartFile 打开的文件落在本用户拥有的路径下。
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		// Lstat 不跟随符号链接：能走到这里说明该路径被换成了别的目标。
+		return fmt.Errorf("%s is not a real directory", dir)
+	}
+	return nil
 }
 
 // copyFile 复制文件，跨分区 rename 失败时使用。
