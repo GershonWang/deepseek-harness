@@ -523,11 +523,13 @@
 
 ## N27 包版本只存在于工作区，未进任何提交
 
-- **状态**：未修｜✅ 本次产物复核实测（2026-09-16，`0.1.3.2`）
+- **状态**：已修（2026-09-16）｜✅ 本次产物复核实测（`0.1.3.2`）
 - **位置**：`apps/desktop-launcher/linglong/linglong.yaml:5`，对照产物 `com.deepseek.dsh-desktop_0.1.3.2_x86_64_main.uab`
 - **问题**：HEAD 里该文件的 `package.version` 是 `0.1.2.7`，工作区被改成 `0.1.3.2` 且未提交；同日 09:14 导出的 `0.1.3.1` 同样出自未提交的版本改动。构建用的项目文件就是这一个（ll-builder 日志首行 `Using project file …/apps/desktop-launcher/linglong/linglong.yaml`），仓库根的 `linglong/` 只是被 `.gitignore:41` 忽略的工作区。
 - **影响**：已导出的 `.uab` 无法从任何提交复现，产物与源码的对应只存在于本地工作区快照；按版本号分发或排障时，git 里查不到 `0.1.3.1`／`0.1.3.2` 这两个版本所指的代码状态。
-- **建议**：版本号是发布事实，宜随对应代码一起提交；若以 tag 发布，tag 指向的提交必须含该版本号。本轮按要求未改动该文件。
+- **修复**：`package.version` 由 `0.1.2.7` 改为 `0.1.3.2` 并提交，改动仅此一行（`git diff --numstat` 为 `1 1`）。提交时 HEAD 上晚于构建开始（12:57）的提交都是文档类（本文、配对记录、Agent Note），不进入包内闭包，因此 HEAD 与那份已导出的 `0.1.3.2` 产物对应。仓库内除本文的历史记载外没有别处把 `0.1.2.7` 当作当前值。
+- **残留**：同日 09:14 导出的 `0.1.3.1` 仍无法从任何提交复现——它的版本号从未进过提交，只能从 `com.deepseek.dsh-desktop_0.1.3.1_x86_64_main.uab` 这个产物文件本身查到。
+- **验证**：提交后 `git show HEAD:apps/desktop-launcher/linglong/linglong.yaml` 的 `package.version` 为 `0.1.3.2`；该文件在工作区不再有未提交改动。
 
 ## N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转
 
