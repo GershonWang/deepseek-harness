@@ -377,10 +377,7 @@ func (s *Supervisor) run() {
 		}
 
 		attempt++
-		delay := s.options.RestartDelayMs * (1 << (attempt - 1))
-		if delay > s.options.MaxRestartDelayMs {
-			delay = s.options.MaxRestartDelayMs
-		}
+		delay := backoffDelay(s.options.RestartDelayMs, s.options.MaxRestartDelayMs, attempt)
 		s.logf("[supervisor] restarting harness in %dms (attempt %d)", delay, attempt)
 		select {
 		case <-time.After(time.Duration(delay) * time.Millisecond):
@@ -496,6 +493,40 @@ drained:
 		s.mu.Unlock()
 		close(exited)
 	}()
+}
+
+// backoffDelay 返回第 attempt 次重启前应等待的毫秒数：base 起按 2 的幂增长，
+// 到达 max 后不再增长。
+//
+// 指数不能写成 base * (1 << (attempt-1))：attempt 只在收到 startCh 时归零，
+// "启动成功后崩溃"的循环会让它一直累加，移位在 int 上溢出为负数，而调用方的
+// `delay > max` 判断对负值不成立，time.After(负值) 立即触发——连续约 56 次
+// 就会把监护循环变成无退避的 spawn 风暴，日志疯涨、CPU 与内存被打满。
+// 这里先判断再加倍，循环轮数只到"增长到 max"为止，因此与 attempt 的大小无关。
+func backoffDelay(base, max, attempt int) int {
+	if attempt < 1 {
+		attempt = 1
+	}
+	delay := base
+	for i := 1; i < attempt; i++ {
+		if delay >= max {
+			break
+		}
+		if delay > max/2 {
+			delay = max
+			break
+		}
+		delay *= 2
+	}
+	if delay > max {
+		delay = max
+	}
+	// max <= 0 属非法配置：上面的循环会立即退出，delay 被 max 兜底成非正数，
+	// 而 time.After(非正) 会立即触发。退回 base，避免"负延迟"这种无退避行为。
+	if delay <= 0 {
+		delay = base
+	}
+	return delay
 }
 
 // openLogFile 打开（必要时创建）harness 日志文件；失败时返回 io.Discard，

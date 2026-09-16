@@ -205,3 +205,38 @@ func TestLineSink_SplitsAcrossWrites(t *testing.T) {
 		}
 	}
 }
+
+// TestBackoffDelay 固定重启退避的取值：指数增长到上限为止。
+// 曾经的写法 base * (1 << (attempt-1)) 在 attempt 累加到 56 次以上时溢出为负数，
+// 上限判断对负值不成立，time.After(负值) 立即触发，监护循环退化成无退避的
+// spawn 风暴。本用例覆盖增长、封顶、超过位移宽度的 attempt 以及非法配置。
+func TestBackoffDelay(t *testing.T) {
+	cases := []struct {
+		name    string
+		base    int
+		max     int
+		attempt int
+		want    int
+	}{
+		{"首次重启用基础延迟", 500, 10000, 1, 500},
+		{"第二次翻倍", 500, 10000, 2, 1000},
+		{"未到上限继续翻倍", 500, 10000, 5, 8000},
+		{"越过上限即封顶", 500, 10000, 6, 10000},
+		{"远超位移宽度仍封顶", 500, 10000, 200, 10000},
+		{"attempt 极大也不为负", 500, 10000, 1 << 20, 10000},
+		{"上限低于基础延迟时取上限", 500, 100, 1, 100},
+		{"base 等于上限", 500, 500, 3, 500},
+		{"未配置延迟时保持 0", 0, 10000, 3, 0},
+		{"attempt 为 0 按首次处理", 500, 10000, 0, 500},
+		{"非法上限退回基础延迟", 500, 0, 4, 500},
+		{"接近 int 上限也不溢出", 1 << 40, 1<<62 + 1, 40, 1<<62 + 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := backoffDelay(c.base, c.max, c.attempt); got != c.want {
+				t.Fatalf("backoffDelay(%d, %d, %d) = %d, want %d",
+					c.base, c.max, c.attempt, got, c.want)
+			}
+		})
+	}
+}
