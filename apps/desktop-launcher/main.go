@@ -26,7 +26,11 @@ func main() {
 	home, _ := os.UserHomeDir()
 	// 启动自愈：重建 ~/.dsh-tools/bin 软链，保证已装工具链在重装/更新/HOME 迁移后
 	// 仍自动可用；随后 ConfigureChildEnv 把该目录注入子进程 PATH。
-	_ = toolchain.ReconcileBinLinks(toolchain.InstallDir(home))
+	// 索引里越界的 bin_names/bin_dirs 与越界的 current 目标会被跳过，这里留痕，
+	// 不静默吞掉（自愈本身失败不该拦住启动）。
+	if err := toolchain.ReconcileBinLinks(toolchain.InstallDir(home)); err != nil {
+		log.Printf("工具链软链自愈有被拒绝的条目: %v", err)
+	}
 	appenv.ConfigureChildEnv(home)
 	packaging.ConfigureWebKitHelperPath()
 	// 须在 wails.Run 之前：webkit2gtk 只在 GTK/WebKit 初始化时读取渲染后端的开关。
