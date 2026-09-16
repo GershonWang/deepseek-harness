@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -646,4 +647,81 @@ func makeTestPNG(w, h int) []byte {
 	chunk("IDAT", comp.Bytes())
 	chunk("IEND", nil)
 	return out.Bytes()
+}
+
+// serveRawSetup 在一条 pipe 连接上应答 setup 请求，回复体由调用方给定。
+// 用于构造真实 X 服务端不会发出、但本机抢占 socket 的进程可以发出的畸形回复（审计 S3）。
+func serveRawSetup(srvConn net.Conn, body []byte) {
+	defer srvConn.Close()
+	req := make([]byte, 12)
+	if _, err := io.ReadFull(srvConn, req); err != nil {
+		return
+	}
+	hdr := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(body)/4))
+	_, _ = srvConn.Write(append(hdr, body...))
+}
+
+// TestSetupRejectsMalformedReplyBody 覆盖 S3：setup 成功回复里 vendor 名长度与
+// format 数量都由对端给出，越界的偏移不得让 body[off:off+4] 越界 panic。
+func TestSetupRejectsMalformedReplyBody(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	body := make([]byte, 40) // 固定部分 32 字节 + 少量余量
+	binary.LittleEndian.PutUint16(body[16:18], 4000)
+	go serveRawSetup(srvConn, body)
+
+	x := &xconn{c: cliConn}
+	_ = cliConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err := x.setup()
+	if err == nil {
+		t.Fatal("越界的 vendor 长度必须报错而不是越界切片")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("应判为 setup 回复被截断, got %v", err)
+	}
+}
+
+// TestSetupRejectsShortReplyBody 覆盖 S3 的下界：回复体不足固定部分时，读取
+// vendor/format 字段本身就会越界。
+func TestSetupRejectsShortReplyBody(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	go serveRawSetup(srvConn, make([]byte, 16))
+
+	x := &xconn{c: cliConn}
+	_ = cliConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err := x.setup()
+	if err == nil {
+		t.Fatal("过短的 setup 回复体必须报错")
+	}
+	if !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("应判为 setup 回复过短, got %v", err)
+	}
+}
+
+// TestReadReplyRejectsOversizeLength 覆盖 S3：回复头里的 length 是 CARD32，对端
+// 可声明约 17 GB；必须在上限处直接拒绝，而不是按声明长度分配。
+func TestReadReplyRejectsOversizeLength(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	go func() {
+		defer srvConn.Close()
+		hdr := make([]byte, 32)
+		hdr[0] = 1
+		binary.LittleEndian.PutUint32(hdr[4:8], 0xFFFFFFFF)
+		_, _ = srvConn.Write(hdr)
+	}()
+
+	x := &xconn{c: cliConn}
+	// 上限校验必须立刻生效：读超时设短一些，若实现改为按声明长度分配，这里只会
+	// 等到 i/o timeout，断言据此区分。
+	_ = cliConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err := x.readReply()
+	if err == nil {
+		t.Fatal("超大回复长度必须被拒绝")
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("应在长度上限处拒绝而不是等读超时, got %v", err)
+	}
 }

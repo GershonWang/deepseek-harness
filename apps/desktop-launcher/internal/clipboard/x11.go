@@ -34,6 +34,14 @@ import (
 const (
 	maxImageBytes = 20 << 20 // 20 MiB
 	readTimeout   = 6 * time.Second
+
+	// setupFixedLen 是 setup 成功回复固定部分的字节数（8 字节回复头 + 24 字节
+	// 字段）；vendor 名与 format 列表紧随其后，长度都由对端给出。
+	setupFixedLen = 32
+	// maxReplyBytes 限制单次回复的附加数据。线上长度是 CARD32，对端可声明约
+	// 17 GB，按它分配会让一次应答就把进程打死；上限给 maxImageBytes 留三倍余量，
+	// 够装整屏位图，又不至于被恶意长度撑着。
+	maxReplyBytes = 3 * maxImageBytes
 )
 
 // maxINCRChunks 限制一次 INCR 传输的分块轮数。每轮重新计时 readTimeout，
@@ -450,9 +458,20 @@ func (x *xconn) setup() error {
 			}
 			// Field offsets are LSBFirst like the reply header; root window is
 			// the first field of screen 0.
+			//
+			// 固定部分是 32 字节，vendor 名与 format 列表的长度都由对端给出：
+			// 必须先按最小长度与算出的偏移校验，否则 body[off:off+4] 会因越界
+			// 直接 panic（审计 S3）。这里的 length 来自 uint16，分配本身有界。
+			if len(body) < setupFixedLen {
+				return fmt.Errorf("clipboard: X setup reply too short: %d bytes", len(body))
+			}
 			vendorLen := int(binary.LittleEndian.Uint16(body[16:18]))
 			nFormats := int(body[21])
-			off := 32 + ((vendorLen+3)/4)*4 + nFormats*8
+			off := setupFixedLen + ((vendorLen+3)/4)*4 + nFormats*8
+			if off+4 > len(body) {
+				return fmt.Errorf("clipboard: X setup reply truncated: vendor=%d formats=%d bytes=%d",
+					vendorLen, nFormats, len(body))
+			}
 			x.root = binary.LittleEndian.Uint32(body[off : off+4])
 			x.resourceBase = binary.LittleEndian.Uint32(body[4:8])
 			return nil
@@ -521,6 +540,12 @@ func (x *xconn) readReply() ([]byte, []byte, error) {
 		length := int(binary.LittleEndian.Uint32(hdr[4:8]))
 		if length == 0 {
 			return hdr, nil, nil
+		}
+		// 长度直接来自对端：CARD32 可声明约 17 GB，按它 make 会让一次应答打死
+		// 进程；先与上限比较再乘 4，顺带避开 32 位平台上 length*4 溢出成负数
+		// 导致的 makeslice panic（审计 S3）。
+		if length > maxReplyBytes/4 {
+			return nil, nil, fmt.Errorf("clipboard: X reply too large: %d words", length)
 		}
 		extra := make([]byte, length*4)
 		if _, err := readFull(x.c, extra); err != nil {
