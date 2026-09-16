@@ -230,24 +230,29 @@
 
 ## N8 下载与解压无体积上限
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/toolchain/install.go:411`、`:595-599`、`:701-703`
 - **问题**：下载用 `io.Copy(f, reader)` 无 `LimitReader`（只有 10 分钟整体超时）；tar/zip 解压同样无单文件/总量上限。唯一的体积上限是 `remote.go:112` 给**索引**的 4 MiB。
 - **影响**：恶意或被篡改的镜像可写满 `~/.dsh-tools` 所在分区（ENOSPC），或触发解压炸弹。
+- **修复**：三处上限都放在 `install.go` 顶部，声明为变量只为让测试把阈值压到几十字节走真实归档路径：单归档 `maxArchiveBytes` = 4 GiB（实测最大归档 flutter 3.47.2 约 1.5 GiB）、解压总量 `maxExtractBytes` = 16 GiB（该归档解压后约 4.6 GiB）、条目数 `maxArchiveEntries` = 100 万。下载侧 `io.Copy` 换成 `copyCapped`（`io.LimitReader(limit+1)` 以区分"恰好等于上限"与超限），声明长度超限时在发请求前就失败；解压侧新增 `extractBudget`，字节与条目两个预算同时扣减。超限的 part 会被删掉——同一 URL 只会再次超限，留着会让该工具每次都停在同一步。
 
 ## N9 断点续传 part 路径可预测且跟随符号链接
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/toolchain/install.go:431-435`、`:385`、`:394`
 - **问题**：part 路径 = `os.TempDir()/dsh-tools-downloads/<sha256(url)[:16]>.part`，内容可由公开索引推算；目录用 `MkdirAll(..., 0o755)`、文件用 `os.OpenFile(destPath, flag, 0o644)`，**无 `O_NOFOLLOW`/`O_EXCL`**。
 - **影响**：多用户主机上可让 launcher 以自身权限覆盖任意可写文件；校验失败后的 `os.Remove(partPath)` 会再删一次目标。与第 22 条（`/tmp/dsh-webkit-4.1` 用 `/tmp`）不同：这条是**跟随符号链接写入/删除**。
+- **修复**：part 路径改到 `<安装目录>/.downloads/<sha16>.part`——与原路径同文件系统（不跨设备），且落在用户自己的安装目录内，不再出现在 `/tmp` 供其他用户预置文件；目录创建走 `ensurePrivateDir`（`0o700` + `Lstat` 拒绝符号链接与非目录），文件打开走 `openPartFile`（Unix 分支带 `O_NOFOLLOW`，Windows 分支另表）。
+- **边界更正**：`os.Remove(partPath)` 在末段是符号链接时删的是链接本身、不是目标，因此原条目"校验失败会再删一次目标"只成立于**目录**被换成符号链接的情况——该情况现由 `ensurePrivateDir` 拦下。
 
 ## N10 索引下发的 `BinNames`/`BinDirs` 未校验即 Remove/Symlink
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/toolchain/catalog.go:387-388`、`:320-335`
 - **问题**：`_ = os.Remove(filepath.Join(linkDir, name))` 紧接着 `os.Symlink(..., filepath.Join(linkDir, name))`，`name` 来自远程索引的 `bin_names` 取值，**无任何字符或路径校验**；`BinDirs` 相对路径同样直接 join。`ReconcileBinLinks` 也不校验软链目标是否仍在安装目录内。
 - **影响**：`bin_names: {"x": "../../.bashrc"}` 之类会先删除 `~/.bashrc` 再建软链；`bin_dirs` 可把任意目录的可执行文件软链进 `~/.dsh-tools/bin`，从而进入 harness 的 `PATH`。
+- **修复**：`linkNameOK` 拒绝空名、`.`、`..` 以及含 `/`、`\` 的名字，`binDirOK` 用 `filepath.IsLocal` 校验每条 `bin_dirs`，`ReconcileBinLinks` 用 `filepath.IsLocal` 校验 `current` 相对安装根（先 `filepath.Rel`）；`linkExecutables` 改为返回 error 并跳过非法条目，不再静默照做。
+- **行为变化**：软链自愈现在可能返回错误，经 `SetActiveVersion`/`Uninstall` 暴露到界面——被手改或投毒的索引会让"激活"报失败而不是部分生效。`main.go` 启动时的自愈调用由丢弃错误改为记录该错误。
 
 ## N11 doctor 检查行的 `Category`/`Severity` 是全行唯一漏转义字段
 
@@ -260,17 +265,21 @@
 
 ## N12 修复→自动启动窗口吞掉失败周期重置
 
-- **状态**：未修｜⚠️ 静态审查（子代理在一次性副本上复现，审计者未独立复跑）
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`frontend/app.js:500-503`、`:505-513`、`:1525`、`:1548-1551`、`:1569`
 - **问题**：`runRepair` 在 `repairing=true` 期间调 `applyStatus`，而 `updateStartupDoctor` 第一句就是 `if (diagnosisState.repairing) return;`，于是这次快照既不弹窗，也不走退出失败态的重置。
 - **影响**：第二个失败周期只显示「正在自动诊断问题…」而永远不弹诊断窗、不再跑 `RunDoctor`；用户手动点诊断会渲染上一轮的**全绿**报告——应用仍在失败却显示「✓ 3 通过，✗ 0 失败」。
+- **修复**：把"非失败态就复位标记、清空诊断缓存"的分支提到 `repairing` 守卫之前——复位是状态迁移的事实记录，不能被"修复中不重复自动弹窗"的抑制逻辑跳过；守卫只保留它原本的职责（失败态下不因 supervisor 状态抖动再触发一轮自动弹窗）。
 
 ## N13 并发安装同一工具无锁
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16，仅进程内）｜✅ 实测复核
 - **位置**：`internal/toolchain/install.go:208-250`、`:272-303`
 - **问题**：安装状态无进程内或跨进程锁。两个并发 `InstallTool` 对同一 URL 会同时写同一个 part 文件，一方失败会删掉另一方正在用的数据；解压阶段两者都 `os.RemoveAll(root)` 再 `os.Rename`。
 - **影响**：「全部更新」进行中再点同一卡片，或同时开两个 launcher 实例，会得到随机失败与「已下载但未激活」的中间状态。
+- **修复**：`installVersion` 的下载→解包→激活整段在 `(安装目标目录, 工具 ID)` 粒度的进程内互斥下进行，取到锁后复查 `IsInstalled`——等锁期间已由并发安装装好的版本只补做激活，不再重下一遍。键含工具 ID 而不含版本，因为同一工具的不同版本共用同一份 part 路径、解包暂存目录与 bin 软链。锁条目创建后不回收，键空间由"一个安装目录 × 清单工具数"封顶，实现里因此没有"删除后重建"的窗口。顺带把「目标版本已安装」的收尾抽成 `finishInstalled`，供 `InstallTool` 前置判断与本次复查共用（N7 修的就是这类早退漏激活）。
+- **残留**：跨进程（同时开两个 launcher 实例）仍会并发写同一目录，覆盖它需要文件锁（陈旧锁回收、NFS 语义），未做。
+- **相邻问题（未修，本轮排查时发现）**：`pruneCache` 在后台 goroutine 里按 500 MB 上限清理缓存，与另一个工具的并发安装之间没有协调；最坏情况是刚移入缓存的归档被删掉、下次安装重新下载（缓存命中路径本身会校验 sha256，不会用到损坏内容）。本条锁不覆盖跨工具场景。
 
 ## N14 `schemastery` 闭包注入是假阳性，且 `cp -a` 语义导致嵌套
 
@@ -296,24 +305,28 @@
 
 ## S2 Terminal 反向加锁顺序
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/terminal/session.go:179-197`、`internal/terminal/manager.go:168-177`
 - **问题**：`waitLoop` 持 `s.mu` 时回调 `onStatus`（→ `m.mu.RLock`）；`Manager.List` 持 `m.mu.RLock` 时调 `s.Info`（→ `s.mu.Lock`）。Go `RWMutex` 在有 writer 等待时会阻塞新 reader，三者互等即死锁。
 - **影响**：`TerminalList` 目前前端未调用，属潜在死锁。
+- **修复**：`waitLoop` 在锁内取出 `onStatus` 后先解锁再调用（与同文件 `onOutput` 的既有写法一致），`Manager.List` 先在 `m.mu` 下取出会话切片、再在锁外逐个取 `Info`（与同文件 `CloseAll` 一致）。两条不变式各有一条 `TryLock` 判定用例，并在两侧各做一次变异验证。沙箱无 C 编译器，`-race` 不可用，本轮未跑竞态检测。
 
 ## S3 X11 服务端返回数据未校验
 
-- **状态**：未修｜✅ 已复核
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/clipboard/x11.go:414-418`、`:482-489`
 - **问题**：setup 成功回复中 `vendorLen`/`nFormats` 完全来自对端，`off := 32 + pad4(vendorLen) + nFormats*8` 未与 `len(body)` 校验，`body[off:off+4]` 越界即 panic；`readReply` 把 32 位线上长度直接当分配量（`make([]byte, length*4)`，最大约 17 GB），一次回复即可触发 OOM。
 - **触发面**：`connectSocket` 的回退顺序含 TCP `127.0.0.1:6000`，且抽象 socket `/tmp/.X11-unix/X0` 在本机 X 不在 `:0`（Wayland 会话、X 在 `:1`、容器路径不同的宿主）时无人绑定，任意本地进程可抢占应答。
+- **修复**：setup 回复先校验 `len(body) >= 32` 再读 `vendorLen`/`nFormats`，`off+4 > len(body)` 判为截断并点明各字段；`readReply` 的 32 位线上长度超过 `maxReplyBytes/4`（总量 60 MiB，取 `maxImageBytes` 的 3 倍）即报错。复原改动后实测得到修复前的真实 panic：`slice bounds out of range [:4036] with capacity 40` 与 `[:18] with capacity 16`。
 
 ## S4 `harness.log` 无轮转、行缓冲无上限
 
-- **状态**：未修｜⚠️ 静态审查
+- **状态**：已修（2026-09-16）｜✅ 实测复核
 - **位置**：`internal/supervisor/supervisor.go:489-496`、`:518-536`、`:554-568`、`:593-608`
 - **问题**：日志以 `O_APPEND` 永久追加、跨重启不轮转不裁剪；`readyScanner`/`failScanner`/`timedWriter` 的行缓冲 `append` 无上限，只在遇到 `\n` 时消费。
 - **影响**：长期运行下磁盘与内存缓慢耗尽。
+- **修复**：新增 `logSink` 取代 `openLogFile`，stdout/stderr 共用同一落盘端，累计写入到达 `maxLogBytes`（5 MiB）即轮转为 `harness.log.1` 再续写，磁盘占用上界约为两倍阈值；行缓冲按用途分别设限（`maxLogLineBytes` = 64 KiB）：扫描器侧超长行整行丢弃（半行喂给特征匹配可能误报就绪或加载失败），日志侧必须带 `[truncated]` 标记落盘后继续缓冲同一行剩余部分（那里的缓冲就是日志内容本身，丢弃等于静默缺内容）。
+- **行为变化**：`harness.log` 会轮转，只保留一份历史（`harness.log.1`）。
 
 ## S5 `ConfigureChildEnv` 非幂等
 
@@ -531,10 +544,37 @@
 
 **本批次未做**（已在正文各自条目内保留）：8/13 依赖链裁剪、9/10 CI 与体积门禁、
 23 独立 `DSH_HOME`、N3 离线签名、N8/N9/N10/N12/N13/S2/S3/S4 等安全类改动、
-N17–N19 与 N22–N26 的其余部分。
+N17–N19 与 N22–N26 的其余部分。（其中 N8/N9/N10/N12/N13/S2/S3/S4 已由**附录 E** 的
+D 批完成，本节其余"未做"项仍然未做。）
 
 **验证边界**：以上均为本仓库内可复跑的用例与脚本；未涉及 ll-builder 与玲珑容器，
 没有真实构建或真实 X11 主机的端到端验证。
+
+---
+
+# 附录 E：2026-09-16 D 批（安全类）修复
+
+本节是「快修」之后按序实施的 D 批：正文对应条目的状态行已同步。行号基准同附录 D
+（本批次开始前的 `linglong-dev` HEAD `8cd0e4a5c2`），代码改动后可能漂移。
+
+| 条目 | 提交 | 改动 | 验证 |
+|---|---|---|---|
+| N9 part 路径可预测且跟随符号链接 | `2b77f5dd0b` | part 落到 `<安装目录>/.downloads`；`ensurePrivateDir`（`0o700` + `Lstat` 拒绝符号链接与非目录）、`openPartFile`（`O_NOFOLLOW`） | 4 组变异（去掉 `O_NOFOLLOW`、去掉符号链接检查、去掉 `IsLocal` 校验、把 part 放回 `/tmp`）后对应用例失败；`sha256` 不符的用例改为断言"磁盘上不留已安装痕迹" |
+| N10 `BinNames`/`BinDirs` 未校验 | `3befc1e27a` | `linkNameOK`/`binDirOK`/`filepath.IsLocal` 三重校验；`linkExecutables` 返回错误并跳过非法条目 | 3 组变异（放开名字、放开 `bin_dirs`、放开 `current` 越界）后失败；另有"内置索引必须全量通过校验"的守卫用例 |
+| S3 X11 回复未校验 | `f093943a7a` | setup 回复的长度与截断校验；`readReply` 长度上限 60 MiB | 3 组变异分别复现修复前的真实 panic（`[:4036] with capacity 40`、`[:18] with capacity 16`） |
+| N8 下载与解压无体积上限 | `51052f011b` | `copyCapped` + `extractBudget`；归档 4 GiB / 解压 16 GiB / 100 万条目 | 7 组变异后失败，含"服务端用 chunked 绕过 `Content-Length`"那条（首版用例因 Go 自动补 `Content-Length` 而漏判，已改为显式 flush + 断言 part 大小） |
+| S4 日志无轮转、行缓冲无上限 | `c7d6f76936` | `logSink` 按 5 MiB 轮转；两处行缓冲上限 64 KiB（扫描器侧丢弃、日志侧带标记落盘） | 5 组变异（两处行上限、运行中轮转、已有尺寸起算、日志不可用降级）后失败 |
+| S2 Terminal 反向加锁顺序 | `5f324aaffb` | `onStatus` 在锁外调用；`List` 先取快照再取 `Info` | 两条 `TryLock` 不变式用例，两侧各变异一次后失败；`-race` 需 cgo，沙箱无 C 编译器，未跑竞态检测 |
+| N12 修复窗口吞掉周期复位 | `c91341c0e0` | 非失败态的复位分支提到 `repairing` 守卫之前 | 新增前端用例复现该时序；把旧守卫放回函数开头后失败 |
+| N13 并发安装同一工具无锁 | `16e368f872` | `(安装目录, 工具 ID)` 粒度进程内锁 + 取锁后复查 `IsInstalled`；抽出 `finishInstalled` | 5 组变异（去掉串行化、去掉复查、锁不分键、键不含目录、取了锁不加锁）后失败；去掉串行化时实测复现"文件解压失败，归档可能已损坏" |
+
+**验证边界**：以上均为本仓库内可复跑的用例（10 个 Go 包全绿、前端 52 项全绿、两个打包
+脚本自测通过）。未涉及 ll-builder 与玲珑容器、真实 X11 主机、真实 Wails GUI 与多 GB
+真实下载：X11 用例回放的是合成回复，安装用例走本地 `httptest` 归档，前端用例在桩 DOM
+上驱动。`-race` 需要 cgo，沙箱无 C 编译器，因此 S2 只有锁状态断言、没有竞态检测。
+
+**本批次未做**：N3 离线签名、N14/N16 的多版本覆盖面、N17–N26 的其余条目、8/13 依赖链
+裁剪、9/10 CI 与体积门禁、S6 项目配置 tool ID 校验、N13 的跨进程文件锁。
 
 ---
 
