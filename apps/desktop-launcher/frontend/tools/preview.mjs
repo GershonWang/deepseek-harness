@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync, readdirSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -493,13 +493,16 @@ function parseArgs(argv) {
 }
 
 /**
- * 产物目录：默认在 frontend/.preview（已在 .gitignore 内）。
+ * 产物目录：默认在启动器 module 目录下的 `.preview`（已在 .gitignore 内），
+ * 与 SCRATCH_ROOT 一样必须落在 `frontend/` 之外——`//go:embed all:frontend` 不看
+ * .gitignore，预览页与截图写在 frontend/ 里会被原样嵌进启动器二进制（`verify`
+ * 是 pre-push 钩子，每次推送都会写一份 preview.html 进去）。
  * 只决定截图与预览页的位置；浏览器状态固定走 SCRATCH_ROOT，不随 --out 移动。
  * @param {Record<string, string|boolean>} args - 命令行参数。
  * @returns {string} 产物目录绝对路径。
  */
 function resolveOut(args) {
-  return resolve(args.out && args.out !== true ? args.out : join(FRONTEND, '.preview'))
+  return resolve(args.out && args.out !== true ? args.out : join(FRONTEND, '..', '.preview'))
 }
 
 /**
@@ -522,6 +525,13 @@ async function createScratch() {
  */
 async function run(command, args) {
   const out = resolveOut(args)
+  // 产物目录不能落在 embed 根里：写进去的预览页与截图会被 `//go:embed all:frontend`
+  // 静默嵌进启动器二进制（.gitignore 对 go:embed 无效），而这件事在构建期没有任何
+  // 提示。这里直接失败，把"默认值被改回 frontend/ 内"或"--out 指到 frontend/ 里"
+  // 变成一个当场可见的错误。
+  if (out === FRONTEND || out.startsWith(FRONTEND + sep)) {
+    throw new Error(`产物目录不能位于 frontend/ 内（会被 //go:embed all:frontend 嵌入启动器二进制）：${out}`)
+  }
   await mkdir(out, { recursive: true })
   const pageUrl = await buildPreview(out)
   const themes = args.theme === 'light' || args.theme === 'dark' ? [args.theme] : ['light', 'dark']
