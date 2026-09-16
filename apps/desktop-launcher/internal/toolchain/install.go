@@ -28,6 +28,45 @@ const downloadTimeout = 10 * time.Minute
 // 每次失败后退避重试；服务端不支持 Range 时回退为完整下载再失败。
 const maxResumeRetries = 3
 
+// 归档与解压的资源上限。工具清单可被远程索引整体覆盖、归档又来自第三方镜像，
+// 两者都不是可信输入：没有上限时，一个被投毒或被替换的响应就能把用户磁盘写满，
+// 进而让 launcher 与 harness 的后续写入全部失败（审计 N8）。
+//
+// 取值按清单实测最大值留足余量：最大的归档是 flutter 3.47.2（约 1.5 GiB），
+// 解压后约 4.6 GiB。声明为变量而非常量，唯一目的是让测试把上限压到几十字节，
+// 从而用真实归档走通解压路径；生产代码只读不改。
+var (
+	// maxArchiveBytes 是单个归档（含续传后累计）的字节上限。
+	maxArchiveBytes int64 = 4 << 30
+	// maxExtractBytes 是一次解压写入磁盘的总字节上限：压缩比可上千倍，
+	// 归档大小约束不了解压后的总量。
+	maxExtractBytes int64 = 16 << 30
+	// maxArchiveEntries 是一次解压的条目数上限：4 GiB 归档按每头 512 字节算
+	// 最多能塞进约 840 万个空条目，足以耗尽小文件系统的 inode。
+	maxArchiveEntries = 1 << 20
+)
+
+// errArchiveTooLarge 表示响应体超过单归档上限。超限是确定性的：重试只会把同一个
+// 响应再下载一遍，已落地的 part 也没有续传价值（调用方据此清掉残片）。
+var errArchiveTooLarge = errors.New("archive exceeds size limit")
+
+// errExtractTooLarge 表示解压写入量或条目数超过上限（解压炸弹）。
+var errExtractTooLarge = errors.New("extracted data exceeds size limit")
+
+// copyCapped 把 src 复制到 dst，超过 limit 字节则以 over 报错。
+// 多读 1 字节是为了区分「恰好等于上限」与「超过上限」：只有后者报错。
+// 返回值 n 是实际写入量，调用方据此扣减各自的预算。
+func copyCapped(dst io.Writer, src io.Reader, limit int64, over error) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
+	if err != nil {
+		return n, err
+	}
+	if n > limit {
+		return n, over
+	}
+	return n, nil
+}
+
 // InstallProgress 安装进度回调。
 // phase: "downloading" | "verifying" | "extracting" | "linking" | "done" | "error"
 // percent: 0-100，仅 downloading 阶段有准确值，其他阶段为估算值
@@ -69,6 +108,14 @@ func classifyError(err error) string {
 		}
 		// DNS 失败、连接被拒等
 		return "网络连接失败，请检查网络后重试"
+	}
+
+	// 归档或解压超出资源上限：按上限中止，而不是把磁盘写满。
+	if errors.Is(err, errArchiveTooLarge) {
+		return "安装包体积超出上限，已中止安装"
+	}
+	if errors.Is(err, errExtractTooLarge) {
+		return "解压后的数据超出上限，已中止安装"
 	}
 
 	errMsg := err.Error()
@@ -234,6 +281,11 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	if err := downloadToFile(tv.URL, partPath, func(pct int) {
 		progress("downloading", pct, fmt.Sprintf("下载中 %d%%", pct))
 	}); err != nil {
+		// 超限的 part 永远续不下去（同一 URL 只会再次超限），留着会让该工具每次
+		// 安装都停在同一步；其余失败保留残片，下次可续传。
+		if errors.Is(err, errArchiveTooLarge) {
+			_ = os.Remove(partPath)
+		}
 		progress("error", 0, fmt.Sprintf("下载失败: %s", err))
 		return "", fmt.Errorf("download %s: %w", tv.URL, err)
 	}
@@ -338,6 +390,10 @@ func downloadToFileWithRetries(url, destPath string, onProgress func(int), attem
 	if err == nil {
 		return nil
 	}
+	// 超限是确定性的：重试只会把同一个响应再下载一遍并把上限再撞一次。
+	if errors.Is(err, errArchiveTooLarge) {
+		return err
+	}
 	if attempt >= maxResumeRetries-1 {
 		return err
 	}
@@ -411,6 +467,12 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 	}
 	defer f.Close()
 
+	// 声明的总长度不可信，只用于提前失败，省掉为明显超限的响应下载几 GB；
+	// resuming 时 total 是 Content-Range 里的整个文件长度。
+	if total > maxArchiveBytes {
+		return fmt.Errorf("%w: declared length %d", errArchiveTooLarge, total)
+	}
+
 	startBytes := existingSize
 	if !resuming {
 		startBytes = 0
@@ -422,7 +484,8 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 		OnUpdate: onProgress,
 	}
 
-	_, err = io.Copy(f, reader)
+	// 真正的判定按实际写入量做：Content-Length 可以缺失，也可以撒谎。
+	_, err = copyCapped(f, reader, maxArchiveBytes-startBytes, errArchiveTooLarge)
 	return err
 }
 
@@ -608,14 +671,47 @@ func extractTarXz(data []byte, dest string) error {
 	return extractTar(tar.NewReader(xr), dest)
 }
 
+// extractBudget 是一次解压的资源预算：累计写入字节数与条目数。归档内容来自远程，
+// 压缩比可上千倍、条目数可以极多，只有累计约束能挡住解压炸弹（审计 N8）。
+type extractBudget struct {
+	bytes   int64
+	entries int
+}
+
+// newExtractBudget 按包级上限建预算。
+func newExtractBudget() *extractBudget {
+	return &extractBudget{bytes: maxExtractBytes, entries: maxArchiveEntries}
+}
+
+// nextEntry 在解压每个条目（含目录与软链）前扣减条目预算：空条目不占字节预算，
+// 但一样会消耗 inode。
+func (b *extractBudget) nextEntry() error {
+	if b.entries <= 0 {
+		return errExtractTooLarge
+	}
+	b.entries--
+	return nil
+}
+
+// copyEntry 把单个条目的内容写进 w，并按实际写入量扣减字节预算。
+func (b *extractBudget) copyEntry(w io.Writer, r io.Reader) error {
+	n, err := copyCapped(w, r, b.bytes, errExtractTooLarge)
+	b.bytes -= n
+	return err
+}
+
 // extractTar 解压 tar 流到 dest，统一做路径逃逸与符号链接越界防护。
 func extractTar(tr *tar.Reader, dest string) error {
+	budget := newExtractBudget()
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := budget.nextEntry(); err != nil {
 			return err
 		}
 		// 防路径逃逸。
@@ -637,7 +733,7 @@ func extractTar(tr *tar.Reader, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			if err := budget.copyEntry(f, tr); err != nil {
 				f.Close()
 				return err
 			}
@@ -714,7 +810,11 @@ func extractZipFromFile(path, dest string) error {
 // extractZipEntries 是 zip 解压的共享实现：遍历 zip 文件条目并解压到 dest。
 // 供 extractZip（内存版）和 extractZipFromFile（文件流式版）共用。
 func extractZipEntries(files []*zip.File, dest string) error {
+	budget := newExtractBudget()
 	for _, f := range files {
+		if err := budget.nextEntry(); err != nil {
+			return err
+		}
 		// 防路径逃逸（zip 内条目名可能是绝对路径或 ..）。
 		clean := filepath.Clean(f.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
@@ -739,7 +839,7 @@ func extractZipEntries(files []*zip.File, dest string) error {
 			rc.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
+		copyErr := budget.copyEntry(out, rc)
 		rc.Close()
 		out.Close()
 		if copyErr != nil {

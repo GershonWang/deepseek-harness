@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -584,5 +585,200 @@ func TestExtractArchiveFromFile_PathEscape(t *testing.T) {
 	err := extractArchiveFromFile("zip", zipPath, dest)
 	if err == nil {
 		t.Fatal("应检测到路径逃逸并报错")
+	}
+}
+
+// withLimits 临时收紧包级资源上限。上限声明为包级变量就是为了让用例用几十字节的
+// 归档走通真实的下载与解压路径，而不是只测一个无法触发的分支。
+func withLimits(t *testing.T, archiveBytes, extractBytes int64, entries int) {
+	t.Helper()
+	oldArchive, oldExtract, oldEntries := maxArchiveBytes, maxExtractBytes, maxArchiveEntries
+	maxArchiveBytes, maxExtractBytes, maxArchiveEntries = archiveBytes, extractBytes, entries
+	t.Cleanup(func() {
+		maxArchiveBytes, maxExtractBytes, maxArchiveEntries = oldArchive, oldExtract, oldEntries
+	})
+}
+
+// TestCopyCapped 覆盖限量拷贝原语：恰好等于上限不算超限，多 1 字节即报错。
+func TestCopyCapped(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		limit   int64
+		wantErr bool
+	}{
+		{"小于上限", "abc", 4, false},
+		{"恰好等于上限", "abcd", 4, false},
+		{"超过上限 1 字节", "abcde", 4, true},
+		{"上限为 0 且无内容", "", 0, false},
+		{"上限为 0 且有内容", "a", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			n, err := copyCapped(&buf, strings.NewReader(tc.content), tc.limit, errArchiveTooLarge)
+			if tc.wantErr {
+				if !errors.Is(err, errArchiveTooLarge) {
+					t.Fatalf("want errArchiveTooLarge, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("意外错误: %v", err)
+			}
+			if n != int64(len(tc.content)) || buf.String() != tc.content {
+				t.Fatalf("写了 %d 字节 %q, want %q", n, buf.String(), tc.content)
+			}
+		})
+	}
+}
+
+// TestDownloadToFile_RejectsOversizeBody 覆盖 N8：服务端不声明长度时，只能按实际
+// 写入量判断，超限立即中止且不重试（重试只会再下载一遍并再撞上限）。
+func TestDownloadToFile_RejectsOversizeBody(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		// 先 Flush 且写出超过几 KiB 缓冲，让响应走分块传输、不带 Content-Length：
+		// Go 会给小于缓冲阈值的响应自动补 Content-Length，那样只覆盖到声明长度
+		// 预检，测不到「按实际写入量判定」这条路径。
+		w.(http.Flusher).Flush()
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 4096))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "a.part")
+	err := downloadToFile(srv.URL, dest, nil)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("超限是确定性失败，不应重试：请求 %d 次", requests)
+	}
+	// 上限+1 字节：既证明判定发生在拷贝路径上，也说明越限后立刻停写，
+	// 不会把整个响应落盘。
+	info, statErr := os.Stat(dest)
+	if statErr != nil {
+		t.Fatalf("stat part: %v", statErr)
+	}
+	if want := maxArchiveBytes + 1; info.Size() != want {
+		t.Fatalf("part 大小 = %d, want %d", info.Size(), want)
+	}
+}
+
+// TestDownloadToFile_RejectsDeclaredOversize 覆盖 N8 的快速失败路径：
+// 声明长度超限时不必真下载完就能失败。
+func TestDownloadToFile_RejectsDeclaredOversize(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "4096")
+		_, _ = w.Write([]byte("small"))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "a.part")
+	err := downloadToFile(srv.URL, dest, nil)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "declared length") {
+		t.Fatalf("应说明是声明长度超限: %v", err)
+	}
+}
+
+// TestDownloadAndExtract_RemovesOversizePart 覆盖 N8 的收尾：超限的 part 没有
+// 续传价值，必须清掉，否则该工具每次安装都会停在同一处。
+func TestDownloadAndExtract_RemovesOversizePart(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 同样走分块，确保 part 文件真的落过盘：否则「不存在」可能是因为压根没建，
+		// 断言就失去意义。
+		w.(http.Flusher).Flush()
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 4096))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	tv := ToolVersion{Version: "1.0.0", URL: srv.URL, SHA256: strings.Repeat("0", 64)}
+	_, err := downloadAndExtract(dir, "testsize", tv, noopProgress)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if _, statErr := os.Stat(partPathForURL(dir, srv.URL)); !os.IsNotExist(statErr) {
+		t.Fatalf("超限的 part 应被清掉: %v", statErr)
+	}
+}
+
+// tarWithFiles 构建含指定内容的 tar，用于解压预算用例。
+func tarWithFiles(t *testing.T, files map[string]int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for name, size := range files {
+		content := bytes.Repeat([]byte("y"), size)
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestExtractTar_RejectsOversizeContent 覆盖 N8：解压写入总量超限即中止，
+// 挡住压缩比极高的解压炸弹。
+func TestExtractTar_RejectsOversizeContent(t *testing.T) {
+	withLimits(t, maxArchiveBytes, 100, maxArchiveEntries)
+	data := tarWithFiles(t, map[string]int{"a.txt": 60, "b.txt": 60})
+	dest := t.TempDir()
+
+	err := extractTar(tar.NewReader(bytes.NewReader(data)), dest)
+	if !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestExtractTar_RejectsTooManyEntries 覆盖 N8 的条目数上限：空条目不占字节预算，
+// 但一样会消耗 inode。
+func TestExtractTar_RejectsTooManyEntries(t *testing.T) {
+	withLimits(t, maxArchiveBytes, maxExtractBytes, 2)
+	data := tarWithFiles(t, map[string]int{"a.txt": 0, "b.txt": 0, "c.txt": 0})
+	dest := t.TempDir()
+
+	err := extractTar(tar.NewReader(bytes.NewReader(data)), dest)
+	if !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestExtractZip_RejectsOversizeContent 覆盖 zip 一侧同样受预算约束。
+func TestExtractZip_RejectsOversizeContent(t *testing.T) {
+	withLimits(t, maxArchiveBytes, 100, maxArchiveEntries)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("a.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(bytes.Repeat([]byte("z"), 200)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := extractZipEntries(zr.File, t.TempDir()); !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
 	}
 }
