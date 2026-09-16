@@ -9,7 +9,7 @@
 - 分支 `linglong-dev`，基点提交 `dfd0e9d186`（与 `linglong` 的文件树完全相同，tree 均为 `eea557d697a7bce2b28f435e1ca070ef70ef73d7`）。
 - 玲珑包版本 `0.1.2.5`，产物 `com.deepseek.dsh-desktop_0.1.2.5_x86_64_main.uab` = **361 MB**（361,331,344 字节），解压后 **759 MB**。
 - 体积分布：`lib/` 320 MB（其中 `lib/x86_64-linux-gnu` **293 MB / 352 个 `.so`**）、`harness/` 254 MB、`node/` 147 MB、`bin/` 39 MB；生产闭包含 **264 个** `@deepseek-ai/*` 包。
-- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N29`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查，`N27`–`N29` 来自 2026-09-16 对 `0.1.3.2` 产物的复核）；审计者未编号的其余静态审查发现为 `S1`–`S7`。
+- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N29`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查，`N27`–`N29` 来自 2026-09-16 对 `0.1.3.2` 产物的复核）；审计轮次中另有三条前端与打包发现未占用 N 编号，记为 `N-extra`、`N-extra2`、`N-extra3`；审计者未编号的其余静态审查发现为 `S1`–`S7`。
 - 行号以审计基点为准，代码改动后可能漂移。
 - `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 - `N25` 的基点：提交 `9621d91bff`（JDK 17 下架前的清单状态）；行号以该提交为准。
@@ -22,6 +22,9 @@
 | ✅ 已复核 | 审计者逐行读取代码或实跑命令取得证据 |
 | ⚠️ 静态审查 | 经代码阅读得出，审计者未独立复跑 |
 | ❓ 待验证 | 结论依赖尚未执行的端到端运行 |
+| ⏳ 待生效 | 改动已在本地完成，但需一次真实构建或发版才到达用户、才算闭环 |
+
+`✅` 在条目内按取证方式细分为「已复核」「实测复核」「本次产物复核实测」，三者同级，只区分取证手段；`❓` 目前没有条目使用，保留以备将来。
 
 正文按严重级别分组，分组是本次审计的重新评估。首轮清单中定级为「中」但本次降入低危的条目（3、24、25）在该条目内注明了理由；定级未变的条目沿用原级别。
 
@@ -32,7 +35,7 @@
 ## N3 工具索引来自个人 fork 的可变分支，且无签名
 
 - **状态**：部分修复｜✅ 实测复核
-- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:44`（常量）、`apps/desktop-launcher/internal/toolchain/remote_test.go:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`）、`README.md:147`/`README.zh.md:147`
+- **位置**：`apps/desktop-launcher/internal/toolchain/remote.go:31`（常量，审计基点行号；修复后落在 `:44`）、`apps/desktop-launcher/internal/toolchain/remote_test.go:147-169`（回归守卫 `TestDefaultIndexURL_PinnedToCommit`，本次修复新增，基点处不存在）、`README.md:147`/`README.zh.md:147`
 - **问题**：索引地址是 `https://raw.githubusercontent.com/GershonWang/deepseek-harness/linglong/apps/desktop-launcher/internal/toolchain/tools/index.json`——**个人账号 fork 的 `linglong` 分支**，可变引用。索引同时提供下载 URL 与 `sha256`，因此「sha256 校验」与下载来源出自同一份未经认证的数据，只保证传输完整，**不提供来源认证**。`DSH_TOOLCHAIN_INDEX_URL` 还可直接覆盖该地址。
 - **影响**：控制该账号/分支、或能改写该 URL 的中间人，可让用户在「工具链市场」安装任意代码；解压产物经 `ReconcileBinLinks` 软链进 `~/.dsh-tools/bin`，而该目录被前置进 harness 子进程 `PATH`。`README.md:147` 把 "after sha256 verification" 当作安全属性，实际不成立。
 - **已修（本次，采纳审计建议的第二选项）**：默认地址固定到**不可变提交哈希**。首次钉的是 `47d123e212ced431eb582e83f7d58a081b39d43c`（发布 43 项清单的那个提交）；2026-09-14 随 JDK 多版本清单前移到 `ee9c181bf66f655d24810012c4c9f61e59c9940c`（该提交的 `index.json` blob `acf8d0ce…` 与工作区一致，动机与后续条目见 N20–N24）；同日 JDK 17 下架后二次前移到 `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`（该提交的 `index.json` blob `599f8341…` 与工作区一致，见 N25）。信任对象由此从「上游账号」收敛为「这份二进制」：控制分支不再能替换索引内容。配套：
@@ -470,8 +473,8 @@
 
 - **状态**：未修｜✅ 已复核（实跑）
 - **位置**：`lefthook.yml:52-67`、`vitest.config.ts:118-123`、`apps/desktop-launcher/frontend/test-app.cjs`、`apps/desktop-launcher/linglong/test-verify-tools.sh`
-- **实测结果**：`go test ./...` **11 个包全部通过**；`node --test frontend/test-app.cjs` **38 例全部通过**；`test-verify-tools.sh` 4 项全 PASS。但**三者都没有 CI 或 git hook 入口**：pre-push 只跑 `npm run typecheck` 与 `preview.mjs verify`。
-- **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则**剥掉全部 `<script>`**，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行。实测那 38 例在 N11 与上一条的缺陷全部存在时仍然 38/38 通过。
+- **实测结果**（2026-09-16 复跑，数字已随附录 D/E 批次更新）：`go test ./...` **10 个有测试的包全部通过**（另有 root 与 `internal/domain` 两个包无测试文件）；`node --test frontend/test-app.cjs` **52 例全部通过**；`test-verify-tools.sh` 4 项全 PASS。但**三者都没有 CI 或 git hook 入口**：pre-push 只跑 `npm run typecheck` 与 `preview.mjs verify`。
+- **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则**剥掉全部 `<script>`**，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行。实测那 52 例在 N11 与上一条的缺陷全部存在时仍然 52/52 通过。
 - **建议**：把 `node --test apps/desktop-launcher/frontend/test-app.cjs` 加进 pre-push，或给该目录加 `package.json` + test 脚本让它进入 workspace 统一跑。
 
 ## N-extra3 打包脚本中重复与漂移的事实
@@ -500,12 +503,12 @@
 ## N25 JDK 17 从清单下架，远端索引重钉仍未完成
 
 - **状态**：已执行（本地清单、文档与索引重钉）｜⏳ 待随发版到达用户｜✅ 已复核
-- **位置**：`internal/toolchain/tools/index.json`（`jdk21.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 已重钉到 `ff0b924d11`）、`frontend/tools/preview.mjs:202`（预览 mock）
+- **位置**：`internal/toolchain/tools/index.json`（`jdk21.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 已重钉到 `ff0b924d11`）、`frontend/tools/preview.mjs:264-269`（预览 mock；`ff0b924d11` 下架时该处在 `:202`，见下）
 - **说明**：多版本清单上线当天先收窄版本面——`jdk21` 只保留推荐版本 `21.0.12.1` 与 `8u504`，移除 `17.0.20.1`，`description` 同步改为「可选 8 / 21」。动机是把 N20/N21/N22 三条未修的多版本语义缺陷的暴露面从三版本压到两版本，并为随后修复「更新不切换」（N7）留出更小的改动面。**不是 17 自身有故障**：其下载地址在 2026-09-14 实测 `HTTP/2 302` 可达，清单里的 url/sha256/size 未被改动，本次只是不再提供。
 - **影响**：
   - 已装 `jdk21-17.0.20.1` 的机器不受影响——`ListVersions` 扫目录而非查清单，该版本仍可切换与卸载；但「可安装版本」下拉里不再出现 17，且因 N20 未修，激活 17 时卡片仍显示「可更新」。
   - **索引已重钉，但仍待发版**：`defaultIndexURL` 已从 `ee9c181bf6`（含 17）移到承载新清单的 `ff0b924d11`，实现侧取证见 N3。已发布的旧客户端在带这次重钉的版本发布前仍会提供 17；本机 `~/.dsh-tools/index.json` 缓存在 24 小时 TTL 内也仍是旧内容，需等 TTL 过期或点「刷新索引」。
-  - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」与 `preview.mjs` 的预览下拉已同步为两版本。
+  - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」已同步为两版本。**`preview.mjs` 的预览 mock 与清单不同步（对原文的更正）**：`ff0b924d11` 确实删掉了当时那处的 `17.0.20.1`，但同日晚些的 `54483bf5c7` 把 mock 重建为「已装 / 安装中」两种动作区时又写回了 `v17.0.20.1 · 可安装`，而该提交改了本文却没同步这一句。当前 `preview.mjs:264-269` 两处仍含 17。它按该处注释是用来量卡片最坏宽度的 fixture、不是清单的镜像，因此不改变「17 已下架」的结论，但**「已同步为两版本」的说法不成立**。
 - **发布前置（已完成的部分）**：承载新 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。
 - **建议**：N7 / N20 / N21 的修复已于同日完成（见各条状态），与本次重钉一并发布即可，不必再分两次。
 
@@ -535,13 +538,13 @@
 - **建议**（二选一）：(a) 把开发用文件移出 embed 根（如 `apps/desktop-launcher/frontend-tools/`），需同步改测试与文档中的路径；(b) 保留目录结构，在 `build-linglong.sh` 组装前加断言——`frontend/` 下的文件集合必须等于一份显式清单，出现新文件即失败。前者治本但要动目录，后者改动小且恰好挡住"游离文件被静默嵌入"。
 - **注**：既然 `all:` 当前为空转，若确认 `frontend/` 下永不出现被 gitignore 的文件，直接去掉该前缀即可消除这一面；代价是构建期 vendored 资源必须保持被跟踪。
 
-## N29 49 个 `tsconfig.tsbuildinfo` 随包交付
+## N29 49 个 `*.tsbuildinfo` 随包交付
 
 - **状态**：未修｜✅ 本次产物复核实测
-- **位置**：`harness/node_modules/@deepseek-ai/*/lib/tsconfig.tsbuildinfo`（47 个）、`harness/node_modules/gaxios/…`（2 个）；来源是 `prepare-offline.sh` 整目录复制各包的 `lib/`
-- **问题**：合计 2.6 MB 的 tsc 增量编译元数据进了产物。抽查 3 个文件未发现构建机绝对路径，但内容是纯构建态数据。
+- **位置**：`harness/node_modules/@deepseek-ai/**`（47 个：46 个名为 `tsconfig.tsbuildinfo`，另有 `dsh-subagent-claude-code/lib/types/.tsbuildinfo`）、`harness/node_modules/gaxios/**`（2 个：`build/esm/tsconfig.tsbuildinfo` 与 `build/cjs/tsconfig.cjs.tsbuildinfo`）；来源是 `prepare-offline.sh` 整目录复制各包的 `lib/`
+- **问题**：合计 49 个、2.56 MB 的 tsc 增量编译元数据进了产物。抽查 3 个文件未发现构建机绝对路径，但内容是纯构建态数据。
 - **影响**：体积少量增加；`.tsbuildinfo` 记录的是编译机上的文件清单与编译设置，属"把构建中间态当交付物"。
-- **建议**：`prepare-offline.sh` 在复制后统一删除 `*/lib/tsconfig.tsbuildinfo`。取舍：按 tsc 语义它只服务于增量编译，运行时无人读取；若确实想保留增量编译能力，应留在构建缓存而非产物里。
+- **建议**：`prepare-offline.sh` 在复制后统一删除 `*.tsbuildinfo`（按文件名前缀删会漏掉上面那 2 个）。取舍：按 tsc 语义它只服务于增量编译，运行时无人读取；若确实想保留增量编译能力，应留在构建缓存而非产物里。
 
 ---
 
@@ -636,7 +639,7 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 
 # 附录 A：已结案
 
-以下条目在审计后已修复、已评估后决定不做，或前提不成立。保留在此避免重复提出。
+以下条目在审计后已修复、已评估后决定不做，或前提不成立。保留在此避免重复提出。表中 `18` 附有一项尚未闭环的人工验证点（见文末「原编号 18 的遗留待验证点」），在该点验证前不应按「已结案」对待。
 
 | 原编号 | 结论 | 依据 |
 |---|---|---|
@@ -648,7 +651,7 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 | 7 `@img/sharp` | ⚪ 已评估保留 | `sharp` 是 `@deepseek-ai/dsh-attachment-local` 的静态依赖（`packages/attachment/attachment-local/package.json:30`），`@img` 下只有 `colour` + `linux-x64`（19 MB），无可裁的多余平台包 |
 | 15 状态轮询改事件驱动 | ✅ 已完成 | `internal/app/app.go:385-420` `emitStatusIfChanged`，提交 `c7be7c8b23` |
 | 16 Node 二进制 strip | ✅ 已完成 | `prepare-offline.sh:173-176`；实测 `node/bin/node` 已 stripped（111.6 MB，仅减约 10%，非原估的 20–40%） |
-| 18 Go 绑定缺授权层 | 🔵 前提不成立 | harness GUI 是跨源 iframe，Wails 只向自己 asset server 的主页注入 runtime，iframe 内 `window.go` 不可达。**遗留待验证点见下** |
+| 18 Go 绑定缺授权层 | 🔵 前提不成立（附一项未闭环验证） | harness GUI 是跨源 iframe，Wails 只向自己 asset server 的主页注入 runtime，iframe 内 `window.go` 不可达。**遗留待验证点见文末** |
 | 21 外部服务只确认一次 | 🟡 题面「或」分支已满足 | `NeedConfirmation` 仍按 hostname 每会话一次；但「状态栏常显 hostname」已落地（`app.js:156-175`，提交 `c3928e3192`） |
 | 29 前端 JS 去重 | ✅ 已完成 | 只剩 `escapeHtml`（`app.js:20`），`esc` 已不存在 |
 | 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/x11.go:76-79` + `readWaylandImage`（`:871-925`）。**注意**：依赖宿主/容器存在 `wl-paste`，而 `wl-clipboard` 未随包（`tools.yaml` 与 `buildext.apt.depends` 都没有） |
@@ -656,10 +659,12 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 | N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
 | N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
 | N15 `clean-linglong.sh` 清理路径整体漂移 | ✅ 已修复 | 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore` 的 `/linglong/` 对齐；补收根 `lib/`、启动器预览产物（普通档）与 `profiles/`/`sessions/`/`backups/`（深度档）；ll-builder 异常退出留下的 `mode=0000` overlayfs workdir 在删除前 `chmod -R u+rwX`。提交 `4eb3a44acb`、`9f5fe65709`。附注：`pnpm run clean`（`scripts/clean.ts`）未覆盖根 `lib/`，收敛为调用统一入口的决定不做 |
-| N17 builder 的 `failed to copy` 只警告不中止 | ❌ 未修（工具链侧） | 连续两轮构建在同一位置失败后照常出包，见正文 N17 |
-| N18 `buildext.apt.depends` 吞掉安装错误 | ❌ 未修 | 生成脚本 `linglong/buildext.sh` 两条 apt 命令均以 `\|\| echo "$?"` 结尾，见正文 N18 |
-| N19 容器内新装的文件不落盘 | ❌ 未修 | 清缓存后仍复现；overlay upperdir 内只有 `c 0,0` 的 `.dpkg-new`，实体仍是 2026-04-07 的 2.48.5，见正文 N19 |
+| N17 builder 的 `failed to copy` 只警告不中止 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N17 |
+| N18 `buildext.apt.depends` 吞掉安装错误 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N18 |
+| N19 容器内新装的文件不落盘 | 🟡 已绕开，上游缺陷未修 | 见正文 N19 |
 | 字体方案（时间文本挤压） | ✅ 已完成 | 随包字体 + `FONTCONFIG_FILE` 注入 + 前端字体栈前置；提交 `c1ea5016fa`、`38a44fe892`、`2fc0de8ef5`，已在 0.1.2.7 实机验证通过 |
+
+**N17 / N18 / N19 的结论以正文为准，本表不作「已结案」处理**：三条都已有仓库侧改动（构建期闸门、绕开 overlay 取物），但工具链侧（构建器把复制失败降级为警告、生成的 `buildext.sh` 吞掉 apt 错误）与上游 overlay 的写入缺陷仍未解决。此前本表以 `❌ 未修` 记这三条，既与正文的「已修／部分修复」冲突，也与本表「已结案」的标题冲突，现改为与正文一致的状态、并在此点明其未结案部分。
 
 ### 字体方案（时间文本挤压）的记录
 
@@ -700,8 +705,9 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 - 附录 A 中「已完成」条目，以及正文标注 ✅ 的条目，均经逐行读取代码或实跑命令验证。
 - 标注 ⚠️ 的条目来自静态代码审查，审计者未逐条复跑；标注 ❓ 的条目依赖尚未执行的端到端运行。
 - 保留本条以说明历史判据：N2 修复前「同一 schema + 同一配置 + `resolveConfig` 必然抛错」的函数链已实测，但那只是链路推演；修复后改为用打包闭包的 `discoverPresets` 做运行时发现验证（见附录 A 的修复记录）。两者的共同缺口是仍未触发真实会话观察系统提示。
-- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。审计收尾时这些构建缓存曾清理，随后为验证字体方案重新生成。
-- 仓库当前的文档闸门并非全绿：`verify-translation-pairing` 语料为 837 ok / 1 out-of-sync / 33 missing（含 `docs/superpowers/**` 与清理前 `linglong/` 下被扫到的构建产物），`verify-md-wrap`、`verify-md-links`、`verify-package-readme-*` 亦有既有失败。这些与本文条目无关，但会影响「闸门全绿」的判断。
+- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。这些构建缓存曾被清理、随后为验证字体方案重新生成；**2026-09-16 复核时两处都存在**，因此下一条里来自构建产物的失败是活跃的，不是历史残留。
+- 仓库当前的文档闸门并非全绿。**2026-09-16 实跑**：`verify-translation-pairing` 报 33 处缺配对、3 行 out-of-sync、4 处 link target diverges；`verify-md-links` 报 7 行（`bundle-xdg-open` 与 `generic-file-attachments` 两对 Note 的链接目标不存在）；`verify-md-wrap` 报 `docs/superpowers/**` 下的硬换行；`verify-package-readme-limitations` 报 `packages/support/doctor/README.md` 缺 `## Known Limitations and Deferred Work` 小节。
+- **上面有一处不能记作「与本文无关」**：`apps/desktop-launcher/README.md`/`README.zh.md` 这一对由本文自身造成——附录 D 的 S7 修复提交 `593e30a184` 同改了中英两侧，却没重录 `apps/desktop-launcher/README.i18n.yaml`（当前 blob `51f2c9f9…`/`9a3cb439…` 对记录值 `8e3350c0…`/`986eaaae…`）。其余失败来自含构建产物的工作区（`linglong/overlay/**`、`linglong/output/binary/files/**`、`apps/desktop-launcher/linglong/stage/**`）与 `docs/superpowers/**`。这些都会影响「闸门全绿」的判断。
 - 字体方案的验证边界见附录 A 的对应记录。
 - JDK 多版本条目（N20–N24）的证据边界：两份新增归档经真实下载，size 与 sha256 和 Adoptium v3 API 报出的值一致（`8u504` 103542511 字节 / `9c70e102…`；`17.0.20.1` 193252603 字节 / `3808d1d1…`），解包后为单一顶层目录且含 `bin/` 与 `lib/`，`java`/`javac`/`jdb`/`jar` 均可执行、`java -version` 分别报 `1.8.0_504` 与 `17.0.20.1`；`21.0.12.1` 未重下，API 当前 21 资产的 sha256 与清单现值相同。**未在玲珑容器内实跑**，也未走通 launcher 的真实安装路径——市场唯一入口是 Wails 绑定，端到端审计只覆盖 `versions[0]`（见 N22）。索引发布侧已实跑 curl 复核（见 N3 的验证）。`17.0.20.1` 已于 2026-09-14 下架（见 N25），上列 17 的实测数据保留为下架前的历史记录。
 
