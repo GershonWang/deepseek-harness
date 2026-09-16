@@ -1513,6 +1513,11 @@ function init() {
       box.insertBefore(hint, $("#doctor-summary"));
     }
 
+    // 清单里每个字符串字段都来自 `dsh doctor --json` 的子进程 stdout，而非
+    // dsh-doctor 内置检查的固定输出：任何注册进 doctor 进程的检查都能决定它们，
+    // 而壳前端持有全部 Go 绑定，壳内脚本执行等价于拿到这些能力。因此整段拼接
+    // 只允许出现固定字面量与 escapeHtml 的输出；Go 侧的计数与 SuggestedLevel
+    // 解成 int，不在此列。
     const checksHtml = r.Checks.map((c) => {
       const icon = c.OK ? "✓" : "✗";
       const colorClass = statusClass(c.OK, c.Severity);
@@ -1526,7 +1531,7 @@ function init() {
           <div class="doctor-check-main">
             <div class="doctor-check-title">
               <span>${escapeHtml(c.Name)}</span>
-              <span class="hint" style="margin-left:8px">[${c.Category} / ${c.Severity}]</span>
+              <span class="hint" style="margin-left:8px">[${escapeHtml(c.Category)} / ${escapeHtml(c.Severity)}]</span>
               ${fixBadge}
             </div>
             <div class="doctor-check-msg">${escapeHtml(c.Message)}</div>

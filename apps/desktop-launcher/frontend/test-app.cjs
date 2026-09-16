@@ -867,6 +867,25 @@ test("诊断报告用语义类着色，不把主题色值写进内联样式", as
   assert.match(checks, /doctor-check-icon sev-ok/u, "通过项图标应带 ok 语义类");
 });
 
+test("诊断清单转义每个取自报告的字符串字段", async () => {
+  // Category/Severity 与 Name/Message/Detail 同源（dsh doctor --json 的子进程
+  // stdout），而清单整体赋给 #doctor-checks 的 innerHTML。壳前端持有全部 Go 绑定，
+  // 漏转义一个字段就等于把 InstallToolchain/AddHostTool 交给报告里的脚本。
+  const payload = '<img src=x onerror="alert(1)">';
+  const report = fakeReport();
+  report.Checks[1].Category = payload;
+  report.Checks[1].Severity = payload;
+  const h = loadApp({ overrides: { RunDoctor: async () => report } });
+  await flush();
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+
+  const checks = h.document.getElementById("doctor-checks").innerHTML;
+  assert.equal(checks.includes(payload), false, "报告字段不得以原样进入 innerHTML");
+  assert.equal(/<img/u.test(checks), false, "报告字段不得生成元素");
+  assert.match(checks, /&lt;img src=x onerror=/u, "报告字段应转为实体文本");
+});
+
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
   const h = loadApp();
   const fn = h.sandbox.__testRenderRepairOutput;
