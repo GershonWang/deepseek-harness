@@ -915,8 +915,18 @@ function renderProgress(ev) {
 }
 
 // updateProgressBar 定向更新某卡片的状态徽标与进度条；ev 为 null 表示清除进度。
+// id 来自 toolchain:progress 事件，由远程索引下发的工具 ID 决定。它不拼进选择器：
+// `.tool-card-item[data-tool-id="..."]` 里的引号与反斜杠会让含该字符的 ID 变成另一条
+// 选择器，或让这次查询抛错、中断整轮进度刷新。改为在网格子树内逐一比较 dataset，
+// 语义不变、不依赖转义规则，也不会命中网格之外的卡片。
 function updateProgressBar(id, ev) {
-  const card = document.querySelector('.tool-card-item[data-tool-id="' + id + '"]');
+  const grid = $("#market-grid");
+  let card = null;
+  if (grid) {
+    for (const el of grid.querySelectorAll(".tool-card-item")) {
+      if (el.dataset.toolId === id) { card = el; break; }
+    }
+  }
   if (!card) return;
   const bar = card.querySelector(".tool-progress-fill");
   const label = card.querySelector(".tool-progress-label");

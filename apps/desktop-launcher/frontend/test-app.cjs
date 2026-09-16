@@ -1017,6 +1017,33 @@ test("提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖", (
     "打包态无提示时应为空，不残留开发态文案");
 });
 
+test("安装进度按 dataset 定位卡片，伪造 tool id 不波及其他卡片", () => {
+  // id 来自 toolchain:progress 事件（远程索引下发的工具 ID）。拼进属性选择器时，
+  // 含引号的 id 会变成另一条选择器或让查询抛错，整轮进度刷新随之中断。
+  const h = loadApp();
+  const tools = fakeTools();
+  h.sandbox.__testRenderTools(tools);
+  // 进度条只在安装中的卡片上渲染，而进度事件本身不重画网格：先让 deno 进入
+  // 安装态再重渲染一次，卡片才带上 .tool-progress-fill。
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "downloading", Percent: 0 });
+  h.sandbox.__testRenderTools(tools);
+  // createElement 的产物会一直留在 stub 的扁平 registry 里（innerHTML 清空只解父链），
+  // 因此网格内的卡片从容器子树取；与其它市场用例一致。
+  const cards = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item");
+  const width = (card) => card.querySelector(".tool-progress-fill").style.width;
+  assert.equal(width(cards[1]), "0%", "安装中的卡片应带上进度条");
+
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "downloading", Percent: 42 });
+  assert.equal(width(cards[1]), "42%", "应按 id 命中 deno 卡");
+
+  const forged = 'deno"] , .tool-card-item[data-tool-id="node';
+  h.terminalEvent("toolchain:progress", { ID: forged, Phase: "downloading", Percent: 99 });
+  assert.equal(width(cards[1]), "42%", "伪造 id 不得改到别的卡片");
+
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "done", Percent: 100 });
+  assert.equal(width(cards[1]), "0%", "完成后应清除该卡片的进度");
+});
+
 test("市场卡片：运行时提示在版本探测失败时省略版本段", () => {
   const h = loadApp();
   const tools = fakeTools();
