@@ -886,6 +886,24 @@ test("诊断清单转义每个取自报告的字符串字段", async () => {
   assert.match(checks, /&lt;img src=x onerror=/u, "报告字段应转为实体文本");
 });
 
+test("诊断摘要的错误文案按纯文本渲染", async () => {
+  // 摘要栏普通文案走 textContent：错误串来自 doctor 子进程输出或 Go 侧拼接，
+  // 与计数摘要（本文件拼 HTML）不是同一类内容。
+  const payload = '<img src=x onerror="alert(1)">';
+  const report = fakeReport();
+  report.Error = payload;
+  report.Checks = [];
+  const h = loadApp({ overrides: { RunDoctor: async () => report } });
+  await flush();
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+
+  const summary = h.document.getElementById("doctor-summary-text");
+  assert.equal(summary.innerHTML.includes("<img"), false, "错误文案不得生成元素");
+  assert.match(summary.textContent, /诊断失败/u, "仍应说明诊断失败");
+  assert.match(summary.textContent, /<img src=x onerror=/u, "应原样保留错误文本");
+});
+
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
   const h = loadApp();
   const fn = h.sandbox.__testRenderRepairOutput;

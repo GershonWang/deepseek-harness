@@ -415,12 +415,31 @@ function hideDoctorAutoBanner() {
 
 // 更新诊断摘要栏：只改写文本 span（保留行内的"重新诊断"按钮不被整体重写冲掉），
 // 并控制按钮显隐 —— 诊断中/失败时隐藏，结果就绪时显示。
-function setDoctorSummary(htmlOrText, showRefresh) {
+// 两个入口按内容来源分开：计数摘要由本文件拼接、只含固定字面量与转义输出，走
+// setDoctorSummaryHtml；其余文案（诊断错误、占位提示、调用方传入的复查文案）来自
+// 报告或调用方，走 setDoctorSummaryText 由 textContent 承担转义。合成一个入口时
+// 调用方无法从签名看出自己交的是不是 HTML，历史上正是这样把报告错误文案送进了
+// innerHTML。
+function setDoctorSummaryHtml(html, showRefresh) {
   const text = $("#doctor-summary-text");
   if (!text) return; // 结构未就绪（预览分支）
-  text.innerHTML = htmlOrText;
+  text.innerHTML = html;
+  setDoctorRefreshVisible(showRefresh);
+}
+
+// setDoctorSummaryText 以纯文本更新摘要栏，任意输入都不会被解析为标记。
+function setDoctorSummaryText(textContent, showRefresh) {
+  const text = $("#doctor-summary-text");
+  if (!text) return; // 结构未就绪（预览分支）
+  text.textContent = textContent;
+  setDoctorRefreshVisible(showRefresh);
+}
+
+// setDoctorRefreshVisible 控制"重新诊断"按钮显隐；摘要栏缺失时一并跳过，
+// 使两个摘要入口在预览分支下的行为一致。
+function setDoctorRefreshVisible(showRefresh) {
   const btn = $("#doctor-refresh");
-  btn.classList.toggle("hidden", !showRefresh);
+  if (btn) btn.classList.toggle("hidden", !showRefresh);
 }
 
 // 修复进行中：所有修复卡片按钮禁用并显示"修复中…"（跨弹窗关闭重开保持，
@@ -1434,14 +1453,14 @@ function init() {
     // 诊断已完成且有结果：直接展示缓存，不重复检测。只有"重新诊断"按钮
     // （force=true）才强制重跑。
     if (!force && diagnosisState.lastReport) {
-      setDoctorSummary(summaryText || "正在诊断…", false);
+      setDoctorSummaryText(summaryText || "正在诊断…", false);
       renderDoctorReport(diagnosisState.lastReport);
       return diagnosisState.lastReport;
     }
     diagnosisState.running = true;
     // summaryText 可覆盖默认文案：修复后的复检用"修复完成，正在复查…"，
     // 与"又出问题了"的诊断区分开。
-    setDoctorSummary(summaryText || "正在诊断…", false);
+    setDoctorSummaryText(summaryText || "正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
     const currentPromise = (async () => {
@@ -1455,7 +1474,7 @@ function init() {
         diagnosisState.lastReport = r;
         return r;
       } catch (e) {
-        setDoctorSummary("诊断失败: " + e.message, false);
+        setDoctorSummaryText("诊断失败: " + e.message, false);
         $("#doctor-start").classList.remove("hidden");
         return null;
       }
@@ -1475,7 +1494,7 @@ function init() {
 
   function renderDoctorReport(r) {
     if (r.Error) {
-      setDoctorSummary("诊断失败: " + r.Error, false);
+      setDoctorSummaryText("诊断失败: " + r.Error, false);
       $("#doctor-start").classList.remove("hidden");
       $("#doctor-content").classList.add("hidden");
       return;
@@ -1486,7 +1505,7 @@ function init() {
     const sevClass = { fatal: "sev-error", error: "sev-error", warning: "sev-warn", info: "sev-info" };
     const statusClass = (ok, sev) => ok ? "sev-ok" : (sevClass[sev] || "sev-muted");
 
-    setDoctorSummary(
+    setDoctorSummaryHtml(
       `<strong>共 ${r.Total} 项</strong>：` +
       `<span class="sev-ok">✓ ${r.OK} 通过</span>，` +
       `<span class="sev-error">✗ ${r.Failed} 失败</span>` +
