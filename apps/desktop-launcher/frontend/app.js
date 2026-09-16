@@ -586,23 +586,24 @@ function renderRepairOutput(raw) {
 // （用户手动重启/安全模式）后重置，下一周期可再触发。
 // 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
 function updateStartupDoctor(s) {
-  // 修复进行中：保持弹窗的"修复中…"状态，不响应任何状态事件去自动弹窗/
-  // 重置标记 —— 修复期间 supervisor 状态抖动（如在重启）不能触发又一轮
-  // "正在诊断…"的自动弹窗，打断用户看到的修复进度。
-  if (diagnosisState.repairing) {
-    if (s.State !== "failed") hideAutoDiagHint();
-    return;
-  }
-
   if (s.State !== "failed") {
     state._startupDoctorShown = false;
     // 退出失败态（用户重启/安全模式/修复后自动启动）：环境可能已变化，
     // 清空诊断缓存，进入下一次失败周期时重新检测而非展示旧结果。
+    //
+    // 这段必须排在 repairing 判断之前：修复流程最后会用修复后的状态调 applyStatus
+    // （自动启动成功时已不在失败态），若那次快照被 repairing 提前 return，标记与
+    // 缓存就留在上一轮——第二个失败周期不再自动弹窗，手动诊断还会渲染上一轮的
+    // 全绿报告（审计 N12）。
     diagnosisState.lastReport = null;
     hideAutoDiagHint();
     hideDoctorAutoBanner();
     return;
   }
+
+  // 修复进行中：保持弹窗的"修复中…"状态，不因 supervisor 状态抖动（如在重启）
+  // 再触发一轮"正在诊断…"的自动弹窗，打断用户看到的修复进度。
+  if (diagnosisState.repairing) return;
 
   if (s.StartupDoctorReady || s.StartupDiagnosing) {
     if (s.StartupDoctorReady) setAutoDiagHint("诊断完成", false);

@@ -570,6 +570,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
     + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
+    + "\n;globalThis.__testDiagnosisState = diagnosisState;"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
@@ -728,6 +729,39 @@ test("退出 failed 后标记重置，新失败周期可再次自动弹窗", asy
   assert.equal(
     h.document.getElementById("doctor-modal").classList.contains("hidden"),
     false, "新周期应再次自动弹窗");
+});
+
+test("修复期间退出失败态仍要复位：第二轮失败仍能自动弹窗", async () => {
+  // N12：runRepair 在 repairing=true 期间会用修复后的状态调 applyStatus（自动启动
+  // 成功时已不在失败态）。若那次快照被 repairing 守卫提前 return，本周期标记与诊断
+  // 缓存都留在上一轮：第二个失败周期不再自动弹窗，手动诊断还会渲染上一轮的全绿报告。
+  // 桩 DOM 不解析 innerHTML 生成的修复按钮，所以这里直接驱动状态机，时序与 runRepair
+  // 一致——repairing 置位期间收到非失败态。
+  const h = loadApp();
+  await flush();
+  h.status(baseStatus({ State: "failed", StartupDoctorReady: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 1, "第一轮失败应自动诊断");
+  const ds = h.sandbox.__testDiagnosisState;
+  assert.ok(ds && ds.lastReport, "第一轮诊断结果应进入缓存");
+
+  ds.repairing = true;
+  h.status(baseStatus({ State: "starting" })); // 修复后自动启动成功的快照
+  ds.repairing = false;
+
+  assert.equal(ds.lastReport, null, "修复期间退出失败态也要清空诊断缓存");
+
+  // 第二轮失败：标记已复位 → 再次自动弹窗并重新诊断
+  h.status(baseStatus({ State: "failed", StartupDiagnosing: true }));
+  assert.equal(
+    h.document.getElementById("auto-diag-hint").textContent,
+    "正在自动诊断问题…");
+  h.status(baseStatus({ State: "failed", StartupDoctorReady: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 2, "第二轮失败应重新自动诊断");
+  assert.equal(
+    h.document.getElementById("doctor-modal").classList.contains("hidden"),
+    false, "第二轮失败应再次自动弹窗");
 });
 
 test("浏览器预览分支（无 Wails）：自动弹窗逻辑安全跳过", () => {
