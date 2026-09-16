@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -52,6 +53,68 @@ var errArchiveTooLarge = errors.New("archive exceeds size limit")
 
 // errExtractTooLarge 表示解压写入量或条目数超过上限（解压炸弹）。
 var errExtractTooLarge = errors.New("extracted data exceeds size limit")
+
+// installLocks 串行化同一安装目标下同一工具的并发安装（审计 N13）。
+//
+// app 层每次点击卡片、以及「全部更新」的循环都各起一个 goroutine 调 InstallTool，
+// 两者可能同时装同一个工具：下载会写同一个 part 文件（一方 sha256 失败还会删掉另一
+// 方正在用的数据），解压又会先 os.RemoveAll 同一棵目标树再 os.Rename。按 (目标目录,
+// 工具 ID) 粒度加锁即可覆盖单实例 launcher 的全部并发路径。
+//
+// 只覆盖进程内。同时开两个 launcher 实例仍会并发写同一目录，那需要文件锁（跨平台
+// 语义、陈旧锁回收、NFS 行为）——属独立话题，见 AUDIT.md N13 的残留说明。
+var installLocks keyedMutex
+
+// keyedMutex 是按字符串键串行化的进程内互斥锁集合。
+//
+// 条目一旦创建就永久保留：键是 (安装目录, 工具 ID)，生产进程只用一个安装目录、工具数
+// 由清单封顶（几十个），不构成无界增长；这样实现里没有"删除后重建"的窗口，同一个键
+// 始终对应同一把锁，正确性不依赖引用计数。
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+// Lock 给 key 加锁并返回释放函数。释放函数必须恰好调用一次（它就是 Mutex.Unlock）。
+func (k *keyedMutex) Lock(key string) func() {
+	k.mu.Lock()
+	if k.locks == nil {
+		k.locks = make(map[string]*sync.Mutex)
+	}
+	l := k.locks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		k.locks[key] = l
+	}
+	k.mu.Unlock()
+
+	l.Lock()
+	return l.Unlock
+}
+
+// installLockKey 是安装锁的键。工具 ID 而非版本：同一工具的不同版本共用同一份解包
+// 暂存目录与同一组 bin 软链，并发装两个版本同样会互相破坏。
+func installLockKey(dir, toolID string) string {
+	return dir + "\x00" + toolID
+}
+
+// finishInstalled 处理「目标版本已经在磁盘上」：需要激活时补做激活，进度与文案和真正
+// 安装完成保持一致。
+//
+// InstallTool 的前置判断与 installVersion 的等锁复查共用它：两处都要保证「已装好但未
+// 激活」的中间状态能被一次调用补上（AUDIT N7），各写一遍容易让语义漂移。
+func finishInstalled(dir, toolID, version string, activate bool, progress InstallProgress) error {
+	if !activate {
+		progress("done", 100, "已安装")
+		return nil
+	}
+	progress("linking", 90, "设置为当前版本")
+	if err := SetActiveVersion(dir, toolID, version); err != nil {
+		return err
+	}
+	progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, version))
+	return nil
+}
 
 // copyCapped 把 src 复制到 dst，超过 limit 字节则以 over 报错。
 // 多读 1 字节是为了区分「恰好等于上限」与「超过上限」：只有后者报错。
@@ -175,16 +238,7 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 	// 正常中间状态（更新下载完成、用户手选版本后切换失败等），此处的无条件早退会让用户
 	// 无论点多少次「更新」都停在旧版本上，却收到成功提示（AUDIT N7）。
 	if IsInstalled(dir, toolID, tv.Version) {
-		if activate {
-			progress("linking", 90, "设置为当前版本")
-			if err := SetActiveVersion(dir, toolID, tv.Version); err != nil {
-				return err
-			}
-			progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, tv.Version))
-			return nil
-		}
-		progress("done", 100, "已安装")
-		return nil
+		return finishInstalled(dir, toolID, tv.Version, activate, progress)
 	}
 
 	// 先装依赖（单层）
@@ -205,8 +259,21 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 
 // installVersion 安装已解析好的工具版本（下载/校验/解包/激活）。
 // 供 InstallTool 与测试复用：测试可注入自定义 URL/SHA256。
+//
+// 整个下载→解包→激活过程在 (dir, toolID) 粒度的进程内锁下进行（审计 N13），因此同一
+// 工具不可能有两个安装同时写 part 文件或同一棵目标树。
 func installVersion(dir, toolID string, tv ToolVersion, progress InstallProgress, activate bool) error {
+	release := installLocks.Lock(installLockKey(dir, toolID))
+	defer release()
+
+	// 等锁期间目标版本可能已由并发的另一次安装装好（同一张卡片被连点、或「全部更新」
+	// 与手动安装同时进行）：此时只需按需补激活，再下一遍是几百 MB 到数 GB 的浪费。
+	if IsInstalled(dir, toolID, tv.Version) {
+		return finishInstalled(dir, toolID, tv.Version, activate, progress)
+	}
+
 	// 记录安装前是否已有其他版本：首次安装自动激活，已有版本时不覆盖当前激活。
+	// 必须在锁内统计，否则并发安装会各自认为自己是首次。
 	hadOther := len(ListVersions(dir, toolID)) > 0
 
 	root, err := downloadAndExtract(dir, toolID, tv, progress)

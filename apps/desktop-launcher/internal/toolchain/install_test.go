@@ -15,8 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // fakeTar 构建 "<dir>/bin/<name>" 的 tar.gz 并返回其 sha256。
@@ -780,5 +783,164 @@ func TestExtractZip_RejectsOversizeContent(t *testing.T) {
 
 	if err := extractZipEntries(zr.File, t.TempDir()); !errors.Is(err, errExtractTooLarge) {
 		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestKeyedMutex_SerializesSameKey 覆盖 N13 的锁语义：同一键互斥、不同键互不阻塞。
+func TestKeyedMutex_SerializesSameKey(t *testing.T) {
+	var k keyedMutex
+
+	const n = 8
+	var mu sync.Mutex
+	inCritical, maxInCritical := 0, 0
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			release := k.Lock("same")
+			mu.Lock()
+			inCritical++
+			if inCritical > maxInCritical {
+				maxInCritical = inCritical
+			}
+			mu.Unlock()
+
+			time.Sleep(time.Millisecond)
+
+			mu.Lock()
+			inCritical--
+			mu.Unlock()
+			release()
+		}()
+	}
+	wg.Wait()
+
+	if maxInCritical != 1 {
+		t.Fatalf("同一键同时最多只应有 1 个持有者, got %d", maxInCritical)
+	}
+
+	// 不同键互不阻塞：持着 "a" 时仍能立刻拿到 "b"。
+	releaseA := k.Lock("a")
+	done := make(chan struct{})
+	go func() {
+		releaseB := k.Lock("b")
+		releaseB()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("不同键不应互相阻塞")
+	}
+	releaseA()
+}
+
+// TestInstallLockKey_DistinguishesTarget 固定锁的粒度：不同目标目录、不同工具互不影响；
+// 同一工具的不同版本共用一把锁（它们写同一个 part 路径与同一棵解包树）。
+func TestInstallLockKey_DistinguishesTarget(t *testing.T) {
+	if installLockKey("/a", "go") == installLockKey("/b", "go") {
+		t.Fatal("不同安装目录不应共用锁")
+	}
+	if installLockKey("/a", "go") == installLockKey("/a", "node") {
+		t.Fatal("同一目录下不同工具不应共用锁")
+	}
+}
+
+// TestInstallVersion_ConcurrentSameToolDownloadsOnce 覆盖 N13 的端到端场景：同一工具被
+// 并发安装（连点同一张卡片、「全部更新」与手动安装同时进行）时，只有一次会真的下载，
+// 其余在等锁后走"已安装"复查，且全部返回成功、磁盘上是一棵完整且已激活的树。
+//
+// 服务端故意放慢 150ms：若不串行，所有调用都会先通过"未安装"检查并各自发起下载，
+// 请求计数就压不住。这个计数是确定性的判据（串行实现下恒为 1）。
+func TestInstallVersion_ConcurrentSameToolDownloadsOnce(t *testing.T) {
+	home := t.TempDir()
+	dir := InstallDir(home)
+	blob, sum := fakeTar(t, "go", "go")
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		time.Sleep(150 * time.Millisecond)
+		_, _ = w.Write(blob)
+	}))
+	defer srv.Close()
+
+	tv := ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}
+
+	const n = 4
+	errs := make([]error, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = installVersion(dir, "go", tv, noopProgress, false)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("并发安装 %d 失败: %v", i, err)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("同一工具并发安装只应下载一次, got %d 次请求", got)
+	}
+
+	// 磁盘状态：树完整、当前版本已激活、只登记一份。
+	root := filepath.Join(dir, "go-1.23.2")
+	if _, err := os.Stat(filepath.Join(root, "bin", "go")); err != nil {
+		t.Fatalf("解压产物缺失: %v", err)
+	}
+	if current, err := os.Readlink(filepath.Join(dir, "current", "go")); err != nil || current != root {
+		t.Fatalf("current 软链: %v -> %q", err, current)
+	}
+	if got := ActiveVersion(dir, "go"); got != "1.23.2" {
+		t.Fatalf("激活版本应为 1.23.2, got %q", got)
+	}
+	if versions := ListVersions(dir, "go"); len(versions) != 1 {
+		t.Fatalf("只应登记一个版本, got %v", versions)
+	}
+}
+
+// TestInstallVersion_ReinstallSkipsDownload 隔离 installVersion 的"等锁复查"语义：目标
+// 版本已在磁盘上时不应再下载或解压。这里清掉归档缓存，否则缓存命中会掩盖重复安装——
+// 而并发安装的第二个调用正是靠这条复查才不重下一遍（N13）。
+func TestInstallVersion_ReinstallSkipsDownload(t *testing.T) {
+	home := t.TempDir()
+	dir := InstallDir(home)
+	blob, sum := fakeTar(t, "go", "go")
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write(blob)
+	}))
+	defer srv.Close()
+
+	tv := ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}
+	if err := installVersion(dir, "go", tv, noopProgress, false); err != nil {
+		t.Fatalf("首次安装: %v", err)
+	}
+	// 清缓存：安装成功后归档会移入 <dir>/.cache，缓存命中同样不会发请求。
+	if err := os.RemoveAll(cacheDir(dir)); err != nil {
+		t.Fatalf("清缓存: %v", err)
+	}
+	requests.Store(0)
+
+	// 第二次（activate=true）：只应补做激活，不应重新下载。
+	if err := installVersion(dir, "go", tv, noopProgress, true); err != nil {
+		t.Fatalf("重复安装: %v", err)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("已安装的版本不应再次下载, got %d 次请求", got)
+	}
+	if got := ActiveVersion(dir, "go"); got != "1.23.2" {
+		t.Fatalf("重复安装仍应保证激活, got %q", got)
 	}
 }
