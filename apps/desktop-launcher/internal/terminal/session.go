@@ -176,9 +176,6 @@ func (s *Session) readLoop() {
 func (s *Session) waitLoop() {
 	err := s.cmd.Wait()
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	exitCode := -1
 	if err == nil {
 		exitCode = 0
@@ -188,12 +185,18 @@ func (s *Session) waitLoop() {
 			exitCode = exitErr.ExitCode()
 		}
 	}
+
+	s.mu.Lock()
 	s.exitCode = exitCode
 	s.closed = true
 	s.status.Store(StatusClosed)
+	// 回调是 app 层注入的（内部会取 Manager 的锁）：与 onOutput 一样必须在锁外
+	// 调用，否则这里会形成"持会话锁去取管理器锁"的反向加锁顺序（S2）。
+	onStatus := s.onStatus
+	s.mu.Unlock()
 
-	if s.onStatus != nil {
-		s.onStatus(StatusClosed, exitCode, err)
+	if onStatus != nil {
+		onStatus(StatusClosed, exitCode, err)
 	}
 
 	// 关闭 PTY 主端
