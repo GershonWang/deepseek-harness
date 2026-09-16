@@ -28,6 +28,33 @@ function maybeAutoStartAfterRepair(report) {
   return !!report && report.Error === "" && report.Failed === 0;
 }
 
+// 两击确认的武装窗口：超时后自动复位，避免武装状态一直留着——否则用户几秒后
+// 的一次普通单击会在没有确认提示的情况下真的执行。
+const CONFIRM_ARM_MS = 2500;
+
+// consumeConfirmClick 实现"两击确认"的状态机，返回 true 表示调用方应执行动作。
+// 首次点击只把按钮改成确认文案并武装，窗口内再点一次才算确认。卸载工具与宿主
+// 挂载共用它：两个动作都会写配置且不易撤销，而按钮只有一行空间说明后果，
+// 各写一遍会让"武装 + 超时复位"的细节在调用点之间漂移。
+function consumeConfirmClick(button, idleLabel, confirmLabel) {
+  if (button.dataset.armed === "1") {
+    disarmConfirmClick(button, idleLabel);
+    return true;
+  }
+  button.dataset.armed = "1";
+  button.textContent = confirmLabel;
+  setTimeout(() => disarmConfirmClick(button, idleLabel), CONFIRM_ARM_MS);
+  return false;
+}
+
+// disarmConfirmClick 复位按钮的武装状态；未武装时不动，避免超时回调把按钮
+// 文案改回空闲态而覆盖调用方刚写入的新文案。
+function disarmConfirmClick(button, idleLabel) {
+  if (button.dataset.armed !== "1") return;
+  button.dataset.armed = "0";
+  button.textContent = idleLabel;
+}
+
 function api() {
   return window.go.app.App;
 }
@@ -1103,12 +1130,7 @@ function toolCard(c) {
     un.className = "btn btn-danger";
     un.textContent = "卸载";
     un.addEventListener("click", async () => {
-      if (un.dataset.armed !== "1") {
-        un.dataset.armed = "1";
-        un.textContent = "确认卸载?";
-        setTimeout(() => { if (un.dataset.armed === "1") { un.dataset.armed = "0"; un.textContent = "卸载"; } }, 2500);
-        return;
-      }
+      if (!consumeConfirmClick(un, "卸载", "确认卸载?")) return;
       const err = await api().UninstallTool(c.ID, sel.value);
       if (err) { $("#toolchain-notice").textContent = err; }
       api().RefreshTools();
@@ -1240,8 +1262,16 @@ function renderHostScan(entries) {
     add.className = "btn btn-primary";
     add.textContent = "挂载";
     add.addEventListener("click", async () => {
-      const res = await api().AddHostTool(e.Source, e.Name);
       const hint = $("#host-hint");
+      if (!consumeConfirmClick(add, "挂载", "确认挂载?")) {
+        // 首次点击：把这次挂载的后果写进提示行（按钮一行放不下）。挂载以 rbind,ro
+        // 写进 config.d，生效后沙箱内所有进程都能读到该目录——用户需要知道这一点
+        // 才能判断该不该继续。
+        hint.className = "hint";
+        hint.textContent = "挂载后沙箱内所有进程都能读取 " + e.Source + "（只读）；再点一次「确认挂载」生效";
+        return;
+      }
+      const res = await api().AddHostTool(e.Source, e.Name);
       if (res.Error) { hint.className = "error"; hint.textContent = "挂载失败: " + res.Error; }
       else { hint.className = "hint"; hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效"; }
       api().RefreshTools();
@@ -1401,14 +1431,23 @@ function bindUI() {
     }
   });
 
-  $("#host-add").addEventListener("click", async () => {
+  const hostAdd = $("#host-add");
+  hostAdd.addEventListener("click", async () => {
     const src = $("#host-path").value.trim();
     const name = $("#host-name").value.trim();
     if (!src) return;
+    const hint = $("#host-hint");
+    // 与卸载工具同一套两击确认：挂载以 rbind,ro 写进 config.d，生效后沙箱内所有
+    // 进程都能读到该目录，而按钮一行放不下这句后果，首次点击时写进提示行。
+    // 确认时按输入框当前值执行——两次点击之间用户仍可修改，改动由他自己作出。
+    if (!consumeConfirmClick(hostAdd, "挂载", "确认挂载?")) {
+      hint.className = "hint";
+      hint.textContent = "挂载后沙箱内所有进程都能读取 " + src + "（只读）；再点一次「确认挂载」生效";
+      return;
+    }
     const res = await api().AddHostTool(src, name);
     $("#host-path").value = "";
     $("#host-name").value = "";
-    const hint = $("#host-hint");
     if (res.Error) {
       hint.className = "error";
       hint.textContent = "挂载失败: " + res.Error;

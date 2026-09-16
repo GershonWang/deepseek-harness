@@ -459,7 +459,9 @@ function makeWails(runCalls, overrides = {}) {
     RefreshTools: async () => ({}),
     InstallToolchain: async () => ({}),
     RemoveHostTool: async () => ({}),
-    AddHostTool: async () => ({}),
+    AddHostTool: overrides.AddHostTool ?? (async () => ({})),
+    // 宿主导入扫描（可选覆盖：用例按需给出待导入条目）。
+    ScanHostTools: overrides.ScanHostTools ?? (async () => []),
     About: async () => ({}),
     ReadClipboardImage: async () => "",
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
@@ -1083,6 +1085,68 @@ test("宿主导入：没有挂载项时摘要留空", () => {
   const h = loadApp();
   h.sandbox.__testRenderTools(fakeTools());
   assert.equal(h.document.getElementById("hosts-summary").textContent, "");
+});
+
+/* ---------- 宿主挂载二次确认 ---------- */
+
+test("宿主挂载：手填目录需二次点击，首次点击先说明沙箱读取范围", async () => {
+  const mounted = [];
+  const h = loadApp({
+    overrides: { AddHostTool: async (src, name) => { mounted.push(src + "|" + name); return {}; } },
+  });
+  const add = h.document.getElementById("host-add");
+  const hint = h.document.getElementById("host-hint");
+  h.document.getElementById("host-path").value = "/opt/jdk";
+  h.document.getElementById("host-name").value = "jdk";
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, [], "首次点击不得挂载");
+  assert.equal(add.textContent, "确认挂载?", "首次点击把按钮改成确认文案");
+  assert.match(hint.textContent, /沙箱内所有进程都能读取 \/opt\/jdk/u, "应说明读取范围");
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, ["/opt/jdk|jdk"], "二次点击才执行挂载");
+  assert.equal(add.textContent, "挂载", "确认后按钮复位");
+  assert.equal(h.document.getElementById("host-path").value, "", "成功后清空输入框");
+});
+
+test("宿主挂载：目录为空时不进入确认态", async () => {
+  const h = loadApp();
+  const add = h.document.getElementById("host-add");
+  h.document.getElementById("host-path").value = "  ";
+  add.fire("click");
+  await flush();
+  // 桩 DOM 不还原 index.html 的按钮文案，因此断言武装标记而非文本。
+  assert.notEqual(add.dataset.armed, "1", "空目录不应武装确认");
+  assert.equal(h.document.getElementById("host-hint").textContent, "", "空目录不应写提示");
+});
+
+test("宿主挂载：扫描结果里的按钮同样需二次点击", async () => {
+  const mounted = [];
+  const h = loadApp({
+    overrides: {
+      ScanHostTools: async () => ([
+        { Name: "jdk", Tool: "JDK", Version: "21", Source: "/opt/jdk", Conflict: "" },
+      ]),
+      AddHostTool: async (src, name) => { mounted.push(src + "|" + name); return {}; },
+    },
+  });
+  h.document.getElementById("host-scan").fire("click");
+  await flush();
+
+  const row = h.document.getElementById("host-scan-list").children[0];
+  const add = row.children.find((c) => c.tagName === "BUTTON");
+  assert.ok(add, "扫描结果应给出挂载按钮");
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, [], "首次点击不得挂载");
+  assert.match(h.document.getElementById("host-hint").textContent, /沙箱内所有进程都能读取 \/opt\/jdk/u);
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, ["/opt/jdk|jdk"], "二次点击才执行挂载");
 });
 
 /* ---------- 市场空态 ---------- */
