@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -173,9 +174,148 @@ func TestLoadXauthCookie(t *testing.T) {
 	}
 }
 
-// ---------- 假 X 服务端 ----------
+// ---------- 认证握手 ----------
 
-// fakeServerOptions 描述假服务端这次要模拟的剪贴板形态。
+// writeXauthority 写一份 .Xauthority（FamilyWild + MIT-MAGIC-COOKIE-1）并把
+// XAUTHORITY 指向它，供 loadXauthCookie 读取。
+func writeXauthority(t *testing.T, cookie []byte) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "Xauthority")
+	var b bytes.Buffer
+	writeU16 := func(v int) { _ = binary.Write(&b, binary.BigEndian, uint16(v)) }
+	writeU16(256) // FamilyWild
+	writeU16(0)   // address
+	writeU16(0)   // number
+	name := []byte("MIT-MAGIC-COOKIE-1")
+	writeU16(len(name))
+	b.Write(name)
+	writeU16(len(cookie))
+	b.Write(cookie)
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XAUTHORITY", path)
+}
+
+// authAttempt 是一条连接上服务端解析出的认证字段。
+type authAttempt struct {
+	nameLen int
+	dataLen int
+	auth    []byte
+}
+
+// authFakeServer 只回放 setup 握手，用于验证认证请求的线格式与重试时序。
+// 按协议，认证失败后它回 Failed 并关闭连接，因此客户端若在原连接上重试，
+// 第二次请求根本到不了服务端——这正是要固定的行为。
+type authFakeServer struct {
+	t      *testing.T
+	cookie []byte
+	// mu 保护 attempts：每次 connectSocket 都开一个新 goroutine。
+	mu       sync.Mutex
+	attempts []authAttempt
+}
+
+func newAuthFakeServer(t *testing.T, cookie []byte) *authFakeServer {
+	t.Helper()
+	s := &authFakeServer{t: t, cookie: cookie}
+	orig := connectSocket
+	// 每次拨号都给一条全新的 pipe，客户端换连接重试才能被观察到。
+	connectSocket = func() (net.Conn, error) {
+		srv, cli := net.Pipe()
+		go s.serve(srv)
+		return cli, nil
+	}
+	t.Cleanup(func() { connectSocket = orig })
+	return s
+}
+
+func (s *authFakeServer) serve(c net.Conn) {
+	defer c.Close()
+	// 读超时：长度字段写错时（例如按大端写成 0x1200）根本读不到那么多字节，
+	// 没有超时会让服务端与"等应答的客户端"互等，用例挂死而不是报错。
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	req := make([]byte, 12)
+	if _, err := io.ReadFull(c, req); err != nil {
+		return
+	}
+	if req[0] != 'l' {
+		s.t.Errorf("setup 声明的字节序 = %q，期望 'l'（LSBFirst）", req[0])
+		return
+	}
+	// 长度字段按客户端声明的字节序读；写成大端会读成 0x1200 = 4608。
+	nameLen := int(binary.LittleEndian.Uint16(req[6:8]))
+	dataLen := int(binary.LittleEndian.Uint16(req[8:10]))
+	rest := make([]byte, nameLen+dataLen)
+	if _, err := io.ReadFull(c, rest); err != nil {
+		return
+	}
+	s.mu.Lock()
+	s.attempts = append(s.attempts, authAttempt{nameLen: nameLen, dataLen: dataLen, auth: rest[nameLen:]})
+	s.mu.Unlock()
+
+	wantName := []byte("MIT-MAGIC-COOKIE-1")
+	if len(s.cookie) > 0 &&
+		(nameLen != len(wantName) || dataLen != len(s.cookie) ||
+			!bytes.Equal(rest, append(append([]byte(nil), wantName...), s.cookie...))) {
+		fail := make([]byte, 8)
+		_, _ = c.Write(fail) // status 0 = Failed，reason 长度 0
+		return
+	}
+	// Success：resource base 在 [4:8]、screen-0 root 在 [32:36]（LSBFirst）。
+	body := make([]byte, 40)
+	binary.LittleEndian.PutUint32(body[4:8], 0x100000)
+	body[20] = 1 // screens
+	binary.LittleEndian.PutUint32(body[32:36], 0x1234)
+	hdr := make([]byte, 8)
+	hdr[0] = 1
+	binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(body)/4))
+	if _, err := c.Write(append(hdr, body...)); err != nil {
+		return
+	}
+	// 之后客户端只发无应答的 CreateWindow；读到 EOF 即结束。
+	_ = c.SetReadDeadline(time.Time{})
+	_, _ = io.Copy(io.Discard, c)
+}
+
+func (s *authFakeServer) snapshot() []authAttempt {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]authAttempt(nil), s.attempts...)
+}
+
+// TestDialRetriesAuthOnFreshConnection 固定两件事：认证请求的 name/data 长度按请求头
+// 声明的 'l'（LSBFirst）编码；无认证被拒后客户端换一条新连接再试。
+// 修复前两条都不成立——长度写成大端（服务端读到 0x1200 / 0x2000），重试又复用服务端
+// 已关闭的连接，于在需要 Xauthority 的 X11 主机上粘贴截图永久无反应。
+func TestDialRetriesAuthOnFreshConnection(t *testing.T) {
+	cookie := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	writeXauthority(t, cookie)
+	server := newAuthFakeServer(t, cookie)
+
+	x, err := dial()
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	x.close()
+
+	attempts := server.snapshot()
+	if len(attempts) != 2 {
+		t.Fatalf("服务端接受的连接数 = %d，期望 2（无认证被拒后必须换新连接）", len(attempts))
+	}
+	if attempts[0].dataLen != 0 {
+		t.Fatalf("首次尝试应无认证，dataLen = %d", attempts[0].dataLen)
+	}
+	got := attempts[1]
+	if got.nameLen != len("MIT-MAGIC-COOKIE-1") || got.dataLen != len(cookie) {
+		t.Fatalf("cookie 请求的 name/data 长度 = %d/%d，期望 %d/%d（必须按声明的 LSBFirst 编码）",
+			got.nameLen, got.dataLen, len("MIT-MAGIC-COOKIE-1"), len(cookie))
+	}
+	if !bytes.Equal(got.auth, cookie) {
+		t.Fatalf("cookie = %x，期望 %x", got.auth, cookie)
+	}
+}
+
+// ---------- 假 X 服务端 ----------// fakeServerOptions 描述假服务端这次要模拟的剪贴板形态。
 type fakeServerOptions struct {
 	// png 是 owner 提供的内容；nil 表示剪贴板里没有图片。
 	png []byte

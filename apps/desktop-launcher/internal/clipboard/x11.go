@@ -343,15 +343,37 @@ func dial() (*xconn, error) {
 	}
 	x := &xconn{c: conn}
 	if err := x.setup(); err != nil {
-		conn.Close()
+		// setup 的认证重试可能已经换过连接，关掉当前那条而不是最初那条。
+		x.close()
 		return nil, err
 	}
 	x.atoms = map[string]uint32{}
 	if err := x.installWindow(); err != nil {
-		conn.Close()
+		x.close()
 		return nil, err
 	}
 	return x, nil
+}
+
+// reconnect 关闭当前连接并新建一条；setup 的认证重试与关闭路径共用它，
+// 使"当前连接是哪一条"只有一处维护点。
+func (x *xconn) reconnect() error {
+	x.close()
+	conn, err := connectSocket()
+	if err != nil {
+		return err
+	}
+	x.c = conn
+	return nil
+}
+
+// close 关闭当前连接；已关闭或尚未建立时为空操作。
+func (x *xconn) close() {
+	if x.c == nil {
+		return
+	}
+	_ = x.c.Close()
+	x.c = nil
 }
 
 var socketDial = func(network, addr string, timeout time.Duration) (net.Conn, error) {
@@ -374,19 +396,36 @@ var connectSocket = func() (net.Conn, error) {
 }
 
 // setup performs the connection handshake. The server replies with the same
-// byte order the client declared (LSBFirst here), which this code hard-codes.
+// byte order the client declared (LSBFirst here), which this code hard-codes:
+// every length field written below is little-endian.
 func (x *xconn) setup() error {
 	cookie := loadXauthCookie()
 	// No-auth first (this host grants host access); fall back to the cookie.
-	for _, auth := range [][]byte{nil, cookie} {
+	// 没有 cookie 时不排第二次尝试：重发一份一模一样的无认证请求不可能有不同的结果。
+	attempts := [][]byte{nil}
+	if len(cookie) > 0 {
+		attempts = append(attempts, cookie)
+	}
+	for i, auth := range attempts {
+		// X 服务端在 Failed 回复之后关闭连接，所以重试必须换一条新连接：复用同一条
+		// 已关闭的连接时，带 cookie 的这次尝试连请求都发不出去，认证永远失败——
+		// 这正是需要 Xauthority 的主机上"粘贴截图毫无反应"的直接原因。
+		if i > 0 {
+			if err := x.reconnect(); err != nil {
+				return err
+			}
+		}
 		var req []byte
 		if auth == nil {
 			req = append([]byte{'l', 0, 0x0b, 0, 0, 0}, 0, 0, 0, 0, 0, 0)
 		} else {
 			name := []byte("MIT-MAGIC-COOKIE-1")
 			hdr := []byte{'l', 0, 0x0b, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-			binary.BigEndian.PutUint16(hdr[6:8], uint16(len(name)))
-			binary.BigEndian.PutUint16(hdr[8:10], uint16(len(auth)))
+			// 请求头声明 'l'（LSBFirst），协议要求 auth name/data 长度按客户端
+			// 字节序编码。写成大端时服务端读到的是 0x1200 / 0x2000 这类长度，
+			// 认证必然被拒。
+			binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(name)))
+			binary.LittleEndian.PutUint16(hdr[8:10], uint16(len(auth)))
 			req = append(hdr, name...)
 			req = append(req, auth...)
 		}
