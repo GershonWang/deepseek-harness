@@ -489,6 +489,12 @@ drained:
 		s.mu.Lock()
 		s.state = domain.StateStopped
 		s.pid = 0
+		// 清掉已回收进程的 cmd 引用：Restart/StopHarness 会按 s.cmd 对进程组
+		// 发信号，留着它就会在 PID 回绕后打到无关进程组上。只清仍属本次的那个，
+		// 因为退避窗口内 run() 可能已经 spawn 了新的子进程。
+		if s.cmd == cmd {
+			s.cmd = nil
+		}
 		s.lastExit = reason
 		s.mu.Unlock()
 		close(exited)
