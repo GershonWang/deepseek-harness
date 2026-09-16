@@ -1001,6 +1001,22 @@ test("市场卡片：仓库未装但容器内已有命令时提示来源，已�
   assert.match(pills[2].textContent, /已安装/);
 });
 
+test("提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖", () => {
+  const h = loadApp();
+  const dev = fakeTools();
+  dev.Sandboxed = false;
+  dev.Notice = "索引来自缓存";
+  h.sandbox.__testRenderTools(dev);
+  const notice = h.document.getElementById("toolchain-notice").textContent;
+  assert.match(notice, /开发态：宿主命令本就在 PATH/u, "开发态说明应保留");
+  assert.match(notice, /索引来自缓存/u, "索引提示应保留");
+
+  h.sandbox.__testRenderTools(fakeTools());
+  assert.equal(
+    h.document.getElementById("toolchain-notice").textContent, "",
+    "打包态无提示时应为空，不残留开发态文案");
+});
+
 test("市场卡片：运行时提示在版本探测失败时省略版本段", () => {
   const h = loadApp();
   const tools = fakeTools();

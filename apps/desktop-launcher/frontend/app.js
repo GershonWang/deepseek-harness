@@ -808,7 +808,16 @@ function renderTools(t) {
   renderStatusbar(t);
   renderHostTools(t);
   renderUpdateBadge(t);
-  $("#toolchain-notice").textContent = t.Notice || "";
+  $("#toolchain-notice").textContent = hostToolsNotice(t);
+}
+
+// hostToolsNotice 返回工具链弹框顶部提示条应显示的文案。
+// 提示条只有 renderTools 一处写点：宿主导入区曾自己写一次，紧接着被这里的
+// `t.Notice` 无条件覆盖，开发态提示因此在渲染周期里消失。
+function hostToolsNotice(t) {
+  if (t.Sandboxed) return t.Notice || "";
+  const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
+  return t.Notice ? devMsg + " " + t.Notice : devMsg;
 }
 
 // renderUpdateBadge 更新工具链图标的小红点和弹框内的更新提示条。
@@ -1173,13 +1182,12 @@ function renderStatusbar(t) {
   sb.textContent = parts.join("　·　");
 }
 
-// renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区。
+// renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区，
+// 对应提示条文案见 hostToolsNotice。
 function renderHostTools(t) {
   const hostBox = $("#card-hosts");
   if (!t.Sandboxed) {
     hostBox.classList.add("hidden");
-    const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
-    $("#toolchain-notice").textContent = t.Notice ? devMsg + " " + t.Notice : devMsg;
     return;
   }
   hostBox.classList.remove("hidden");
