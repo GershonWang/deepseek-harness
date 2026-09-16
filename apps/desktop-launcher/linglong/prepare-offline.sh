@@ -72,19 +72,49 @@ inject_workspace_pkg() {
   case "$pkgname" in @deepseek-ai/* ) ;; *) return 0 ;; esac
   short=${pkgname#@deepseek-ai/}
   dest="$STAGE/harness/node_modules/@deepseek-ai/$short"
-  # 注入条件：目标目录不存在，或已存在但 lib/ 内容缺失（pnpm deploy --prod
-  # 闭包可能通过软链创建了空壳目录，但 vendor 包作为 devDependency 不会被
-  # deploy 安装实际内容，需要从工作区源码补入）
-  if { [ ! -d "$dest" ] || [ ! -f "$dest/lib/index.js" ]; } && [ -d "$pkgdir/lib" ]; then
+  # 注入条件：目标目录不存在，或已存在但该包声明的入口文件不在（pnpm deploy
+  # --prod 闭包可能通过软链创建了空壳目录，但 vendor 包作为 devDependency 不会被
+  # deploy 安装实际内容，需要从工作区源码补入）。判据必须取自包自己的
+  # package.json：曾经写死 lib/index.js，而 @deepseek-ai/schemastery 的入口是
+  # lib/index.cjs —— 守卫恒真、每次都进注入分支，日志假装在补闭包，真正缺文件时
+  # 反而永远补不上。
+  inject=1
+  if [ -d "$dest" ]; then
+    # 入口候选 = module/main + exports["."]，去重后逐个比对；一个都没命中才补。
+    for rel in $(node -e "
+const p = require('./$pkgdir/package.json');
+const ex = p.exports && p.exports['.'];
+const fromExports = typeof ex === 'string' ? ex : (ex && (ex.import || ex.require));
+const list = [p.module, p.main, fromExports].filter((v) => typeof v === 'string' && v);
+process.stdout.write([...new Set(list)].join('\n'));
+" 2>/dev/null || true); do
+      if [ -f "$dest/${rel#./}" ]; then
+        inject=0
+        break
+      fi
+    done
+  fi
+  if [ "$inject" = "1" ] && [ -d "$pkgdir/lib" ]; then
     echo "prepare-offline: injecting $pkgname from $pkgdir"
-    mkdir -p "$dest"
+    mkdir -p "$dest/lib"
     # 只拷运行时需要的：lib/ + bin/ + package.json + README*
     # 不拷 src/ tests/ tsconfig*.json tsdown.config.* 等开发文件（缩小闭包）
-    cp -a "$pkgdir/lib" "$dest/lib"
-    [ -d "$pkgdir/bin" ] && cp -a "$pkgdir/bin" "$dest/bin" 2>/dev/null || true
-    cp "$pkgdir/package.json" "$dest/package.json" 2>/dev/null || true
-    for f in README*; do
-      [ -f "$pkgdir/$f" ] && cp "$pkgdir/$f" "$dest/$f" 2>/dev/null || true
+    # 源路径带 /. ：目标 lib/ 已存在时 `cp -a src/lib dest/lib` 会把整个目录当成
+    # 子项放进去（产物里多出 lib/lib 的重复内容）。
+    cp -a "$pkgdir/lib/." "$dest/lib/"
+    # 这三处不再用 `2>/dev/null || true` 吞掉失败：补不进去时必须让构建失败，
+    # 静默跳过只会产出缺文件的闭包，而失败现场已经没有人能看见了。
+    if [ -d "$pkgdir/bin" ]; then
+      mkdir -p "$dest/bin"
+      cp -a "$pkgdir/bin/." "$dest/bin/"
+    fi
+    cp "$pkgdir/package.json" "$dest/package.json"
+    # glob 必须锚定在 $pkgdir：裸 README* 在 CWD（仓库根）展开，匹配到的是仓库
+    # 自己的 README，包内那份永远拷不进去。
+    for f in "$pkgdir"/README*; do
+      if [ -f "$f" ]; then
+        cp "$f" "$dest/"
+      fi
     done
   fi
 }
