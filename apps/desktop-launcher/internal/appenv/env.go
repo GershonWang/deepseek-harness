@@ -208,16 +208,35 @@ func ConfigureChildEnv(home string) {
 	if info, err := os.Stat(bin); err == nil && info.IsDir() {
 		segs = append(segs, bin)
 	}
-	if len(segs) > 0 {
-		_ = os.Setenv("PATH", strings.Join(append(segs, os.Getenv("PATH")), string(os.PathListSeparator)))
-	}
+	prependPathEnv("PATH", segs)
 	if info, err := os.Stat(lib); err == nil && info.IsDir() {
-		if old := os.Getenv("LD_LIBRARY_PATH"); old != "" {
-			_ = os.Setenv("LD_LIBRARY_PATH", lib+string(os.PathListSeparator)+old)
-		} else {
-			_ = os.Setenv("LD_LIBRARY_PATH", lib)
-		}
+		prependPathEnv("LD_LIBRARY_PATH", []string{lib})
 	}
+}
+
+// prependPathEnv 把 segs 按给定顺序前置进名为 key 的路径列表变量，并先剔除同名旧段。
+//
+// ConfigureChildEnv 在安装、切换、卸载工具后会被反复调用。若只是无条件前置，固定
+// 段每轮都会再加一份，PATH 与 LD_LIBRARY_PATH 随操作次数线性膨胀且永不收敛，子进程
+// 的搜索路径也随之变长。只剔除与 segs 完全相同的段：用户自己加进 PATH 的其它目录
+// 原样保留。空段一并丢弃——POSIX 下空段表示当前目录，把它带进子进程等于允许从
+// 任意工作目录执行命令，且这里没有任何理由保留它。
+func prependPathEnv(key string, segs []string) {
+	if len(segs) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(segs))
+	for _, seg := range segs {
+		drop[seg] = true
+	}
+	kept := make([]string, 0, len(segs)+4)
+	for _, old := range filepath.SplitList(os.Getenv(key)) {
+		if old == "" || drop[old] {
+			continue
+		}
+		kept = append(kept, old)
+	}
+	_ = os.Setenv(key, strings.Join(append(append([]string{}, segs...), kept...), string(os.PathListSeparator)))
 }
 
 // hostToolBins 扫描宿主挂载基址下各工具链的生效 bin 目录（按名字排序）。
