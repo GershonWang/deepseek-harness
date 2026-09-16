@@ -445,3 +445,77 @@ func TestUpdateNotice(t *testing.T) {
 		})
 	}
 }
+
+// TestFinishStartupDoctor_StaleEpochDiscarded 固定自动诊断的收尾归属只认 epoch：
+// 被新一轮诊断取代的旧诊断不得写入结论，也不得把 running 置回 false——那会让
+// 真正的新诊断在收尾时被误判为"周期已重置"而丢弃自己的结论。
+func TestFinishStartupDoctor_StaleEpochDiscarded(t *testing.T) {
+	a := testApp()
+	a.mu.Lock()
+	a.doctorEpoch = 7
+	a.startupDoctorRunning = true
+	a.startupDoctorReady = false
+	a.startupDoctorError = ""
+	a.mu.Unlock()
+
+	if a.finishStartupDoctor(6, "旧诊断的错误") {
+		t.Fatal("过期 epoch 不应写入状态")
+	}
+	running, ready, _, errText := doctorFlags(a)
+	if !running || ready || errText != "" {
+		t.Fatalf("过期诊断不得改动状态: running=%v ready=%v err=%q", running, ready, errText)
+	}
+}
+
+// TestFinishStartupDoctor_CurrentEpochWrites 当前那次的结论正常落盘，
+// 并清空 cancel/done 追踪引用。
+func TestFinishStartupDoctor_CurrentEpochWrites(t *testing.T) {
+	a := testApp()
+	a.mu.Lock()
+	a.doctorEpoch = 7
+	a.startupDoctorRunning = true
+	a.doctorCancel = func() {}
+	a.doctorDone = make(chan struct{})
+	a.mu.Unlock()
+
+	if !a.finishStartupDoctor(7, "boom") {
+		t.Fatal("当前 epoch 应写入状态")
+	}
+	running, ready, _, errText := doctorFlags(a)
+	if running || !ready || errText != "boom" {
+		t.Fatalf("状态错误: running=%v ready=%v err=%q", running, ready, errText)
+	}
+	a.mu.Lock()
+	cancel, done := a.doctorCancel, a.doctorDone
+	a.mu.Unlock()
+	if cancel != nil || done != nil {
+		t.Fatal("收尾后应清空 cancel/done 追踪引用")
+	}
+}
+
+// TestResetStartupDoctor_InvalidatesInFlightRun 退出失败态的重置必须让在途诊断过期：
+// 取消它之后它仍可能收尾，而此刻下一个失败周期的诊断可能已经在跑。
+func TestResetStartupDoctor_InvalidatesInFlightRun(t *testing.T) {
+	a := testApp()
+	cancelled := false
+	a.mu.Lock()
+	a.doctorEpoch = 3
+	myEpoch := a.doctorEpoch
+	a.startupDoctorRunning = true
+	a.doctorCancel = func() { cancelled = true }
+	a.doctorDone = make(chan struct{})
+	a.mu.Unlock()
+
+	a.resetStartupDoctor()
+	if !cancelled {
+		t.Fatal("reset 应取消在途诊断")
+	}
+	if a.finishStartupDoctor(myEpoch, "被取消的诊断") {
+		t.Fatal("reset 之后的旧诊断不得写入状态")
+	}
+	running, ready, doneOnce, errText := doctorFlags(a)
+	if running || ready || doneOnce || errText != "" {
+		t.Fatalf("reset 后应保持清空态: running=%v ready=%v doneOnce=%v err=%q",
+			running, ready, doneOnce, errText)
+	}
+}
