@@ -1,0 +1,53 @@
+# Agent Note: Clipboard image paste in a Wayland session
+
+Status: implemented
+
+English | [中文](2026-09-17-wayland-clipboard-image-paste.zh.md)
+
+## Problem
+
+Pasting a screenshot into the packaged client did nothing once the session ran on Wayland, and the read never returned. Three independent defects stacked.
+
+The clipboard reader hard-coded its X server: abstract socket `/tmp/.X11-unix/X0`, file socket `/tmp/.X11-unix/X0`, then TCP `127.0.0.1:6000`. An X11 session's X server is `:0`, which is why this survived; a Wayland session's is XWayland on `:1`, so the client talked to a server that was not there and never tried the one that was.
+
+The authentication request omitted the protocol's 4-byte padding after auth name and auth data. `MIT-MAGIC-COOKIE-1` is 18 bytes, so the request must be `12 + 20 + 16 = 48` bytes and went out as 46. A real server does not answer a short request with `Failed`; it keeps waiting for the missing bytes, and the reader had no deadline, so the whole clipboard read blocked forever — the "nothing happens and it never comes back" symptom. The same reply parser read the `Failed` reply's additional-data length as bytes where the wire format counts 4-byte units, leaving three quarters of that payload in the connection.
+
+Both defects only bite when the server demands a cookie, which is exactly the XWayland case: X11 hosts commonly accept the local connection without authentication, so the no-auth attempt succeeded there and the cookie path was never exercised. The fake X server in `x11_test.go` had the same blind spot — it read `nameLen+dataLen` bytes, which accepted the malformed 46-byte request — so the padding defect was invisible to the suite.
+
+A selection held by a Wayland client also cannot fall back through X11: measured, XWayland does not bridge Wayland's `image/png` into an X11 selection. The same 12420-byte PNG placed on the Wayland clipboard came back from `wl-paste` (12453 bytes; deepin's clipboard daemon re-encodes it) while X11 `CLIPBOARD`/`PRIMARY` yielded 0 bytes. A selection held by an XWayland client still reaches the X11 channel. The reader's Wayland channel shells out to `wl-paste`, but `wl-clipboard` was absent from the package, the host and the base runtime alike, so that channel silently returned nothing.
+
+## Decision
+
+Derive the X server from `DISPLAY` instead of hard-coding it, honour the setup wire format, and bundle `wl-clipboard`.
+
+`connectSocket` walks the transports for the session's `DISPLAY` (abstract socket, file socket, then TCP for remote displays) and gives up on the X11 channel when `DISPLAY` is unset or unparsable. Guessing a display is what produced the wrong-server connection in the first place, so the fallback chain no longer includes a guess.
+
+`setup` pads auth name and data through `pad4`, multiplies the `Failed` additional-data length by 4, and sets `readTimeout` for the handshake read, cleared once the handshake succeeds so the per-request deadlines that follow still own their own timing. A protocol fault now surfaces as a timeout instead of an unbounded block.
+
+`buildext.apt.depends` gains `wl-clipboard`; `tools.yaml` registers `wl-paste` with `verify: wl-paste --version`, which runs without a compositor and exits 0, so a headless build host can check it honestly; and `verify-merged-deps.sh` claims the dependency as `tool:wl-paste`, so it cannot be declared without a landing check. The reader's existing lookup order (PATH first, then the host-mount and system paths) finds `$PREFIX/bin/wl-paste` because that directory is on the container PATH.
+
+## Alternatives considered
+
+**Implement `wl_data_device`/`wlr-data-control` directly in Go.** The Wayland channel transfers file descriptors across processes and needs a full event loop; `wayland.go` already records that the error surface outweighs one `exec`.
+
+**Keep the package free of `wl-clipboard` and rely on the host.** The host does not ship it either, and the read happens inside the container.
+
+**Make the X11 channel carry Wayland-owned selections instead.** Measurement rules this out: the bridge carries no image format, so a selection held by a Wayland client cannot be read through X11 regardless of transport or authentication.
+
+## Consequences
+
+Clipboard image paste works in both session types. X11 sessions keep the self-implemented wire client and now also work on hosts that demand a cookie; Wayland sessions read through the bundled `wl-paste`. The package grows by `wl-clipboard` (a 24 KB deb; its `libwayland-client` dependency is already present through GTK). Because the X11 channel is attempted first and a Wayland clipboard yields an empty X11 selection, every Wayland paste pays one failed X11 round trip before falling through — bounded now, not free.
+
+## Testing
+
+`go build`, `go vet` and `go test ./internal/clipboard/` pass. New tests pin the wire format: `TestSetupRequestWireFormat` asserts the 48-byte handshake in full (length fields 18/16, two zero pad bytes, cookie at `[32:48]`) and that the `Failed` reply is consumed completely; `TestPad4` covers alignment and that the helper does not mutate its input; `TestX11Transports`, `TestConnectSocketFollowsDisplay`, `TestConnectSocketNoDisplay` and `TestReadImageSkipsX11WithoutDisplay` cover display derivation and the no-`DISPLAY` short circuit. `authFakeServer` now reads requests at their padded length and fails the test when the pad bytes are not zero.
+
+End to end with real components, in the environment the container sees (`DISPLAY=:1`, `XAUTHORITY=/run/linglong/Xauthority`, the session's Wayland socket): with the host's `xclip` owning X1's `CLIPBOARD`, `ReadImage()` returned the 12420-byte PNG byte for byte; with a real `wl-copy` owning the Wayland clipboard, it returned the 12453 bytes `wl-paste` serves.
+
+Packaging gates: `test-verify-tools.sh`, `test-verify-merged-deps.sh` and `test-verify-container-deps.sh` all pass, including the case that requires every declared dependency to be claimed by the rule table. Removing `bin/wl-paste` from a healthy tree makes `verify-merged-deps.sh` report `FAIL wl-clipboard` and exit non-zero, which shows the new claim is load-bearing.
+
+Not done: no real `ll-builder` build and no install of the rebuilt package on a machine, so "the shipped package pastes screenshots under Wayland" is a per-stage measurement rather than a closed end-to-end loop.
+
+## Related
+
+Packaging precedent: [Bundle a real xdg-open in the desktop launcher package](2026-08-27-bundle-xdg-open-for-host-browser-opening.md). Audit entries in `apps/desktop-launcher/AUDIT.md`: N4 (cookie length byte order, the previous defect in this same handshake), S3 (unvalidated setup reply) and N30 (this round).

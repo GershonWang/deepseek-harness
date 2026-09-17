@@ -159,7 +159,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 ## 容器可用性（工具链/挂载）
 
-- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
+- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils/wl-clipboard；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
 - 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）在归档 sha256 与清单一致后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；该比对是对清单的一致性校验，不是对清单的来源认证——清单自身由 `internal/toolchain/remote.go` 固定的提交哈希锚定，因此对工具市场的信任收敛为对已安装的 launcher 二进制的信任。自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。归档内文件名与应当暴露的命令名不一致时，清单用 `bin_names` 改名，值为空串则屏蔽该文件——避免把平台后缀名或发行包自带的辅助脚本混进 PATH。市场的分类页签与其中文标签同样取自索引：页签按清单里实际出现的分类生成，标签来自索引的 `category_labels`（客户端保留一张同内容的兜底表，供旧索引使用），因此增删工具、新增分类本身仍是纯索引工作，只是索引地址固定到提交后，发布这类索引需要改该常量并重新发客户端——这是为认证清单付出的代价。多版本工具（当前只有 JDK 8/21）在卡片上给出版本下拉：未装时选要装的版本，已装后在已装版本间切换激活、直接安装清单里尚未安装的版本、按版本卸载；`versions` 的首项是推荐版本，「可更新」判定按版本号把它与当前激活版本比较（而不是字符串不等），因此顺序即语义。更新会把推荐版本设为当前版本，被替换的旧版本保留在磁盘上，下拉里仍可切回。`linglong/tools.yaml` 的 `installable` 只登记每个工具的推荐版本，其余版本以索引为唯一事实来源，`verify-tools.sh` 的占位哈希校验也只覆盖推荐版本。
 - 卡片状态语义：工具链市场的「已安装/可安装」只描述市场仓库（`$HOME/.dsh-tools`）里的版本目录，与容器内命令可用性相互独立。仓库未装但容器 PATH 已有同名命令（随包/宿主导入/系统提供）时，卡片显示「容器内已可用：命令 版本（来源）」；来源按命令解析路径前缀归类（`internal/app/app.go` 的 `classifyRuntimeSource`），探测与组装分别在 `internal/toolchain/check.go`（`ProbeCommands`）与 `annotateRuntime`。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
@@ -170,13 +170,20 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 不会把剪贴板位图交给页面：粘贴截图时 `clipboardData` 里没有图片条目，
 拖拽图片文件还会把整个帧导航走；文本（包括粘贴的路径）正常，图片不行。
 
-缓解方案保留 WebKitGTK 渲染器：壳进程（与宿主共享 X11 显示）自行读取
-`CLIPBOARD` selection，把 base64 PNG 通过既有的 `{ dshDesktop: true }`
-postMessage 协议交给页面。
+缓解方案保留 WebKitGTK 渲染器：壳进程自行读取剪贴板里的图片，把 base64 PNG
+通过既有的 `{ dshDesktop: true }` postMessage 协议交给页面。
 
-- Go：`internal/clipboard` 是零依赖的 X11 wire 客户端（无 cgo、无外部
-  工具），读取 `image/png` 并支持 INCR、超时与体积上限；
-  `App.ReadClipboardImage()`（Wails 绑定）返回 base64 或空串。
+- Go：`internal/clipboard` 按 X11 → Wayland 的顺序尝试两条通道。X11 通道是
+  自实现的 wire 客户端（无 cgo、无外部工具），目标 X server 由会话的
+  `DISPLAY` 推导（X11 会话是 `:0`，Wayland 会话是 XWayland 的 `:1`），读取
+  `CLIPBOARD`/`PRIMARY` 的 `image/png` 并支持 INCR、超时与体积上限；Wayland
+  通道交给随包的 `wl-paste`。`App.ReadClipboardImage()`（Wails 绑定）返回
+  base64 或空串。
+- Wayland 侧持有的 selection 只能靠 `wl-paste`：实测 XWayland 不把 Wayland 侧的
+  `image/png` 桥接成 X11 selection（同一张 PNG，`wl-paste` 读得到，X11
+  `CLIPBOARD`/`PRIMARY` 读到 0 字节）；XWayland 客户端持有的 selection 仍走
+  X11 通道。因此 `wl-clipboard` 随包合入 `${PREFIX}/bin`（`tools.yaml` 的
+  `wl-paste` 项），不依赖宿主是否装过。
 - 壳前端（`frontend/app.js`）：应答 harness iframe 的
   `clipboard-read-image` 请求，回发 `clipboard-image-result`。
 - harness UI（`packages/client/ui-conversation`）：`desktop-clipboard.ts`

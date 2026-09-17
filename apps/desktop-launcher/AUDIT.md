@@ -9,7 +9,7 @@
 - 分支 `linglong-dev`，基点提交 `dfd0e9d186`（与 `linglong` 的文件树完全相同，tree 均为 `eea557d697a7bce2b28f435e1ca070ef70ef73d7`）。
 - 玲珑包版本 `0.1.2.5`，产物 `com.deepseek.dsh-desktop_0.1.2.5_x86_64_main.uab` = **361 MB**（361,331,344 字节），解压后 **759 MB**。
 - 体积分布：`lib/` 320 MB（其中 `lib/x86_64-linux-gnu` **293 MB / 352 个 `.so`**）、`harness/` 254 MB、`node/` 147 MB、`bin/` 39 MB；生产闭包含 **264 个** `@deepseek-ai/*` 包。
-- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N29`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查，`N27`–`N29` 来自 2026-09-16 对 `0.1.3.2` 产物的复核）；审计轮次中另有三条前端与打包发现未占用 N 编号，记为 `N-extra`、`N-extra2`、`N-extra3`；审计者未编号的其余静态审查发现为 `S1`–`S7`。
+- 条目编号：首轮审计的条目沿用原编号 1–37；审计轮次新增条目沿用 `N` 系列（`N1`–`N29`，其中 `N20`–`N24` 来自 2026-09-14 的 JDK 多版本清单那一轮，`N25` 来自同日的 JDK 17 下架，`N26` 来自同日的依赖交付核查，`N27`–`N29` 来自 2026-09-16 对 `0.1.3.2` 产物的复核，`N30` 来自 2026-09-17 的 Wayland 会话剪贴板核查）；审计轮次中另有三条前端与打包发现未占用 N 编号，记为 `N-extra`、`N-extra2`、`N-extra3`；审计者未编号的其余静态审查发现为 `S1`–`S7`。
 - 行号以审计基点为准，代码改动后可能漂移。
 - `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 - `N25` 的基点：提交 `9621d91bff`（JDK 17 下架前的清单状态）；行号以该提交为准。
@@ -377,6 +377,19 @@
 - **建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
 - **2026-09-14 下架 17 后复核**：`17.0.20.1` 已不在清单（见 N25），未覆盖面收窄为 `8u504` 一条。
 
+## N30 Wayland 会话下粘贴截图不可用（三处缺陷叠加）
+
+- **状态**：已修（2026-09-17）｜✅ 实测复核
+- **位置**：`internal/clipboard/x11.go`（`connectSocket`、`setup`）、`linglong/linglong.yaml`（`buildext.apt.depends`）、`linglong/tools.yaml`
+- **问题**：用户切到 Wayland 会话后粘贴截图毫无反应且永不返回，三处缺陷各自独立成立：
+  1. `connectSocket` 把 X server 写死为抽象 socket `/tmp/.X11-unix/X0`、文件 socket `/tmp/.X11-unix/X0`，再退到 TCP `127.0.0.1:6000`。X11 会话的 X server 恰好是 `:0`，缺陷因此长期不显；Wayland 会话是 XWayland 的 `:1`，客户端连上的是另一个 X server（本机 `:0` 无人监听），而真正可用的 `:1` 从不被尝试。
+  2. `setup` 的认证请求未按协议把 auth name 与 auth data 各自补齐到 4 字节边界。`MIT-MAGIC-COOKIE-1` 是 18 字节，请求应为 `12 + 20 + 16 = 48` 字节，实际只发 46。服务端在请求短于预期时不回 `Failed` 而是继续等待，而 `setup` 的读取没有超时，整个剪贴板读取因此永久阻塞——这是「毫无反应且永不返回」的直接原因。`Failed` 回复的附加数据长度还按字节读（线上以 4 字节为单位），少读四分之三、把剩余数据留在连接里。
+  3. `wl-clipboard` 未随包（原编号 36 已注明）。实测 XWayland **不**把 Wayland 侧的 `image/png` 桥接成 X11 selection：同一张 12420 字节 PNG 放进 Wayland 剪贴板后，`wl-paste` 读到 12453 字节，X11 `CLIPBOARD`/`PRIMARY` 读到 0 字节。Wayland 侧持有的 selection 因此只有 `wl-paste` 一条路（XWayland 客户端持有的 selection 仍走 X11 通道），而宿主、基础运行时与产物层三处都没有 `wl-clipboard`，`readWaylandImage` 找不到命令即静默返回。
+- **影响**：Wayland 会话的核心能力（粘贴截图）完全不可用，且无日志、无提示——前两条让 X11 通道连不上正确的 server 或永久阻塞，第三条让 Wayland 通道无命令可用。X11 会话之所以正常，只是因为本机 X server 允许无认证连接，恰好绕过了第 2 条。
+- **修复**：`connectSocket` 改为按 `DISPLAY` 推导候选（抽象 socket → 文件 socket → TCP），解析不出 display 时不猜、直接放弃 X11 通道；`setup` 以 `pad4` 补齐 auth name/data，`Failed` 的附加数据长度乘 4，并给 `setup` 的读取加 `readTimeout`（成功后撤销），使协议异常不再退化成无限阻塞；`buildext.apt.depends` 随包 `wl-clipboard`，`tools.yaml` 增加 `wl-paste` 项，`verify-merged-deps.sh` 认领该依赖。
+- **覆盖缺口**：`authFakeServer` 原先只读 `nameLen+dataLen` 字节，恰好接受了那份 46 字节的畸形请求——用例因此**掩盖**了第 2 条；现改为按协议补齐后的长度读取并校验补齐位为 0。`fakeXServer` 只读 12 字节 setup、对首个无认证请求直接回成功，cookie 路径也从未被覆盖。
+- **验证边界**：两条通道各自以真实组件端到端跑通（见附录 G 的实测数据）。**未做**真实 `ll-builder` 构建与实机安装运行——本机跑不了完整容器构建，因此「随包后新包在 Wayland 会话下可用」尚未端到端闭环。
+
 ---
 
 # 三、低危
@@ -639,6 +652,21 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 
 ---
 
+# 附录 G：2026-09-17 Wayland 会话剪贴板修复
+
+承接 N30。行号基准为本批次开始前的 HEAD `ab2b294cc1`（`refactor` 拆分 clipboard 包之后）。
+
+| 条目 | 提交 | 改动 | 验证 |
+|---|---|---|---|
+| N30-1/2 X11 通道 | `1980cf1d73` | `connectSocket` 按 `DISPLAY` 推导候选（抽象 socket → 文件 socket → TCP），`DISPLAY` 为空或解析不出时短路；`setup` 以 `pad4` 补齐 auth name/data、`Failed` 附加数据长度乘 4、加 `readTimeout` 并在握手成功后撤销 | 新增 `TestSetupRequestWireFormat`（断言握手 48 字节、补齐位为 0、长度字段 18/16、`Failed` 应答被完整消费）、`TestPad4`、`TestX11Transports`/`TestConnectSocketFollowsDisplay`/`TestConnectSocketNoDisplay`；`authFakeServer` 改为按协议补齐后的长度读取。端到端：宿主 `xclip` 持有 X1 的 `CLIPBOARD` 后 `ReadImage()` 读回 12420 字节且逐字节一致 |
+| N30-3 `wl-clipboard` 随包 | `b01ab65153` | `linglong.yaml` 的 `buildext.apt.depends` 增加 `wl-clipboard`；`tools.yaml` 增加 `wl-paste`（`verify: wl-paste --version`）；`verify-merged-deps.sh` 规则表认领 `wl-clipboard → tool:wl-paste`；两个自测脚本的桩树补 `bin/wl-paste` | `test-verify-tools.sh`、`test-verify-merged-deps.sh`、`test-verify-container-deps.sh` 全绿；反向验证：去掉 `bin/wl-paste` 即报 `FAIL wl-clipboard` 并退出非零，补上即通过。端到端：真实 `wl-copy` 持有 Wayland 剪贴板后，`wl-paste` 与其上层 `ReadImage()` 均读回 12453 字节 |
+
+**关键实测数据**：同一张 12420 字节 PNG 放进 Wayland 剪贴板后，X11 `CLIPBOARD`/`PRIMARY` 读到 0 字节，`wl-paste` 读到 12453 字节（deepin 剪贴板守护进程重编码，多出的 33 字节仍在 PNG 合法范围内），`ReadImage()` 返回后者——即 XWayland 不桥接图片格式，Wayland 会话只能走 `wl-paste`。`wl-paste --version` 无需连接合成器即可运行（无 `WAYLAND_DISPLAY` 时退出码 0），所以能安全用作无会话构建机上的 `verify`。
+
+**验证边界**：未触发真实 `ll-builder` 构建，也未把新包装到机器上运行；两条通道是在与容器同源的环境（同一 `DISPLAY=:1`、`XAUTHORITY=/run/linglong/Xauthority`、同一 Wayland socket）下以真实组件分别跑通的。因此「随包后新包在 Wayland 会话下可用」是按环节实测推出的结论，尚缺一次实机闭环。
+
+---
+
 # 附录 A：已结案
 
 以下条目在审计后已修复、已评估后决定不做，或前提不成立。保留在此避免重复提出。表中 `18` 附有一项尚未闭环的人工验证点（见文末「原编号 18 的遗留待验证点」），在该点验证前不应按「已结案」对待。
@@ -656,7 +684,7 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 | 18 Go 绑定缺授权层 | 🔵 前提不成立（附一项未闭环验证） | harness GUI 是跨源 iframe，Wails 只向自己 asset server 的主页注入 runtime，iframe 内 `window.go` 不可达。**遗留待验证点见文末** |
 | 21 外部服务只确认一次 | 🟡 题面「或」分支已满足 | `NeedConfirmation` 仍按 hostname 每会话一次；但「状态栏常显 hostname」已落地（`app.js:156-175`，提交 `c3928e3192`） |
 | 29 前端 JS 去重 | ✅ 已完成 | 只剩 `escapeHtml`（`app.js:20`），`esc` 已不存在 |
-| 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/x11.go:76-79` + `readWaylandImage`（`:871-925`）。**注意**：依赖宿主/容器存在 `wl-paste`，而 `wl-clipboard` 未随包（`tools.yaml` 与 `buildext.apt.depends` 都没有） |
+| 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/clipboard.go` 的 `ReadImage` 按 X11 → Wayland 顺序取图，Wayland 侧是 `internal/clipboard/wayland.go` 的 `readWaylandImage`。原先「依赖 `wl-paste` 而 `wl-clipboard` 未随包」的缺口已由 N30 补齐 |
 | 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
 | N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
 | N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |

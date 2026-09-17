@@ -159,7 +159,7 @@ External links cannot open through WebKit's new-window path in the Wails webview
 
 ## Container usability (toolchain/mounts)
 
-- Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
+- Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils/wl-clipboard; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
 - On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after the archive's sha256 matches its catalog entry, and the launcher injects PATH/LD_LIBRARY_PATH automatically; that comparison is an integrity check against the catalog rather than authentication of it — the catalog's own content is anchored by the commit hash pinned in `internal/toolchain/remote.go`, so trust in the market reduces to trust in the launcher binary you installed. The self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes. When an archive's file names differ from the commands they should expose, the catalog's `bin_names` renames them, or suppresses them with an empty value — keeping platform-suffixed names and bundled helper scripts out of PATH. The market's category tabs and their Chinese labels also come from the index: tabs are built from the categories present in the catalog, and labels come from the index's `category_labels` (the client keeps a matching fallback table for older indexes), so adding or removing tools and introducing a category stays pure index work, except that the pinned catalog location means publishing such an index requires bumping that constant and shipping a new launcher — the deliberate cost of authenticating the catalog. A tool with several versions (today only JDK 8/21) offers a version dropdown on its card: pick the version to install when absent, switch the active version among the installed ones, install a catalog version that is not installed yet, and uninstall per version; the first `versions` entry is the recommended one, and update detection compares it against the active version by version number rather than by string equality, so the order is semantic. Updating activates the recommended version and leaves the replaced one on disk, where the dropdown still offers it. `linglong/tools.yaml`'s `installable` records only each tool's recommended version, leaving the remaining versions to the index as their single source of truth, so `verify-tools.sh`'s placeholder-hash check covers the recommended version only.
 - Card state semantics: the market dialog's "installed/installable" only describes version directories in the market store (`$HOME/.dsh-tools`), independently of command availability inside the container. When a tool is not in the store but the container PATH already provides a command it declares (bundled / host-imported / system), the card shows "容器内已可用：command version (source)"; the source is classified by the resolved binary path prefix (`classifyRuntimeSource` in `internal/app/app.go`), with probing and assembly in `internal/toolchain/check.go` (`ProbeCommands`) and `annotateRuntime`.
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
@@ -171,14 +171,23 @@ Chromium, WebKitGTK never surfaces clipboard bitmaps to the page: pasting a
 screenshot produces no `clipboardData` image item, and dragging an image file
 navigates the frame. Text (including pasted paths) works; images do not.
 
-The workaround keeps the WebKitGTK renderer: the shell process — which shares
-the host X11 display — reads the `CLIPBOARD` selection itself and hands the
-page a base64 PNG over the existing `{ dshDesktop: true }` postMessage protocol.
+The workaround keeps the WebKitGTK renderer: the shell process reads the
+clipboard image itself and hands the page a base64 PNG over the existing
+`{ dshDesktop: true }` postMessage protocol.
 
-- Go: `internal/clipboard` is a zero-dependency X11 wire client
-  (no cgo/no external tools) that reads `image/png` with INCR support,
-  timeouts and payload caps; `App.ReadClipboardImage()` (Wails binding)
-  returns base64 or `""`.
+- Go: `internal/clipboard` tries two channels, X11 before Wayland. The X11
+  channel is a self-implemented wire client (no cgo/no external tools) that
+  derives the target X server from the session's `DISPLAY` (the X11 session is
+  `:0`, a Wayland session is XWayland's `:1`) and reads `image/png` from
+  `CLIPBOARD`/`PRIMARY` with INCR support, timeouts and payload caps. The
+  Wayland channel delegates to the bundled `wl-paste`.
+  `App.ReadClipboardImage()` (Wails binding) returns base64 or `""`.
+- A selection held by a Wayland client must use `wl-paste`: XWayland does not
+  bridge Wayland's `image/png` into an X11 selection (the same PNG comes back
+  from `wl-paste`, while X11 `CLIPBOARD`/`PRIMARY` yield 0 bytes). A selection
+  held by an XWayland client still reaches the X11 channel. `wl-clipboard`
+  therefore ships in `${PREFIX}/bin` (the `wl-paste` entry in `tools.yaml`)
+  rather than relying on the host having it.
 - Shell frontend (`frontend/app.js`): answers `clipboard-read-image`
   messages from the harness iframe with `clipboard-image-result`.
 - Harness UI (`packages/client/ui-conversation`): `desktop-clipboard.ts`
