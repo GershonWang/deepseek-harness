@@ -6,9 +6,14 @@
 //     offers and pick the first raster one we can decode.
 //  2. X11 PRIMARY selection, same TARGETS-aware path (some apps only put
 //     screenshots on PRIMARY, or the user has "copy on select" behaviour).
-//  3. wl-paste (Wayland clipboard) when the host compositor is Wayland and
-//     X11 reading produced no image — XWayland clipboard bridges do not
+//  3. X11 CLIPBOARD text/uri-list: many screenshot tools save the capture to a
+//     file and put only the file URI on the clipboard.
+//  4. wl-paste (Wayland clipboard) image/* when the host compositor is Wayland
+//     and X11 reading produced no image — XWayland clipboard bridges do not
 //     always carry image formats across the protocol boundary.
+//  5. wl-paste (Wayland clipboard) text/uri-list: copying an image file in a
+//     Wayland file manager advertises no image/* type at all and is not bridged
+//     to X11 either.
 //
 // The X11 path uses a raw wire connection (no cgo, no external tools). It
 // exists because the packaged WebKitGTK renderer never surfaces clipboard
@@ -16,8 +21,8 @@
 // display server.
 //
 // 文件分工：本文件是包入口（ReadImage 策略编排）、后端无关的图片格式校验，以及
-// URI/路径解析（file:// → 本地路径、百分号解码、图片扩展名判定）——后者两个通道都
-// 要用，放在任一后端文件里都会让另一侧依赖它。X11 通道见 x11.go，Wayland 通道见
+// 「URI 列表 → 本地图片文件」的共享解析——X11 与 Wayland 两侧的 text/uri-list 都走
+// 它，放在任一后端文件里都会让另一侧依赖对方。X11 通道见 x11.go，Wayland 通道见
 // wayland.go。
 package clipboard
 
@@ -62,8 +67,14 @@ func ReadImage() ([]byte, error) {
 			return data, nil
 		}
 	}
-	// Strategy 4: Wayland clipboard via wl-paste (when available).
+	// Strategy 4: Wayland clipboard bitmap via wl-paste (when available).
 	if data := readWaylandImage(); data != nil && isPlausibleImage(data) {
+		return data, nil
+	}
+	// Strategy 5: Wayland clipboard text/uri-list → read the image file from
+	//    disk. Copying an image file in a Wayland file manager puts only a URI
+	//    list on the clipboard and is reachable no other way.
+	if data := readWaylandUriListImage(); data != nil && isPlausibleImage(data) {
 		return data, nil
 	}
 	return nil, errSelectionEmpty
@@ -253,4 +264,38 @@ func isImageExtension(path string) bool {
 		}
 	}
 	return false
+}
+
+// readImageFileFromURIList 从一份 URI 列表文本里取出第一个可读图片文件的内容，没有
+// 可用文件时返回 nil。X11 的 text/uri-list 属性与 Wayland 侧 wl-paste 取到的
+// text/uri-list / x-special/gnome-copied-files 共用它：三者行格式一致——每行一个
+// URI，空行与 # 开头的注释行跳过。gnome-copied-files 的首行是 copy/cut，uriToPath
+// 判定它不是 file:// 后自然跳过，无需特判。
+//
+// 扩展名是文件管理器给的第一道筛子，不是可信输入：读进来的字节还要过 isValidImage
+// 的魔数校验，否则一个改了后缀的文本文件会被当成图片交给渲染层。单个文件超过
+// maxImageBytes 直接跳过，避免把整张超大图读进内存。
+func readImageFileFromURIList(data []byte) []byte {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		path := uriToPath(line)
+		if path == "" || !isImageExtension(path) {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil || info.IsDir() || info.Size() == 0 || info.Size() > int64(maxImageBytes) {
+			continue
+		}
+		fileData, err := os.ReadFile(path)
+		if err != nil || len(fileData) == 0 {
+			continue
+		}
+		if isValidImage(fileData) {
+			return fileData
+		}
+	}
+	return nil
 }

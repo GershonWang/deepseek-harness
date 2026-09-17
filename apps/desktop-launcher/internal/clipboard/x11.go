@@ -72,9 +72,10 @@ func readX11Images() ([]byte, error) {
 //
 // Many screenshot tools (including deepin-screenshot in the "save to file"
 // workflow) put only a file:// URI on the clipboard rather than the bitmap
-// itself. Since the shell process runs inside the Linglong container, the
-// target file must be under a path that the container can read (typically
-// the user's home directory when mounted).
+// itself. The Linglong container bind-mounts the user's home, /media and /mnt
+// at the same paths as the host, so such a URI resolves inside the container
+// without any path translation; a URI pointing outside those mounts is simply
+// unreadable and gets skipped by the shared parser.
 func readX11UriListImage() []byte {
 	x, err := dial()
 	if err != nil {
@@ -101,37 +102,7 @@ func readX11UriListImage() []byte {
 	if err != nil || len(data) == 0 {
 		return nil
 	}
-
-	// text/uri-list: one URI per line, lines starting with # are comments.
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		path := uriToPath(line)
-		if path == "" {
-			continue
-		}
-		if !isImageExtension(path) {
-			continue
-		}
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		if info.Size() > int64(maxImageBytes) || info.Size() == 0 {
-			continue
-		}
-		fileData, err := os.ReadFile(path)
-		if err != nil || len(fileData) == 0 {
-			continue
-		}
-		if isValidImage(fileData) {
-			return fileData
-		}
-	}
-	return nil
+	return readImageFileFromURIList(data)
 }
 
 // xconn is one X11 wire connection. Methods are strictly serial: each call
