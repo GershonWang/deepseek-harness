@@ -58,7 +58,7 @@ Wayland 侧持有的 selection 也无法经 X11 兜底：实测 XWayland 不把 
 
 真实 `ll-builder` 构建随后把打包问题也闭环了（`.uab` sha256 `0cee3d5520be6b9470512c56fc10ed3a53efeb7bd13029df69a67e71b70f31c9`）：`verify-merged-deps` 报 `OK wl-clipboard (tools.yaml: wl-paste → bin/wl-paste)`，`verify-tools` 报 `OK wl-paste`，构建器日志无未豁免的 `failed to copy`，导出 347 MiB 的 `.uab`。安装后的 launcher 二进制含 `readWaylandUriListImage` 与 `readImageFileFromURIList`——这两个符号只在本次修复后才存在，说明交付的确实是修复后的产物。随包的 `wl-paste` 从运行中容器的 rootfs 内执行，连上真实合成器并列出了当前剪贴板类型，即客户端实际执行的二进制在容器内可用。随后 Wayland 会话的人工验收四项全过：文字粘入、文字粘出、截图粘贴、文管图片文件粘贴。
 
-仍未验收：X11 会话的运行时行为。安装后未切换会话——机器上最后一次 X11 痕迹早于安装。X11 代码路径只以 `DISPLAY=:1` 且 `WAYLAND_DISPLAY` 未设的方式跑过，位图与 `text/uri-list` 各读回 25151 字节；与真机 X11 会话仅差 display 号与 `XAUTHORITY` 取值，二者均有单测覆盖。
+随后 X11 会话也在机器上验收过。切换会话后，从运行中的客户端读到 `XDG_SESSION_TYPE=x11`、`DISPLAY=:0`、`XAUTHORITY=/run/linglong/Xauthority`、无 `WAYLAND_DISPLAY`，Xorg 跑在 `:0`；人工验收同样四项全过。以该会话真实环境驱动 `ReadImage()`：`CLIPBOARD` 位图、`CLIPBOARD` 的 `text/uri-list`、`PRIMARY` 位图各读回 25151 字节。`PRIMARY` 这一项在首次尝试时读到 0 字节，当时未先核对 selection 持有者；随后以完全相同序列重跑三轮、每轮先确认持有者确实持有 25151 字节，三轮全过，故属测试脚本竞态而非代码缺陷，机制未捕获。
 
 ## 相关
 
