@@ -56,7 +56,9 @@ The bridge measurement was repeated with the real screenshot tool (region captur
 
 Packaging gates: `test-verify-tools.sh`, `test-verify-merged-deps.sh` and `test-verify-container-deps.sh` all pass, including the case that requires every declared dependency to be claimed by the rule table. Removing `bin/wl-paste` from a healthy tree makes `verify-merged-deps.sh` report `FAIL wl-clipboard` and exit non-zero, which shows the new claim is load-bearing.
 
-Not done: no real `ll-builder` build and no install of the rebuilt package on a machine, so "the shipped package pastes screenshots under Wayland" is a per-stage measurement rather than a closed end-to-end loop.
+A real `ll-builder` build then closed the packaging question (`.uab` sha256 `0cee3d5520be6b9470512c56fc10ed3a53efeb7bd13029df69a67e71b70f31c9`): `verify-merged-deps` reported `OK wl-clipboard (tools.yaml: wl-paste → bin/wl-paste)`, `verify-tools` reported `OK wl-paste`, the builder log had no unexempted `failed to copy`, and the export produced a 347 MiB `.uab`. The installed launcher binary contains `readWaylandUriListImage` and `readImageFileFromURIList`, symbols that exist only after this fix, so the shipped package carries it. Executed from the running container's own rootfs, the packaged `wl-paste` reached the live compositor and listed the current clipboard types, which means the binary the client actually runs works inside the container. Manual acceptance on the machine then passed all four Wayland paths: pasting text into the client, copying text out of it, pasting a screenshot, and pasting an image file copied in the file manager.
+
+Still unverified: the X11 session at runtime. No session switch was run after the install — the last X11 session traces on the machine predate it. The X11 code path was exercised with `DISPLAY=:1` and `WAYLAND_DISPLAY` unset, reading 25151 bytes from both a bitmap and a `text/uri-list`; that differs from a real X11 session only in the display number and the `XAUTHORITY` value, both covered by unit tests.
 
 ## Related
 
