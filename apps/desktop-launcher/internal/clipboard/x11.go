@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -273,19 +274,101 @@ var socketDial = func(network, addr string, timeout time.Duration) (net.Conn, er
 	return net.DialTimeout(network, addr, timeout)
 }
 
-// connectSocket tries the abstract unix socket first (how the Linglong
-// container reaches the shared X server), then the classic path, then TCP.
+// x11Transport 描述一条通往 X server 的候选传输路径。
+type x11Transport struct {
+	network string // "unix" 或 "tcp"
+	addr    string // unix socket 路径（抽象 socket 以 \x00 开头）或 host:port
+}
+
+// x11Transports 按 DISPLAY 推导候选路径，返回值顺序即尝试顺序。
+//
+// display number 必须来自环境，不能写死：X11 会话通常是 :0，Wayland 会话经
+// XWayland 通常是 :1。写死 X0 会让 Wayland 会话连到无关的 X server——轻则
+// 认证被拒，重则读到另一个 server 的空剪贴板而看不出错。
+//
+// 容器里抽象 socket 优先：Linglong 与宿主共享 network namespace，抽象 socket
+// 不经文件系统挂载即可达；文件路径是 linyaps 按 DISPLAY 显式 bind 的那份，作
+// 次选；TCP 仅作兜底。
+func x11Transports(display string) []x11Transport {
+	if display == "" {
+		return nil
+	}
+	// DISPLAY 本身就是 unix socket 路径时按该路径连，不再拼 /tmp/.X11-unix。
+	if strings.HasPrefix(display, "/") {
+		return []x11Transport{{"unix", "\x00" + display}, {"unix", display}}
+	}
+	host, displayNo, ok := splitDisplay(display)
+	if !ok {
+		return nil
+	}
+	if host != "" {
+		return []x11Transport{{"tcp", net.JoinHostPort(host, strconv.Itoa(6000+displayNo))}}
+	}
+	return []x11Transport{
+		{"unix", "\x00/tmp/.X11-unix/X" + strconv.Itoa(displayNo)},
+		{"unix", "/tmp/.X11-unix/X" + strconv.Itoa(displayNo)},
+		{"tcp", "127.0.0.1:" + strconv.Itoa(6000+displayNo)},
+	}
+}
+
+// splitDisplay 解析 X11 的 [protocol/][host]:display[.screen]，返回主机名
+// （本地为空）与 display number。
+//
+// 只认这一个语法：解析失败即返回 ok=false，调用方据此放弃 X11 通道，而不是
+// 退回"猜一个 display"。容器内该值由 linyaps 从宿主透传，读不准时宁可走
+// Wayland 通道，也不能连到另一个 X server 上。
+func splitDisplay(display string) (host string, displayNo int, ok bool) {
+	rest := display
+	proto := ""
+	if i := strings.Index(rest, "/"); i >= 0 {
+		proto, rest = rest[:i], rest[i+1:]
+	}
+	i := strings.LastIndex(rest, ":")
+	if i < 0 {
+		return "", 0, false
+	}
+	host, rest = rest[:i], rest[i+1:]
+	if j := strings.Index(rest, "."); j >= 0 {
+		rest = rest[:j] // 丢掉 .screen：同一 server 的所有 screen 共用一个 socket
+	}
+	n, err := strconv.Atoi(rest)
+	if err != nil || n < 0 {
+		return "", 0, false
+	}
+	if host != "" && (proto == "unix" || proto == "local") {
+		host = ""
+	}
+	// "unix" 与 "local" 出现在主机位（unix:0）时同样表示本地 unix socket；
+	// localhost 是普通主机名，仍走 TCP。
+	if host == "unix" || host == "local" {
+		host = ""
+	}
+	return host, n, true
+}
+
+// connectSocket 按 DISPLAY 逐个尝试候选路径，返回第一个连上的连接。
+// 认证在 setup 里做；这里只负责选到与当前会话匹配的 X server，避免连上另一个
+// display 之后才在认证上失败。
 var connectSocket = func() (net.Conn, error) {
-	paths := []string{"\x00/tmp/.X11-unix/X0", "/tmp/.X11-unix/X0"}
-	for _, p := range paths {
-		if c, err := socketDial("unix", p, 2*time.Second); err == nil {
+	display := os.Getenv("DISPLAY")
+	for _, t := range x11Transports(display) {
+		if c, err := socketDial(t.network, t.addr, 2*time.Second); err == nil {
 			return c, nil
 		}
 	}
-	if c, err := socketDial("tcp", "127.0.0.1:6000", 2*time.Second); err == nil {
-		return c, nil
+	return nil, fmt.Errorf("clipboard: no X11 transport for DISPLAY=%q", display)
+}
+
+// pad4 把 b 补齐到 4 字节边界。X11 的 connection setup 请求里，auth name 与
+// auth data 之后各带 p = pad(n) 个未使用字节，服务端按补齐后的长度读取请求。
+// 已对齐时原样返回，不做多余分配。
+func pad4(b []byte) []byte {
+	if r := len(b) % 4; r != 0 {
+		out := make([]byte, len(b)+4-r)
+		copy(out, b)
+		return out
 	}
-	return nil, errors.New("clipboard: no X11 transport for DISPLAY=:0")
+	return b
 }
 
 // setup performs the connection handshake. The server replies with the same
@@ -319,10 +402,18 @@ func (x *xconn) setup() error {
 			// 认证必然被拒。
 			binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(name)))
 			binary.LittleEndian.PutUint16(hdr[8:10], uint16(len(auth)))
-			req = append(hdr, name...)
-			req = append(req, auth...)
+			// name 与 data 各自补齐到 4 字节边界（协议记作 p = pad(n)）。漏掉补齐
+			// 时请求比服务端期望的短，它不会回 Failed 而是继续等那几个字节，于是
+			// 下面的读取永久阻塞——表现为粘贴后毫无反应且永不返回。
+			req = append(hdr, pad4(name)...)
+			req = append(req, pad4(auth)...)
 		}
 		if _, err := x.c.Write(req); err != nil {
+			return err
+		}
+		// setup 是唯一不带自身超时的收发：服务端在请求不完整时保持沉默，
+		// 没有超时就会挂死整个剪贴板读取。
+		if err := x.setDeadline(readTimeout); err != nil {
 			return err
 		}
 		hdr := make([]byte, 8)
@@ -331,9 +422,14 @@ func (x *xconn) setup() error {
 		}
 		switch hdr[0] {
 		case 0: // failed
-			rl := int(binary.LittleEndian.Uint16(hdr[6:8]))
-			reason := make([]byte, rl)
-			_, _ = readFull(x.c, reason)
+			// 附加数据长度在线上以 4 字节为单位，不是字节数：按字节读会少读四分之三，
+			// 把剩余数据留在连接里。这里只是丢弃内容，但要读干净才不至于让残留
+			// 数据影响对后续回复的判断。
+			rl := int(binary.LittleEndian.Uint16(hdr[6:8])) * 4
+			if rl > 0 {
+				reason := make([]byte, rl)
+				_, _ = readFull(x.c, reason)
+			}
 			continue
 		case 1: // success
 			length := int(binary.LittleEndian.Uint16(hdr[6:8]))
@@ -359,7 +455,9 @@ func (x *xconn) setup() error {
 			}
 			x.root = binary.LittleEndian.Uint32(body[off : off+4])
 			x.resourceBase = binary.LittleEndian.Uint32(body[4:8])
-			return nil
+			// 撤掉 setup 的读超时：后续每个请求各自计时，留着这个已经开始的
+			// deadline 会让紧随其后的读取提前超时。
+			return x.c.SetReadDeadline(time.Time{})
 		}
 	}
 	return errors.New("clipboard: X setup failed for all auth attempts")

@@ -131,10 +131,29 @@ func TestGetPropertyDeleteFlag(t *testing.T) {
 // recordingConn records every write for wire-level assertions.
 type recordingConn struct {
 	write func(p []byte)
+	// sent 累积客户端写入的全部字节，供按字节序断言的用例使用。
+	sent []byte
+	// reply 非空时按字节流回放服务端应答，供需要走完握手的用例使用；
+	// 为空时读取直接返回 io.EOF，即只关心客户端写了什么。
+	reply []byte
 }
 
-func (r *recordingConn) Write(p []byte) (int, error) { r.write(p); return len(p), nil }
-func (r *recordingConn) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (r *recordingConn) Write(p []byte) (int, error) {
+	r.sent = append(r.sent, p...)
+	if r.write != nil {
+		r.write(p)
+	}
+	return len(p), nil
+}
+
+func (r *recordingConn) Read(p []byte) (int, error) {
+	if len(r.reply) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.reply)
+	r.reply = r.reply[n:]
+	return n, nil
+}
 func (r *recordingConn) Close() error                { return nil }
 func (r *recordingConn) LocalAddr() net.Addr         { return recAddr("rec") }
 func (r *recordingConn) RemoteAddr() net.Addr        { return recAddr("rec") }
@@ -205,9 +224,16 @@ type authAttempt struct {
 	auth    []byte
 }
 
+// paddedLen 是 X11 线格式中一个 n 字节字段补齐到 4 字节边界后的长度。这里独立写出
+// 公式而不复用被测代码的 pad4，避免断言跟着实现一起错。
+func paddedLen(n int) int { return (n + 3) &^ 3 }
+
 // authFakeServer 只回放 setup 握手，用于验证认证请求的线格式与重试时序。
 // 按协议，认证失败后它回 Failed 并关闭连接，因此客户端若在原连接上重试，
 // 第二次请求根本到不了服务端——这正是要固定的行为。
+//
+// 它按协议补齐后的长度读取请求，因此客户端漏发补齐字节时不会静默放过：真实服务端
+// 在那种情况下保持沉默，用例若也照单全收，就会掩盖"认证请求少 2 字节即永久阻塞"。
 type authFakeServer struct {
 	t      *testing.T
 	cookie []byte
@@ -246,18 +272,32 @@ func (s *authFakeServer) serve(c net.Conn) {
 	// 长度字段按客户端声明的字节序读；写成大端会读成 0x1200 = 4608。
 	nameLen := int(binary.LittleEndian.Uint16(req[6:8]))
 	dataLen := int(binary.LittleEndian.Uint16(req[8:10]))
-	rest := make([]byte, nameLen+dataLen)
+	// 协议要求 name 与 data 各自补齐到 4 字节边界，服务端也按补齐后的长度读请求。
+	// 客户端漏发补齐字节时，真实服务端不会回 Failed 而是继续等，表现成永久阻塞；
+	// 这里按补齐后的长度读，未补齐的请求读不满就会在此暴露。
+	namePad, dataPad := paddedLen(nameLen), paddedLen(dataLen)
+	rest := make([]byte, namePad+dataPad)
 	if _, err := io.ReadFull(c, rest); err != nil {
+		s.t.Errorf("setup 请求不完整：name=%d data=%d 连补齐应共 %d 字节（%v）",
+			nameLen, dataLen, len(rest), err)
 		return
 	}
+	for i := nameLen; i < namePad; i++ {
+		if rest[i] != 0 {
+			s.t.Errorf("auth name 的补齐字节应为 0，实际 %#x", rest[i])
+			return
+		}
+	}
+	name := rest[:nameLen]
+	data := rest[namePad : namePad+dataLen]
 	s.mu.Lock()
-	s.attempts = append(s.attempts, authAttempt{nameLen: nameLen, dataLen: dataLen, auth: rest[nameLen:]})
+	s.attempts = append(s.attempts, authAttempt{nameLen: nameLen, dataLen: dataLen, auth: data})
 	s.mu.Unlock()
 
 	wantName := []byte("MIT-MAGIC-COOKIE-1")
 	if len(s.cookie) > 0 &&
 		(nameLen != len(wantName) || dataLen != len(s.cookie) ||
-			!bytes.Equal(rest, append(append([]byte(nil), wantName...), s.cookie...))) {
+			!bytes.Equal(name, wantName) || !bytes.Equal(data, s.cookie)) {
 		fail := make([]byte, 8)
 		_, _ = c.Write(fail) // status 0 = Failed，reason 长度 0
 		return
@@ -313,6 +353,111 @@ func TestDialRetriesAuthOnFreshConnection(t *testing.T) {
 	}
 	if !bytes.Equal(got.auth, cookie) {
 		t.Fatalf("cookie = %x，期望 %x", got.auth, cookie)
+	}
+}
+
+// TestPad4 覆盖补齐的两个约束：结果对齐到 4 字节，且不就地改写入参——cookie 直接
+// 来自 loadXauthCookie，若补齐复用了它的底层数组，同一份内存会被后续使用污染。
+func TestPad4(t *testing.T) {
+	for _, c := range []struct{ in, want int }{
+		{0, 0}, {1, 4}, {2, 4}, {3, 4}, {4, 4}, {12, 12}, {16, 16}, {18, 20},
+	} {
+		got := pad4(make([]byte, c.in))
+		if len(got) != c.want {
+			t.Errorf("pad4(%d 字节) 长度 = %d，期望 %d", c.in, len(got), c.want)
+		}
+		if len(got)%4 != 0 {
+			t.Errorf("pad4(%d 字节) 长度 = %d，未对齐到 4 字节", c.in, len(got))
+		}
+	}
+
+	src := bytes.Repeat([]byte{0xAB}, 18)
+	pre := append([]byte(nil), src...)
+	got := pad4(src)
+	if !bytes.Equal(src, pre) {
+		t.Error("pad4 改写了入参内容")
+	}
+	if !bytes.Equal(got[18:], []byte{0, 0}) {
+		t.Errorf("补齐字节 = %v，期望两个 0", got[18:])
+	}
+}
+
+// TestSetupRequestWireFormat 直接断言 setup 请求的字节布局，以及 Failed 应答被完整
+// 消费。这两处都是本机 Wayland 会话（XWayland :1）上"粘贴截图毫无反应、且永不返回"
+// 的直接原因：
+//
+//   - auth name 未补齐到 4 字节边界时请求只有 46 字节，服务端不回 Failed 而是继续等
+//     那 2 字节，setup 的读取于是永久阻塞；
+//   - Failed 的附加数据长度在线上以 4 字节为单位，按字节读会少读四分之三，把剩余
+//     数据留在连接里。
+func TestSetupRequestWireFormat(t *testing.T) {
+	cookie := bytes.Repeat([]byte{0xC7}, 16)
+	writeXauthority(t, cookie)
+
+	name := []byte("MIT-MAGIC-COOKIE-1")
+	// Failed 应答：reason 30 字节，附加数据 32 字节（8 个 4 字节字）。
+	reason := bytes.Repeat([]byte{'x'}, 30)
+	failed := make([]byte, 8)
+	failed[1] = byte(len(reason))
+	binary.LittleEndian.PutUint16(failed[6:8], uint16(paddedLen(len(reason))/4))
+	failed = append(failed, reason...)
+	failed = append(failed, make([]byte, paddedLen(len(reason))-len(reason))...)
+
+	// Success 应答与 authFakeServer 同构：resource base 在 [4:8]、screen-0 root 在 [32:36]。
+	successBody := make([]byte, 40)
+	binary.LittleEndian.PutUint32(successBody[4:8], 0x100000)
+	successBody[20] = 1
+	binary.LittleEndian.PutUint32(successBody[32:36], 0x1234)
+	success := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint16(success[6:8], uint16(len(successBody)/4))
+	success = append(success, successBody...)
+
+	var conns []*recordingConn
+	orig := connectSocket
+	connectSocket = func() (net.Conn, error) {
+		c := &recordingConn{reply: failed}
+		if len(conns) == 1 {
+			c.reply = success // 第二次尝试（带 cookie）必须成功
+		}
+		conns = append(conns, c)
+		return c, nil
+	}
+	t.Cleanup(func() { connectSocket = orig })
+
+	if _, err := dial(); err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if len(conns) != 2 {
+		t.Fatalf("连接数 = %d，期望 2（无认证被拒后必须换新连接重试）", len(conns))
+	}
+
+	if got := len(conns[0].sent); got != 12 {
+		t.Errorf("无认证请求长度 = %d，期望 12", got)
+	}
+	if got := len(conns[0].reply); got != 0 {
+		t.Errorf("Failed 应答残留 %d 字节未读，期望 0（附加数据长度以 4 字节为单位）", got)
+	}
+
+	// dial() 在 setup 成功后还会在同一连接上发 CreateWindow，这里只看握手部分。
+	got := conns[1].sent
+	if len(got) < 48 {
+		t.Fatalf("cookie 请求长度 = %d，不足 48（12 头 + 补齐后 name 20 + cookie 16）", len(got))
+	}
+	got = got[:48]
+	if got[0] != 'l' {
+		t.Errorf("字节序标记 = %q，期望 'l'", got[0])
+	}
+	if nl, dl := binary.LittleEndian.Uint16(got[6:8]), binary.LittleEndian.Uint16(got[8:10]); nl != uint16(len(name)) || dl != uint16(len(cookie)) {
+		t.Errorf("长度字段 = %d/%d，期望 %d/%d", nl, dl, len(name), len(cookie))
+	}
+	if !bytes.Equal(got[12:12+len(name)], name) {
+		t.Errorf("auth name = %q，期望 %q", got[12:12+len(name)], name)
+	}
+	if !bytes.Equal(got[30:32], []byte{0, 0}) {
+		t.Errorf("auth name 后的补齐字节 = %v，期望两个 0", got[30:32])
+	}
+	if !bytes.Equal(got[32:48], cookie) {
+		t.Errorf("cookie = %x，期望 %x", got[32:48], cookie)
 	}
 }
 

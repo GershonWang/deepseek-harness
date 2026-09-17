@@ -22,6 +22,7 @@ package clipboard
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 )
 
 // maxImageBytes 限制单次读取接受的图片体积。截图远低于这个上限，它的作用是挡住
@@ -40,18 +41,23 @@ var errSelectionEmpty = errors.New("clipboard has no supported image content")
 // the capture to a file and put only the file URI on the clipboard, in which
 // case we read the file from disk and return its bytes (provided the file
 // extension and magic bytes both match a supported raster format).
+//
+// 没有 DISPLAY 就跳过前三条 X11 路径：纯 Wayland 会话（合成器不带 XWayland）下
+// 它们必然落空，先试只会白等几轮 socket 连接。
 func ReadImage() ([]byte, error) {
-	// Strategy 1 & 2: X11 CLIPBOARD, then PRIMARY (direct bitmap).
-	if data, err := readX11Images(); err == nil && data != nil {
-		if isPlausibleImage(data) {
+	if os.Getenv("DISPLAY") != "" {
+		// Strategy 1 & 2: X11 CLIPBOARD, then PRIMARY (direct bitmap).
+		if data, err := readX11Images(); err == nil && data != nil {
+			if isPlausibleImage(data) {
+				return data, nil
+			}
+		}
+		// Strategy 3: X11 text/uri-list → read the image file from disk.
+		//    Many screenshot tools only put a file URI on CLIPBOARD after saving
+		//    the capture, especially when the "save to file" workflow is used.
+		if data := readX11UriListImage(); data != nil && isPlausibleImage(data) {
 			return data, nil
 		}
-	}
-	// Strategy 3: X11 text/uri-list → read the image file from disk.
-	//    Many screenshot tools only put a file URI on CLIPBOARD after saving
-	//    the capture, especially when the "save to file" workflow is used.
-	if data := readX11UriListImage(); data != nil && isPlausibleImage(data) {
-		return data, nil
 	}
 	// Strategy 4: Wayland clipboard via wl-paste (when available).
 	if data := readWaylandImage(); data != nil && isPlausibleImage(data) {
