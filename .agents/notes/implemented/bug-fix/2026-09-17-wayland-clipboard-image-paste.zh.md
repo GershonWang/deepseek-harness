@@ -50,6 +50,8 @@ Wayland 侧持有的 selection 也无法经 X11 兜底：实测 XWayland 不把 
 
 用真实组件、在容器所见的环境中（`DISPLAY=:1`、`XAUTHORITY=/run/linglong/Xauthority`、会话自己的 Wayland socket）端到端验证：宿主 `xclip` 持有 X1 的 `CLIPBOARD` 时，`ReadImage()` 读回 12420 字节且逐字节一致；真实 `wl-copy` 持有 Wayland 剪贴板时，读回 `wl-paste` 提供的 12453 字节；在 DDE 文管里复制一个图片文件后，读回该文件的 318520 字节且通过魔数与可用性校验（修复前为 0 字节 + `errSelectionEmpty`）。
 
+桥接这一条还用**真实截图工具**复测过（区域截图 + 「复制到剪贴板」），不只是 `wl-copy` 造的位图：Wayland 侧提供 `image/png`（146058 字节）等十余种 `image/*`，X11 侧对 `image/png` 与 `text/uri-list` 均为 0 字节，`ReadImage()` 读回该 PNG。真实截图依赖随包的 `wl-paste`，理由与合成用例相同——这正是「随包 `wl-clipboard`」属于必要条件而非可选优化的依据。
+
 `TestReadImageFileFromURIList` 覆盖共享 URI 解析器（百分号编码的空格、`copy` 首行、`#` 注释、非图片扩展名、后缀是 `.png` 而内容不是图片、超限文件、目录、远端主机），`TestReadWaylandUriListImage` 用放在 `PATH` 上的桩 `wl-paste` 覆盖类型回退顺序——这正是让 Wayland 通道无需合成器与 selection owner 也能被验证的手段。反向验证：让 `readWaylandUriListImage` 返回 nil、去掉 `x-special/gnome-copied-files`、去掉魔数校验，三者各自让对应测试失败。
 
 打包闸门：`test-verify-tools.sh`、`test-verify-merged-deps.sh`、`test-verify-container-deps.sh` 全绿，其中包括「每个已声明依赖都必须被规则表认领」那一项。在健康产物树里删掉 `bin/wl-paste` 会让 `verify-merged-deps.sh` 报 `FAIL wl-clipboard` 并退出非零，说明这条新认领是承重的。
