@@ -167,6 +167,13 @@ const MAX_COMBO_URL_BYTES = 3 * 1024
 const HASH_REVISION_LENGTH = 12
 const COMBO_REVISION_PLACEHOLDER = '0'.repeat(HASH_REVISION_LENGTH)
 
+/**
+ * One row's own combo URL — `/plugins/??<id>/client.js[.map]&rev=<rev>`. A row
+ * revision is either the opaque startup rev or an HMR content hash, so the
+ * pattern accepts any non-separator revision text and the row lookup decides.
+ */
+const ROW_COMBO_URL = /^\/plugins\/\?\?([^,&]+?)\/client\.js(\.map)?&rev=([^,&]+)$/
+
 /** Source-map trailer emitted by tsdown at the end of every client bundle. */
 const SOURCE_MAP_TRAILER = /(?:\r?\n)?\/\/# sourceMappingURL=[^\r\n]*(?:\r?\n)?$/
 /** Debugger source name appended to page bundles in the WebWorker image. */
@@ -292,10 +299,16 @@ function sourceMapSnapshot(clientPath: string): WebPluginRecord['sourceMap'] {
   return { body, parsed }
 }
 
-/** Count generated lines while assembling indexed-map section offsets. */
+/**
+ * Count generated lines while assembling indexed-map section offsets.
+ *
+ * Scans with `indexOf` instead of per-code-point iteration: positioned sources
+ * reach several megabytes, and the per-character loop costs roughly 80x more on
+ * that input for the same count.
+ */
 function newlineCount(value: string): number {
   let count = 0
-  for (const char of value) if (char === '\n') count += 1
+  for (let index = value.indexOf('\n'); index !== -1; index = value.indexOf('\n', index + 1)) count += 1
   return count
 }
 
@@ -495,7 +508,13 @@ export class ClientModuleRegistry extends Service {
   private readonly dirty = new Set<string>()
   private readonly initialRevisionNonce = randomBytes(8).toString('hex')
   private nextInitialRevision = 0
-  private responses = new Map<string, { body: Buffer; contentType: string }>()
+  /**
+   * One row's own combo artifact, keyed by package id. The artifact is a pure
+   * function of the row's bundle and revision, and HMR mints a new revision only
+   * when that bundle changed, so a revision hit always holds the bytes the row
+   * still serves while a recomposition repeats the other rows unchanged.
+   */
+  private readonly rowArtifacts = new Map<string, { rev: string; artifact: ComboArtifact }>()
   private batchResponses = new Map<string, { body: Buffer; contentType: string }>()
   /** One prior graph generation covers a request racing the HMR recomposition that replaced its URL. */
   private previousBatchResponses = new Map<string, { body: Buffer; contentType: string }>()
@@ -676,23 +695,24 @@ export class ClientModuleRegistry extends Service {
         contentType: 'application/json; charset=utf-8',
       })
     }
-    const responses = new Map(batchResponses)
-    for (const record of this.table.values()) {
-      const artifact = buildCombo([record], record.entry.rev)
-      responses.set(artifact.url, {
-        body: artifact.script,
-        contentType: 'text/javascript; charset=utf-8',
-      })
-      responses.set(artifact.sourceMapUrl, {
-        body: artifact.sourceMap,
-        contentType: 'application/json; charset=utf-8',
-      })
-    }
     this.previousBatchResponses = this.batchResponses
     this.batchResponses = batchResponses
-    this.responses = responses
     const batches = artifacts.map(artifact => artifact.descriptor)
     return { rev: shortHash(JSON.stringify({ entries, batches })), entries, batches }
+  }
+
+  /**
+   * Return one row's own combo artifact, regenerating it only when the row's
+   * revision moved since the cached copy was built.
+   * @param record - current table row.
+   * @returns the artifact addressed by the row's current revision.
+   */
+  private rowArtifact(record: WebPluginRecord): ComboArtifact {
+    const cached = this.rowArtifacts.get(record.entry.id)
+    if (cached !== undefined && cached.rev === record.entry.rev) return cached.artifact
+    const artifact = buildCombo([record], record.entry.rev)
+    this.rowArtifacts.set(record.entry.id, { rev: record.entry.rev, artifact })
+    return artifact
   }
 
   private notifyGraphChanged(): void {
@@ -938,7 +958,10 @@ export class ClientModuleRegistry extends Service {
       )
     }
     const source = sources[0]
-    if (source === undefined) return this.table.delete(packageName)
+    if (source === undefined) {
+      this.rowArtifacts.delete(packageName)
+      return this.table.delete(packageName)
+    }
     if (this.table.get(packageName)?.sourceKey === source.sourceKey) return false
     // The opaque initial rev rides the row until HMR observes a file change;
     // a fiber restart from the same source reuses the existing row.
@@ -984,6 +1007,28 @@ export class ClientModuleRegistry extends Service {
     this.notifyGraphChanged()
   }
 
+  /**
+   * Generate one row's own combo response on request. Startup loads batches, so
+   * a row artifact is built only when a client dynamically imports that row —
+   * and only while the requested revision is still the row's current one, since
+   * a superseded revision is no longer served.
+   * @param resourceUrl - `/plugins` request path, including the rev query segment.
+   * @returns the row response, or undefined when the URL names no current row.
+   */
+  private rowResponse(resourceUrl: string): { body: Buffer; contentType: string } | undefined {
+    const match = ROW_COMBO_URL.exec(resourceUrl)
+    if (match === null) return undefined
+    const id = match[1]
+    const rev = match[3]
+    if (id === undefined || rev === undefined) return undefined
+    const record = this.table.get(id)
+    if (record === undefined || record.entry.rev !== rev) return undefined
+    const artifact = this.rowArtifact(record)
+    return match[2] === '.map'
+      ? { body: artifact.sourceMap, contentType: 'application/json; charset=utf-8' }
+      : { body: artifact.script, contentType: 'text/javascript; charset=utf-8' }
+  }
+
   private bundleResource(method: string | undefined, url: string): {
     status: number
     headers?: Record<string, string>
@@ -992,7 +1037,9 @@ export class ClientModuleRegistry extends Service {
     if (method !== 'GET' && method !== 'HEAD') return { status: 405 }
     const requestUrl = new URL(url, 'http://x')
     const resourceUrl = `${requestUrl.pathname}${requestUrl.search}`
-    const response = this.responses.get(resourceUrl) ?? this.previousBatchResponses.get(resourceUrl)
+    const response = this.batchResponses.get(resourceUrl)
+      ?? this.previousBatchResponses.get(resourceUrl)
+      ?? this.rowResponse(resourceUrl)
     if (response !== undefined) {
       return {
         status: 200,

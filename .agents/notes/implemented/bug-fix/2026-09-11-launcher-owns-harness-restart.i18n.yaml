@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-launcher-owns-harness-restart.md
-2026-09-11-launcher-owns-harness-restart.md: 3dacdb0dfe11d68445a3dae03d0ab0ee7b33cdc3
-2026-09-11-launcher-owns-harness-restart.zh.md: 20fc78c95905360ac4af78305a1df5a529b8b58e
+2026-09-11-launcher-owns-harness-restart.md: aac2283ef2eec21505ebb4f36cb50c9a76e830d7
+2026-09-11-launcher-owns-harness-restart.zh.md: dc7d77f06f9ae158bdbaef14ff2c25ed5726f941

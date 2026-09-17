@@ -32,7 +32,22 @@
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
-harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报插件（见下一节）。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+
+## 启动阶段与加载页进度
+
+窗口在 harness 就绪之前就已经存在，所以启动期必须自己说明进展。加载页显示四个阶段，每个阶段都由观测到的事实触发，不存在按时间猜测的进度：
+
+| 阶段 | 触发事实 | 页面显示 |
+|---|---|---|
+| `starting` | 已拉起 harness 子进程，还没有任何输出 | 正在启动服务进程，请稍候 |
+| `loading` | 子进程已有输出，还没有收到条目计数 | DeepSeek Harness 正在加载插件和服务，请稍候 |
+| `plugins` | 已收到条目计数 | 同上 + 进度条与「已加载 n/m 个插件」 |
+| `serving` | 计数已到齐，只剩监听端口 | 插件已就绪，正在启动服务端口 |
+
+计数来自 `internal/appenv/startup_progress.mjs`：`appenv` 在每次 spawn 时把它与 overlay 一起写进 launcher 运行时目录，并由同一份 overlay 的 `insert` 行注入 harness。该插件不 import 任何模块、不抛异常（entry 激活失败会中止启动，而进度只是体验增强），统计「已 settle 的 loader 条目数」并向 stderr 写 `dsh-desktop: startup <已激活>/<总数>`；`internal/supervisor` 解析该行，`internal/app` 映射成上表的阶段，经节流的 `startup:progress` 事件与 1 秒状态快照送到前端。分母取「真正会挂载的条目」（排除 group 与 disabled），启动期基本稳定；偶发新增的行由前端按单调不减渲染，计数本身原样显示。计数首次到齐后上报即停止：这条通道只服务启动期，而就绪之后 harness 仍会重组配置树（客户端 HMR、用户补丁层 watcher、市场插件等），继续上报只会让日志出现分子大于分母的行（实测过 `161/136`），既污染启动耗时记录，也与上面的契约矛盾。
+
+插件文件写不出来、或 harness 尚未注入它时（在途版本），加载页退回前两档粗粒度文案与转圈，不显示进度块，也绝不补一个按时间估算的百分比。WebView 里 harness 自己的 `Loading plugins…` 属于浏览器侧的另一段，不在本机制范围内。
 
 ## 文件结构
 
@@ -106,11 +121,12 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）；它还逐形状核对卡片的 `min-height` 档位装得下该形状的内容高——WebKitGTK 拿这个档位当行高，档位不足时内容会溢出压到下一排——并断言安装中形状的进度条轨道与卡片异色。`render` 按主题与状态各出一张截图到 `frontend/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，浏览器缓存写在那里面会让启动器构建因 Go 拒绝的嵌入文件名而失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）；它还逐形状核对卡片的 `min-height` 档位装得下该形状的内容高——WebKitGTK 拿这个档位当行高，档位不足时内容会溢出压到下一排——并断言安装中形状的进度条轨道与卡片异色。加载页进度条也在它的量测范围内：50% 与 100% 的宽度必须与轨道一致、进度块落在舞台内、长计数保持单行且不与提示行重叠。`render` 按主题与状态各出一张截图到 `apps/desktop-launcher/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，因此写在 `frontend/` 里的任何东西——浏览器缓存、截图产物，以及 `verify` 每次推送都会重写的预览页——都会进入启动器二进制，而 Go 拒绝的嵌入文件名会让构建直接失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
 
 市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐个真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按 ID 抽查。
 
@@ -143,7 +159,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 ## 容器可用性（工具链/挂载）
 
-- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
+- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils/wl-clipboard；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
 - 按需安装：重/罕见工具（jdk21、go、ripgrep、uv）在归档 sha256 与清单一致后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；该比对是对清单的一致性校验，不是对清单的来源认证——清单自身由 `internal/toolchain/remote.go` 固定的提交哈希锚定，因此对工具市场的信任收敛为对已安装的 launcher 二进制的信任。自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。归档内文件名与应当暴露的命令名不一致时，清单用 `bin_names` 改名，值为空串则屏蔽该文件——避免把平台后缀名或发行包自带的辅助脚本混进 PATH。市场的分类页签与其中文标签同样取自索引：页签按清单里实际出现的分类生成，标签来自索引的 `category_labels`（客户端保留一张同内容的兜底表，供旧索引使用），因此增删工具、新增分类本身仍是纯索引工作，只是索引地址固定到提交后，发布这类索引需要改该常量并重新发客户端——这是为认证清单付出的代价。多版本工具（当前只有 JDK 8/21）在卡片上给出版本下拉：未装时选要装的版本，已装后在已装版本间切换激活、直接安装清单里尚未安装的版本、按版本卸载；`versions` 的首项是推荐版本，「可更新」判定按版本号把它与当前激活版本比较（而不是字符串不等），因此顺序即语义。更新会把推荐版本设为当前版本，被替换的旧版本保留在磁盘上，下拉里仍可切回。`linglong/tools.yaml` 的 `installable` 只登记每个工具的推荐版本，其余版本以索引为唯一事实来源，`verify-tools.sh` 的占位哈希校验也只覆盖推荐版本。
 - 卡片状态语义：工具链市场的「已安装/可安装」只描述市场仓库（`$HOME/.dsh-tools`）里的版本目录，与容器内命令可用性相互独立。仓库未装但容器 PATH 已有同名命令（随包/宿主导入/系统提供）时，卡片显示「容器内已可用：命令 版本（来源）」；来源按命令解析路径前缀归类（`internal/app/app.go` 的 `classifyRuntimeSource`），探测与组装分别在 `internal/toolchain/check.go`（`ProbeCommands`）与 `annotateRuntime`。
 - 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
@@ -154,13 +170,24 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 不会把剪贴板位图交给页面：粘贴截图时 `clipboardData` 里没有图片条目，
 拖拽图片文件还会把整个帧导航走；文本（包括粘贴的路径）正常，图片不行。
 
-缓解方案保留 WebKitGTK 渲染器：壳进程（与宿主共享 X11 显示）自行读取
-`CLIPBOARD` selection，把 base64 PNG 通过既有的 `{ dshDesktop: true }`
-postMessage 协议交给页面。
+缓解方案保留 WebKitGTK 渲染器：壳进程自行读取剪贴板里的图片，把 base64 PNG
+通过既有的 `{ dshDesktop: true }` postMessage 协议交给页面。
 
-- Go：`internal/clipboard` 是零依赖的 X11 wire 客户端（无 cgo、无外部
-  工具），读取 `image/png` 并支持 INCR、超时与体积上限；
-  `App.ReadClipboardImage()`（Wails 绑定）返回 base64 或空串。
+- Go：`internal/clipboard` 依次尝试 X11 CLIPBOARD、X11 PRIMARY、X11
+  `text/uri-list`、Wayland 位图、Wayland `text/uri-list`。X11 通道是自实现的
+  wire 客户端（无 cgo、无外部工具），目标 X server 由会话的 `DISPLAY` 推导
+  （X11 会话是 `:0`，Wayland 会话是 XWayland 的 `:1`），支持 INCR、超时与体积
+  上限；Wayland 通道交给随包的 `wl-paste`。两条通道都覆盖两种来源：剪贴板上
+  直接是位图（`image/*`），或只是图片文件的 URI（`text/uri-list` /
+  `x-special/gnome-copied-files`——在文管里复制图片文件时给的就是后者，一个
+  `image/*` 都没有），后者按 URI 读盘；容器把 `/home`、`/media`、`/mnt` 按宿主
+  同路径绑定挂载，因此无需路径映射。`App.ReadClipboardImage()`（Wails 绑定）
+  返回 base64 或空串。
+- Wayland 侧持有的 selection 只能靠 `wl-paste`：实测 XWayland 不把 Wayland 侧的
+  `image/png` 桥接成 X11 selection（同一张 PNG，`wl-paste` 读得到，X11
+  `CLIPBOARD`/`PRIMARY` 读到 0 字节）；XWayland 客户端持有的 selection 仍走
+  X11 通道。因此 `wl-clipboard` 随包合入 `${PREFIX}/bin`（`tools.yaml` 的
+  `wl-paste` 项），不依赖宿主是否装过。
 - 壳前端（`frontend/app.js`）：应答 harness iframe 的
   `clipboard-read-image` 请求，回发 `clipboard-image-result`。
 - harness UI（`packages/client/ui-conversation`）：`desktop-clipboard.ts`

@@ -90,14 +90,18 @@ const supervisorOverlayName = "supervisor-overlay.yml"
 // 或移除，patch 匹配不到行只会产生一条 include 警告（不会阻止启动），但本
 // 保护随之失效——这是选择用 overlay 而非改 dsh 源码的代价，改这里需同步核对
 // dsh-market 的 settings 命名空间。
-const supervisorOverlayBody = `# 由 dsh-desktop-launcher 生成，请勿手工编辑。
+// extraRows 是本层附加的插入行（当前只有启动进度上报插件，见
+// startup_progress.go）；传空串表示该能力不可用，overlay 仍保留监护声明。
+func supervisorOverlayBody(extraRows string) string {
+	return `# 由 dsh-desktop-launcher 生成，请勿手工编辑。
 # harness 由 launcher 的 Supervisor 监护（spawn、重启、端口都归它管），
 # 插件市场不得再自行重启：两者会用同一个 --port 竞态，先 bind 的胜出，
 # 另一方 EADDRINUSE 退出。
 - id: dsh-market
   config:
     allowRestart: false
-`
+` + extraRows
+}
 
 // harnessArgs 组装 harness 的启动参数：入口脚本（可为空）、web 子命令、声明
 // 监护关系的 overlay，以及稳定端口。
@@ -126,10 +130,14 @@ func harnessArgs(entry, port string) []string {
 }
 
 // writeSupervisorOverlay 把监护声明写入 launcher 运行时目录，返回其路径。
-// 内容固定，每次启动覆写即可，无需比较或保留旧版本。
+// 内容每次启动覆写即可，无需比较或保留旧版本。
+//
+// 启动进度上报插件在同一处写入并作为插入行附加：两者同生共死，任一步失败都只
+// 降级该能力（监护仍有效），不阻断 harness 启动。
 func writeSupervisorOverlay() (string, error) {
 	path := filepath.Join(resolveLogDir(), supervisorOverlayName)
-	if err := os.WriteFile(path, []byte(supervisorOverlayBody), 0o644); err != nil {
+	pluginPath, _ := writeStartupProgressPlugin()
+	if err := os.WriteFile(path, []byte(supervisorOverlayBody(startupProgressOverlayRow(pluginPath))), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil
@@ -200,16 +208,35 @@ func ConfigureChildEnv(home string) {
 	if info, err := os.Stat(bin); err == nil && info.IsDir() {
 		segs = append(segs, bin)
 	}
-	if len(segs) > 0 {
-		_ = os.Setenv("PATH", strings.Join(append(segs, os.Getenv("PATH")), string(os.PathListSeparator)))
-	}
+	prependPathEnv("PATH", segs)
 	if info, err := os.Stat(lib); err == nil && info.IsDir() {
-		if old := os.Getenv("LD_LIBRARY_PATH"); old != "" {
-			_ = os.Setenv("LD_LIBRARY_PATH", lib+string(os.PathListSeparator)+old)
-		} else {
-			_ = os.Setenv("LD_LIBRARY_PATH", lib)
-		}
+		prependPathEnv("LD_LIBRARY_PATH", []string{lib})
 	}
+}
+
+// prependPathEnv 把 segs 按给定顺序前置进名为 key 的路径列表变量，并先剔除同名旧段。
+//
+// ConfigureChildEnv 在安装、切换、卸载工具后会被反复调用。若只是无条件前置，固定
+// 段每轮都会再加一份，PATH 与 LD_LIBRARY_PATH 随操作次数线性膨胀且永不收敛，子进程
+// 的搜索路径也随之变长。只剔除与 segs 完全相同的段：用户自己加进 PATH 的其它目录
+// 原样保留。空段一并丢弃——POSIX 下空段表示当前目录，把它带进子进程等于允许从
+// 任意工作目录执行命令，且这里没有任何理由保留它。
+func prependPathEnv(key string, segs []string) {
+	if len(segs) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(segs))
+	for _, seg := range segs {
+		drop[seg] = true
+	}
+	kept := make([]string, 0, len(segs)+4)
+	for _, old := range filepath.SplitList(os.Getenv(key)) {
+		if old == "" || drop[old] {
+			continue
+		}
+		kept = append(kept, old)
+	}
+	_ = os.Setenv(key, strings.Join(append(append([]string{}, segs...), kept...), string(os.PathListSeparator)))
 }
 
 // hostToolBins 扫描宿主挂载基址下各工具链的生效 bin 目录（按名字排序）。

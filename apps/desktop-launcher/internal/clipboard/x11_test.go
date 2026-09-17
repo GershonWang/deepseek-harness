@@ -9,6 +9,8 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -129,10 +131,29 @@ func TestGetPropertyDeleteFlag(t *testing.T) {
 // recordingConn records every write for wire-level assertions.
 type recordingConn struct {
 	write func(p []byte)
+	// sent 累积客户端写入的全部字节，供按字节序断言的用例使用。
+	sent []byte
+	// reply 非空时按字节流回放服务端应答，供需要走完握手的用例使用；
+	// 为空时读取直接返回 io.EOF，即只关心客户端写了什么。
+	reply []byte
 }
 
-func (r *recordingConn) Write(p []byte) (int, error) { r.write(p); return len(p), nil }
-func (r *recordingConn) Read(p []byte) (int, error)  { return 0, io.EOF }
+func (r *recordingConn) Write(p []byte) (int, error) {
+	r.sent = append(r.sent, p...)
+	if r.write != nil {
+		r.write(p)
+	}
+	return len(p), nil
+}
+
+func (r *recordingConn) Read(p []byte) (int, error) {
+	if len(r.reply) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.reply)
+	r.reply = r.reply[n:]
+	return n, nil
+}
 func (r *recordingConn) Close() error                { return nil }
 func (r *recordingConn) LocalAddr() net.Addr         { return recAddr("rec") }
 func (r *recordingConn) RemoteAddr() net.Addr        { return recAddr("rec") }
@@ -173,9 +194,274 @@ func TestLoadXauthCookie(t *testing.T) {
 	}
 }
 
-// ---------- 假 X 服务端 ----------
+// ---------- 认证握手 ----------
 
-// fakeServerOptions 描述假服务端这次要模拟的剪贴板形态。
+// writeXauthority 写一份 .Xauthority（FamilyWild + MIT-MAGIC-COOKIE-1）并把
+// XAUTHORITY 指向它，供 loadXauthCookie 读取。
+func writeXauthority(t *testing.T, cookie []byte) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "Xauthority")
+	var b bytes.Buffer
+	writeU16 := func(v int) { _ = binary.Write(&b, binary.BigEndian, uint16(v)) }
+	writeU16(256) // FamilyWild
+	writeU16(0)   // address
+	writeU16(0)   // number
+	name := []byte("MIT-MAGIC-COOKIE-1")
+	writeU16(len(name))
+	b.Write(name)
+	writeU16(len(cookie))
+	b.Write(cookie)
+	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XAUTHORITY", path)
+}
+
+// authAttempt 是一条连接上服务端解析出的认证字段。
+type authAttempt struct {
+	nameLen int
+	dataLen int
+	auth    []byte
+}
+
+// paddedLen 是 X11 线格式中一个 n 字节字段补齐到 4 字节边界后的长度。这里独立写出
+// 公式而不复用被测代码的 pad4，避免断言跟着实现一起错。
+func paddedLen(n int) int { return (n + 3) &^ 3 }
+
+// authFakeServer 只回放 setup 握手，用于验证认证请求的线格式与重试时序。
+// 按协议，认证失败后它回 Failed 并关闭连接，因此客户端若在原连接上重试，
+// 第二次请求根本到不了服务端——这正是要固定的行为。
+//
+// 它按协议补齐后的长度读取请求，因此客户端漏发补齐字节时不会静默放过：真实服务端
+// 在那种情况下保持沉默，用例若也照单全收，就会掩盖"认证请求少 2 字节即永久阻塞"。
+type authFakeServer struct {
+	t      *testing.T
+	cookie []byte
+	// mu 保护 attempts：每次 connectSocket 都开一个新 goroutine。
+	mu       sync.Mutex
+	attempts []authAttempt
+}
+
+func newAuthFakeServer(t *testing.T, cookie []byte) *authFakeServer {
+	t.Helper()
+	s := &authFakeServer{t: t, cookie: cookie}
+	orig := connectSocket
+	// 每次拨号都给一条全新的 pipe，客户端换连接重试才能被观察到。
+	connectSocket = func() (net.Conn, error) {
+		srv, cli := net.Pipe()
+		go s.serve(srv)
+		return cli, nil
+	}
+	t.Cleanup(func() { connectSocket = orig })
+	return s
+}
+
+func (s *authFakeServer) serve(c net.Conn) {
+	defer c.Close()
+	// 读超时：长度字段写错时（例如按大端写成 0x1200）根本读不到那么多字节，
+	// 没有超时会让服务端与"等应答的客户端"互等，用例挂死而不是报错。
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	req := make([]byte, 12)
+	if _, err := io.ReadFull(c, req); err != nil {
+		return
+	}
+	if req[0] != 'l' {
+		s.t.Errorf("setup 声明的字节序 = %q，期望 'l'（LSBFirst）", req[0])
+		return
+	}
+	// 长度字段按客户端声明的字节序读；写成大端会读成 0x1200 = 4608。
+	nameLen := int(binary.LittleEndian.Uint16(req[6:8]))
+	dataLen := int(binary.LittleEndian.Uint16(req[8:10]))
+	// 协议要求 name 与 data 各自补齐到 4 字节边界，服务端也按补齐后的长度读请求。
+	// 客户端漏发补齐字节时，真实服务端不会回 Failed 而是继续等，表现成永久阻塞；
+	// 这里按补齐后的长度读，未补齐的请求读不满就会在此暴露。
+	namePad, dataPad := paddedLen(nameLen), paddedLen(dataLen)
+	rest := make([]byte, namePad+dataPad)
+	if _, err := io.ReadFull(c, rest); err != nil {
+		s.t.Errorf("setup 请求不完整：name=%d data=%d 连补齐应共 %d 字节（%v）",
+			nameLen, dataLen, len(rest), err)
+		return
+	}
+	for i := nameLen; i < namePad; i++ {
+		if rest[i] != 0 {
+			s.t.Errorf("auth name 的补齐字节应为 0，实际 %#x", rest[i])
+			return
+		}
+	}
+	name := rest[:nameLen]
+	data := rest[namePad : namePad+dataLen]
+	s.mu.Lock()
+	s.attempts = append(s.attempts, authAttempt{nameLen: nameLen, dataLen: dataLen, auth: data})
+	s.mu.Unlock()
+
+	wantName := []byte("MIT-MAGIC-COOKIE-1")
+	if len(s.cookie) > 0 &&
+		(nameLen != len(wantName) || dataLen != len(s.cookie) ||
+			!bytes.Equal(name, wantName) || !bytes.Equal(data, s.cookie)) {
+		fail := make([]byte, 8)
+		_, _ = c.Write(fail) // status 0 = Failed，reason 长度 0
+		return
+	}
+	// Success：resource base 在 [4:8]、screen-0 root 在 [32:36]（LSBFirst）。
+	body := make([]byte, 40)
+	binary.LittleEndian.PutUint32(body[4:8], 0x100000)
+	body[20] = 1 // screens
+	binary.LittleEndian.PutUint32(body[32:36], 0x1234)
+	hdr := make([]byte, 8)
+	hdr[0] = 1
+	binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(body)/4))
+	if _, err := c.Write(append(hdr, body...)); err != nil {
+		return
+	}
+	// 之后客户端只发无应答的 CreateWindow；读到 EOF 即结束。
+	_ = c.SetReadDeadline(time.Time{})
+	_, _ = io.Copy(io.Discard, c)
+}
+
+func (s *authFakeServer) snapshot() []authAttempt {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]authAttempt(nil), s.attempts...)
+}
+
+// TestDialRetriesAuthOnFreshConnection 固定两件事：认证请求的 name/data 长度按请求头
+// 声明的 'l'（LSBFirst）编码；无认证被拒后客户端换一条新连接再试。
+// 修复前两条都不成立——长度写成大端（服务端读到 0x1200 / 0x2000），重试又复用服务端
+// 已关闭的连接，于在需要 Xauthority 的 X11 主机上粘贴截图永久无反应。
+func TestDialRetriesAuthOnFreshConnection(t *testing.T) {
+	cookie := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	writeXauthority(t, cookie)
+	server := newAuthFakeServer(t, cookie)
+
+	x, err := dial()
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	x.close()
+
+	attempts := server.snapshot()
+	if len(attempts) != 2 {
+		t.Fatalf("服务端接受的连接数 = %d，期望 2（无认证被拒后必须换新连接）", len(attempts))
+	}
+	if attempts[0].dataLen != 0 {
+		t.Fatalf("首次尝试应无认证，dataLen = %d", attempts[0].dataLen)
+	}
+	got := attempts[1]
+	if got.nameLen != len("MIT-MAGIC-COOKIE-1") || got.dataLen != len(cookie) {
+		t.Fatalf("cookie 请求的 name/data 长度 = %d/%d，期望 %d/%d（必须按声明的 LSBFirst 编码）",
+			got.nameLen, got.dataLen, len("MIT-MAGIC-COOKIE-1"), len(cookie))
+	}
+	if !bytes.Equal(got.auth, cookie) {
+		t.Fatalf("cookie = %x，期望 %x", got.auth, cookie)
+	}
+}
+
+// TestPad4 覆盖补齐的两个约束：结果对齐到 4 字节，且不就地改写入参——cookie 直接
+// 来自 loadXauthCookie，若补齐复用了它的底层数组，同一份内存会被后续使用污染。
+func TestPad4(t *testing.T) {
+	for _, c := range []struct{ in, want int }{
+		{0, 0}, {1, 4}, {2, 4}, {3, 4}, {4, 4}, {12, 12}, {16, 16}, {18, 20},
+	} {
+		got := pad4(make([]byte, c.in))
+		if len(got) != c.want {
+			t.Errorf("pad4(%d 字节) 长度 = %d，期望 %d", c.in, len(got), c.want)
+		}
+		if len(got)%4 != 0 {
+			t.Errorf("pad4(%d 字节) 长度 = %d，未对齐到 4 字节", c.in, len(got))
+		}
+	}
+
+	src := bytes.Repeat([]byte{0xAB}, 18)
+	pre := append([]byte(nil), src...)
+	got := pad4(src)
+	if !bytes.Equal(src, pre) {
+		t.Error("pad4 改写了入参内容")
+	}
+	if !bytes.Equal(got[18:], []byte{0, 0}) {
+		t.Errorf("补齐字节 = %v，期望两个 0", got[18:])
+	}
+}
+
+// TestSetupRequestWireFormat 直接断言 setup 请求的字节布局，以及 Failed 应答被完整
+// 消费。这两处都是本机 Wayland 会话（XWayland :1）上"粘贴截图毫无反应、且永不返回"
+// 的直接原因：
+//
+//   - auth name 未补齐到 4 字节边界时请求只有 46 字节，服务端不回 Failed 而是继续等
+//     那 2 字节，setup 的读取于是永久阻塞；
+//   - Failed 的附加数据长度在线上以 4 字节为单位，按字节读会少读四分之三，把剩余
+//     数据留在连接里。
+func TestSetupRequestWireFormat(t *testing.T) {
+	cookie := bytes.Repeat([]byte{0xC7}, 16)
+	writeXauthority(t, cookie)
+
+	name := []byte("MIT-MAGIC-COOKIE-1")
+	// Failed 应答：reason 30 字节，附加数据 32 字节（8 个 4 字节字）。
+	reason := bytes.Repeat([]byte{'x'}, 30)
+	failed := make([]byte, 8)
+	failed[1] = byte(len(reason))
+	binary.LittleEndian.PutUint16(failed[6:8], uint16(paddedLen(len(reason))/4))
+	failed = append(failed, reason...)
+	failed = append(failed, make([]byte, paddedLen(len(reason))-len(reason))...)
+
+	// Success 应答与 authFakeServer 同构：resource base 在 [4:8]、screen-0 root 在 [32:36]。
+	successBody := make([]byte, 40)
+	binary.LittleEndian.PutUint32(successBody[4:8], 0x100000)
+	successBody[20] = 1
+	binary.LittleEndian.PutUint32(successBody[32:36], 0x1234)
+	success := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint16(success[6:8], uint16(len(successBody)/4))
+	success = append(success, successBody...)
+
+	var conns []*recordingConn
+	orig := connectSocket
+	connectSocket = func() (net.Conn, error) {
+		c := &recordingConn{reply: failed}
+		if len(conns) == 1 {
+			c.reply = success // 第二次尝试（带 cookie）必须成功
+		}
+		conns = append(conns, c)
+		return c, nil
+	}
+	t.Cleanup(func() { connectSocket = orig })
+
+	if _, err := dial(); err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if len(conns) != 2 {
+		t.Fatalf("连接数 = %d，期望 2（无认证被拒后必须换新连接重试）", len(conns))
+	}
+
+	if got := len(conns[0].sent); got != 12 {
+		t.Errorf("无认证请求长度 = %d，期望 12", got)
+	}
+	if got := len(conns[0].reply); got != 0 {
+		t.Errorf("Failed 应答残留 %d 字节未读，期望 0（附加数据长度以 4 字节为单位）", got)
+	}
+
+	// dial() 在 setup 成功后还会在同一连接上发 CreateWindow，这里只看握手部分。
+	got := conns[1].sent
+	if len(got) < 48 {
+		t.Fatalf("cookie 请求长度 = %d，不足 48（12 头 + 补齐后 name 20 + cookie 16）", len(got))
+	}
+	got = got[:48]
+	if got[0] != 'l' {
+		t.Errorf("字节序标记 = %q，期望 'l'", got[0])
+	}
+	if nl, dl := binary.LittleEndian.Uint16(got[6:8]), binary.LittleEndian.Uint16(got[8:10]); nl != uint16(len(name)) || dl != uint16(len(cookie)) {
+		t.Errorf("长度字段 = %d/%d，期望 %d/%d", nl, dl, len(name), len(cookie))
+	}
+	if !bytes.Equal(got[12:12+len(name)], name) {
+		t.Errorf("auth name = %q，期望 %q", got[12:12+len(name)], name)
+	}
+	if !bytes.Equal(got[30:32], []byte{0, 0}) {
+		t.Errorf("auth name 后的补齐字节 = %v，期望两个 0", got[30:32])
+	}
+	if !bytes.Equal(got[32:48], cookie) {
+		t.Errorf("cookie = %x，期望 %x", got[32:48], cookie)
+	}
+}
+
+// ---------- 假 X 服务端 ----------// fakeServerOptions 描述假服务端这次要模拟的剪贴板形态。
 type fakeServerOptions struct {
 	// png 是 owner 提供的内容；nil 表示剪贴板里没有图片。
 	png []byte
@@ -506,4 +792,81 @@ func makeTestPNG(w, h int) []byte {
 	chunk("IDAT", comp.Bytes())
 	chunk("IEND", nil)
 	return out.Bytes()
+}
+
+// serveRawSetup 在一条 pipe 连接上应答 setup 请求，回复体由调用方给定。
+// 用于构造真实 X 服务端不会发出、但本机抢占 socket 的进程可以发出的畸形回复（审计 S3）。
+func serveRawSetup(srvConn net.Conn, body []byte) {
+	defer srvConn.Close()
+	req := make([]byte, 12)
+	if _, err := io.ReadFull(srvConn, req); err != nil {
+		return
+	}
+	hdr := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+	binary.LittleEndian.PutUint16(hdr[6:8], uint16(len(body)/4))
+	_, _ = srvConn.Write(append(hdr, body...))
+}
+
+// TestSetupRejectsMalformedReplyBody 覆盖 S3：setup 成功回复里 vendor 名长度与
+// format 数量都由对端给出，越界的偏移不得让 body[off:off+4] 越界 panic。
+func TestSetupRejectsMalformedReplyBody(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	body := make([]byte, 40) // 固定部分 32 字节 + 少量余量
+	binary.LittleEndian.PutUint16(body[16:18], 4000)
+	go serveRawSetup(srvConn, body)
+
+	x := &xconn{c: cliConn}
+	_ = cliConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err := x.setup()
+	if err == nil {
+		t.Fatal("越界的 vendor 长度必须报错而不是越界切片")
+	}
+	if !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("应判为 setup 回复被截断, got %v", err)
+	}
+}
+
+// TestSetupRejectsShortReplyBody 覆盖 S3 的下界：回复体不足固定部分时，读取
+// vendor/format 字段本身就会越界。
+func TestSetupRejectsShortReplyBody(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	go serveRawSetup(srvConn, make([]byte, 16))
+
+	x := &xconn{c: cliConn}
+	_ = cliConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	err := x.setup()
+	if err == nil {
+		t.Fatal("过短的 setup 回复体必须报错")
+	}
+	if !strings.Contains(err.Error(), "too short") {
+		t.Fatalf("应判为 setup 回复过短, got %v", err)
+	}
+}
+
+// TestReadReplyRejectsOversizeLength 覆盖 S3：回复头里的 length 是 CARD32，对端
+// 可声明约 17 GB；必须在上限处直接拒绝，而不是按声明长度分配。
+func TestReadReplyRejectsOversizeLength(t *testing.T) {
+	cliConn, srvConn := net.Pipe()
+	defer cliConn.Close()
+	go func() {
+		defer srvConn.Close()
+		hdr := make([]byte, 32)
+		hdr[0] = 1
+		binary.LittleEndian.PutUint32(hdr[4:8], 0xFFFFFFFF)
+		_, _ = srvConn.Write(hdr)
+	}()
+
+	x := &xconn{c: cliConn}
+	// 上限校验必须立刻生效：读超时设短一些，若实现改为按声明长度分配，这里只会
+	// 等到 i/o timeout，断言据此区分。
+	_ = cliConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, _, err := x.readReply()
+	if err == nil {
+		t.Fatal("超大回复长度必须被拒绝")
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("应在长度上限处拒绝而不是等读超时, got %v", err)
+	}
 }

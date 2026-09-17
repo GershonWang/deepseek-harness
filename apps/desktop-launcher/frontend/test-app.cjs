@@ -7,6 +7,8 @@
  *   - 浏览器预览（无 window.go）分支自动弹窗逻辑安全跳过
  *   - 现有 #btn-failed-doctor 手动入口仍可用
  *   - 终端：会话建立走真实按钮路径，标签状态按运行/退出/非零退出码取语义类
+ *   - 加载页进度：有上报时显示计数与按比例宽度，无上报/旧快照退回粗粒度文案，
+ *     分母增长时进度条不倒退，离开启动态后归零
  * 运行：node --test frontend/test-app.cjs（工作目录 apps/desktop-launcher）
  *
  * 注意：init() 末尾的 api().Status() 在微任务里落地首个状态，用例在驱动事件前
@@ -254,6 +256,7 @@ function buildHtml(document) {
   const ids = [
     "status-dot", "status-text",
     "harness", "guidance", "loading-page", "failed-page", "preflight-page",
+    "loading-hint", "loading-progress", "loading-bar", "loading-progress-text",
     "failed-reason", "btn-failed-doctor", "btn-failed-safe-mode", "failed-log-hint",
     "preflight-icon", "preflight-title", "preflight-hint", "preflight-repairs",
     "preflight-issues", "preflight-actions", "preflight-note",
@@ -306,6 +309,7 @@ function buildHtml(document) {
   // 与 index.html 一致的初始 hidden 态
   for (const id of [
     "harness", "loading-page", "failed-page", "preflight-page",
+    "loading-progress",
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
     "server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal",
     "doctor-content", "doctor-repair-output",
@@ -455,7 +459,9 @@ function makeWails(runCalls, overrides = {}) {
     RefreshTools: async () => ({}),
     InstallToolchain: async () => ({}),
     RemoveHostTool: async () => ({}),
-    AddHostTool: async () => ({}),
+    AddHostTool: overrides.AddHostTool ?? (async () => ({})),
+    // 宿主导入扫描（可选覆盖：用例按需给出待导入条目）。
+    ScanHostTools: overrides.ScanHostTools ?? (async () => []),
     About: async () => ({}),
     ReadClipboardImage: async () => "",
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
@@ -564,6 +570,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     + "\n;globalThis.__testRunDoctorForce = function (t) { return runDoctor(t || '', true); };"
     + "\n;globalThis.__testSwitchTerminal = switchTerminalSession;"
     + "\n;globalThis.__testCloseTerminal = closeTerminalSession;"
+    + "\n;globalThis.__testDiagnosisState = diagnosisState;"
     + (hasWails ? "" : "\n;globalThis.__testApplyStatus = applyStatus;");
   vm.runInContext(code, sandbox, { filename: "app.js" });
 
@@ -579,6 +586,13 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
       events["harness:status"](s);
+    },
+    /* 驱动一条启动进度事件。Go 侧 startup:progress 的载荷就是 StartupView，
+     * 与快照里的 Startup 字段同源（internal/app/startup_progress.go）。 */
+    startupEvent: (v) => {
+      assert.equal(typeof events["startup:progress"], "function",
+        "startup:progress 事件未注册（需 Wails 环境）");
+      events["startup:progress"](v);
     },
     /* 驱动一条后端终端事件。EventsOn 的桩把回调存进 events，名称与 index.html
      * 脚本注册的一致（terminal:output / terminal:status）。 */
@@ -715,6 +729,39 @@ test("退出 failed 后标记重置，新失败周期可再次自动弹窗", asy
   assert.equal(
     h.document.getElementById("doctor-modal").classList.contains("hidden"),
     false, "新周期应再次自动弹窗");
+});
+
+test("修复期间退出失败态仍要复位：第二轮失败仍能自动弹窗", async () => {
+  // N12：runRepair 在 repairing=true 期间会用修复后的状态调 applyStatus（自动启动
+  // 成功时已不在失败态）。若那次快照被 repairing 守卫提前 return，本周期标记与诊断
+  // 缓存都留在上一轮：第二个失败周期不再自动弹窗，手动诊断还会渲染上一轮的全绿报告。
+  // 桩 DOM 不解析 innerHTML 生成的修复按钮，所以这里直接驱动状态机，时序与 runRepair
+  // 一致——repairing 置位期间收到非失败态。
+  const h = loadApp();
+  await flush();
+  h.status(baseStatus({ State: "failed", StartupDoctorReady: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 1, "第一轮失败应自动诊断");
+  const ds = h.sandbox.__testDiagnosisState;
+  assert.ok(ds && ds.lastReport, "第一轮诊断结果应进入缓存");
+
+  ds.repairing = true;
+  h.status(baseStatus({ State: "starting" })); // 修复后自动启动成功的快照
+  ds.repairing = false;
+
+  assert.equal(ds.lastReport, null, "修复期间退出失败态也要清空诊断缓存");
+
+  // 第二轮失败：标记已复位 → 再次自动弹窗并重新诊断
+  h.status(baseStatus({ State: "failed", StartupDiagnosing: true }));
+  assert.equal(
+    h.document.getElementById("auto-diag-hint").textContent,
+    "正在自动诊断问题…");
+  h.status(baseStatus({ State: "failed", StartupDoctorReady: true }));
+  await flush();
+  assert.equal(h.runCalls.length, 2, "第二轮失败应重新自动诊断");
+  assert.equal(
+    h.document.getElementById("doctor-modal").classList.contains("hidden"),
+    false, "第二轮失败应再次自动弹窗");
 });
 
 test("浏览器预览分支（无 Wails）：自动弹窗逻辑安全跳过", () => {
@@ -856,6 +903,43 @@ test("诊断报告用语义类着色，不把主题色值写进内联样式", as
   assert.match(checks, /doctor-check-icon sev-ok/u, "通过项图标应带 ok 语义类");
 });
 
+test("诊断清单转义每个取自报告的字符串字段", async () => {
+  // Category/Severity 与 Name/Message/Detail 同源（dsh doctor --json 的子进程
+  // stdout），而清单整体赋给 #doctor-checks 的 innerHTML。壳前端持有全部 Go 绑定，
+  // 漏转义一个字段就等于把 InstallToolchain/AddHostTool 交给报告里的脚本。
+  const payload = '<img src=x onerror="alert(1)">';
+  const report = fakeReport();
+  report.Checks[1].Category = payload;
+  report.Checks[1].Severity = payload;
+  const h = loadApp({ overrides: { RunDoctor: async () => report } });
+  await flush();
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+
+  const checks = h.document.getElementById("doctor-checks").innerHTML;
+  assert.equal(checks.includes(payload), false, "报告字段不得以原样进入 innerHTML");
+  assert.equal(/<img/u.test(checks), false, "报告字段不得生成元素");
+  assert.match(checks, /&lt;img src=x onerror=/u, "报告字段应转为实体文本");
+});
+
+test("诊断摘要的错误文案按纯文本渲染", async () => {
+  // 摘要栏普通文案走 textContent：错误串来自 doctor 子进程输出或 Go 侧拼接，
+  // 与计数摘要（本文件拼 HTML）不是同一类内容。
+  const payload = '<img src=x onerror="alert(1)">';
+  const report = fakeReport();
+  report.Error = payload;
+  report.Checks = [];
+  const h = loadApp({ overrides: { RunDoctor: async () => report } });
+  await flush();
+  h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
+  await flush();
+
+  const summary = h.document.getElementById("doctor-summary-text");
+  assert.equal(summary.innerHTML.includes("<img"), false, "错误文案不得生成元素");
+  assert.match(summary.textContent, /诊断失败/u, "仍应说明诊断失败");
+  assert.match(summary.textContent, /<img src=x onerror=/u, "应原样保留错误文本");
+});
+
 test("renderRepairOutput 把 CLI 输出解析为结构化面板", () => {
   const h = loadApp();
   const fn = h.sandbox.__testRenderRepairOutput;
@@ -953,6 +1037,49 @@ test("市场卡片：仓库未装但容器内已有命令时提示来源，已�
   assert.match(pills[2].textContent, /已安装/);
 });
 
+test("提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖", () => {
+  const h = loadApp();
+  const dev = fakeTools();
+  dev.Sandboxed = false;
+  dev.Notice = "索引来自缓存";
+  h.sandbox.__testRenderTools(dev);
+  const notice = h.document.getElementById("toolchain-notice").textContent;
+  assert.match(notice, /开发态：宿主命令本就在 PATH/u, "开发态说明应保留");
+  assert.match(notice, /索引来自缓存/u, "索引提示应保留");
+
+  h.sandbox.__testRenderTools(fakeTools());
+  assert.equal(
+    h.document.getElementById("toolchain-notice").textContent, "",
+    "打包态无提示时应为空，不残留开发态文案");
+});
+
+test("安装进度按 dataset 定位卡片，伪造 tool id 不波及其他卡片", () => {
+  // id 来自 toolchain:progress 事件（远程索引下发的工具 ID）。拼进属性选择器时，
+  // 含引号的 id 会变成另一条选择器或让查询抛错，整轮进度刷新随之中断。
+  const h = loadApp();
+  const tools = fakeTools();
+  h.sandbox.__testRenderTools(tools);
+  // 进度条只在安装中的卡片上渲染，而进度事件本身不重画网格：先让 deno 进入
+  // 安装态再重渲染一次，卡片才带上 .tool-progress-fill。
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "downloading", Percent: 0 });
+  h.sandbox.__testRenderTools(tools);
+  // createElement 的产物会一直留在 stub 的扁平 registry 里（innerHTML 清空只解父链），
+  // 因此网格内的卡片从容器子树取；与其它市场用例一致。
+  const cards = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item");
+  const width = (card) => card.querySelector(".tool-progress-fill").style.width;
+  assert.equal(width(cards[1]), "0%", "安装中的卡片应带上进度条");
+
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "downloading", Percent: 42 });
+  assert.equal(width(cards[1]), "42%", "应按 id 命中 deno 卡");
+
+  const forged = 'deno"] , .tool-card-item[data-tool-id="node';
+  h.terminalEvent("toolchain:progress", { ID: forged, Phase: "downloading", Percent: 99 });
+  assert.equal(width(cards[1]), "42%", "伪造 id 不得改到别的卡片");
+
+  h.terminalEvent("toolchain:progress", { ID: "deno", Phase: "done", Percent: 100 });
+  assert.equal(width(cards[1]), "0%", "完成后应清除该卡片的进度");
+});
+
 test("市场卡片：运行时提示在版本探测失败时省略版本段", () => {
   const h = loadApp();
   const tools = fakeTools();
@@ -992,6 +1119,68 @@ test("宿主导入：没有挂载项时摘要留空", () => {
   const h = loadApp();
   h.sandbox.__testRenderTools(fakeTools());
   assert.equal(h.document.getElementById("hosts-summary").textContent, "");
+});
+
+/* ---------- 宿主挂载二次确认 ---------- */
+
+test("宿主挂载：手填目录需二次点击，首次点击先说明沙箱读取范围", async () => {
+  const mounted = [];
+  const h = loadApp({
+    overrides: { AddHostTool: async (src, name) => { mounted.push(src + "|" + name); return {}; } },
+  });
+  const add = h.document.getElementById("host-add");
+  const hint = h.document.getElementById("host-hint");
+  h.document.getElementById("host-path").value = "/opt/jdk";
+  h.document.getElementById("host-name").value = "jdk";
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, [], "首次点击不得挂载");
+  assert.equal(add.textContent, "确认挂载?", "首次点击把按钮改成确认文案");
+  assert.match(hint.textContent, /沙箱内所有进程都能读取 \/opt\/jdk/u, "应说明读取范围");
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, ["/opt/jdk|jdk"], "二次点击才执行挂载");
+  assert.equal(add.textContent, "挂载", "确认后按钮复位");
+  assert.equal(h.document.getElementById("host-path").value, "", "成功后清空输入框");
+});
+
+test("宿主挂载：目录为空时不进入确认态", async () => {
+  const h = loadApp();
+  const add = h.document.getElementById("host-add");
+  h.document.getElementById("host-path").value = "  ";
+  add.fire("click");
+  await flush();
+  // 桩 DOM 不还原 index.html 的按钮文案，因此断言武装标记而非文本。
+  assert.notEqual(add.dataset.armed, "1", "空目录不应武装确认");
+  assert.equal(h.document.getElementById("host-hint").textContent, "", "空目录不应写提示");
+});
+
+test("宿主挂载：扫描结果里的按钮同样需二次点击", async () => {
+  const mounted = [];
+  const h = loadApp({
+    overrides: {
+      ScanHostTools: async () => ([
+        { Name: "jdk", Tool: "JDK", Version: "21", Source: "/opt/jdk", Conflict: "" },
+      ]),
+      AddHostTool: async (src, name) => { mounted.push(src + "|" + name); return {}; },
+    },
+  });
+  h.document.getElementById("host-scan").fire("click");
+  await flush();
+
+  const row = h.document.getElementById("host-scan-list").children[0];
+  const add = row.children.find((c) => c.tagName === "BUTTON");
+  assert.ok(add, "扫描结果应给出挂载按钮");
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, [], "首次点击不得挂载");
+  assert.match(h.document.getElementById("host-hint").textContent, /沙箱内所有进程都能读取 \/opt\/jdk/u);
+
+  add.fire("click");
+  await flush();
+  assert.deepEqual(mounted, ["/opt/jdk|jdk"], "二次点击才执行挂载");
 });
 
 /* ---------- 市场空态 ---------- */
@@ -1128,6 +1317,74 @@ test("预检放行后（ok）回到加载页", () => {
   assert.equal(page.classList.contains("hidden"), true, "预检页应隐藏");
   const loading = h.document.getElementById("loading-page");
   assert.equal(loading.classList.contains("hidden"), false, "应回到加载页");
+});
+
+/* ---------- 加载页启动进度 ---------- */
+
+test("启动进度 plugins：显示真实计数与按比例宽度", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 40, Total: 80 } }));
+
+  assert.equal(h.document.getElementById("loading-page").classList.contains("hidden"), false);
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), false,
+    "有上报时应显示进度块");
+  assert.equal(h.document.getElementById("loading-progress-text").textContent, "已加载 40/80 个插件");
+  assert.equal(h.document.getElementById("loading-bar").style.width, "50.0%");
+});
+
+test("启动进度 serving：文案切到启动服务端口，进度条满格", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 40, Total: 80 } }));
+  h.startupEvent({ Phase: "serving", Loaded: 80, Total: 80 });
+
+  assert.equal(h.document.getElementById("loading-hint").textContent, "插件已就绪，正在启动服务端口");
+  assert.equal(h.document.getElementById("loading-bar").style.width, "100.0%");
+});
+
+test("starting/loading 阶段：只给粗粒度文案，不显示进度块", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "starting" } }));
+  assert.equal(h.document.getElementById("loading-hint").textContent, "正在启动服务进程，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true,
+    "没有计数时不得显示进度块");
+
+  h.startupEvent({ Phase: "loading" });
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+});
+
+test("没有上报或旧快照缺字段时，加载页保持改造前的文案", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "loading", Loaded: 0, Total: 0 } }));
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true);
+
+  // 未注入上报插件的在途版本：快照里根本没有 Startup 字段。
+  h.status(baseStatus({ State: "starting" }));
+  assert.equal(h.document.getElementById("loading-hint").textContent,
+    "DeepSeek Harness 正在加载插件和服务，请稍候");
+  assert.equal(h.document.getElementById("loading-progress").classList.contains("hidden"), true);
+});
+
+test("分母增长导致比率回退时进度条不倒退", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 90, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "90.0%");
+
+  // 92/120 低于 90%：后续行插入会抬高分母，进度条不得因此回退。
+  h.startupEvent({ Phase: "plugins", Loaded: 92, Total: 120 });
+  assert.equal(h.document.getElementById("loading-bar").style.width, "90.0%");
+});
+
+test("离开启动态后进度归零，下一轮启动从零开始", () => {
+  const h = loadApp();
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 50, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "50.0%");
+
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:1", Startup: {} }));
+  h.status(baseStatus({ State: "starting", Startup: { Phase: "plugins", Loaded: 5, Total: 100 } }));
+  assert.equal(h.document.getElementById("loading-bar").style.width, "5.0%");
 });
 
 test("freshHome 运行中：服务器弹框显示全新环境标识", () => {

@@ -165,12 +165,20 @@ func (m *Manager) Remove(sessionID string) error {
 }
 
 // List 返回所有会话的元数据快照。
+//
+// 先在 m.mu 下取出会话切片，再在锁外逐个取 Info：Info 会取会话自己的锁，若在持有
+// m.mu 时调用，就与 waitLoop「持会话锁回调管理器」构成反向加锁而死锁（S2）。
+// 快照语义不变：两次取锁之间新增或移除的会话不影响已取出的这批。
 func (m *Manager) List() []SessionInfo {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]SessionInfo, 0, len(m.sessions))
+	sessions := make([]*Session, 0, len(m.sessions))
 	for _, s := range m.sessions {
+		sessions = append(sessions, s)
+	}
+	m.mu.RUnlock()
+
+	result := make([]SessionInfo, 0, len(sessions))
+	for _, s := range sessions {
 		result = append(result, s.Info())
 	}
 	return result

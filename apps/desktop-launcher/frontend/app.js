@@ -28,6 +28,33 @@ function maybeAutoStartAfterRepair(report) {
   return !!report && report.Error === "" && report.Failed === 0;
 }
 
+// 两击确认的武装窗口：超时后自动复位，避免武装状态一直留着——否则用户几秒后
+// 的一次普通单击会在没有确认提示的情况下真的执行。
+const CONFIRM_ARM_MS = 2500;
+
+// consumeConfirmClick 实现"两击确认"的状态机，返回 true 表示调用方应执行动作。
+// 首次点击只把按钮改成确认文案并武装，窗口内再点一次才算确认。卸载工具与宿主
+// 挂载共用它：两个动作都会写配置且不易撤销，而按钮只有一行空间说明后果，
+// 各写一遍会让"武装 + 超时复位"的细节在调用点之间漂移。
+function consumeConfirmClick(button, idleLabel, confirmLabel) {
+  if (button.dataset.armed === "1") {
+    disarmConfirmClick(button, idleLabel);
+    return true;
+  }
+  button.dataset.armed = "1";
+  button.textContent = confirmLabel;
+  setTimeout(() => disarmConfirmClick(button, idleLabel), CONFIRM_ARM_MS);
+  return false;
+}
+
+// disarmConfirmClick 复位按钮的武装状态；未武装时不动，避免超时回调把按钮
+// 文案改回空闲态而覆盖调用方刚写入的新文案。
+function disarmConfirmClick(button, idleLabel) {
+  if (button.dataset.armed !== "1") return;
+  button.dataset.armed = "0";
+  button.textContent = idleLabel;
+}
+
 function api() {
   return window.go.app.App;
 }
@@ -108,6 +135,51 @@ function bindExternalLinks() {
       }
     }
   });
+}
+
+/* ---------- 加载页启动进度 ---------- */
+
+// 阶段文案：键是 Go 侧 startupView 的阶段名（internal/app/startup_progress.go）。
+// 阶段只由可观测事实触发，前端不做任何按时间推进的猜测。
+const LOADING_PHASE_HINT = {
+  starting: "正在启动服务进程，请稍候",
+  loading: "DeepSeek Harness 正在加载插件和服务，请稍候",
+  // 与 loading 同一句文案：区别在于此时已有真实计数，页面额外显示进度条与 n/m。
+  plugins: "DeepSeek Harness 正在加载插件和服务，请稍候",
+  serving: "插件已就绪，正在启动服务端口",
+};
+
+// 缺省文案：浏览器预览、或在途版本（未注入上报插件）时保持改造前的说法。
+const LOADING_HINT_DEFAULT = "DeepSeek Harness 正在加载插件和服务，请稍候";
+
+// 加载页进度条的单调渲染状态：分母在启动期会随新行插入小幅增长，比率因此可能
+// 回退一两个百分点；进度条按单调不减渲染，避免视觉上的倒退。离开启动态时归零。
+const loadingProgress = { ratio: 0 };
+
+/**
+ * 渲染加载页的阶段与进度。
+ *
+ * 数据全部来自 harness 侧的真实上报（阶段判定在 Go 侧 startupView），前端只做
+ * 文案与宽度映射：没有上报时不显示进度块，也绝不按时间补一个百分比。
+ * @param {?{Phase: string, Loaded: number, Total: number}} v - 启动进度视图；
+ *   缺省或零值表示当前不在启动态。
+ */
+function renderStartup(v) {
+  const phase = v && v.Phase ? v.Phase : "";
+  $("#loading-hint").textContent = LOADING_PHASE_HINT[phase] || LOADING_HINT_DEFAULT;
+
+  const showBar = phase === "plugins" || phase === "serving";
+  $("#loading-progress").classList.toggle("hidden", !showBar);
+  if (!showBar) {
+    // 还没开始挂载或已离开启动态：归零，下一轮启动不会带着上一轮的进度。
+    loadingProgress.ratio = 0;
+    return;
+  }
+
+  const ratio = v.Total > 0 ? v.Loaded / v.Total : 0;
+  loadingProgress.ratio = Math.max(loadingProgress.ratio, Math.min(1, ratio));
+  $("#loading-bar").style.width = (loadingProgress.ratio * 100).toFixed(1) + "%";
+  $("#loading-progress-text").textContent = "已加载 " + v.Loaded + "/" + v.Total + " 个插件";
 }
 
 /* ---------- 状态渲染 ---------- */
@@ -226,6 +298,7 @@ function applyStatus(s) {
   }
 
   updateStartupDoctor(s);
+  renderStartup(s.Startup);
   renderServerDialog(s);
 }
 
@@ -369,12 +442,31 @@ function hideDoctorAutoBanner() {
 
 // 更新诊断摘要栏：只改写文本 span（保留行内的"重新诊断"按钮不被整体重写冲掉），
 // 并控制按钮显隐 —— 诊断中/失败时隐藏，结果就绪时显示。
-function setDoctorSummary(htmlOrText, showRefresh) {
+// 两个入口按内容来源分开：计数摘要由本文件拼接、只含固定字面量与转义输出，走
+// setDoctorSummaryHtml；其余文案（诊断错误、占位提示、调用方传入的复查文案）来自
+// 报告或调用方，走 setDoctorSummaryText 由 textContent 承担转义。合成一个入口时
+// 调用方无法从签名看出自己交的是不是 HTML，历史上正是这样把报告错误文案送进了
+// innerHTML。
+function setDoctorSummaryHtml(html, showRefresh) {
   const text = $("#doctor-summary-text");
   if (!text) return; // 结构未就绪（预览分支）
-  text.innerHTML = htmlOrText;
+  text.innerHTML = html;
+  setDoctorRefreshVisible(showRefresh);
+}
+
+// setDoctorSummaryText 以纯文本更新摘要栏，任意输入都不会被解析为标记。
+function setDoctorSummaryText(textContent, showRefresh) {
+  const text = $("#doctor-summary-text");
+  if (!text) return; // 结构未就绪（预览分支）
+  text.textContent = textContent;
+  setDoctorRefreshVisible(showRefresh);
+}
+
+// setDoctorRefreshVisible 控制"重新诊断"按钮显隐；摘要栏缺失时一并跳过，
+// 使两个摘要入口在预览分支下的行为一致。
+function setDoctorRefreshVisible(showRefresh) {
   const btn = $("#doctor-refresh");
-  btn.classList.toggle("hidden", !showRefresh);
+  if (btn) btn.classList.toggle("hidden", !showRefresh);
 }
 
 // 修复进行中：所有修复卡片按钮禁用并显示"修复中…"（跨弹窗关闭重开保持，
@@ -494,23 +586,24 @@ function renderRepairOutput(raw) {
 // （用户手动重启/安全模式）后重置，下一周期可再触发。
 // 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
 function updateStartupDoctor(s) {
-  // 修复进行中：保持弹窗的"修复中…"状态，不响应任何状态事件去自动弹窗/
-  // 重置标记 —— 修复期间 supervisor 状态抖动（如在重启）不能触发又一轮
-  // "正在诊断…"的自动弹窗，打断用户看到的修复进度。
-  if (diagnosisState.repairing) {
-    if (s.State !== "failed") hideAutoDiagHint();
-    return;
-  }
-
   if (s.State !== "failed") {
     state._startupDoctorShown = false;
     // 退出失败态（用户重启/安全模式/修复后自动启动）：环境可能已变化，
     // 清空诊断缓存，进入下一次失败周期时重新检测而非展示旧结果。
+    //
+    // 这段必须排在 repairing 判断之前：修复流程最后会用修复后的状态调 applyStatus
+    // （自动启动成功时已不在失败态），若那次快照被 repairing 提前 return，标记与
+    // 缓存就留在上一轮——第二个失败周期不再自动弹窗，手动诊断还会渲染上一轮的
+    // 全绿报告（审计 N12）。
     diagnosisState.lastReport = null;
     hideAutoDiagHint();
     hideDoctorAutoBanner();
     return;
   }
+
+  // 修复进行中：保持弹窗的"修复中…"状态，不因 supervisor 状态抖动（如在重启）
+  // 再触发一轮"正在诊断…"的自动弹窗，打断用户看到的修复进度。
+  if (diagnosisState.repairing) return;
 
   if (s.StartupDoctorReady || s.StartupDiagnosing) {
     if (s.StartupDoctorReady) setAutoDiagHint("诊断完成", false);
@@ -743,7 +836,16 @@ function renderTools(t) {
   renderStatusbar(t);
   renderHostTools(t);
   renderUpdateBadge(t);
-  $("#toolchain-notice").textContent = t.Notice || "";
+  $("#toolchain-notice").textContent = hostToolsNotice(t);
+}
+
+// hostToolsNotice 返回工具链弹框顶部提示条应显示的文案。
+// 提示条只有 renderTools 一处写点：宿主导入区曾自己写一次，紧接着被这里的
+// `t.Notice` 无条件覆盖，开发态提示因此在渲染周期里消失。
+function hostToolsNotice(t) {
+  if (t.Sandboxed) return t.Notice || "";
+  const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
+  return t.Notice ? devMsg + " " + t.Notice : devMsg;
 }
 
 // renderUpdateBadge 更新工具链图标的小红点和弹框内的更新提示条。
@@ -841,8 +943,18 @@ function renderProgress(ev) {
 }
 
 // updateProgressBar 定向更新某卡片的状态徽标与进度条；ev 为 null 表示清除进度。
+// id 来自 toolchain:progress 事件，由远程索引下发的工具 ID 决定。它不拼进选择器：
+// `.tool-card-item[data-tool-id="..."]` 里的引号与反斜杠会让含该字符的 ID 变成另一条
+// 选择器，或让这次查询抛错、中断整轮进度刷新。改为在网格子树内逐一比较 dataset，
+// 语义不变、不依赖转义规则，也不会命中网格之外的卡片。
 function updateProgressBar(id, ev) {
-  const card = document.querySelector('.tool-card-item[data-tool-id="' + id + '"]');
+  const grid = $("#market-grid");
+  let card = null;
+  if (grid) {
+    for (const el of grid.querySelectorAll(".tool-card-item")) {
+      if (el.dataset.toolId === id) { card = el; break; }
+    }
+  }
   if (!card) return;
   const bar = card.querySelector(".tool-progress-fill");
   const label = card.querySelector(".tool-progress-label");
@@ -1019,12 +1131,7 @@ function toolCard(c) {
     un.className = "btn btn-danger";
     un.textContent = "卸载";
     un.addEventListener("click", async () => {
-      if (un.dataset.armed !== "1") {
-        un.dataset.armed = "1";
-        un.textContent = "确认卸载?";
-        setTimeout(() => { if (un.dataset.armed === "1") { un.dataset.armed = "0"; un.textContent = "卸载"; } }, 2500);
-        return;
-      }
+      if (!consumeConfirmClick(un, "卸载", "确认卸载?")) return;
       const err = await api().UninstallTool(c.ID, sel.value);
       if (err) { $("#toolchain-notice").textContent = err; }
       api().RefreshTools();
@@ -1108,13 +1215,12 @@ function renderStatusbar(t) {
   sb.textContent = parts.join("　·　");
 }
 
-// renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区。
+// renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区，
+// 对应提示条文案见 hostToolsNotice。
 function renderHostTools(t) {
   const hostBox = $("#card-hosts");
   if (!t.Sandboxed) {
     hostBox.classList.add("hidden");
-    const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
-    $("#toolchain-notice").textContent = t.Notice ? devMsg + " " + t.Notice : devMsg;
     return;
   }
   hostBox.classList.remove("hidden");
@@ -1157,8 +1263,16 @@ function renderHostScan(entries) {
     add.className = "btn btn-primary";
     add.textContent = "挂载";
     add.addEventListener("click", async () => {
-      const res = await api().AddHostTool(e.Source, e.Name);
       const hint = $("#host-hint");
+      if (!consumeConfirmClick(add, "挂载", "确认挂载?")) {
+        // 首次点击：把这次挂载的后果写进提示行（按钮一行放不下）。挂载以 rbind,ro
+        // 写进 config.d，生效后沙箱内所有进程都能读到该目录——用户需要知道这一点
+        // 才能判断该不该继续。
+        hint.className = "hint";
+        hint.textContent = "挂载后沙箱内所有进程都能读取 " + e.Source + "（只读）；再点一次「确认挂载」生效";
+        return;
+      }
+      const res = await api().AddHostTool(e.Source, e.Name);
       if (res.Error) { hint.className = "error"; hint.textContent = "挂载失败: " + res.Error; }
       else { hint.className = "hint"; hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效"; }
       api().RefreshTools();
@@ -1318,14 +1432,23 @@ function bindUI() {
     }
   });
 
-  $("#host-add").addEventListener("click", async () => {
+  const hostAdd = $("#host-add");
+  hostAdd.addEventListener("click", async () => {
     const src = $("#host-path").value.trim();
     const name = $("#host-name").value.trim();
     if (!src) return;
+    const hint = $("#host-hint");
+    // 与卸载工具同一套两击确认：挂载以 rbind,ro 写进 config.d，生效后沙箱内所有
+    // 进程都能读到该目录，而按钮一行放不下这句后果，首次点击时写进提示行。
+    // 确认时按输入框当前值执行——两次点击之间用户仍可修改，改动由他自己作出。
+    if (!consumeConfirmClick(hostAdd, "挂载", "确认挂载?")) {
+      hint.className = "hint";
+      hint.textContent = "挂载后沙箱内所有进程都能读取 " + src + "（只读）；再点一次「确认挂载」生效";
+      return;
+    }
     const res = await api().AddHostTool(src, name);
     $("#host-path").value = "";
     $("#host-name").value = "";
-    const hint = $("#host-hint");
     if (res.Error) {
       hint.className = "error";
       hint.textContent = "挂载失败: " + res.Error;
@@ -1351,6 +1474,9 @@ function init() {
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));
   window.runtime.EventsOn("toolchain:progress", (p) => renderProgress(p));
+  // 启动进度单独走事件：条目激活在数秒内产生上百次计数变化，1s 状态轮询只能
+  // 采到一两个点，进度条会跳变。两条通道共用同一份视图与渲染函数。
+  window.runtime.EventsOn("startup:progress", (v) => renderStartup(v));
   setupBuiltinToggle();
   setupHostsToggle();
 
@@ -1385,14 +1511,14 @@ function init() {
     // 诊断已完成且有结果：直接展示缓存，不重复检测。只有"重新诊断"按钮
     // （force=true）才强制重跑。
     if (!force && diagnosisState.lastReport) {
-      setDoctorSummary(summaryText || "正在诊断…", false);
+      setDoctorSummaryText(summaryText || "正在诊断…", false);
       renderDoctorReport(diagnosisState.lastReport);
       return diagnosisState.lastReport;
     }
     diagnosisState.running = true;
     // summaryText 可覆盖默认文案：修复后的复检用"修复完成，正在复查…"，
     // 与"又出问题了"的诊断区分开。
-    setDoctorSummary(summaryText || "正在诊断…", false);
+    setDoctorSummaryText(summaryText || "正在诊断…", false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
     const currentPromise = (async () => {
@@ -1406,7 +1532,7 @@ function init() {
         diagnosisState.lastReport = r;
         return r;
       } catch (e) {
-        setDoctorSummary("诊断失败: " + e.message, false);
+        setDoctorSummaryText("诊断失败: " + e.message, false);
         $("#doctor-start").classList.remove("hidden");
         return null;
       }
@@ -1426,7 +1552,7 @@ function init() {
 
   function renderDoctorReport(r) {
     if (r.Error) {
-      setDoctorSummary("诊断失败: " + r.Error, false);
+      setDoctorSummaryText("诊断失败: " + r.Error, false);
       $("#doctor-start").classList.remove("hidden");
       $("#doctor-content").classList.add("hidden");
       return;
@@ -1437,7 +1563,7 @@ function init() {
     const sevClass = { fatal: "sev-error", error: "sev-error", warning: "sev-warn", info: "sev-info" };
     const statusClass = (ok, sev) => ok ? "sev-ok" : (sevClass[sev] || "sev-muted");
 
-    setDoctorSummary(
+    setDoctorSummaryHtml(
       `<strong>共 ${r.Total} 项</strong>：` +
       `<span class="sev-ok">✓ ${r.OK} 通过</span>，` +
       `<span class="sev-error">✗ ${r.Failed} 失败</span>` +
@@ -1464,6 +1590,11 @@ function init() {
       box.insertBefore(hint, $("#doctor-summary"));
     }
 
+    // 清单里每个字符串字段都来自 `dsh doctor --json` 的子进程 stdout，而非
+    // dsh-doctor 内置检查的固定输出：任何注册进 doctor 进程的检查都能决定它们，
+    // 而壳前端持有全部 Go 绑定，壳内脚本执行等价于拿到这些能力。因此整段拼接
+    // 只允许出现固定字面量与 escapeHtml 的输出；Go 侧的计数与 SuggestedLevel
+    // 解成 int，不在此列。
     const checksHtml = r.Checks.map((c) => {
       const icon = c.OK ? "✓" : "✗";
       const colorClass = statusClass(c.OK, c.Severity);
@@ -1477,7 +1608,7 @@ function init() {
           <div class="doctor-check-main">
             <div class="doctor-check-title">
               <span>${escapeHtml(c.Name)}</span>
-              <span class="hint" style="margin-left:8px">[${c.Category} / ${c.Severity}]</span>
+              <span class="hint" style="margin-left:8px">[${escapeHtml(c.Category)} / ${escapeHtml(c.Severity)}]</span>
               ${fixBadge}
             </div>
             <div class="doctor-check-msg">${escapeHtml(c.Message)}</div>

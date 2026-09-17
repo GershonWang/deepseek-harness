@@ -32,7 +32,22 @@ Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolch
 
 The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
-Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row. Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
+Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row and inserting the startup-progress reporter (next section). Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
+
+## Startup phases and loading-page progress
+
+The window exists before harness is ready, so the startup window has to explain itself. The loading page shows four phases, each triggered by an observed fact; no phase is guessed from elapsed time:
+
+| Phase | Triggering fact | Page copy |
+|---|---|---|
+| `starting` | Harness child spawned, no output yet | 正在启动服务进程，请稍候 |
+| `loading` | Child produced its first output, no counts yet | DeepSeek Harness 正在加载插件和服务，请稍候 |
+| `plugins` | Counts reported | Same copy plus a bar and 已加载 n/m 个插件 |
+| `serving` | Counts complete; only the port listen remains | 插件已就绪，正在启动服务端口 |
+
+The counts come from `internal/appenv/startup_progress.mjs`: `appenv` writes it beside the overlay on every spawn and the same overlay's `insert` row injects it into harness. The plugin imports nothing and throws nothing — an entry that fails activation aborts the boot, and progress is only presentation — counting settled loader entries and writing `dsh-desktop: startup <loaded>/<total>` to stderr. `internal/supervisor` parses that line, `internal/app` maps it to the phases above, and a throttled `startup:progress` event plus the 1 s status snapshot carry the view to the frontend. The denominator is the set of rows that actually mount (groups and disabled rows excluded) and stays stable through boot; late insertions are rendered monotonically by the frontend while the printed counts stay exact. Reporting stops once the counts first reach the total: this channel serves the startup window only, and harness keeps recomposing its tree afterwards (client HMR, the user patch-layer watcher, market plugins), which would otherwise log rows whose numerator exceeds the denominator (measured `161/136`) — polluting the startup-timing record and contradicting the contract above.
+
+When the plugin file cannot be written, or an in-flight harness build does not inject it, the loading page falls back to the first two coarse phases with its spinner and shows no progress block — it never invents a time-based percentage. The harness's own `Loading plugins…` inside the WebView is a separate, browser-side segment and is not part of this mechanism.
 
 ## File layout
 
@@ -106,11 +121,12 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-The frontend has no build step: `index.html`, `styles.css`, and `app.js` are embedded as-is. `test-app.cjs` runs `app.js` against a hand-written DOM stub, so it observes the behavior those files produce but not the layout. `frontend/tools/preview.mjs` covers what the stub cannot: it renders `index.html` in headless Chromium, replays each dialog state the way `app.js` writes it, and asserts the layout invariants — the card keeps one height across connection modes and running states, the address box keeps its two-line reservation, and the service-address field stays within its cap. It also opens the toolchain market and checks, with cards whose meta rows carry a long command list, that the grid does not overflow horizontally and that a row's cards stay equal in width (`1fr` fails here: the cards' min-content width pushes the tracks past the container). It also checks, shape by shape, that each card's `min-height` bucket covers that shape's content height — WebKitGTK uses the bucket as the row height, so a bucket that is too small lets content overflow onto the next row — and that an installing card's progress track differs in color from the card itself. `render` writes one screenshot per theme and state into `frontend/.preview`; `measure` prints the raw geometry instead. Chromium's profile and `HOME`/XDG directories live in `apps/desktop-launcher/.preview-cache`, created per run and deleted when it finishes: `//go:embed all:frontend` embeds the whole frontend directory regardless of `.gitignore`, so a browser cache written there makes the launcher build fail on filenames Go's embed rules reject. The browser comes from `DSH_PREVIEW_BROWSER`, otherwise the Playwright cache, otherwise `PATH`; with none available the tool states why and exits without failing, so a machine without a browser can still push.
+The frontend has no build step: `index.html`, `styles.css`, and `app.js` are embedded as-is. `test-app.cjs` runs `app.js` against a hand-written DOM stub, so it observes the behavior those files produce but not the layout. `frontend/tools/preview.mjs` covers what the stub cannot: it renders `index.html` in headless Chromium, replays each dialog state the way `app.js` writes it, and asserts the layout invariants — the card keeps one height across connection modes and running states, the address box keeps its two-line reservation, and the service-address field stays within its cap. It also opens the toolchain market and checks, with cards whose meta rows carry a long command list, that the grid does not overflow horizontally and that a row's cards stay equal in width (`1fr` fails here: the cards' min-content width pushes the tracks past the container). It also checks, shape by shape, that each card's `min-height` bucket covers that shape's content height — WebKitGTK uses the bucket as the row height, so a bucket that is too small lets content overflow onto the next row — and that an installing card's progress track differs in color from the card itself. The loading-page progress bar is measured too: the 50 % and 100 % widths must match the track, the block must stay inside the stage, and a long counter must stay on one line without overlapping the hint. `render` writes one screenshot per theme and state into `apps/desktop-launcher/.preview`; `measure` prints the raw geometry instead. Chromium's profile and `HOME`/XDG directories live in `apps/desktop-launcher/.preview-cache`, created per run and deleted when it finishes: `//go:embed all:frontend` embeds the whole frontend directory regardless of `.gitignore`, so anything written under `frontend/` — a browser cache, the screenshot output, or the preview page `verify` rewrites on every push — lands in the launcher binary, and `go build` fails outright on filenames Go's embed rules reject. The browser comes from `DSH_PREVIEW_BROWSER`, otherwise the Playwright cache, otherwise `PATH`; with none available the tool states why and exits without failing, so a machine without a browser can still push.
 
 The market catalog has a comparable opt-in audit: `DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` skips by default and, when enabled, installs each catalog tool for real to verify the URL resolves, the archive sha256 matches the catalog, the extracted layout matches the `bin_rel`/`bin_names` declaration, and every declared command is actually exposed under `bin/`. Mirror sites rotate versions (Apache dlcdn keeps only the current release, so older pinned URLs 404 silently), and that rot surfaces only under such an audit or when a user clicks install; `DSH_TC_E2E_IDS` narrows the run by ID.
 
@@ -143,7 +159,7 @@ External links cannot open through WebKit's new-window path in the Wails webview
 
 ## Container usability (toolchain/mounts)
 
-- Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
+- Self-contained toolchain: `buildext.apt.depends` ships git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils/wl-clipboard; the manifest and verification live in `linglong/tools.yaml` and `verify-tools.sh` (host-side verification of the merged product tree before export). The official `dsh` CLI (`harness/lib/bin.js`) is exposed on the container PATH through a thin `$PREFIX/bin/dsh` wrapper alongside the bundled node/pnpm, so `dsh plugin` and every other subcommand work inside the sandbox (including shells spawned by node-pty).
 - On-demand install: heavy/rare tools (jdk21, go, ripgrep, uv) install to `$HOME/.dsh-tools` (in the container, on host disk, preserved across uninstall by default) after the archive's sha256 matches its catalog entry, and the launcher injects PATH/LD_LIBRARY_PATH automatically; that comparison is an integrity check against the catalog rather than authentication of it — the catalog's own content is anchored by the commit hash pinned in `internal/toolchain/remote.go`, so trust in the market reduces to trust in the launcher binary you installed. The self-check panel shows the installable list. The whitelist is `linglong/tools.yaml`'s `installable`, kept in sync with the runtime catalog (`internal/toolchain/catalog.go`); `verify-tools.sh` fails the build on placeholder hashes. When an archive's file names differ from the commands they should expose, the catalog's `bin_names` renames them, or suppresses them with an empty value — keeping platform-suffixed names and bundled helper scripts out of PATH. The market's category tabs and their Chinese labels also come from the index: tabs are built from the categories present in the catalog, and labels come from the index's `category_labels` (the client keeps a matching fallback table for older indexes), so adding or removing tools and introducing a category stays pure index work, except that the pinned catalog location means publishing such an index requires bumping that constant and shipping a new launcher — the deliberate cost of authenticating the catalog. A tool with several versions (today only JDK 8/21) offers a version dropdown on its card: pick the version to install when absent, switch the active version among the installed ones, install a catalog version that is not installed yet, and uninstall per version; the first `versions` entry is the recommended one, and update detection compares it against the active version by version number rather than by string equality, so the order is semantic. Updating activates the recommended version and leaves the replaced one on disk, where the dropdown still offers it. `linglong/tools.yaml`'s `installable` records only each tool's recommended version, leaving the remaining versions to the index as their single source of truth, so `verify-tools.sh`'s placeholder-hash check covers the recommended version only.
 - Card state semantics: the market dialog's "installed/installable" only describes version directories in the market store (`$HOME/.dsh-tools`), independently of command availability inside the container. When a tool is not in the store but the container PATH already provides a command it declares (bundled / host-imported / system), the card shows "容器内已可用：command version (source)"; the source is classified by the resolved binary path prefix (`classifyRuntimeSource` in `internal/app/app.go`), with probing and assembly in `internal/toolchain/check.go` (`ProbeCommands`) and `annotateRuntime`.
 - Proxy: linyaps forwards the host's `http_proxy/https_proxy/all_proxy` by default; the company's private CA is appended to the container's writable area and `update-ca-certificates` is run.
@@ -155,14 +171,29 @@ Chromium, WebKitGTK never surfaces clipboard bitmaps to the page: pasting a
 screenshot produces no `clipboardData` image item, and dragging an image file
 navigates the frame. Text (including pasted paths) works; images do not.
 
-The workaround keeps the WebKitGTK renderer: the shell process — which shares
-the host X11 display — reads the `CLIPBOARD` selection itself and hands the
-page a base64 PNG over the existing `{ dshDesktop: true }` postMessage protocol.
+The workaround keeps the WebKitGTK renderer: the shell process reads the
+clipboard image itself and hands the page a base64 PNG over the existing
+`{ dshDesktop: true }` postMessage protocol.
 
-- Go: `internal/clipboard` is a zero-dependency X11 wire client
-  (no cgo/no external tools) that reads `image/png` with INCR support,
-  timeouts and payload caps; `App.ReadClipboardImage()` (Wails binding)
-  returns base64 or `""`.
+- Go: `internal/clipboard` tries X11 CLIPBOARD, X11 PRIMARY, X11
+  `text/uri-list`, Wayland `image/*` and Wayland `text/uri-list`, in that
+  order. The X11 channel is a self-implemented wire client (no cgo/no external
+  tools) that derives the target X server from the session's `DISPLAY` (the X11
+  session is `:0`, a Wayland session is XWayland's `:1`), with INCR support,
+  timeouts and payload caps. The Wayland channel delegates to the bundled
+  `wl-paste`. Both channels cover both sources: the clipboard either carries a
+  bitmap (`image/*`) or only the URIs of image files (`text/uri-list` /
+  `x-special/gnome-copied-files`, which is all a file manager offers when you
+  copy an image file). The URI case reads the file from disk, which needs no
+  path translation because the container bind-mounts `/home`, `/media` and
+  `/mnt` at the same paths as the host. `App.ReadClipboardImage()` (Wails
+  binding) returns base64 or `""`.
+- A selection held by a Wayland client must use `wl-paste`: XWayland does not
+  bridge Wayland's `image/png` into an X11 selection (the same PNG comes back
+  from `wl-paste`, while X11 `CLIPBOARD`/`PRIMARY` yield 0 bytes). A selection
+  held by an XWayland client still reaches the X11 channel. `wl-clipboard`
+  therefore ships in `${PREFIX}/bin` (the `wl-paste` entry in `tools.yaml`)
+  rather than relying on the host having it.
 - Shell frontend (`frontend/app.js`): answers `clipboard-read-image`
   messages from the harness iframe with `clipboard-image-result`.
 - Harness UI (`packages/client/ui-conversation`): `desktop-clipboard.ts`

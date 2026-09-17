@@ -3,7 +3,9 @@ package appenv
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -243,5 +245,119 @@ func TestPackagedGitExecPath_Absent(t *testing.T) {
 	exe := filepath.Join(root, "files", "bin", "dsh-desktop-launcher")
 	if got, ok := packagedGitExecPath(exe); ok {
 		t.Fatalf("packagedGitExecPath(%q) = %q,true want absent", exe, got)
+	}
+}
+
+// 启动进度上报插件必须与 overlay 一起落地：插件文件写不出来时只省略插入行，
+// 监护声明照旧生效——这是"体验增强不阻断启动"的落点。
+func TestWriteSupervisorOverlay_InjectsStartupProgress(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
+
+	path, err := writeSupervisorOverlay()
+	if err != nil {
+		t.Fatalf("writeSupervisorOverlay: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("overlay not written: %v", err)
+	}
+	plugin := filepath.Join(dir, startupProgressFileName)
+	if _, err := os.Stat(plugin); err != nil {
+		t.Fatalf("startup progress plugin not written: %v", err)
+	}
+	// 绝对路径是 harness 能加载它的前提；带引号是因为运行时目录可能含空格。
+	if !strings.Contains(string(body), "- id: "+startupProgressRowID) {
+		t.Errorf("overlay missing progress row: %s", body)
+	}
+	if !strings.Contains(string(body), strconv.Quote(plugin)) {
+		t.Errorf("overlay missing quoted plugin path %q: %s", plugin, body)
+	}
+	// 监护声明与进度行共存：前者失效会让 dsh-market 与 supervisor 抢端口。
+	if !strings.Contains(string(body), "allowRestart: false") {
+		t.Errorf("overlay missing market patch: %s", body)
+	}
+}
+
+// 插件源码必须包含与壳解析器约定的前缀；前缀一旦漂移，加载页会静默退回粗粒度阶段。
+func TestStartupProgressPlugin_ContractPrefix(t *testing.T) {
+	if !strings.Contains(startupProgressPluginSource, "dsh-desktop: startup ") {
+		t.Error("plugin source lost the stderr prefix contract with supervisor")
+	}
+	// 该文件由壳写进 ~/.cache 后直接被 harness import：任何裸包名 import 都会让
+	// 这条 entry 加载失败并中止启动。
+	if regexp.MustCompile(`(?m)^\s*import\s`).MatchString(startupProgressPluginSource) {
+		t.Error("plugin must not import modules: it is loaded from the launcher runtime dir")
+	}
+}
+
+func TestStartupProgressOverlayRow_EmptyPath(t *testing.T) {
+	if got := startupProgressOverlayRow(""); got != "" {
+		t.Errorf("empty plugin path must omit the row, got %q", got)
+	}
+}
+
+// TestConfigureChildEnv_Idempotent 回归：安装/切换/卸载工具会反复调用
+// ConfigureChildEnv，固定段必须只出现一次——无条件前置会让 PATH 与
+// LD_LIBRARY_PATH 随操作次数线性膨胀，永不收敛。
+func TestConfigureChildEnv_Idempotent(t *testing.T) {
+	home := t.TempDir()
+	bin := home + "/.dsh-tools/bin"
+	lib := home + "/.dsh-tools/lib"
+	for _, d := range []string{bin, lib} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPath := os.Getenv("PATH")
+	oldLd := os.Getenv("LD_LIBRARY_PATH")
+	os.Unsetenv("LD_LIBRARY_PATH")
+	defer func() {
+		_ = os.Setenv("PATH", oldPath)
+		_ = os.Setenv("LD_LIBRARY_PATH", oldLd)
+	}()
+
+	ConfigureChildEnv(home)
+	oncePath, onceLd := os.Getenv("PATH"), os.Getenv("LD_LIBRARY_PATH")
+	for i := 0; i < 3; i++ {
+		ConfigureChildEnv(home)
+	}
+	if got := os.Getenv("PATH"); got != oncePath {
+		t.Fatalf("重复调用后 PATH 变化:\n 一次 %q\n 四次 %q", oncePath, got)
+	}
+	if got := os.Getenv("LD_LIBRARY_PATH"); got != onceLd {
+		t.Fatalf("重复调用后 LD_LIBRARY_PATH 变化:\n 一次 %q\n 四次 %q", onceLd, got)
+	}
+	if n := strings.Count(os.Getenv("PATH"), bin); n != 1 {
+		t.Fatalf(".dsh-tools/bin 在 PATH 中出现 %d 次，期望 1 次: %q", n, os.Getenv("PATH"))
+	}
+	if n := strings.Count(os.Getenv("LD_LIBRARY_PATH"), lib); n != 1 {
+		t.Fatalf(".dsh-tools/lib 在 LD_LIBRARY_PATH 中出现 %d 次，期望 1 次: %q", n, os.Getenv("LD_LIBRARY_PATH"))
+	}
+}
+
+// TestConfigureChildEnv_KeepsForeignEntries 去重只针对本次前置的段：
+// 用户或宿主自己加进 PATH 的目录必须原样保留，空段按 POSIX 语义丢弃。
+func TestConfigureChildEnv_KeepsForeignEntries(t *testing.T) {
+	home := t.TempDir()
+	toolsBin := home + "/.dsh-tools/bin"
+	if err := os.MkdirAll(toolsBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldPath := os.Getenv("PATH")
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
+
+	sep := string(os.PathListSeparator)
+	_ = os.Setenv("PATH", "/opt/user-tools"+sep+""+sep+"/usr/bin")
+	ConfigureChildEnv(home)
+	got := os.Getenv("PATH")
+	if !strings.HasPrefix(got, toolsBin+sep) {
+		t.Fatalf("工具链目录应前置: %q", got)
+	}
+	if !strings.HasSuffix(got, "/opt/user-tools"+sep+"/usr/bin") {
+		t.Fatalf("用户自有的 PATH 段应原样保留: %q", got)
+	}
+	if strings.Contains(got, sep+sep) {
+		t.Fatalf("空段应被丢弃（POSIX 下空段表示当前目录）: %q", got)
 	}
 }

@@ -20,6 +20,8 @@ The launcher injects its own patch overlay on every harness spawn, setting `allo
 
 Flag order is load-bearing and not obvious: the `web` subcommand enables `passThroughOptions`, and `--port` belongs to the web app rather than the launcher, so everything after it is forwarded verbatim — a `--patch` placed there is never parsed and fails with `error: unknown option '--patch'`. The launcher's own flags therefore precede `--port`.
 
+The overlay is the launcher's only injection point into the composed tree, so it also carries the startup-progress reporter row ([startup progress](../feature/2026-09-15-desktop-launcher-startup-progress.md)); when that plugin file cannot be written, `writeSupervisorOverlay` omits its `insert` row and keeps the market patch.
+
 Because the market can no longer restart harness, the launcher gains the entry point it now owns: the `App.RestartServer` bound method calls `supervisor.Restart`, and the server dialog exposes a 重启 button beside 启动/停止 governed by a new `CanRestart` status field. Plugin-install reloads have a supported path instead of a removed one.
 
 ## Alternatives considered

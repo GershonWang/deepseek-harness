@@ -7,6 +7,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -14,8 +15,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // fakeTar 构建 "<dir>/bin/<name>" 的 tar.gz 并返回其 sha256。
@@ -143,8 +147,26 @@ func TestInstallVersion_ShaMismatch(t *testing.T) {
 	if err := installVersion(dir, "go", tv, noopProgress, false); err == nil {
 		t.Fatal("expected sha256 mismatch error")
 	}
-	if _, statErr := os.Stat(dir); statErr == nil {
-		t.Fatal("failed install must leave no install dir")
+	// 契约是失败的安装不留下任何「已安装」痕迹。下载脚手架 <tools>/.downloads
+	// 允许存在（part 就落在那里，校验失败时已被删除），但除此以外不许有残留：
+	// 根目录里出现 <id>-<version> 或 current 才是真正的脏安装。
+	if IsInstalled(dir, "go", tv.Version) {
+		t.Fatal("failed install must not be listed as installed")
+	}
+	if _, err := os.Readlink(currentLink(dir, "go")); err == nil {
+		t.Fatal("failed install must not activate a version")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return // 连根目录都没建，更干净
+		}
+		t.Fatalf("read install dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.Name() != ".downloads" {
+			t.Fatalf("failed install left install-dir residue: %s", e.Name())
+		}
 	}
 }
 
@@ -359,13 +381,91 @@ func TestVerifyFileSHA256(t *testing.T) {
 }
 
 func TestPartPathForURL(t *testing.T) {
-	p1 := partPathForURL("https://example.com/a.tar.gz")
-	p2 := partPathForURL("https://example.com/b.zip")
+	dir := t.TempDir()
+	p1 := partPathForURL(dir, "https://example.com/a.tar.gz")
+	p2 := partPathForURL(dir, "https://example.com/b.zip")
 	if p1 == p2 {
 		t.Fatal("different URLs should have different part paths")
 	}
 	if filepath.Ext(p1) != ".part" {
 		t.Fatalf("expected .part extension, got %s", filepath.Ext(p1))
+	}
+	// 必须落在安装根目录下的私有子目录，不能再用全局可写的 os.TempDir()：
+	// part 文件名可由公开索引推算，共享目录里的同名链接会被 O_TRUNC 跟随写入。
+	if got, want := filepath.Dir(p1), filepath.Join(dir, ".downloads"); got != want {
+		t.Fatalf("part dir = %s, want %s", got, want)
+	}
+	legacy := filepath.Join(os.TempDir(), "dsh-tools-downloads")
+	if strings.HasPrefix(p1, legacy+string(os.PathSeparator)) {
+		t.Fatalf("part path must not live in the shared temp dir: %s", p1)
+	}
+}
+
+// TestDownloadToFile_RejectsSymlinkPart 覆盖 N9：末段被换成符号链接、且服务端
+// 支持断点续传（206）时，下载必须失败，链接指向的目标文件内容不得被追加写入。
+// 服务端若不支持 Range，代码会先 os.Remove 掉链接本身再从零重建，走不到 O_NOFOLLOW。
+func TestDownloadToFile_RejectsSymlinkPart(t *testing.T) {
+	content := []byte("attacker controlled payload")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rangeHdr := r.Header.Get("Range"); rangeHdr != "" {
+			var start int
+			fmt.Sscanf(rangeHdr, "bytes=%d-", &start)
+			w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(content)-1, len(content)))
+			w.WriteHeader(http.StatusPartialContent)
+			w.Write(content[start:])
+			return
+		}
+		w.Write(content)
+	}))
+	defer srv.Close()
+
+	// part 目录用 TempDir 而不是 downloadsDir()：后者指向真实的用户缓存，
+	// 测试不该往里写东西。
+	partDir := t.TempDir()
+	// 目标文件必须非空，否则不会发 Range 请求、也就落不到 append 分支。
+	victim := filepath.Join(t.TempDir(), "victim")
+	if err := os.WriteFile(victim, []byte("victim original"), 0o600); err != nil {
+		t.Fatalf("write victim: %v", err)
+	}
+	part := filepath.Join(partDir, "planted.part")
+	if err := os.Symlink(victim, part); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if err := downloadToFile(srv.URL, part, nil); err == nil {
+		t.Fatal("download through a symlinked part file must fail")
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatalf("read victim: %v", err)
+	}
+	if string(got) != "victim original" {
+		t.Fatalf("symlink target was modified: %q", got)
+	}
+}
+
+// TestEnsurePrivateDir_RejectsSymlinkDir 覆盖 N9 的目录一侧：
+// .downloads 本身被换成指向别处的链接时必须失败，否则文件会落到链接目标目录。
+func TestEnsurePrivateDir_RejectsSymlinkDir(t *testing.T) {
+	parent := t.TempDir()
+	link := filepath.Join(parent, "downloads")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	if err := ensurePrivateDir(link); err == nil {
+		t.Fatal("symlinked downloads dir must be rejected")
+	}
+	// 正常路径仍应可创建（0700）
+	ok := filepath.Join(parent, "real")
+	if err := ensurePrivateDir(ok); err != nil {
+		t.Fatalf("plain dir should be accepted: %v", err)
+	}
+	info, err := os.Stat(ok)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("downloads dir perms = %o, want 700", perm)
 	}
 }
 
@@ -488,5 +588,359 @@ func TestExtractArchiveFromFile_PathEscape(t *testing.T) {
 	err := extractArchiveFromFile("zip", zipPath, dest)
 	if err == nil {
 		t.Fatal("应检测到路径逃逸并报错")
+	}
+}
+
+// withLimits 临时收紧包级资源上限。上限声明为包级变量就是为了让用例用几十字节的
+// 归档走通真实的下载与解压路径，而不是只测一个无法触发的分支。
+func withLimits(t *testing.T, archiveBytes, extractBytes int64, entries int) {
+	t.Helper()
+	oldArchive, oldExtract, oldEntries := maxArchiveBytes, maxExtractBytes, maxArchiveEntries
+	maxArchiveBytes, maxExtractBytes, maxArchiveEntries = archiveBytes, extractBytes, entries
+	t.Cleanup(func() {
+		maxArchiveBytes, maxExtractBytes, maxArchiveEntries = oldArchive, oldExtract, oldEntries
+	})
+}
+
+// TestCopyCapped 覆盖限量拷贝原语：恰好等于上限不算超限，多 1 字节即报错。
+func TestCopyCapped(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		limit   int64
+		wantErr bool
+	}{
+		{"小于上限", "abc", 4, false},
+		{"恰好等于上限", "abcd", 4, false},
+		{"超过上限 1 字节", "abcde", 4, true},
+		{"上限为 0 且无内容", "", 0, false},
+		{"上限为 0 且有内容", "a", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			n, err := copyCapped(&buf, strings.NewReader(tc.content), tc.limit, errArchiveTooLarge)
+			if tc.wantErr {
+				if !errors.Is(err, errArchiveTooLarge) {
+					t.Fatalf("want errArchiveTooLarge, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("意外错误: %v", err)
+			}
+			if n != int64(len(tc.content)) || buf.String() != tc.content {
+				t.Fatalf("写了 %d 字节 %q, want %q", n, buf.String(), tc.content)
+			}
+		})
+	}
+}
+
+// TestDownloadToFile_RejectsOversizeBody 覆盖 N8：服务端不声明长度时，只能按实际
+// 写入量判断，超限立即中止且不重试（重试只会再下载一遍并再撞上限）。
+func TestDownloadToFile_RejectsOversizeBody(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		// 先 Flush 且写出超过几 KiB 缓冲，让响应走分块传输、不带 Content-Length：
+		// Go 会给小于缓冲阈值的响应自动补 Content-Length，那样只覆盖到声明长度
+		// 预检，测不到「按实际写入量判定」这条路径。
+		w.(http.Flusher).Flush()
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 4096))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "a.part")
+	err := downloadToFile(srv.URL, dest, nil)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("超限是确定性失败，不应重试：请求 %d 次", requests)
+	}
+	// 上限+1 字节：既证明判定发生在拷贝路径上，也说明越限后立刻停写，
+	// 不会把整个响应落盘。
+	info, statErr := os.Stat(dest)
+	if statErr != nil {
+		t.Fatalf("stat part: %v", statErr)
+	}
+	if want := maxArchiveBytes + 1; info.Size() != want {
+		t.Fatalf("part 大小 = %d, want %d", info.Size(), want)
+	}
+}
+
+// TestDownloadToFile_RejectsDeclaredOversize 覆盖 N8 的快速失败路径：
+// 声明长度超限时不必真下载完就能失败。
+func TestDownloadToFile_RejectsDeclaredOversize(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "4096")
+		_, _ = w.Write([]byte("small"))
+	}))
+	defer srv.Close()
+
+	dest := filepath.Join(t.TempDir(), "a.part")
+	err := downloadToFile(srv.URL, dest, nil)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "declared length") {
+		t.Fatalf("应说明是声明长度超限: %v", err)
+	}
+}
+
+// TestDownloadAndExtract_RemovesOversizePart 覆盖 N8 的收尾：超限的 part 没有
+// 续传价值，必须清掉，否则该工具每次安装都会停在同一处。
+func TestDownloadAndExtract_RemovesOversizePart(t *testing.T) {
+	withLimits(t, 64, maxExtractBytes, maxArchiveEntries)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 同样走分块，确保 part 文件真的落过盘：否则「不存在」可能是因为压根没建，
+		// 断言就失去意义。
+		w.(http.Flusher).Flush()
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 4096))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	tv := ToolVersion{Version: "1.0.0", URL: srv.URL, SHA256: strings.Repeat("0", 64)}
+	_, err := downloadAndExtract(dir, "testsize", tv, noopProgress)
+	if !errors.Is(err, errArchiveTooLarge) {
+		t.Fatalf("want errArchiveTooLarge, got %v", err)
+	}
+	if _, statErr := os.Stat(partPathForURL(dir, srv.URL)); !os.IsNotExist(statErr) {
+		t.Fatalf("超限的 part 应被清掉: %v", statErr)
+	}
+}
+
+// tarWithFiles 构建含指定内容的 tar，用于解压预算用例。
+func tarWithFiles(t *testing.T, files map[string]int) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	for name, size := range files {
+		content := bytes.Repeat([]byte("y"), size)
+		if err := tw.WriteHeader(&tar.Header{
+			Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tw.Write(content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestExtractTar_RejectsOversizeContent 覆盖 N8：解压写入总量超限即中止，
+// 挡住压缩比极高的解压炸弹。
+func TestExtractTar_RejectsOversizeContent(t *testing.T) {
+	withLimits(t, maxArchiveBytes, 100, maxArchiveEntries)
+	data := tarWithFiles(t, map[string]int{"a.txt": 60, "b.txt": 60})
+	dest := t.TempDir()
+
+	err := extractTar(tar.NewReader(bytes.NewReader(data)), dest)
+	if !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestExtractTar_RejectsTooManyEntries 覆盖 N8 的条目数上限：空条目不占字节预算，
+// 但一样会消耗 inode。
+func TestExtractTar_RejectsTooManyEntries(t *testing.T) {
+	withLimits(t, maxArchiveBytes, maxExtractBytes, 2)
+	data := tarWithFiles(t, map[string]int{"a.txt": 0, "b.txt": 0, "c.txt": 0})
+	dest := t.TempDir()
+
+	err := extractTar(tar.NewReader(bytes.NewReader(data)), dest)
+	if !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestExtractZip_RejectsOversizeContent 覆盖 zip 一侧同样受预算约束。
+func TestExtractZip_RejectsOversizeContent(t *testing.T) {
+	withLimits(t, maxArchiveBytes, 100, maxArchiveEntries)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create("a.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write(bytes.Repeat([]byte("z"), 200)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := extractZipEntries(zr.File, t.TempDir()); !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("want errExtractTooLarge, got %v", err)
+	}
+}
+
+// TestKeyedMutex_SerializesSameKey 覆盖 N13 的锁语义：同一键互斥、不同键互不阻塞。
+func TestKeyedMutex_SerializesSameKey(t *testing.T) {
+	var k keyedMutex
+
+	const n = 8
+	var mu sync.Mutex
+	inCritical, maxInCritical := 0, 0
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			release := k.Lock("same")
+			mu.Lock()
+			inCritical++
+			if inCritical > maxInCritical {
+				maxInCritical = inCritical
+			}
+			mu.Unlock()
+
+			time.Sleep(time.Millisecond)
+
+			mu.Lock()
+			inCritical--
+			mu.Unlock()
+			release()
+		}()
+	}
+	wg.Wait()
+
+	if maxInCritical != 1 {
+		t.Fatalf("同一键同时最多只应有 1 个持有者, got %d", maxInCritical)
+	}
+
+	// 不同键互不阻塞：持着 "a" 时仍能立刻拿到 "b"。
+	releaseA := k.Lock("a")
+	done := make(chan struct{})
+	go func() {
+		releaseB := k.Lock("b")
+		releaseB()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("不同键不应互相阻塞")
+	}
+	releaseA()
+}
+
+// TestInstallLockKey_DistinguishesTarget 固定锁的粒度：不同目标目录、不同工具互不影响；
+// 同一工具的不同版本共用一把锁（它们写同一个 part 路径与同一棵解包树）。
+func TestInstallLockKey_DistinguishesTarget(t *testing.T) {
+	if installLockKey("/a", "go") == installLockKey("/b", "go") {
+		t.Fatal("不同安装目录不应共用锁")
+	}
+	if installLockKey("/a", "go") == installLockKey("/a", "node") {
+		t.Fatal("同一目录下不同工具不应共用锁")
+	}
+}
+
+// TestInstallVersion_ConcurrentSameToolDownloadsOnce 覆盖 N13 的端到端场景：同一工具被
+// 并发安装（连点同一张卡片、「全部更新」与手动安装同时进行）时，只有一次会真的下载，
+// 其余在等锁后走"已安装"复查，且全部返回成功、磁盘上是一棵完整且已激活的树。
+//
+// 服务端故意放慢 150ms：若不串行，所有调用都会先通过"未安装"检查并各自发起下载，
+// 请求计数就压不住。这个计数是确定性的判据（串行实现下恒为 1）。
+func TestInstallVersion_ConcurrentSameToolDownloadsOnce(t *testing.T) {
+	home := t.TempDir()
+	dir := InstallDir(home)
+	blob, sum := fakeTar(t, "go", "go")
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		time.Sleep(150 * time.Millisecond)
+		_, _ = w.Write(blob)
+	}))
+	defer srv.Close()
+
+	tv := ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}
+
+	const n = 4
+	errs := make([]error, n)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			errs[i] = installVersion(dir, "go", tv, noopProgress, false)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("并发安装 %d 失败: %v", i, err)
+		}
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("同一工具并发安装只应下载一次, got %d 次请求", got)
+	}
+
+	// 磁盘状态：树完整、当前版本已激活、只登记一份。
+	root := filepath.Join(dir, "go-1.23.2")
+	if _, err := os.Stat(filepath.Join(root, "bin", "go")); err != nil {
+		t.Fatalf("解压产物缺失: %v", err)
+	}
+	if current, err := os.Readlink(filepath.Join(dir, "current", "go")); err != nil || current != root {
+		t.Fatalf("current 软链: %v -> %q", err, current)
+	}
+	if got := ActiveVersion(dir, "go"); got != "1.23.2" {
+		t.Fatalf("激活版本应为 1.23.2, got %q", got)
+	}
+	if versions := ListVersions(dir, "go"); len(versions) != 1 {
+		t.Fatalf("只应登记一个版本, got %v", versions)
+	}
+}
+
+// TestInstallVersion_ReinstallSkipsDownload 隔离 installVersion 的"等锁复查"语义：目标
+// 版本已在磁盘上时不应再下载或解压。这里清掉归档缓存，否则缓存命中会掩盖重复安装——
+// 而并发安装的第二个调用正是靠这条复查才不重下一遍（N13）。
+func TestInstallVersion_ReinstallSkipsDownload(t *testing.T) {
+	home := t.TempDir()
+	dir := InstallDir(home)
+	blob, sum := fakeTar(t, "go", "go")
+
+	var requests atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write(blob)
+	}))
+	defer srv.Close()
+
+	tv := ToolVersion{Version: "1.23.2", URL: srv.URL + "/go.tar.gz", SHA256: sum, BinRel: "bin"}
+	if err := installVersion(dir, "go", tv, noopProgress, false); err != nil {
+		t.Fatalf("首次安装: %v", err)
+	}
+	// 清缓存：安装成功后归档会移入 <dir>/.cache，缓存命中同样不会发请求。
+	if err := os.RemoveAll(cacheDir(dir)); err != nil {
+		t.Fatalf("清缓存: %v", err)
+	}
+	requests.Store(0)
+
+	// 第二次（activate=true）：只应补做激活，不应重新下载。
+	if err := installVersion(dir, "go", tv, noopProgress, true); err != nil {
+		t.Fatalf("重复安装: %v", err)
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("已安装的版本不应再次下载, got %d 次请求", got)
+	}
+	if got := ActiveVersion(dir, "go"); got != "1.23.2" {
+		t.Fatalf("重复安装仍应保证激活, got %q", got)
 	}
 }

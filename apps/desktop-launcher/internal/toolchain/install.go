@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,107 @@ const downloadTimeout = 10 * time.Minute
 // maxResumeRetries 下载失败后的重试次数（含断点续传场景）。
 // 每次失败后退避重试；服务端不支持 Range 时回退为完整下载再失败。
 const maxResumeRetries = 3
+
+// 归档与解压的资源上限。工具清单可被远程索引整体覆盖、归档又来自第三方镜像，
+// 两者都不是可信输入：没有上限时，一个被投毒或被替换的响应就能把用户磁盘写满，
+// 进而让 launcher 与 harness 的后续写入全部失败（审计 N8）。
+//
+// 取值按清单实测最大值留足余量：最大的归档是 flutter 3.47.2（约 1.5 GiB），
+// 解压后约 4.6 GiB。声明为变量而非常量，唯一目的是让测试把上限压到几十字节，
+// 从而用真实归档走通解压路径；生产代码只读不改。
+var (
+	// maxArchiveBytes 是单个归档（含续传后累计）的字节上限。
+	maxArchiveBytes int64 = 4 << 30
+	// maxExtractBytes 是一次解压写入磁盘的总字节上限：压缩比可上千倍，
+	// 归档大小约束不了解压后的总量。
+	maxExtractBytes int64 = 16 << 30
+	// maxArchiveEntries 是一次解压的条目数上限：4 GiB 归档按每头 512 字节算
+	// 最多能塞进约 840 万个空条目，足以耗尽小文件系统的 inode。
+	maxArchiveEntries = 1 << 20
+)
+
+// errArchiveTooLarge 表示响应体超过单归档上限。超限是确定性的：重试只会把同一个
+// 响应再下载一遍，已落地的 part 也没有续传价值（调用方据此清掉残片）。
+var errArchiveTooLarge = errors.New("archive exceeds size limit")
+
+// errExtractTooLarge 表示解压写入量或条目数超过上限（解压炸弹）。
+var errExtractTooLarge = errors.New("extracted data exceeds size limit")
+
+// installLocks 串行化同一安装目标下同一工具的并发安装（审计 N13）。
+//
+// app 层每次点击卡片、以及「全部更新」的循环都各起一个 goroutine 调 InstallTool，
+// 两者可能同时装同一个工具：下载会写同一个 part 文件（一方 sha256 失败还会删掉另一
+// 方正在用的数据），解压又会先 os.RemoveAll 同一棵目标树再 os.Rename。按 (目标目录,
+// 工具 ID) 粒度加锁即可覆盖单实例 launcher 的全部并发路径。
+//
+// 只覆盖进程内。同时开两个 launcher 实例仍会并发写同一目录，那需要文件锁（跨平台
+// 语义、陈旧锁回收、NFS 行为）——属独立话题，见 AUDIT.md N13 的残留说明。
+var installLocks keyedMutex
+
+// keyedMutex 是按字符串键串行化的进程内互斥锁集合。
+//
+// 条目一旦创建就永久保留：键是 (安装目录, 工具 ID)，生产进程只用一个安装目录、工具数
+// 由清单封顶（几十个），不构成无界增长；这样实现里没有"删除后重建"的窗口，同一个键
+// 始终对应同一把锁，正确性不依赖引用计数。
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+// Lock 给 key 加锁并返回释放函数。释放函数必须恰好调用一次（它就是 Mutex.Unlock）。
+func (k *keyedMutex) Lock(key string) func() {
+	k.mu.Lock()
+	if k.locks == nil {
+		k.locks = make(map[string]*sync.Mutex)
+	}
+	l := k.locks[key]
+	if l == nil {
+		l = &sync.Mutex{}
+		k.locks[key] = l
+	}
+	k.mu.Unlock()
+
+	l.Lock()
+	return l.Unlock
+}
+
+// installLockKey 是安装锁的键。工具 ID 而非版本：同一工具的不同版本共用同一份解包
+// 暂存目录与同一组 bin 软链，并发装两个版本同样会互相破坏。
+func installLockKey(dir, toolID string) string {
+	return dir + "\x00" + toolID
+}
+
+// finishInstalled 处理「目标版本已经在磁盘上」：需要激活时补做激活，进度与文案和真正
+// 安装完成保持一致。
+//
+// InstallTool 的前置判断与 installVersion 的等锁复查共用它：两处都要保证「已装好但未
+// 激活」的中间状态能被一次调用补上（AUDIT N7），各写一遍容易让语义漂移。
+func finishInstalled(dir, toolID, version string, activate bool, progress InstallProgress) error {
+	if !activate {
+		progress("done", 100, "已安装")
+		return nil
+	}
+	progress("linking", 90, "设置为当前版本")
+	if err := SetActiveVersion(dir, toolID, version); err != nil {
+		return err
+	}
+	progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, version))
+	return nil
+}
+
+// copyCapped 把 src 复制到 dst，超过 limit 字节则以 over 报错。
+// 多读 1 字节是为了区分「恰好等于上限」与「超过上限」：只有后者报错。
+// 返回值 n 是实际写入量，调用方据此扣减各自的预算。
+func copyCapped(dst io.Writer, src io.Reader, limit int64, over error) (int64, error) {
+	n, err := io.Copy(dst, io.LimitReader(src, limit+1))
+	if err != nil {
+		return n, err
+	}
+	if n > limit {
+		return n, over
+	}
+	return n, nil
+}
 
 // InstallProgress 安装进度回调。
 // phase: "downloading" | "verifying" | "extracting" | "linking" | "done" | "error"
@@ -69,6 +171,14 @@ func classifyError(err error) string {
 		}
 		// DNS 失败、连接被拒等
 		return "网络连接失败，请检查网络后重试"
+	}
+
+	// 归档或解压超出资源上限：按上限中止，而不是把磁盘写满。
+	if errors.Is(err, errArchiveTooLarge) {
+		return "安装包体积超出上限，已中止安装"
+	}
+	if errors.Is(err, errExtractTooLarge) {
+		return "解压后的数据超出上限，已中止安装"
 	}
 
 	errMsg := err.Error()
@@ -128,16 +238,7 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 	// 正常中间状态（更新下载完成、用户手选版本后切换失败等），此处的无条件早退会让用户
 	// 无论点多少次「更新」都停在旧版本上，却收到成功提示（AUDIT N7）。
 	if IsInstalled(dir, toolID, tv.Version) {
-		if activate {
-			progress("linking", 90, "设置为当前版本")
-			if err := SetActiveVersion(dir, toolID, tv.Version); err != nil {
-				return err
-			}
-			progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, tv.Version))
-			return nil
-		}
-		progress("done", 100, "已安装")
-		return nil
+		return finishInstalled(dir, toolID, tv.Version, activate, progress)
 	}
 
 	// 先装依赖（单层）
@@ -158,8 +259,21 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 
 // installVersion 安装已解析好的工具版本（下载/校验/解包/激活）。
 // 供 InstallTool 与测试复用：测试可注入自定义 URL/SHA256。
+//
+// 整个下载→解包→激活过程在 (dir, toolID) 粒度的进程内锁下进行（审计 N13），因此同一
+// 工具不可能有两个安装同时写 part 文件或同一棵目标树。
 func installVersion(dir, toolID string, tv ToolVersion, progress InstallProgress, activate bool) error {
+	release := installLocks.Lock(installLockKey(dir, toolID))
+	defer release()
+
+	// 等锁期间目标版本可能已由并发的另一次安装装好（同一张卡片被连点、或「全部更新」
+	// 与手动安装同时进行）：此时只需按需补激活，再下一遍是几百 MB 到数 GB 的浪费。
+	if IsInstalled(dir, toolID, tv.Version) {
+		return finishInstalled(dir, toolID, tv.Version, activate, progress)
+	}
+
 	// 记录安装前是否已有其他版本：首次安装自动激活，已有版本时不覆盖当前激活。
+	// 必须在锁内统计，否则并发安装会各自认为自己是首次。
 	hadOther := len(ListVersions(dir, toolID)) > 0
 
 	root, err := downloadAndExtract(dir, toolID, tv, progress)
@@ -217,7 +331,7 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	}
 
 	// 2) 无缓存 → 断点续传下载到 part 文件
-	partPath := partPathForURL(tv.URL)
+	partPath := partPathForURL(dir, tv.URL)
 	// 若旧 part 文件校验已正确，直接复用（避免重新下载）
 	if info, statErr := os.Stat(partPath); statErr == nil && info.Size() > 0 {
 		if valid, _ := verifyFileSHA256(partPath, tv.SHA256); valid {
@@ -234,6 +348,11 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 	if err := downloadToFile(tv.URL, partPath, func(pct int) {
 		progress("downloading", pct, fmt.Sprintf("下载中 %d%%", pct))
 	}); err != nil {
+		// 超限的 part 永远续不下去（同一 URL 只会再次超限），留着会让该工具每次
+		// 安装都停在同一步；其余失败保留残片，下次可续传。
+		if errors.Is(err, errArchiveTooLarge) {
+			_ = os.Remove(partPath)
+		}
 		progress("error", 0, fmt.Sprintf("下载失败: %s", err))
 		return "", fmt.Errorf("download %s: %w", tv.URL, err)
 	}
@@ -338,6 +457,10 @@ func downloadToFileWithRetries(url, destPath string, onProgress func(int), attem
 	if err == nil {
 		return nil
 	}
+	// 超限是确定性的：重试只会把同一个响应再下载一遍并把上限再撞一次。
+	if errors.Is(err, errArchiveTooLarge) {
+		return err
+	}
 	if attempt >= maxResumeRetries-1 {
 		return err
 	}
@@ -394,7 +517,7 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 		_ = os.Remove(destPath)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+	if err := ensurePrivateDir(filepath.Dir(destPath)); err != nil {
 		return err
 	}
 	flag := os.O_CREATE | os.O_WRONLY
@@ -403,11 +526,19 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 	} else {
 		flag |= os.O_TRUNC
 	}
-	f, err := os.OpenFile(destPath, flag, 0o644)
+	// O_NOFOLLOW 在 partfile_unix.go 里加上：末段是符号链接时直接失败，
+	// 而不是把下载内容写进链接指向的任意文件。
+	f, err := openPartFile(destPath, flag)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+
+	// 声明的总长度不可信，只用于提前失败，省掉为明显超限的响应下载几 GB；
+	// resuming 时 total 是 Content-Range 里的整个文件长度。
+	if total > maxArchiveBytes {
+		return fmt.Errorf("%w: declared length %d", errArchiveTooLarge, total)
+	}
 
 	startBytes := existingSize
 	if !resuming {
@@ -420,7 +551,8 @@ func downloadFileResumable(url, destPath string, onProgress func(int)) error {
 		OnUpdate: onProgress,
 	}
 
-	_, err = io.Copy(f, reader)
+	// 真正的判定按实际写入量做：Content-Length 可以缺失，也可以撒谎。
+	_, err = copyCapped(f, reader, maxArchiveBytes-startBytes, errArchiveTooLarge)
 	return err
 }
 
@@ -438,12 +570,39 @@ func verifyFileSHA256(path, expected string) (bool, error) {
 	return hex.EncodeToString(h.Sum(nil)) == strings.ToLower(expected), nil
 }
 
-// partPathForURL 返回 URL 对应的断点续传临时文件路径，
-// 存放在系统临时目录下的 dsh-tools-downloads 子目录。
-func partPathForURL(url string) string {
+// downloadsDir 返回断点续传文件（.part）的存放目录：<tools>/.downloads。
+//
+// 不用 os.TempDir()：/tmp 全局可写，part 名可由公开索引里的 URL 推算，同机其他
+// 用户可以预置同名符号链接，让 launcher 以自身权限写坏或删掉任意可写文件；而且
+// 不少系统把 /tmp 挂成 tmpfs，几百 MB 到几 GB 的工具归档会把内存写爆。放在安装
+// 根目录下还有两个好处：与 cache 同文件系统，校验通过后 rename 即可入缓存；
+// 目录由本用户持有（0700），攻击面收敛到本用户。
+func downloadsDir(dir string) string {
+	return filepath.Join(dir, ".downloads")
+}
+
+// partPathForURL 返回 URL 对应的断点续传文件路径。
+func partPathForURL(dir, url string) string {
 	sum := sha256.Sum256([]byte(url))
 	name := hex.EncodeToString(sum[:])[:16] + ".part"
-	return filepath.Join(os.TempDir(), "dsh-tools-downloads", name)
+	return filepath.Join(downloadsDir(dir), name)
+}
+
+// ensurePrivateDir 创建目录并确认它确实是目录本身（而非指向别处的符号链接），
+// 保证后续 openPartFile 打开的文件落在本用户拥有的路径下。
+func ensurePrivateDir(dir string) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		// Lstat 不跟随符号链接：能走到这里说明该路径被换成了别的目标。
+		return fmt.Errorf("%s is not a real directory", dir)
+	}
+	return nil
 }
 
 // copyFile 复制文件，跨分区 rename 失败时使用。
@@ -579,14 +738,47 @@ func extractTarXz(data []byte, dest string) error {
 	return extractTar(tar.NewReader(xr), dest)
 }
 
+// extractBudget 是一次解压的资源预算：累计写入字节数与条目数。归档内容来自远程，
+// 压缩比可上千倍、条目数可以极多，只有累计约束能挡住解压炸弹（审计 N8）。
+type extractBudget struct {
+	bytes   int64
+	entries int
+}
+
+// newExtractBudget 按包级上限建预算。
+func newExtractBudget() *extractBudget {
+	return &extractBudget{bytes: maxExtractBytes, entries: maxArchiveEntries}
+}
+
+// nextEntry 在解压每个条目（含目录与软链）前扣减条目预算：空条目不占字节预算，
+// 但一样会消耗 inode。
+func (b *extractBudget) nextEntry() error {
+	if b.entries <= 0 {
+		return errExtractTooLarge
+	}
+	b.entries--
+	return nil
+}
+
+// copyEntry 把单个条目的内容写进 w，并按实际写入量扣减字节预算。
+func (b *extractBudget) copyEntry(w io.Writer, r io.Reader) error {
+	n, err := copyCapped(w, r, b.bytes, errExtractTooLarge)
+	b.bytes -= n
+	return err
+}
+
 // extractTar 解压 tar 流到 dest，统一做路径逃逸与符号链接越界防护。
 func extractTar(tr *tar.Reader, dest string) error {
+	budget := newExtractBudget()
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := budget.nextEntry(); err != nil {
 			return err
 		}
 		// 防路径逃逸。
@@ -608,7 +800,7 @@ func extractTar(tr *tar.Reader, dest string) error {
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
+			if err := budget.copyEntry(f, tr); err != nil {
 				f.Close()
 				return err
 			}
@@ -685,7 +877,11 @@ func extractZipFromFile(path, dest string) error {
 // extractZipEntries 是 zip 解压的共享实现：遍历 zip 文件条目并解压到 dest。
 // 供 extractZip（内存版）和 extractZipFromFile（文件流式版）共用。
 func extractZipEntries(files []*zip.File, dest string) error {
+	budget := newExtractBudget()
 	for _, f := range files {
+		if err := budget.nextEntry(); err != nil {
+			return err
+		}
 		// 防路径逃逸（zip 内条目名可能是绝对路径或 ..）。
 		clean := filepath.Clean(f.Name)
 		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
@@ -710,7 +906,7 @@ func extractZipEntries(files []*zip.File, dest string) error {
 			rc.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
+		copyErr := budget.copyEntry(out, rc)
 		rc.Close()
 		out.Close()
 		if copyErr != nil {

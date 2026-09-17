@@ -37,6 +37,7 @@ const (
 	ToolchainProgressEvent = "toolchain:progress" // 单个工具链安装的实时进度
 	TerminalOutputEvent    = "terminal:output"    // 终端输出事件
 	TerminalStatusEvent    = "terminal:status"    // 终端状态变更事件
+	StartupProgressEvent   = "startup:progress"   // 加载页的启动进度（阶段 + 条目计数）
 )
 
 // ProgressEvent 是 toolchain:progress 事件的载荷：描述某个工具链安装的
@@ -70,6 +71,7 @@ type FrontendStatus struct {
 	SafeMode           string // "" | "plugins" | "config" | "full"
 	FreshHome          bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
 	Preflight          PreflightSummary // 启动前预检状态
+	Startup            StartupView      // 加载页的启动进度（见 startup_progress.go）
 }
 
 // equal 判断两个状态快照是否完全相同，用于变化检测。
@@ -93,7 +95,8 @@ func (s FrontendStatus) equal(o FrontendStatus) bool {
 		s.CanDisconnect == o.CanDisconnect &&
 		s.SafeMode == o.SafeMode &&
 		s.FreshHome == o.FreshHome &&
-		s.Preflight.equal(o.Preflight)
+		s.Preflight.equal(o.Preflight) &&
+		s.Startup.equal(o.Startup)
 }
 
 // ToolRow 是工具链表格的一行。
@@ -200,6 +203,10 @@ type App struct {
 	// 上一次推送给前端的状态快照，用于变化检测：
 	// 仅当快照真正变化时才推送事件，避免每秒一次的无意义重渲染。
 	lastEmitted FrontendStatus
+
+	// 启动进度事件的节流状态（受 mu 保护）：上一帧视图与上次推送时刻。
+	startupLastView  StartupView
+	startupEmittedAt time.Time
 }
 
 // New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
@@ -225,6 +232,8 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 		term:            term,
 		preflightRunner: preflight.NewRunner(dshCmd, dshScript, preflightHomePath(home)),
 	}
+	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
+	a.sup.SetStartupProgressListener(a.emitStartupProgress)
 	// 预检先于 harness 首次启动：门控监护循环，预检通过/降级决策后放行。
 	a.sup.Gate()
 	go a.runPreflightGate()
@@ -509,24 +518,31 @@ func (a *App) startStartupDoctor() {
 	go func() {
 		defer close(done)
 		report := a.runDoctor(ctx)
-		a.mu.Lock()
-		// 只有当本次诊断仍是"当前"的那次时才清理资源引用。
-		// 如果已经被 reset 或新的诊断覆盖，不要动外部状态。
-		if a.doctorEpoch == myEpoch {
-			a.doctorCancel = nil
-			a.doctorDone = nil
+		if a.finishStartupDoctor(myEpoch, report.Error) {
+			a.emitStatus()
 		}
-		if !a.startupDoctorRunning {
-			// 周期已被退出失败态重置，丢弃过期结果。
-			a.mu.Unlock()
-			return
-		}
-		a.startupDoctorRunning = false
-		a.startupDoctorReady = true
-		a.startupDoctorError = report.Error
-		a.mu.Unlock()
-		a.emitStatus()
 	}()
+}
+
+// finishStartupDoctor 记录一次自动诊断的结论，返回是否真的写入了状态。
+//
+// 归属判断只认 doctorEpoch：被 reset 取消的旧诊断与被新一轮诊断取代的旧诊断都可能
+// 在"新一轮正在运行"之后才收尾。曾经这里判断的是 !startupDoctorRunning——旧诊断
+// 恰好会在该值为 true 时通过，写入自己的过期结论并把 running 置回 false，而真正
+// 的新诊断收尾时又因该值已是 false 而丢弃自己的结论：界面上显示"诊断已就绪"配上
+// 伪造的错误，失败路径下的自动诊断静默失效。
+func (a *App) finishStartupDoctor(myEpoch int, errText string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.doctorEpoch != myEpoch {
+		return false
+	}
+	a.doctorCancel = nil
+	a.doctorDone = nil
+	a.startupDoctorRunning = false
+	a.startupDoctorReady = true
+	a.startupDoctorError = errText
+	return true
 }
 
 // resetStartupDoctor 清除本失败周期的自动诊断状态，等待下一次失败边沿重新触发。
@@ -541,6 +557,9 @@ func (a *App) resetStartupDoctor() {
 	a.startupDoctorDoneOnce = false
 	a.startupDoctorReady = false
 	a.startupDoctorError = ""
+	// 递增 epoch：在途的诊断取消后可能仍会收尾，必须让它不再被认作"当前"的一次，
+	// 否则它的结论会顶掉下一个失败周期新诊断的结果。
+	a.doctorEpoch++
 	a.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -597,6 +616,7 @@ func (a *App) snapshot() FrontendStatus {
 		SafeMode:           safeMode,
 		FreshHome:          freshHome,
 		Preflight:          preflightNow,
+		Startup:            a.currentStartupView(),
 	}
 	// 连接失败错误只在容器模式展示，成功后清除。
 	if mode != domain.ModeExternal {

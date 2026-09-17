@@ -370,3 +370,174 @@ func TestUninstall_FallbackByVersionOrder(t *testing.T) {
 		}
 	})
 }
+
+// TestBuiltinIndexPassesLinkValidators 守住「清单与判据同步」：判据收紧后，
+// 如果内置清单里存在会被 ReconcileBinLinks 拒绝的 bin_dirs/bin_names，工具会
+// 静默少挂软链（远程索引只能靠运行时日志发现，内置清单必须在测试里拦住）。
+func TestBuiltinIndexPassesLinkValidators(t *testing.T) {
+	idx, err := ParseIndex(indexJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, tool := range idx.Tools {
+		for _, v := range tool.Versions {
+			for _, rel := range v.BinDirs {
+				checked++
+				if !binDirOK(rel) {
+					t.Errorf("%s %s: bin_dirs %q 会被 ReconcileBinLinks 拒绝", tool.ID, v.Version, rel)
+				}
+			}
+			for from, to := range v.BinNames {
+				if to == "" {
+					continue // 空串是「显式不暴露」，不会建软链
+				}
+				checked++
+				if !linkNameOK(to) {
+					t.Errorf("%s %s: bin_names %q -> %q 会被 ReconcileBinLinks 拒绝", tool.ID, v.Version, from, to)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("内置清单里没有可校验的 bin_dirs/bin_names，用例形同虚设")
+	}
+}
+
+// evilIndex 构造只含一个工具的索引，用于注入越界的 bin_names/bin_dirs。
+func evilIndex(t *testing.T, id, extra string) {
+	t.Helper()
+	idx, err := ParseIndex([]byte(`{"version":1,"updated_at":"2026-08-31T00:00:00Z","tools":[` +
+		`{"id":"` + id + `","name":"Evil","category":"modern-cli","description":"test",` +
+		`"provides":["` + id + `"],"dependencies":[],"versions":[{"version":"1.0.0",` +
+		`"url":"https://example.com/e.tar.gz","sha256":"` + strings.Repeat("0", 64) + `",` +
+		extra + `}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setCatalog(idx.Tools, idx.CategoryLabels)
+	t.Cleanup(func() { restoreBuiltin(t) })
+}
+
+// seedToolRoot 造出 <dir>/<id>-1.0.0（内含一个可执行文件）与 current/<id> 软链。
+func seedToolRoot(t *testing.T, dir, id string) {
+	t.Helper()
+	root := filepath.Join(dir, id+"-1.0.0")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, id), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(root, filepath.Join(dir, "current", id)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLinkNameOK 覆盖 N10 的名字判据：只允许单个路径元素，任何能越出
+// <tools>/bin 的取值都必须被拒。
+func TestLinkNameOK(t *testing.T) {
+	cases := map[string]bool{
+		"go":             true,
+		"yq":             true,
+		"gradle.bat":     true,
+		"with space":     true,
+		"..hidden":       true,
+		"":               false,
+		".":              false,
+		"..":             false,
+		"a/b":            false,
+		`a\b`:            false,
+		"/abs":           false,
+		"../../.bashrc":  false,
+		"x/..":           false,
+		"..\\..\\config": false,
+	}
+	for name, want := range cases {
+		if got := linkNameOK(name); got != want {
+			t.Errorf("linkNameOK(%q) = %v, want %v", name, got, want)
+		}
+	}
+	// 声明的 bin 目录必须是留在根目录内的相对路径（真实清单里是 cargo/bin 这类）。
+	// "." 由 filepath.IsLocal 判为合法：Join(root, ".") 就是 root 本身，不越界。
+	for rel, want := range map[string]bool{
+		"cargo/bin": true, "rustc/bin": true, "bin": true, ".": true,
+		"": false, "..": false, "../..": false, "/etc": false, "a/../../b": false,
+	} {
+		if got := binDirOK(rel); got != want {
+			t.Errorf("binDirOK(%q) = %v, want %v", rel, got, want)
+		}
+	}
+}
+
+// TestReconcileBinLinks_RejectsTraversalBinName 覆盖 N10 的主路径：索引把归档内
+// 文件名映射成 `../../victim` 时，旧实现会先 os.Remove 掉安装根之外的文件再建软链。
+func TestReconcileBinLinks_RejectsTraversalBinName(t *testing.T) {
+	evilIndex(t, "eviltool", `"bin_rel":".","bin_names":{"eviltool":"../../victim"}`)
+
+	dir := t.TempDir()
+	victim := filepath.Join(filepath.Dir(dir), "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedToolRoot(t, dir, "eviltool")
+
+	if err := ReconcileBinLinks(dir); err == nil {
+		t.Fatal("越界的 bin_names 必须报错，不能静默跳过")
+	}
+	if _, err := os.Lstat(victim); err != nil {
+		t.Fatalf("安装根之外的 victim 被删除或替换: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "eviltool")); !os.IsNotExist(err) {
+		t.Fatalf("越界命令名不应建出软链: %v", err)
+	}
+}
+
+// TestReconcileBinLinks_RejectsTraversalBinDir 覆盖 N10 的 bin_dirs 一侧：
+// 越界目录里的可执行文件不得被软链进 <tools>/bin（那里在 harness 的 PATH 上）。
+func TestReconcileBinLinks_RejectsTraversalBinDir(t *testing.T) {
+	evilIndex(t, "evildir", `"bin_rel":".","bin_dirs":["../../outside"]`)
+
+	dir := t.TempDir()
+	outside := filepath.Join(filepath.Dir(dir), "outside")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outside, "pwned"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seedToolRoot(t, dir, "evildir")
+
+	if err := ReconcileBinLinks(dir); err == nil {
+		t.Fatal("越界的 bin_dirs 必须报错")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "pwned")); !os.IsNotExist(err) {
+		t.Fatalf("外部目录的可执行文件不应进入 tools/bin: %v", err)
+	}
+}
+
+// TestReconcileBinLinks_RejectsCurrentOutsideRoot 覆盖 current/<id> 指向安装根
+// 之外的情形：那同样会把外部目录的内容软链进 <tools>/bin。
+func TestReconcileBinLinks_RejectsCurrentOutsideRoot(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "pwned"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "current", "go")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ReconcileBinLinks(dir); err == nil {
+		t.Fatal("current 指向安装根之外必须报错")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "bin", "pwned")); !os.IsNotExist(err) {
+		t.Fatalf("安装根之外的目录内容不应进入 tools/bin: %v", err)
+	}
+}

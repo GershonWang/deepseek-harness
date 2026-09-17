@@ -20,6 +20,8 @@ launcher 在每次 spawn harness 时注入自带的 patch overlay，把 `dsh-mar
 
 flag 顺序是承重的，而且并不显然：`web` 子命令启用了 `passThroughOptions`，而 `--port` 属于 web app 而非 launcher，因此排在它之后的参数会被原样转发——放在那里的 `--patch` 永远不会被解析，只会以 `error: unknown option '--patch'` 失败。所以 launcher 自己的 flag 必须排在 `--port` 之前。
 
+overlay 是 launcher 注入组合树的唯一入口，因此它也承载启动进度上报插件的插入行（[启动进度](../feature/2026-09-15-desktop-launcher-startup-progress.zh.md)）；当该插件文件写不出来时，`writeSupervisorOverlay` 省略它的 `insert` 行并保留市场补丁。
+
 由于市场不再能重启 harness，launcher 补上了如今由它独占的入口：绑定的 `App.RestartServer` 调用 `supervisor.Restart`，服务器弹框在 启动/停止 旁提供 重启 按钮，由新增的 `CanRestart` 状态字段控制。插件安装后的重载有了受支持的路径，而不是被删掉的路径。
 
 ## Alternatives considered

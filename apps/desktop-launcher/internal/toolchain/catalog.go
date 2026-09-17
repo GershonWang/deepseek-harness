@@ -2,9 +2,11 @@ package toolchain
 
 import (
 	_ "embed"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -303,6 +305,11 @@ func toolBinNames(id, dir string) map[string]string {
 // ReconcileBinLinks 自愈：扫描 <dir>/current 下已装工具，在 <dir>/bin 重建其
 // 可执行文件软链，在 <dir>/lib 重建库目录绑定（如有 LibRel），并清理失效软链。
 // 启动时调用，保证重装、更新、HOME 迁移后工具链仍自动可用。
+//
+// 索引里的 bin_dirs/bin_names 与 current 软链目标都是外部数据，凡越出安装根目录
+// 的取值一律拒绝：它们最终变成 <tools>/bin 下的软链，而该目录在 harness 的 PATH
+// 上，越界等于把任意文件塞进命令搜索路径（审计 N10）。被拒条目会跳过，但会把
+// 第一个错误返回给调用方——不静默成功。
 func ReconcileBinLinks(dir string) error {
 	cur := filepath.Join(dir, "current")
 	entries, err := os.ReadDir(cur)
@@ -322,6 +329,13 @@ func ReconcileBinLinks(dir string) error {
 	seenBins := map[string]bool{}
 	seenLibs := map[string]bool{}
 
+	var firstErr error
+	record := func(err error) {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+
 	for _, e := range entries {
 		if e.Type().IsRegular() {
 			continue
@@ -335,6 +349,12 @@ func ReconcileBinLinks(dir string) error {
 				root = t
 			}
 		}
+		// current/<id> 指向安装根之外时立刻放弃该条目：继续处理等于把任意目录
+		// 的可执行文件软链进 <tools>/bin。
+		if rel, err := filepath.Rel(dir, root); err != nil || !filepath.IsLocal(rel) {
+			record(fmt.Errorf("toolchain: current/%s 指向安装根之外（%s），已跳过", e.Name(), root))
+			continue
+		}
 
 		// 优先用清单里显式声明的多 bin 目录（如 Rust 的 cargo/bin + rustc/bin）；
 		// 未声明时走默认布局探测：bin/ 子目录，否则工具根目录（单文件发行包）。
@@ -342,15 +362,19 @@ func ReconcileBinLinks(dir string) error {
 		names := toolBinNames(e.Name(), dir)
 		if len(binDirs) > 0 {
 			for _, rel := range binDirs {
+				if !binDirOK(rel) {
+					record(fmt.Errorf("toolchain: %s 的 bin_dirs %q 越出工具根目录，已跳过", e.Name(), rel))
+					continue
+				}
 				if info, err := os.Stat(filepath.Join(root, rel)); err == nil && info.IsDir() {
-					linkExecutables(filepath.Join(root, rel), linkDir, seenBins, names)
+					record(linkExecutables(filepath.Join(root, rel), linkDir, seenBins, names))
 				}
 			}
 		} else if info, err := os.Stat(filepath.Join(root, "bin")); err == nil && info.IsDir() {
-			linkExecutables(filepath.Join(root, "bin"), linkDir, seenBins, names)
+			record(linkExecutables(filepath.Join(root, "bin"), linkDir, seenBins, names))
 		} else if info, err := os.Stat(root); err == nil && info.IsDir() {
 			// 根目录直接含可执行
-			linkExecutables(root, linkDir, seenBins, names)
+			record(linkExecutables(root, linkDir, seenBins, names))
 		}
 
 		// 库目录 lib/
@@ -372,18 +396,45 @@ func ReconcileBinLinks(dir string) error {
 
 	cleanStaleLinks(linkDir, seenBins)
 	cleanStaleLinks(libDir, seenLibs)
-	return nil
+	return firstErr
+}
+
+// linkNameOK 判断对外命令名能否安全地作为 <tools>/bin 下的软链名。
+//
+// 名字来自（可被远程索引覆盖的）BinNames，必须挡住越出 linkDir 的取值：如
+// `../../.bashrc` 会让紧邻的 os.Remove 删掉安装目录之外的文件，再建一条指向
+// 归档文件的软链（审计 N10）。
+func linkNameOK(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return filepath.IsLocal(name) // Windows 上另拒保留名（NUL/COM1 之类）
+}
+
+// binDirOK 判断清单声明的 bin 目录能否安全地拼到工具根目录下。
+//
+// 必须是留在根目录内的相对路径：`../../` 这类取值会令 linkExecutables 把任意
+// 目录的可执行文件软链进 <tools>/bin（审计 N10）。
+func binDirOK(rel string) bool {
+	return filepath.IsLocal(rel)
 }
 
 // linkExecutables 把 src 下所有可执行文件软链进 linkDir，并记入 seen。
 // names 把归档内文件名映射为对外命令名（见 ToolVersion.BinNames）：映射为空串的
 // 文件直接跳过，未命中的沿用原名；seen 记录的是对外命令名，cleanStaleLinks 据此
 // 保留本次重建的软链。
-func linkExecutables(src, linkDir string, seen map[string]bool, names map[string]string) {
+//
+// 映射名来自外部索引，越出 linkDir 的取值会被跳过并把错误交给调用方（审计 N10）；
+// 跳过而非中止，是为了让同一目录里其余合法文件仍按预期暴露。
+func linkExecutables(src, linkDir string, seen map[string]bool, names map[string]string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
-		return
+		return nil
 	}
+	var firstErr error
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
@@ -403,11 +454,18 @@ func linkExecutables(src, linkDir string, seen map[string]bool, names map[string
 			}
 			name = renamed
 		}
+		if !linkNameOK(name) {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("toolchain: 索引里的命令名 %q 不是合法的软链名，已跳过", name)
+			}
+			continue
+		}
 		_ = os.Remove(filepath.Join(linkDir, name))
 		if err := os.Symlink(filepath.Join(src, file), filepath.Join(linkDir, name)); err == nil {
 			seen[name] = true
 		}
 	}
+	return firstErr
 }
 
 // cleanStaleLinks 删除 dir 里不再有效的软链。
