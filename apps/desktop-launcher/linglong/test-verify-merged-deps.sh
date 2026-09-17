@@ -57,6 +57,7 @@ healthy_prefix() {
   mkentity "$p" bin/jq
   mkentity "$p" bin/xxd
   mkentity "$p" bin/xdg-open
+  mkentity "$p" bin/wl-paste
   # webkit：普通文件 + 补丁短路径字符串（模拟 build 段解出并打过补丁的那一份）
   mkdir -p "$p/lib/x86_64-linux-gnu"
   printf 'ELF...%s.../injected-bundle/' "$WEBKIT_SHORT_PATH" \

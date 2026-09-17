@@ -58,6 +58,7 @@ zip|path:bin/zip
 jq|tool:jq
 xxd|tool:xxd
 xdg-utils|tool:xdg-open
+wl-clipboard|tool:wl-paste
 EOF
 
 # 依赖清单：buildext.apt 的 build_depends 与 depends 两段一并读（去重、剥注释）。

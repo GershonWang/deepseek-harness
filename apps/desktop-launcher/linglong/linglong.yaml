@@ -222,3 +222,9 @@ buildext:
       # xdg-utils（deepin fork）到 ${PREFIX}/bin（容器 PATH 首位，盖过该壳），
       # 由其在 XDG_CURRENT_DESKTOP=DDE 下经宿主 portal 打开本机默认浏览器。
       - xdg-utils
+      # Wayland 会话下的粘贴图片只能经 Wayland 剪贴板拿到：实测 XWayland 不把
+      # Wayland 侧的 image/png 暴露成 X11 selection（同一张 12420 字节 PNG，
+      # wl-paste 读到 12453 字节，X11 CLIPBOARD/PRIMARY 读到 0 字节）。宿主、
+      # 基础运行时与产物层三处都没有 wl-clipboard，不随包则 readWaylandImage
+      # 找不到 wl-paste，截图粘贴静默失效。合并进 ${PREFIX}/bin（容器 PATH 上）。
+      - wl-clipboard

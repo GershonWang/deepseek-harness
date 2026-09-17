@@ -43,6 +43,12 @@ tools:
     binary: bin/xdg-open
     # 无 verify：任何安全的调用要么无意义要么必然报错，而真实调用会打开浏览器
     #（经宿主 portal）。随包目标是真实 xdg-utils，盖过基础运行时失败的转发壳。
+  wl-paste:
+    binary: bin/wl-paste
+    # 剪贴板图片在 Wayland 会话下的唯一通路：XWayland 不把 Wayland 侧的图片桥接
+    # 成 X11 selection，readWaylandImage 只能调 wl-paste。--version 不需要合成器
+    # 即可运行、退出码 0，因此无会话的构建机上也能如实校验。
+    verify: wl-paste --version
 # 按需安装白名单:运行时实际生效的清单在 launcher 的
 # internal/toolchain/tools/index.json（校验 sha256 后原子安装到
 # $HOME/.dsh-tools）；本段与其保持同步，供打包文档与 verify-tools.sh 校验
