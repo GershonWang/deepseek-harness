@@ -173,12 +173,16 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 缓解方案保留 WebKitGTK 渲染器：壳进程自行读取剪贴板里的图片，把 base64 PNG
 通过既有的 `{ dshDesktop: true }` postMessage 协议交给页面。
 
-- Go：`internal/clipboard` 按 X11 → Wayland 的顺序尝试两条通道。X11 通道是
-  自实现的 wire 客户端（无 cgo、无外部工具），目标 X server 由会话的
-  `DISPLAY` 推导（X11 会话是 `:0`，Wayland 会话是 XWayland 的 `:1`），读取
-  `CLIPBOARD`/`PRIMARY` 的 `image/png` 并支持 INCR、超时与体积上限；Wayland
-  通道交给随包的 `wl-paste`。`App.ReadClipboardImage()`（Wails 绑定）返回
-  base64 或空串。
+- Go：`internal/clipboard` 依次尝试 X11 CLIPBOARD、X11 PRIMARY、X11
+  `text/uri-list`、Wayland 位图、Wayland `text/uri-list`。X11 通道是自实现的
+  wire 客户端（无 cgo、无外部工具），目标 X server 由会话的 `DISPLAY` 推导
+  （X11 会话是 `:0`，Wayland 会话是 XWayland 的 `:1`），支持 INCR、超时与体积
+  上限；Wayland 通道交给随包的 `wl-paste`。两条通道都覆盖两种来源：剪贴板上
+  直接是位图（`image/*`），或只是图片文件的 URI（`text/uri-list` /
+  `x-special/gnome-copied-files`——在文管里复制图片文件时给的就是后者，一个
+  `image/*` 都没有），后者按 URI 读盘；容器把 `/home`、`/media`、`/mnt` 按宿主
+  同路径绑定挂载，因此无需路径映射。`App.ReadClipboardImage()`（Wails 绑定）
+  返回 base64 或空串。
 - Wayland 侧持有的 selection 只能靠 `wl-paste`：实测 XWayland 不把 Wayland 侧的
   `image/png` 桥接成 X11 selection（同一张 PNG，`wl-paste` 读得到，X11
   `CLIPBOARD`/`PRIMARY` 读到 0 字节）；XWayland 客户端持有的 selection 仍走

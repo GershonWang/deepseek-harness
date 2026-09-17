@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-wayland-clipboard-image-paste.md
-2026-09-17-wayland-clipboard-image-paste.md: aef1422320fb9211c8998f4e7e07a8a667753440
-2026-09-17-wayland-clipboard-image-paste.zh.md: 243a0e16299eeeedc2df49d241a7a1c8aa2ed11e
+2026-09-17-wayland-clipboard-image-paste.md: 7950e47da7af058477b7b5a45b4b6377006fde6e
+2026-09-17-wayland-clipboard-image-paste.zh.md: f797c8eb2b80a8479c6016737948e6939418df13

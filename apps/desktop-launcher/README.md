@@ -175,13 +175,19 @@ The workaround keeps the WebKitGTK renderer: the shell process reads the
 clipboard image itself and hands the page a base64 PNG over the existing
 `{ dshDesktop: true }` postMessage protocol.
 
-- Go: `internal/clipboard` tries two channels, X11 before Wayland. The X11
-  channel is a self-implemented wire client (no cgo/no external tools) that
-  derives the target X server from the session's `DISPLAY` (the X11 session is
-  `:0`, a Wayland session is XWayland's `:1`) and reads `image/png` from
-  `CLIPBOARD`/`PRIMARY` with INCR support, timeouts and payload caps. The
-  Wayland channel delegates to the bundled `wl-paste`.
-  `App.ReadClipboardImage()` (Wails binding) returns base64 or `""`.
+- Go: `internal/clipboard` tries X11 CLIPBOARD, X11 PRIMARY, X11
+  `text/uri-list`, Wayland `image/*` and Wayland `text/uri-list`, in that
+  order. The X11 channel is a self-implemented wire client (no cgo/no external
+  tools) that derives the target X server from the session's `DISPLAY` (the X11
+  session is `:0`, a Wayland session is XWayland's `:1`), with INCR support,
+  timeouts and payload caps. The Wayland channel delegates to the bundled
+  `wl-paste`. Both channels cover both sources: the clipboard either carries a
+  bitmap (`image/*`) or only the URIs of image files (`text/uri-list` /
+  `x-special/gnome-copied-files`, which is all a file manager offers when you
+  copy an image file). The URI case reads the file from disk, which needs no
+  path translation because the container bind-mounts `/home`, `/media` and
+  `/mnt` at the same paths as the host. `App.ReadClipboardImage()` (Wails
+  binding) returns base64 or `""`.
 - A selection held by a Wayland client must use `wl-paste`: XWayland does not
   bridge Wayland's `image/png` into an X11 selection (the same PNG comes back
   from `wl-paste`, while X11 `CLIPBOARD`/`PRIMARY` yield 0 bytes). A selection
