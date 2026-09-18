@@ -10,12 +10,12 @@
  * `dsh --profile tui --resume abc` boots the tui profile with `--resume abc`,
  * and `dsh --profile web -h` prints the web app's help, not this one's.
  *
- * `web` is a hardcoded alias for `--profile web`; `plugin` manages a profile's
+ * `dsh <name>` abbreviates `dsh --profile <name>`; `plugin` manages a profile's
  * plugin dependencies by forwarding to pnpm.
  * @module @deepseek-ai/dsh/args
  */
 
-import { Command, CommanderError } from 'commander'
+import { Command, CommanderError, InvalidArgumentError } from 'commander'
 
 /** Boot a named profile and hand it the invocation's inner arguments. */
 interface ProfileInvocation {
@@ -62,7 +62,7 @@ interface DoctorInvocation {
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
 export type DshInvocation = ProfileInvocation | DumpConfigInvocation | PluginInvocation | DoctorInvocation
 
-/** Launcher flags shared by the default command and the `web` alias. */
+/** Launcher flags for profile boot and configuration dumps. */
 interface BootOptions {
   patch?: string[]
   dumpConfig?: boolean
@@ -76,6 +76,11 @@ interface BootOptions {
  */
 const collect = (value: string, previous: string[] = []): string[] => [...previous, value]
 
+function selectProfile(value: string, previous?: string): string {
+  if (previous !== undefined) throw new InvalidArgumentError('select a profile only once')
+  return value
+}
+
 function rejectElectronProfile(program: Command, profile: string): void {
   if (profile.toLowerCase() === 'desktop') {
     program.error('error: profile "desktop" is managed exclusively by the Electron application')
@@ -85,20 +90,20 @@ function rejectElectronProfile(program: Command, profile: string): void {
 /** The launcher's own help text; each app prints its own. */
 const HELP_EXAMPLES = `
 Examples:
-  dsh --profile web                          boot the web profile (same as: dsh web)
-  dsh --profile rescue --from-default-profile web
-                                             create rescue from the shipped web template, then boot it
-  dsh --profile headless "run the tests"     answer one task, print the result, and exit
-  dsh --profile tui --patch ./extra.yml      boot a custom profile with one extra overlay
-  dsh --profile tui --resume <session>       arguments after the launcher flags reach the app
-  dsh --profile web --help                   the web app's own flags and help
-  dsh plugin --profile tui add <package>     install a plugin into the tui profile
+  dsh web                                   boot the web profile (same as: dsh --profile web)
+  dsh rescue --from-default-profile web
+                                            create rescue from the shipped web template, then boot it
+  dsh headless "run the tests"              answer one task, print the result, and exit
+  dsh tui --patch ./extra.yml               boot a custom profile with one extra overlay
+  dsh tui --resume <session>                arguments after the launcher flags reach the app
+  dsh web --help                            the web app's own flags and help
+  dsh plugin --profile tui add <package>    install a plugin into the tui profile
 `
 
 /**
  * Resolve a boot or dump invocation from the launcher flags and the leftover
  * inner arguments.
- * @param program - the command whose options were parsed (the root, or the `web` alias).
+ * @param program - the command whose options were parsed.
  * @param profile - the profile these flags boot.
  * @param options - the launcher flags commander collected.
  * @param args - the leftover arguments, in argv order.
@@ -135,6 +140,7 @@ function resolveBoot(program: Command, profile: string, options: BootOptions, ar
  * @returns the resolved invocation.
  */
 export function parseDshArgs(argv: readonly string[], version: string): DshInvocation {
+  const first = argv[0]
   let resolved: DshInvocation | undefined
   // Annotated, not inferred: the actions below call back into `program`, and an
   // inferred type would be circular through its own chain.
@@ -142,6 +148,7 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
   program
     .name('dsh')
     .version(version, '-V, --version', 'output the version number')
+    .usage('[--profile] <name> [options] [app-args...]\n       dsh plugin --profile <name> <pnpm-args...>')
     .description('dsh: boot a DeepSeek Harness profile — an ordered stack of plugin-bundle patch layers under your own overrides.')
     .addHelpText('after', HELP_EXAMPLES)
     .exitOverride()
@@ -149,11 +156,12 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     // know; everything from there on belongs to the booted app, including
     // its -h. `dsh -h` with no profile still prints this help, below.
     .helpOption(false)
+    .helpCommand(false)
     .allowUnknownOption()
     .passThroughOptions()
     .enablePositionalOptions()
     .argument('[args...]', 'arguments for the booted profile\'s app (see: dsh --profile <name> --help)')
-    .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot')
+    .option('--profile <name>', 'the profile under $DSH_HOME/profiles to boot', selectProfile)
     .option('--from-default-profile <name>', 'initialize a new custom profile from a shipped profile template')
     .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
     .option('--dump-config', 'print the composed profile tree and exit')
@@ -171,46 +179,23 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       resolved = resolveBoot(program, profile, options, args)
     })
 
-  /** Reject parent options supplied before a subcommand. */
-  const rejectParentOptions = (command: string): void => {
-    const parent = program.opts<BootOptions & { profile?: string }>()
-    if (parent.profile !== undefined || parent.patch !== undefined
-      || parent.dumpConfig !== undefined || parent.dumpDefaultConfig !== undefined
-      || parent.fromDefaultProfile !== undefined) {
-      program.error(
-        `error: ${command} takes none of parent --profile, --from-default-profile, --patch, --dump-config, or --dump-default-config`,
-      )
-    }
+  if (first === 'plugin') {
+    const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
+    plugin
+      .requiredOption('--profile <name>', 'the profile whose plugins to manage (initialized on first use)', selectProfile)
+      .allowUnknownOption()
+      .argument('[args...]', 'pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)')
+      .action((args: string[], options: { profile: string }) => {
+        if (options.profile === '') program.error('error: --profile needs a name')
+        rejectElectronProfile(plugin, options.profile)
+        if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
+        resolved = { mode: 'plugin', profile: options.profile, args }
+      })
   }
 
-  const web = program.command('web').description('boot the web profile (alias of --profile web); the web app\'s own flags follow')
-  web
-    .helpOption(false)
-    .allowUnknownOption()
-    .passThroughOptions()
-    .enablePositionalOptions()
-    .argument('[args...]', 'arguments for the web app (see: dsh web --help)')
-    .option('--patch <path>', 'extra patch-list overlay applied after the profile layer (repeatable)', collect)
-    .option('--dump-config', 'print the composed web-profile tree (with the user layer and any --patch) and exit')
-    .option('--dump-default-config', 'print the web profile\'s bundle layers (no user layer) and exit')
-    .action((args: string[], options: BootOptions) => {
-      rejectParentOptions('web')
-      resolved = resolveBoot(web, 'web', options, args)
-    })
-
-  const plugin = program.command('plugin').description('manage a profile\'s plugins by forwarding the remaining arguments to pnpm in the profile directory')
-  plugin
-    .requiredOption('--profile <name>', 'the profile whose plugins to manage (initialized on first use)')
-    .allowUnknownOption()
-    .argument('[args...]', 'pnpm arguments, forwarded verbatim (add <pkg>, remove <pkg>, why <pkg>, ...)')
-    .action((args: string[], options: { profile: string }) => {
-      rejectParentOptions('plugin')
-      if (options.profile === '') program.error('error: --profile needs a name')
-      rejectElectronProfile(plugin, options.profile)
-      if (args.length === 0) program.error('error: plugin needs pnpm arguments to forward (e.g. add <package>)')
-      resolved = { mode: 'plugin', profile: options.profile, args }
-    })
-
+  // doctor 是本地子命令（上游没有这个 mode），尾部的简写展开必须把它排除，
+  // 否则 `dsh doctor` 会被改写成 `--profile doctor`，启动器的启动前预检
+  // （internal/preflight 组装 ["doctor", ...]）会静默失效。
   const doctor = program.command('doctor')
     .description('diagnose and repair common harness installation issues (env, config, plugins, data)')
   doctor
@@ -218,7 +203,6 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     .option('--quick', 'skip the live loader-probe check (fast static pre-flight)')
     .option('--repair [level]', 'run auto-repair at the given level (1=mild, 2=moderate, 3=destructive); omit for level 1')
     .action((_args: string[], opts: { json?: boolean; quick?: boolean; repair?: boolean | string }) => {
-      rejectParentOptions('doctor')
       // Under the root command's passThroughOptions, subcommand boolean and
       // optional-value flags sometimes don't pick up their values from argv.
       // Fall back to scanning this invocation's own argv — the same slice the
@@ -253,7 +237,10 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
     })
 
   try {
-    program.parse(argv, { from: 'user' })
+    const expanded = first !== undefined && !first.startsWith('-') && first !== 'plugin' && first !== 'doctor'
+      ? ['--profile', ...argv]
+      : argv
+    program.parse(expanded, { from: 'user' })
   } catch (error) {
     return process.exit(error instanceof CommanderError ? error.exitCode : 1)
   }

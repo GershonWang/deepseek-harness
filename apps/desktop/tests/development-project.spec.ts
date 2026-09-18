@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { prepareDevelopmentProject } from '../scripts/development-project.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
+import { DesktopProjectManager } from '../src/project-manager.ts'
+import { resolveDesktopPaths } from '../src/paths.ts'
 import type { DesktopRelease } from '../src/release.ts'
 
 const roots: string[] = []
@@ -29,7 +31,7 @@ afterEach(() => {
 })
 
 describe('desktop development project', () => {
-  it('projects the built dsh and Desktop Host applications with their dependency graph', () => {
+  it('manages development plugins without modifying the linked workspace packages', async () => {
     const root = temporaryRoot()
     const cli = join(root, 'apps', 'cli')
     const host = join(root, 'apps', 'desktop-host')
@@ -65,6 +67,14 @@ describe('desktop development project', () => {
     }
     expect(manifest.dependencies['@deepseek-ai/dsh']).toBe('1.2.3')
     expect(manifest.dependencies['@deepseek-ai/dsh-desktop-host']).toBe('1.2.3')
+    const manager = new DesktopProjectManager(resolveDesktopPaths(join(root, 'home')), {
+      dsh: project,
+    })
+    await manager.applyRelease()
+    await manager.disableAllPlugins()
+    expect(readFileSync(join(cli, 'package.json'), 'utf8')).toBe('{"name":"@deepseek-ai/dsh","version":"1.2.3"}\n')
+    expect(readFileSync(join(host, 'lib', 'index.js'), 'utf8')).toBe('')
+
   })
 
   it('rejects a CLI package from another release', () => {

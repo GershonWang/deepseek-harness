@@ -58,7 +58,7 @@ async function writeProfile(home: string, bundles: readonly string[]): Promise<v
     name: 'dsh-profile-web',
     private: true,
     dependencies: {},
-    dsh: { profile: { bundles: [...bundles], patchReload: 'live' } },
+    dsh: { profile: { bundles: [...bundles] } },
   }, undefined, 2) + '\n')
 }
 
@@ -185,15 +185,15 @@ describe('plugin-dynamic-load', () => {
 
   it('treats an unloadable profile as a pass with a notice', async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-dyn-noprofile-'))
-    // A manifest whose patchReload is neither "live" nor "startup" makes
-    // loadProfile throw before any bundle can be listed.
+    // A bundle the profile neither installs nor anchors makes loadProfile throw
+    // while resolving the layer, before any bundle can be listed.
     const dir = join(home, 'profiles', 'web')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'package.json'), JSON.stringify({
       name: 'dsh-profile-web',
       private: true,
       dependencies: {},
-      dsh: { profile: { bundles: [], patchReload: 'invalid' } },
+      dsh: { profile: { bundles: ['@fixture/not-installed'] } },
     }, undefined, 2) + '\n')
 
     const result = await pluginDynamicLoadCheck.check(home)

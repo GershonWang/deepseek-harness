@@ -57,7 +57,7 @@ async function writeProfile(home: string, bundles: readonly string[]): Promise<v
     name: 'dsh-profile-web',
     private: true,
     dependencies: {},
-    dsh: { profile: { bundles: [...bundles], patchReload: 'live' } },
+    dsh: { profile: { bundles: [...bundles] } },
   }, undefined, 2) + '\n')
 }
 
