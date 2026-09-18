@@ -161,6 +161,14 @@ func resolveLogDir() string {
 	return filepath.Join(home, ".cache", "dsh-desktop")
 }
 
+// RuntimeDir 返回启动器的运行时目录（默认 ~/.cache/dsh-desktop，DSH_DESKTOP_LOG_DIR
+// 可覆盖）：harness 日志、启动进度插件与监护 overlay 都落在这里，壳自己的状态文件
+// 也放同一处。单独导出而不是让调用方拼接路径：目录位置只保留一个来源，测试也能用
+// 同一个环境变量把落盘重定向到临时目录、不碰真实用户目录。
+func RuntimeDir() string {
+	return resolveLogDir()
+}
+
 // resolveNode 返回 node 可执行文件路径；DSH_DESKTOP_NODE 优先，否则用 PATH。
 func resolveNode() string {
 	if n := os.Getenv("DSH_DESKTOP_NODE"); n != "" {

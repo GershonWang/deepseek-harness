@@ -440,6 +440,10 @@ function makeWails(runCalls, overrides = {}) {
    * 真实 window 有 addEventListener，桩这里记录下来供用例按来源驱动。 */
   const windowEvents = {};
   let terminalSeq = 0;
+  /* doctor 自动禁用留痕的两个绑定：Go 侧读 <dshHome>/doctor/auto-disabled.json 并按
+   * 包名确认（internal/app/autodisabled.go）。调用单独记账而不混进 runCalls —— 运行态
+   * 快照本来就会问一次，混进去会打乱其它用例对 runCalls 的断言。 */
+  const autoDisabled = { pending: 0, ack: [] };
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
@@ -467,6 +471,14 @@ function makeWails(runCalls, overrides = {}) {
       runCalls.push("client-fail:" + reason);
       return baseStatus({ State: "running", URL: "http://127.0.0.1:3456", Target: "", ClientFailure: reason });
     }),
+    PendingAutoDisabled: async () => {
+      autoDisabled.pending += 1;
+      return overrides.PendingAutoDisabled ?? [];
+    },
+    AckAutoDisabled: async (bundles) => {
+      autoDisabled.ack.push(bundles || []);
+      return "";
+    },
     ConnectExternal: async () => "",
     DisconnectExternal: async () => baseStatus(),
     RefreshTools: async () => ({}),
@@ -486,6 +498,7 @@ function makeWails(runCalls, overrides = {}) {
   return {
     events,
     windowEvents,
+    autoDisabled,
     window: {
       go: { app: { App: app } },
       runtime: {
@@ -552,9 +565,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events, windowEvents } = hasWails
+  const { window, events, windowEvents, autoDisabled } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {}, windowEvents: {} };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] } };
 
   const sandbox = {
     console,
@@ -594,6 +607,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     registry,
     runCalls,
     overrides,
+    autoDisabled,
     terminals: xterm.instances,
     storage: window.localStorage,
     status: (s) => {
@@ -835,6 +849,89 @@ test("退出客户端失败态（重启/安全模式）后回到正常舞台", a
   assert.equal(h.document.getElementById("loading-page").classList.contains("hidden"), false,
     "应回到加载页");
   assert.equal(h.document.getElementById("status-text").textContent, "启动中");
+});
+
+test("启动成功后提示被自动禁用的插件，确认后回传包名并收起", async () => {
+  const h = loadApp({
+    overrides: {
+      PendingAutoDisabled: [
+        { Bundle: "third-party-bad", Reason: "与当前版本不兼容（加载失败）", At: "2026-09-18T10:00:00.000Z" },
+        { Bundle: "other-bad", Reason: "", At: "2026-09-18T10:00:00.000Z" },
+      ],
+    },
+  });
+  await flush();
+
+  // 启动中不问：此刻用户关心的是能不能起来，不是插件去留。
+  h.status(baseStatus({ State: "starting" }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 0, "启动中不应询问留痕");
+  assert.equal(h.document.getElementById("auto-disabled-notice"), null, "启动中不应出现提示条");
+
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:3456", Target: "http://127.0.0.1:3456" }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 1, "运行态应询问一次留痕");
+  assert.equal(h.runCalls.length, 0, "询问留痕不应混进 runCalls");
+
+  const notice = h.document.getElementById("auto-disabled-notice");
+  assert.ok(notice, "#auto-disabled-notice 应已惰性创建");
+  assert.equal(notice.classList.contains("hidden"), false, "提示条应可见");
+  // 包名与原因都要给出：用户据此决定去插件页重新启用还是卸载。
+  assert.equal(
+    h.document.querySelector(".auto-disabled-body").textContent,
+    "• third-party-bad\n  与当前版本不兼容（加载失败）\n• other-bad",
+    "应逐条列出被禁用的插件与原因");
+  assert.equal(
+    h.document.querySelector(".auto-disabled-hint").textContent,
+    "安装与依赖仍然保留：可在「插件」页重新启用，或自行卸载。");
+
+  // 「知道了」→ 按展示过的包名确认，并收起提示条；确认失败不影响收起。
+  await h.document.getElementById("auto-disabled-ack").fire("click");
+  await flush();
+  assert.deepEqual(h.autoDisabled.ack, [["third-party-bad", "other-bad"]], "应按展示过的包名确认");
+  assert.equal(notice.classList.contains("hidden"), true, "确认后提示条应收起");
+});
+
+test("自动禁用提示每个启动周期只问一次，离开运行态后复位", async () => {
+  const h = loadApp({ overrides: { PendingAutoDisabled: [{ Bundle: "bad", Reason: "不兼容" }] } });
+  await flush();
+
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:3456" }));
+  await flush();
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:3456" }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 1, "同一启动周期只询问一次");
+
+  // 重启：状态经过非运行态，下一轮成功后再问一次（新一轮修复可能又有新留痕）。
+  h.status(baseStatus({ State: "starting" }));
+  await flush();
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:3456" }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 2, "新启动周期应重新询问");
+});
+
+test("自动禁用留痕为空或界面起不来时不打扰用户", async () => {
+  const h = loadApp();
+  await flush();
+
+  // 没有留痕：不创建提示条。
+  h.status(baseStatus({ State: "running", Target: "http://127.0.0.1:3456" }));
+  await flush();
+  assert.equal(h.document.getElementById("auto-disabled-notice"), null, "无留痕不应出现提示条");
+
+  // 客户端插件加载失败：进程在跑，但用户此刻要处理的是起不来的界面。
+  h.status(baseStatus({ State: "starting" }));
+  h.status(baseStatus({
+    State: "running", Target: "http://127.0.0.1:3456", ClientFailure: "web boot: 1 entry did not activate",
+  }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 1, "客户端失败时不应再询问留痕");
+
+  // 外部服务：留痕属于容器 profile，外置 harness 不看这份记录。
+  h.status(baseStatus({ Mode: "external", ExternalURL: "http://127.0.0.1:8080" }));
+  h.status(baseStatus({ Mode: "external", ExternalURL: "http://127.0.0.1:8080" }));
+  await flush();
+  assert.equal(h.autoDisabled.pending, 1, "外部模式不应询问留痕");
 });
 
 test("修复期间退出失败态仍要复位：第二轮失败仍能自动弹窗", async () => {

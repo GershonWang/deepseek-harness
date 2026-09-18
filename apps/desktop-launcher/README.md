@@ -49,6 +49,14 @@ The counts come from `internal/appenv/startup_progress.mjs`: `appenv` writes it 
 
 When the plugin file cannot be written, or an in-flight harness build does not inject it, the loading page falls back to the first two coarse phases with its spinner and shows no progress block — it never invents a time-based percentage. The harness's own `Loading plugins…` inside the WebView is a separate, browser-side segment and is not part of this mechanism.
 
+## Auto-disabling incompatible plugins and the post-startup notice
+
+An incompatible third-party plugin does not stop the harness process — the host only warns about non-required entries that fail to activate — but it does keep the client-side plugin tree from loading. This chain has one half on each side: after judging a plugin incompatible with the current version, doctor disables it from the profile's bundle layer (installation and dependencies stay in place) and appends a record to `<dshHome>/doctor/auto-disabled.json`; once harness has started, the shell reads that ledger and shows a persistent notice above the main interface listing each disabled plugin with its reason, stating that installation and dependencies remain and that the plugin can be re-enabled on the plugins page or uninstalled by hand. Whether to uninstall it is the user's decision; the shell does not do it for them.
+
+The notice persists instead of popping up because the user is already working in the main interface: a dialog would interrupt what they are doing, while "why did my plugin disappear and how do I get it back" has to be visible. Clicking 知道了 makes the shell write the bundle names it displayed to `<launcher runtime dir>/auto-disabled-ack.json`, so that batch is never announced again; acknowledgement reports bundle names, so a plugin doctor disables while the notice is up is still announced on the next start. The ledger is used for the notice alone: a missing or corrupted file is treated as "no records", which at worst drops one notice and never blocks startup.
+
+The read/acknowledge contract lives in `internal/app/autodisabled.go`, with field names matching doctor's (`packages/support/doctor/src/auto-disabled.ts`); `internal/app/autodisabled_test.go` fails first when either side changes.
+
 ## File layout
 
 ```

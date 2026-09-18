@@ -1267,6 +1267,31 @@ button, input, select, textarea { font: inherit; }
   to { opacity: 1; transform: none; }
 }
 
+/* 自动禁用提示条：常驻在内容区顶部，直到用户点「知道了」。
+   z-index 低于 .modal(100)：诊断弹框打开时让位，不跟弹框争层级。 */
+#auto-disabled-notice {
+  position: fixed;
+  top: 48px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 560px;
+  padding: 12px 16px;
+  font-size: 13px; line-height: 1.6;
+  color: var(--fg-strong);
+  background: var(--bg-panel);
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+#auto-disabled-notice .auto-disabled-title { font-weight: 600; }
+/* 逐条列出被禁用的插件，换行由内容里的 \n 决定 */
+#auto-disabled-notice .auto-disabled-body { color: var(--fg-dim); white-space: pre-wrap; }
+#auto-disabled-notice .auto-disabled-hint { color: var(--fg-dim); font-size: 12px; }
+#auto-disabled-notice .btn { align-self: flex-start; margin-top: 4px; }
+
 /* 诊断弹框 */
 .modal-lg { width: min(720px, 90vw); max-height: 80vh; }
 /* 自动弹窗提示条：摘要上方，浅黄底提示本次诊断为启动失败自动触发 */

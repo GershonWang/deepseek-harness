@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false };
+const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
 // 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
@@ -322,6 +322,7 @@ function applyStatus(s) {
   }
 
   updateStartupDoctor(s);
+  maybeNotifyAutoDisabled(s);
   renderStartup(s.Startup);
   renderServerDialog(s);
 }
@@ -515,6 +516,74 @@ function showRepairToast(text, kind) {
   toast.classList.remove("hidden");
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => toast.classList.add("hidden"), 6000);
+}
+
+/* doctor 自动禁用提示：harness 启动成功后告诉用户"哪些插件被自动禁用了、怎么恢复"。
+ *
+ * 为什么常驻而不是弹窗：此刻用户已经在用主界面，弹窗会打断手头的操作；但这件事必须
+ * 被看到——只把插件悄悄摘掉，用户只会发现插件不见了，不知道是被禁用、更不知道还能
+ * 恢复。「知道了」之后写确认标记（Go 侧按包名确认），同一批留痕不再提示。 */
+let autoDisabledNotice = null;
+
+/**
+ * 展示自动禁用提示条（重复调用只更新内容）。
+ * @param {Array<{Bundle: string, Reason: string}>} list - 尚未提示过的禁用留痕。
+ */
+function showAutoDisabledNotice(list) {
+  if (!autoDisabledNotice) {
+    const el = document.createElement("div");
+    el.id = "auto-disabled-notice";
+    const title = document.createElement("div");
+    title.className = "auto-disabled-title";
+    title.textContent = "已自动禁用不兼容的插件";
+    const body = document.createElement("div");
+    body.className = "auto-disabled-body";
+    const hint = document.createElement("div");
+    hint.className = "auto-disabled-hint";
+    hint.textContent = "安装与依赖仍然保留：可在「插件」页重新启用，或自行卸载。";
+    const ack = document.createElement("button");
+    ack.id = "auto-disabled-ack";
+    ack.className = "btn";
+    ack.textContent = "知道了";
+    ack.addEventListener("click", () => {
+      // 先收起再确认：确认失败最多让下次启动再提示一次，不该把提示挂在界面上不走。
+      // 确认时按展示过的包名回传，展示期间 doctor 新禁用的插件留到下次启动提示。
+      el.classList.add("hidden");
+      const bundles = autoDisabledNotice.list.map((item) => item.Bundle);
+      api().AckAutoDisabled(bundles).catch(() => {});
+    });
+    el.append(title, body, hint, ack);
+    document.body.appendChild(el);
+    autoDisabledNotice = { el, body, list: [] };
+  }
+  autoDisabledNotice.list = list;
+  // 原因另有行：doctor 的原因文案本身常带括号，套在包名后面会出现嵌套括号。
+  autoDisabledNotice.body.textContent = list
+    .map((item) => (item.Reason ? "• " + item.Bundle + "\n  " + item.Reason : "• " + item.Bundle))
+    .join("\n");
+  autoDisabledNotice.el.classList.remove("hidden");
+}
+
+/**
+ * harness 启动成功后问一次"有没有被自动禁用的插件"，有就提示。
+ *
+ * 只在运行态问：进程没起来时用户关心的是启动失败，不是插件去留。每个启动周期问一次
+ * （离开运行态时复位），所以同一轮修复只提示一次；新的留痕在下次启动才出现。
+ * @param {object} s - 状态快照。
+ */
+function maybeNotifyAutoDisabled(s) {
+  if (s.Mode === "external" || s.State !== "running" || s.ClientFailure) {
+    state._autoDisabledChecked = false;
+    return;
+  }
+  if (state._autoDisabledChecked) return;
+  state._autoDisabledChecked = true;
+  api().PendingAutoDisabled()
+    .then((list) => {
+      if (Array.isArray(list) && list.length > 0) showAutoDisabledNotice(list);
+    })
+    // 读取失败按"没有留痕"处理：提示只是知情渠道，不该在启动成功后弹错。
+    .catch(() => {});
 }
 
 // 修复结果面板：把 `dsh doctor --repair` 的人类可读输出解析为结构化展示。
