@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 import {
+  auditStartupEntries,
   boot,
   healProfilesModuleFallback,
   loadOptionalPatches,
@@ -143,6 +144,20 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
   let requestedExit: number | undefined
   const readyListeners = new Set<() => void>()
   const ctx = await boot(BIN_NAME, rootConfig, patches, (hostCtx) => {
+    // 宿主把插件加载期的日志私有收进 startupLogs，只在致命路径（StartupError）
+    // 才随错误带出；第三方条目的失败在宿主策略下只是告警，于是真正的失败原因
+    // ——缺失的模块名、插件在模块求值阶段抛出的错误——永远到不了 stderr，审计
+    // 只剩占位的 "failed to import"，doctor 也就无法向用户解释元凶。Loader 是
+    // 用 ctx.logger.error 记录该原因的，这里注册一个只放行 error 级的 exporter，
+    // 把它放回探针输出（warn 级噪音不转发，未激活条目已由审计单独汇总）。
+    hostCtx.logger.exporter({
+      // 0 即 error 级（Cordis 的 LoggerLevel 是 const enum，没有可导入的运行时值）。
+      levels: { default: 0 },
+      export: ({ name, type, args }) => {
+        const detail = args.map(arg => arg instanceof Error ? arg.stack ?? arg.message : String(arg)).join(' ')
+        process.stderr.write(`${BIN_NAME}: plugin ${type} (${name}): ${detail}\n`)
+      },
+    })
     // Launcher facts every profile app expects. No invocation-level flags are
     // handed over: probing must not reject a profile whose app owns a
     // different flag family. Readiness is never committed — the probe disposes
@@ -159,6 +174,12 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
       },
     })
   })
+  // 宿主启动策略只把少数必需条目的失败当致命错误，其余仅告警；探针的契约
+  // 比它严格——这里必须由整棵树每个 enabled 条目都激活才算加载成功，否则
+  // 一个坏插件（导入缺失依赖、apply 抛错）会被判成健康，doctor 的运行时
+  // 兼容性检查就永远定位不到元凶。复用宿主审计并让告警抛出，即可在不复制
+  // 审计逻辑的前提下把告警升格为失败。
+  await auditStartupEntries(ctx, BIN_NAME, (line) => { throw new Error(line) })
   await ctx.fiber.dispose()
   if (requestedExit !== undefined) {
     process.exit(requestedExit)
