@@ -22,10 +22,11 @@ import {
   composeEntries,
   readProfileManifest,
   resolveProfileDir,
-  writeProfileManifest,
+  writeProfileBundles,
   PROFILE_PATCH_FILENAME,
 } from '@deepseek-ai/dsh-app-boot'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { recordAutoDisabled } from '../auto-disabled.js'
 import { bisectBy } from '../bisect-by.js'
 import type { DoctorCheck, CheckResult, FixResult } from '../types.js'
 
@@ -429,8 +430,9 @@ async function locateCulprit(dshHome: string): Promise<LocateCulpritResult> {
  * breaks the load and report it. Failures only a real boot exposes (plugin
  * modules importing dependencies the installation no longer provides) land
  * here, so the report can name the culprit instead of the whole tree. Its
- * repair removes the culprit bundle from the profile's bundle list after
- * backing up the manifest, then re-boots to prove the tree loads.
+ * repair disables the culprit bundle by deselecting its profile layer after
+ * backing up the manifest, keeps the package installed, records the disable
+ * for the shell's post-startup notice, then re-boots to prove the tree loads.
  */
 export const pluginDynamicLoadCheck: DoctorCheck = {
   id: 'plugin-dynamic-load',
@@ -481,11 +483,16 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     const original = readFileSync(manifestPath, 'utf8')
     const backupPath = join(backupDir, 'web-profile.package.json')
 
-    // 循环定位并移除所有导致加载失败的第三方 bundle：移除一个后重新全量
-    // 探测，若仍失败则继续定位下一个元凶（多个插件各自损坏时逐个清理），
-    // 直到全量探测通过或无法再定位。整轮以最初 manifest 为回滚基准：
-    // 任何一步的探测失败都不还原中间结果（已修好的保留），只有"全部移除
-    // 仍无法加载"才用最初备份整体还原，避免把能修的也丢回去。
+    // 循环禁用所有导致加载失败的第三方 bundle：禁用一个后重新全量探测，若
+    // 仍失败则继续定位下一个元凶（多个插件各自损坏时逐个处理），直到全量
+    // 探测通过或无法再定位。整轮以最初 manifest 为回滚基准：任何一步的探测
+    // 失败都不还原中间结果（已修好的保留），只有"全部禁用仍无法加载"才用最
+    // 初备份整体还原，避免把能修的也丢回去。
+    //
+    // 禁用 = 只把该 bundle 从 dsh.profile.bundles 取消选择，依赖与 node_modules
+    // 一律保留：安装不被破坏，用户之后可在插件页重新启用，也可自行卸载决定。
+    // 不额外写 per-entry 的 disabled 行——该 bundle 的补丁层既已不参与组合，那些
+    // 行指向的 target 就不存在，日后重新启用时会表现为"启用了却不生效"。
     let located = await locateCulprit(dshHome)
     if (!located.loadable) {
       return { ok: false, message: '无法读取 profile，无法自动修复' }
@@ -496,30 +503,22 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
 
     let current = readProfileManifest('doctor', profileDir)
     let currentBundles = current.dsh?.profile?.bundles ?? []
-    const removed: string[] = []
+    const disabled: string[] = []
     await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
 
     while (located.culprit !== null) {
       const culprit = located.culprit
       if (!currentBundles.includes(culprit)) break
       currentBundles = currentBundles.filter(bundle => bundle !== culprit)
-      removed.push(culprit)
-      writeProfileManifest(profileDir, {
-        ...current,
-        dsh: {
-          ...current.dsh,
-          profile: {
-            ...current.dsh?.profile,
-            bundles: currentBundles,
-          },
-        },
-      })
-      // 移除后重新全量探测：通过则修复完成；仍失败则继续定位下一个元凶。
+      disabled.push(culprit)
+      writeProfileBundles(profileDir, current, currentBundles)
+      // 禁用后重新全量探测：通过则修复完成；仍失败则继续定位下一个元凶。
       const verify = await runLoaderProbe(dshHome, [])
       if (verify.code === 0) {
+        await recordAutoDisabled(dshHome, disabled, backupDir)
         return {
           ok: true,
-          message: `已从 profile bundles 移除导致加载失败的插件：${removed.join('、')}（原 manifest 已备份）`,
+          message: `已禁用与当前版本不兼容的插件：${disabled.join('、')}（安装与依赖保留，可在插件页重新启用或自行卸载；原 manifest 已备份）`,
           backupPath,
         }
       }
@@ -532,11 +531,11 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
       currentBundles = current.dsh?.profile?.bundles ?? []
     }
 
-    // 所有第三方 bundle 已移除仍无法加载，或无法再定位元凶：整体还原，
+    // 所有第三方 bundle 已禁用仍无法加载，或无法再定位元凶：整体还原，
     // 保留备份供手动处理。
     await writeFileAtomic(manifestPath, original, { mode: 0o600 })
-    const reason = removed.length > 0
-      ? `已移除 ${removed.length} 个插件仍无法加载，已还原 manifest`
+    const reason = disabled.length > 0
+      ? `已禁用 ${disabled.length} 个插件仍无法加载，已还原 manifest`
       : '未能定位问题插件，无法自动修复'
     return { ok: false, message: reason, backupPath }
   },

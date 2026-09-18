@@ -11,12 +11,13 @@
  */
 
 import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readProfileManifest, resolveProfileDir } from '@deepseek-ai/dsh-app-boot'
 import { runRepair } from '../src/index.ts'
+import { autoDisabledPath, type AutoDisabledRecord } from '../src/auto-disabled.ts'
 import { pluginDynamicLoadCheck, pluginChecks } from '../src/checks/plugins.ts'
 
 /** A single probe boot takes seconds; bound each case like loader-probe.spec. */
@@ -50,16 +51,30 @@ function brokenPatch(): string {
   ].join('\n') + '\n'
 }
 
-/** Write a profile manifest under the home naming the given bundle layers. */
-async function writeProfile(home: string, bundles: readonly string[]): Promise<void> {
+/**
+ * Write a profile manifest under the home naming the given bundle layers.
+ * @param home - fixture harness home.
+ * @param bundles - active `dsh.profile.bundles` entries.
+ * @param dependencies - installed dependency ranges; a bundle named here stays
+ * installed after the repair disables it, which is the state the repair must
+ * preserve.
+ */
+async function writeProfile(
+  home: string, bundles: readonly string[], dependencies: Record<string, string> = {},
+): Promise<void> {
   const dir = join(home, 'profiles', 'web')
   await mkdir(dir, { recursive: true })
   await writeFile(join(dir, 'package.json'), JSON.stringify({
     name: 'dsh-profile-web',
     private: true,
-    dependencies: {},
+    dependencies,
     dsh: { profile: { bundles: [...bundles] } },
   }, undefined, 2) + '\n')
+}
+
+/** 读取本次修复留下的自动禁用留痕。 */
+function readAutoDisabled(home: string): AutoDisabledRecord[] {
+  return JSON.parse(readFileSync(autoDisabledPath(home), 'utf8')) as AutoDisabledRecord[]
 }
 
 /** Write a third-party bundle package under the profile's node_modules. */
@@ -202,9 +217,9 @@ describe('plugin-dynamic-load', () => {
   })
 
   describe('repair', () => {
-    it('removes the culprit bundle from the profile and the check passes afterwards', async () => {
+    it('disables the culprit bundle while keeping it installed, and the check passes afterwards', async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-dyn-repair-'))
-      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad'])
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad'], { 'third-party-bad': '1.0.0' })
       await writeBundle(home, 'third-party-bad', brokenPatch())
       await writeBundleFile(home, 'third-party-bad', 'broken-plugin.js',
         `import { value } from '${MISSING_DEP}'\nexport default function () { void value }\n`)
@@ -212,12 +227,22 @@ describe('plugin-dynamic-load', () => {
       const repair = await runRepair(2, home)
 
       expect(repair.applied.map(a => a.checkId)).toContain('plugin-dynamic-load')
+      // 修复结论必须说"禁用"，用户才知道安装还在、可以自行决定去留。
+      expect(repair.applied.find(a => a.checkId === 'plugin-dynamic-load')?.message).toContain('已禁用')
       // Back up the original manifest into the repair run's backup directory.
       const backupDir = repair.backups[0]!
       expect(existsSync(join(backupDir, 'web-profile.package.json'))).toBe(true)
-      // The culprit layer is gone from the profile's bundle list.
+      // 禁用 = 补丁层不再参与组合，但依赖声明与 node_modules 原样保留：
+      // 用户之后可以重新启用，也可以自行卸载。
       const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
       expect(manifest.dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-sdk-minimal'])
+      expect(manifest.dependencies).toEqual({ 'third-party-bad': '1.0.0' })
+      expect(existsSync(join(home, 'profiles', 'web', 'node_modules', 'third-party-bad', 'package.json'))).toBe(true)
+      // 留痕记录被禁用的插件、原因与备份目录，供桌面壳启动成功后提示。
+      const records = readAutoDisabled(home)
+      expect(records.map(record => record.bundle)).toEqual(['third-party-bad'])
+      expect(records[0]!.backupDir).toBe(backupDir)
+      expect(records[0]!.reason).toContain('不兼容')
 
       const after = await pluginDynamicLoadCheck.check(home)
       expect(after.ok).toBe(true)
@@ -237,6 +262,8 @@ describe('plugin-dynamic-load', () => {
       // No manifest was touched.
       const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
       expect(manifest.dsh?.profile?.bundles).toContain('third-party-ok')
+      // 没有禁用任何插件，就不能留下会让壳误报的提示记录。
+      expect(existsSync(autoDisabledPath(home))).toBe(false)
     }, PROBE_BOUND)
 
     it('reports it cannot fix when no single bundle reproduces the failure', async () => {
@@ -264,11 +291,13 @@ describe('plugin-dynamic-load', () => {
       const result = await pluginDynamicLoadCheck.fix!(home, backupDir)
       expect(result.ok).toBe(false)
       expect(result.message).toContain('未能定位')
+      // 整体还原后没有任何插件处于禁用状态，同样不该留下提示记录。
+      expect(existsSync(autoDisabledPath(home))).toBe(false)
     }, PROBE_BOUND)
 
-    it('removes every independently broken bundle, not just the first', async () => {
+    it('disables every independently broken bundle, not just the first', async () => {
       // 两个第三方 bundle 各自独立损坏（移除其一后另一个冒头）：修复应
-      // 循环定位并全部移除，直到全量探测通过 —— 对应真实环境的多个坏插件。
+      // 循环定位并全部禁用，直到全量探测通过 —— 对应真实环境的多个坏插件。
       home = await mkdtemp(join(tmpdir(), 'dsh-dyn-repair-multi-'))
       await writeProfile(home,
         ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad-a', 'third-party-bad-b'])
@@ -281,9 +310,11 @@ describe('plugin-dynamic-load', () => {
       const repair = await runRepair(2, home)
 
       expect(repair.applied.map(a => a.checkId)).toContain('plugin-dynamic-load')
-      // 两个坏 bundle 都从 profile bundle 列表消失。
+      // 两个坏 bundle 都从 profile bundle 列表消失，并各自留下禁用留痕。
       const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
       expect(manifest.dsh?.profile?.bundles).toEqual(['@deepseek-ai/dsh-sdk-minimal'])
+      expect(readAutoDisabled(home).map(record => record.bundle).sort())
+        .toEqual(['third-party-bad-a', 'third-party-bad-b'])
       // 修复后检查通过（只剩官方树可加载）。
       const after = await pluginDynamicLoadCheck.check(home)
       expect(after.ok).toBe(true)
