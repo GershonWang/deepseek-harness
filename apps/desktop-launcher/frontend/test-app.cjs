@@ -1412,6 +1412,47 @@ test("服务器弹框「重启」按钮在运行态调用 RestartServer", async 
   assert.ok(h.runCalls.includes("restart"), "点击重启应调用 RestartServer");
 });
 
+test("服务器弹框：启动/重启/安全模式受理后关弹框回主舞台，停止保留弹框", async () => {
+  // 弹框是全屏遮罩，不关就会挡住主舞台已经切过去的加载页与 harness 界面。
+  // 启动返回的快照刻意仍是 stopped（StartServer 桩如此），证明关闭不依赖状态推进：
+  // supervisor 的状态由监护循环异步推进，按快照判断会漏关。
+  const h = loadApp();
+  const modal = h.document.getElementById("server-modal");
+  const open = () => h.document.getElementById("btn-server").fire("click");
+
+  h.status(baseStatus({ State: "stopped", CanStart: true, CanStop: false, CanRestart: false }));
+  open();
+  assert.equal(modal.classList.contains("hidden"), false, "点服务器入口应打开弹框");
+  await h.document.getElementById("server-start").fire("click");
+  await flush();
+  assert.ok(h.runCalls.includes("start"), "点击启动应调用 StartServer");
+  assert.equal(modal.classList.contains("hidden"), true, "启动受理后应关闭弹框");
+
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:1", CanStart: false, CanStop: true, CanRestart: true }));
+  open();
+  await h.document.getElementById("server-restart").fire("click");
+  await flush();
+  assert.ok(h.runCalls.includes("restart"), "点击重启应调用 RestartServer");
+  assert.equal(modal.classList.contains("hidden"), true, "重启受理后应关闭弹框");
+
+  open();
+  await h.document.getElementById("server-stop").fire("click");
+  await flush();
+  assert.equal(modal.classList.contains("hidden"), false, "停止是原地操作，弹框应保留");
+
+  open();
+  await h.document.getElementById("btn-safe-mode").fire("click");
+  await flush();
+  assert.equal(modal.classList.contains("hidden"), true, "安全模式启动受理后应关闭弹框");
+
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:1", SafeMode: true, CanStart: false, CanStop: true, CanRestart: true }));
+  open();
+  await h.document.getElementById("btn-exit-safe-mode").fire("click");
+  await flush();
+  assert.ok(h.runCalls.includes("exit-safe"), "退出安全模式应调用 ExitSafeMode");
+  assert.equal(modal.classList.contains("hidden"), true, "退出安全模式受理后应关闭弹框");
+});
+
 test("停止态禁用「重启」按钮", () => {
   const h = loadApp();
   h.status(baseStatus({ State: "stopped", CanRestart: false }));

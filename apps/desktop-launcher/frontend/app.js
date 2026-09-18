@@ -1298,6 +1298,26 @@ function closeModal(id) {
   $("#" + id).classList.add("hidden");
 }
 
+/**
+ * 绑定「服务器」弹框里会启动或重启 harness 的动作按钮。
+ *
+ * 动作受理后关闭弹框回到主舞台：启动/重启的进展由主舞台的加载页与失败页承担，
+ * 弹框留着只会挡住用户真正要看的那块界面（弹框是全屏遮罩，主舞台其实已经切走了）。
+ * 这里刻意不按返回的快照判断动作是否生效——supervisor 的状态由监护循环异步推进，
+ * 紧接着取到的快照可能仍停在 stopped/failed；而按钮在动作不受理时本就是禁用的
+ * （CanStart/CanRestart），能点到即代表这次动作已被受理。绑定调用抛错时不关，
+ * 错误留在弹框里可见。「停止」不走这里：它是原地操作，用户通常紧接着要再启动
+ * 或复制地址。
+ * @param {string} selector - 动作按钮的选择器。
+ * @param {() => Promise<object>} action - 返回最新状态快照的 Wails 绑定调用。
+ */
+function bindServerAction(selector, action) {
+  $(selector).addEventListener("click", async () => {
+    applyStatus(await action());
+    closeModal("server-modal");
+  });
+}
+
 /* ---------- 事件绑定 ---------- */
 
 function bindUI() {
@@ -1336,23 +1356,17 @@ function bindUI() {
       if (state.status) renderServerDialog(state.status);
     }));
 
-  $("#server-start").addEventListener("click", async () => {
-    applyStatus(await api().StartServer());
-  });
-  $("#server-restart").addEventListener("click", async () => {
-    applyStatus(await api().RestartServer());
-  });
+  // 启动/重启语义的动作受理后关弹框回主舞台（见 bindServerAction）；停止留在弹框内。
+  bindServerAction("#server-start", () => api().StartServer());
+  bindServerAction("#server-restart", () => api().RestartServer());
+  bindServerAction("#btn-safe-mode", () => api().StartSafeMode());
+  bindServerAction("#btn-exit-safe-mode", () => api().ExitSafeMode());
+  bindServerAction("#btn-exit-fresh-home", () => api().ExitFreshHome());
   $("#server-stop").addEventListener("click", async () => {
     applyStatus(await api().StopServer());
   });
   $("#server-copy").addEventListener("click", () => {
     copyServerAddress(state.status && state.status.URL);
-  });
-  $("#btn-safe-mode").addEventListener("click", async () => {
-    applyStatus(await api().StartSafeMode());
-  });
-  $("#btn-exit-safe-mode").addEventListener("click", async () => {
-    applyStatus(await api().ExitSafeMode());
   });
 
   // 预检页操作：深度修复 / 忽略启动 / 安全模式 / 全新环境。
@@ -1371,10 +1385,6 @@ function bindUI() {
     }
     applyStatus(await api().StartFreshHome());
   });
-  $("#btn-exit-fresh-home").addEventListener("click", async () => {
-    applyStatus(await api().ExitFreshHome());
-  });
-
   $("#ext-connect").addEventListener("click", async () => {
     const url = $("#ext-url").value.trim();
     const err = await api().ConnectExternal(url);
