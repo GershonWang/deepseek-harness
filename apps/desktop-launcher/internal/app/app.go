@@ -63,6 +63,7 @@ type FrontendStatus struct {
 	Busy               bool
 	StartupDiagnosing  bool // 是否正在进行启动失败自动诊断
 	StartupDoctorReady bool // 自动诊断结果已就绪（本次失败周期内）
+	ClientFailure      string // 非空表示 iframe 内客户端插件加载失败：进程可能健康，界面起不来
 	CanStart           bool
 	CanStop            bool
 	CanRestart         bool
@@ -88,6 +89,7 @@ func (s FrontendStatus) equal(o FrontendStatus) bool {
 		s.Busy == o.Busy &&
 		s.StartupDiagnosing == o.StartupDiagnosing &&
 		s.StartupDoctorReady == o.StartupDoctorReady &&
+		s.ClientFailure == o.ClientFailure &&
 		s.CanStart == o.CanStart &&
 		s.CanStop == o.CanStop &&
 		s.CanRestart == o.CanRestart &&
@@ -174,10 +176,11 @@ type App struct {
 	dshScript  string // path to dsh bin script (empty when dshCmd is itself the dsh bin)
 	term       *terminal.Manager // 终端会话管理器
 
-	mu           sync.Mutex
-	externalBusy bool
-	safeMode     string // "plugins" | "config" | "full" | ""
-	freshHome    bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+	mu            sync.Mutex
+	externalBusy  bool
+	safeMode      string // "plugins" | "config" | "full" | ""
+	freshHome     bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+	clientFailure string // iframe 内客户端插件加载失败的原因；非空时前端改显启动失败页
 
 	// 启动前预检（preflight.go 状态机）与 doctor 面板共用的 doctor 执行器。
 	preflightRunner *preflight.Runner
@@ -583,19 +586,11 @@ func (a *App) snapshot() FrontendStatus {
 	busy := a.isBusy()
 	diagnosing, doctorReady := a.startupDoctorStatus()
 
-	var target string
-	switch mode {
-	case domain.ModeExternal:
-		target = extURL
-	default:
-		if st.State == domain.StateRunning {
-			target = st.URL
-		}
-	}
 	// 预检/安全模式/全新环境标志在预检状态机与用户操作间并发更新，快照读取收进锁内。
 	a.mu.Lock()
-	safeMode, freshHome, preflightNow := a.safeMode, a.freshHome, a.preflight
+	safeMode, freshHome, preflightNow, clientFailure := a.safeMode, a.freshHome, a.preflight, a.clientFailure
 	a.mu.Unlock()
+	target := resolveTarget(mode, extURL, st.URL, st.State == domain.StateRunning, clientFailure)
 	s := FrontendStatus{
 		Mode:               modeName(mode),
 		State:              stateName(st.State),
@@ -608,6 +603,7 @@ func (a *App) snapshot() FrontendStatus {
 		Busy:               busy,
 		StartupDiagnosing:  diagnosing,
 		StartupDoctorReady: doctorReady,
+		ClientFailure:      clientFailure,
 		CanStart:           (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
 		CanStop:            (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
 		CanRestart:         mode == domain.ModeContainer && !busy && (st.State == domain.StateStarting || st.State == domain.StateRunning),
@@ -625,9 +621,13 @@ func (a *App) snapshot() FrontendStatus {
 	return s
 }
 
-// resolveTarget 决定 Web 壳 iframe 应加载的目标：外部已连接优先于容器；
-// 容器仅在运行中接管，其余返回空串（前端显示引导页）。纯函数便于单测。
-func resolveTarget(mode domain.Mode, externalURL, containerURL string, running bool) string {
+// resolveTarget 决定 Web 壳 iframe 应加载的目标：客户端插件加载失败时为空——那个
+// 页面本身就是死的，壳改用失败页承载原因、诊断与安全模式入口；否则外部已连接优先
+// 于容器，容器仅在运行中接管。纯函数便于单测。
+func resolveTarget(mode domain.Mode, externalURL, containerURL string, running bool, clientFailure string) string {
+	if clientFailure != "" {
+		return ""
+	}
 	if mode == domain.ModeExternal {
 		return externalURL
 	}
@@ -642,8 +642,43 @@ func (a *App) Status() FrontendStatus {
 	return a.snapshot()
 }
 
+// ReportClientBootFailure 记录 iframe 内客户端插件加载失败，并触发一次自动诊断。
+//
+// 宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在
+// 浏览器侧的插件树上：窗口里只剩一张 "Failed to load plugins" 死路页，而壳以为一切
+// 正常。打包注入的桥（linglong/dsh-link-bridge.js）侦测到该状态后调用本方法，壳据此
+// 改显启动失败页，并复用既有的自动诊断、分级修复与安全模式链路。
+//
+// 只受理容器模式：外置 harness 的页面没有注入桥，其失败由用户自行处理。
+// 客户端可能重试并重复上报，startupDoctorDoneOnce 已保证同一失败周期只诊断一次。
+func (a *App) ReportClientBootFailure(reason string) FrontendStatus {
+	if a.conn.Mode() != domain.ModeContainer {
+		return a.snapshot()
+	}
+	message := strings.TrimSpace(reason)
+	if message == "" {
+		message = "客户端插件加载失败（未提供原因）"
+	}
+	a.mu.Lock()
+	a.clientFailure = message
+	a.mu.Unlock()
+	a.startStartupDoctor()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// clearClientFailure 清除客户端失败标记并重置自动诊断周期：用户重启、停止或切换
+// 安全模式，都意味着上一轮界面失败已经过去，下一次失败应能重新触发诊断。
+func (a *App) clearClientFailure() {
+	a.mu.Lock()
+	a.clientFailure = ""
+	a.mu.Unlock()
+	a.resetStartupDoctor()
+}
+
 // StartServer 启动容器内 harness。
 func (a *App) StartServer() FrontendStatus {
+	a.clearClientFailure()
 	a.sup.Start()
 	a.emitStatus()
 	return a.snapshot()
@@ -651,6 +686,7 @@ func (a *App) StartServer() FrontendStatus {
 
 // StopServer 手动停止容器内 harness 并暂停自动重启。
 func (a *App) StopServer() FrontendStatus {
+	a.clearClientFailure()
 	a.sup.StopHarness()
 	a.emitStatus()
 	return a.snapshot()
@@ -663,6 +699,7 @@ func (a *App) StopServer() FrontendStatus {
 // 监护声明禁用（appenv.supervisorOverlayBody），harness 的生命周期统一归
 // Supervisor，避免两个重启者争抢同一个 --port。
 func (a *App) RestartServer() FrontendStatus {
+	a.clearClientFailure()
 	a.sup.Restart()
 	a.emitStatus()
 	return a.snapshot()
@@ -679,6 +716,7 @@ func (a *App) StartSafeMode() FrontendStatus {
 // 始终保留。门控期（预检等待决策）与失败/停止态都由此放行。
 func (a *App) StartSafeModeLevel(level string) FrontendStatus {
 	os.Setenv("DSH_SAFE_MODE", level)
+	a.clearClientFailure()
 	a.mu.Lock()
 	a.safeMode = level
 	a.freshHome = false
@@ -691,6 +729,7 @@ func (a *App) StartSafeModeLevel(level string) FrontendStatus {
 // ExitSafeMode 退出安全模式，恢复正常启动。
 func (a *App) ExitSafeMode() FrontendStatus {
 	os.Unsetenv("DSH_SAFE_MODE")
+	a.clearClientFailure()
 	a.mu.Lock()
 	a.safeMode = ""
 	a.mu.Unlock()
@@ -901,6 +940,8 @@ func (a *App) ConnectExternal(raw string) string {
 	}
 
 	// 连接前先停容器 harness（释放端口、暂停自动重启），避免端口冲突。
+	// 容器侧的界面失败随之作废：用户选择的是外部服务，不该再看到那张失败页。
+	a.clearClientFailure()
 	a.sup.StopHarness()
 	a.setBusy(true)
 	a.emitStatus()

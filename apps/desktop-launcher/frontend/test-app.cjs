@@ -293,6 +293,9 @@ function buildHtml(document) {
     el.id = id;
     document.body.appendChild(el);
   }
+  // #harness 在真实 DOM 里是 iframe：消息接收侧用 frame.contentWindow 校验来源，
+  // 桩给一个稳定对象，用例经 harness.message() 模拟"来自该 iframe"的消息。
+  document.getElementById("harness").contentWindow = {};
   // 诊断摘要栏：行内含文本 span 与"重新诊断"按钮（按钮默认隐藏）
   const summary = document.createElement("div");
   summary.id = "doctor-summary";
@@ -433,6 +436,9 @@ function makeStorage() {
 
 function makeWails(runCalls, overrides = {}) {
   const events = {};
+  /* window 上的事件监听（app.js 只监听 message：注入桥转发的 iframe 消息）。
+   * 真实 window 有 addEventListener，桩这里记录下来供用例按来源驱动。 */
+  const windowEvents = {};
   let terminalSeq = 0;
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
@@ -454,6 +460,13 @@ function makeWails(runCalls, overrides = {}) {
       runCalls.push("exit-safe");
       return baseStatus();
     }),
+    // 客户端插件加载失败上报：Go 侧记录后返回带 ClientFailure 的快照
+    // （internal/app/app.go 的 ReportClientBootFailure）。默认把收到的原因原样
+    // 回填，便于用例断言"桥的消息确实到了 Go 并驱动了界面"。
+    ReportClientBootFailure: overrides.ReportClientBootFailure ?? (async (reason) => {
+      runCalls.push("client-fail:" + reason);
+      return baseStatus({ State: "running", URL: "http://127.0.0.1:3456", Target: "", ClientFailure: reason });
+    }),
     ConnectExternal: async () => "",
     DisconnectExternal: async () => baseStatus(),
     RefreshTools: async () => ({}),
@@ -472,6 +485,7 @@ function makeWails(runCalls, overrides = {}) {
   };
   return {
     events,
+    windowEvents,
     window: {
       go: { app: { App: app } },
       runtime: {
@@ -485,7 +499,7 @@ function makeWails(runCalls, overrides = {}) {
         // 复制服务地址走这条通道（与终端复制同一实现）；文本记入 runCalls 供断言。
         ClipboardSetText: async (text) => { runCalls.push(`clipboard:${text}`); },
       },
-      addEventListener() {},
+      addEventListener: (type, fn) => { (windowEvents[type] ||= []).push(fn); },
       localStorage: overrides.localStorage ?? makeStorage(),
     },
   };
@@ -538,9 +552,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events } = hasWails
+  const { window, events, windowEvents } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {} };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {} };
 
   const sandbox = {
     console,
@@ -586,6 +600,15 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
       events["harness:status"](s);
+    },
+    /* 驱动一条 iframe 上来的 window message：注入桥（linglong/dsh-link-bridge.js）
+     * 的外链转发与启动失败上报都走这条通道。e.source 固定为 #harness 的
+     * contentWindow，接收侧据此校验来源、拒绝其他窗口的消息。 */
+    message: (data) => {
+      const listeners = windowEvents.message || [];
+      assert.ok(listeners.length > 0, "window 未注册 message 监听（需 Wails 环境）");
+      const source = document.getElementById("harness").contentWindow;
+      for (const fn of listeners) fn({ data, source });
     },
     /* 驱动一条启动进度事件。Go 侧 startup:progress 的载荷就是 StartupView，
      * 与快照里的 Startup 字段同源（internal/app/startup_progress.go）。 */
@@ -729,6 +752,89 @@ test("退出 failed 后标记重置，新失败周期可再次自动弹窗", asy
   assert.equal(
     h.document.getElementById("doctor-modal").classList.contains("hidden"),
     false, "新周期应再次自动弹窗");
+});
+
+/* ---------- 客户端插件加载失败（iframe 内 boot 失败，见 linglong/dsh-link-bridge.js） ---------- */
+
+test("桥上报客户端 boot 失败：切失败页、交给 Go 记录并触发诊断", async () => {
+  const h = loadApp();
+  await flush(); // 结算 init() 首个 Status() 快照
+
+  const reason = "web boot: 1 entry did not activate\n@michengai/dsh-archive-manager: import failed";
+  h.message({ dshDesktop: true, type: "boot-failed", message: reason });
+  await flush();
+
+  // 消息必须交到 Go：记录、留痕、触发自动诊断都在那一侧。
+  assert.deepEqual(h.runCalls, ["client-fail:" + reason], "上报应转交 Go");
+  const failedPage = h.document.getElementById("failed-page");
+  assert.equal(failedPage.classList.contains("hidden"), false, "应切到启动失败页");
+  assert.equal(
+    h.document.getElementById("failed-reason").textContent,
+    "界面插件加载失败（harness 服务进程仍在运行）\n" + reason,
+    "失败页应说明进程仍在运行并给出桥上报的原因");
+  // 进程健康但界面起不来：状态栏不能报"运行中"。
+  assert.equal(h.document.getElementById("status-text").textContent, "界面插件加载失败");
+  assert.equal(h.document.getElementById("harness").getAttribute("src"), null, "死路页不应继续加载");
+
+  // Go 记录后会触发自动诊断，快照随即进入 Diagnosing：客户端失败与进程失败走同一条链路。
+  h.status(baseStatus({
+    State: "running", URL: "http://127.0.0.1:3456", ClientFailure: reason, StartupDiagnosing: true,
+  }));
+  await flush();
+  assert.equal(
+    h.document.getElementById("doctor-modal").classList.contains("hidden"),
+    false, "客户端失败也应自动打开诊断弹窗");
+});
+
+test("客户端失败消息校验：非法类型不上报，非 iframe 来源不上报", async () => {
+  const h = loadApp();
+  await flush();
+
+  h.message({ dshDesktop: true, type: "boot-failed" }); // 缺 message
+  h.message({ type: "boot-failed", message: "web boot: x" }); // 缺 dshDesktop 标记
+  h.message({ dshDesktop: true, type: "open-external", url: "http://example.com" }); // 其它类型
+  await flush();
+
+  assert.deepEqual(h.runCalls, [], "非法载荷不应触发任何壳侧动作");
+});
+
+test("客户端失败优先于 iframe 目标：不给死路页设置地址", async () => {
+  // Go 侧在客户端失败时会把 Target 一并清空（internal/app resolveTarget）；
+  // 前端再判一次，避免快照时序或旧壳二进制把用户送回那张起不来的页面。
+  const h = loadApp();
+  await flush();
+
+  h.status(baseStatus({
+    State: "running",
+    URL: "http://127.0.0.1:3456",
+    Target: "http://127.0.0.1:3456",
+    ClientFailure: "web boot: 1 entry did not activate",
+  }));
+
+  assert.equal(h.document.getElementById("harness").classList.contains("hidden"), true,
+    "iframe 不应被推上台");
+  assert.equal(h.document.getElementById("harness").getAttribute("src"), null,
+    "不应给 iframe 设置地址");
+  assert.equal(h.document.getElementById("failed-page").classList.contains("hidden"), false,
+    "失败页应可见");
+});
+
+test("退出客户端失败态（重启/安全模式）后回到正常舞台", async () => {
+  const h = loadApp();
+  await flush();
+  h.status(baseStatus({
+    State: "running", Target: "http://127.0.0.1:3456", ClientFailure: "web boot: 1 entry did not activate",
+  }));
+  assert.equal(h.document.getElementById("failed-page").classList.contains("hidden"), false);
+
+  // Go 侧在启动/重启/停止/安全模式/连接外部时清空 ClientFailure 并复位诊断周期。
+  h.status(baseStatus({ State: "starting" }));
+
+  assert.equal(h.document.getElementById("failed-page").classList.contains("hidden"), true,
+    "失败页应让位");
+  assert.equal(h.document.getElementById("loading-page").classList.contains("hidden"), false,
+    "应回到加载页");
+  assert.equal(h.document.getElementById("status-text").textContent, "启动中");
 });
 
 test("修复期间退出失败态仍要复位：第二轮失败仍能自动弹窗", async () => {

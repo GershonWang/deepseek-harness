@@ -12,16 +12,20 @@ func TestResolveTarget(t *testing.T) {
 		mode                      domain.Mode
 		externalURL, containerURL string
 		running                   bool
+		clientFailure             string
 		want                      string
 	}{
-		{"external connected wins", domain.ModeExternal, "http://10.0.0.5:3456", "http://127.0.0.1:1", false, "http://10.0.0.5:3456"},
-		{"external connected, container running still external", domain.ModeExternal, "http://10.0.0.5:3456", "http://127.0.0.1:1", true, "http://10.0.0.5:3456"},
-		{"container running", domain.ModeContainer, "", "http://127.0.0.1:3456", true, "http://127.0.0.1:3456"},
-		{"container stopped", domain.ModeContainer, "", "http://127.0.0.1:3456", false, ""},
-		{"container starting", domain.ModeContainer, "", "", false, ""},
+		{"external connected wins", domain.ModeExternal, "http://10.0.0.5:3456", "http://127.0.0.1:1", false, "", "http://10.0.0.5:3456"},
+		{"external connected, container running still external", domain.ModeExternal, "http://10.0.0.5:3456", "http://127.0.0.1:1", true, "", "http://10.0.0.5:3456"},
+		{"container running", domain.ModeContainer, "", "http://127.0.0.1:3456", true, "", "http://127.0.0.1:3456"},
+		{"container stopped", domain.ModeContainer, "", "http://127.0.0.1:3456", false, "", ""},
+		{"container starting", domain.ModeContainer, "", "", false, "", ""},
+		// 客户端插件加载失败时目标必须为空：harness 进程在跑（甚至已给出地址），
+		// 但那个页面本身就是死的，壳要改用失败页承载原因与诊断入口。
+		{"client failure blocks the running container", domain.ModeContainer, "", "http://127.0.0.1:3456", true, "web boot: 1 entry did not activate", ""},
 	}
 	for _, c := range cases {
-		if got := resolveTarget(c.mode, c.externalURL, c.containerURL, c.running); got != c.want {
+		if got := resolveTarget(c.mode, c.externalURL, c.containerURL, c.running, c.clientFailure); got != c.want {
 			t.Errorf("%s: resolveTarget = %q, want %q", c.name, got, c.want)
 		}
 	}

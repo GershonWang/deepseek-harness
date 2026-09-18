@@ -109,6 +109,19 @@ function bindExternalLinks() {
       return;
     }
 
+    // iframe 内的客户端插件树激活失败（桥侦测到 boot 失败并上报）：harness
+    // 进程可能完全健康，页面却只剩一张死路页。交给 Go 侧记录并触发自动诊断，
+    // 前端由返回的快照切到启动失败页（见 applyStatus 的 ClientFailure 分支）。
+    if (d.type === "boot-failed") {
+      if (typeof d.message !== "string") return;
+      if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReportClientBootFailure) {
+        // 失败原因只用于展示，上报失败无需打扰用户：壳二进制若比前端旧，
+        // 方法不存在也不会影响页面本身的行为。
+        window.go.app.App.ReportClientBootFailure(d.message).then(applyStatus).catch(() => {});
+      }
+      return;
+    }
+
     // 内嵌 WebKitGTK 的 paste 事件不暴露剪贴板位图，harness 前端在
     // 输入框请求“从剪贴板取图”时走壳进程（宿主侧可直接读 X selection）。
     if (d.type === "clipboard-read-image") {
@@ -245,6 +258,10 @@ function applyStatus(s) {
     dot.className = "dot ok";
     const host = hostLabel(s.ExternalURL);
     text.textContent = host ? "外部服务 " + host : "外部服务";
+  } else if (s.ClientFailure) {
+    // 进程在跑但界面起不来：状态栏不能报"运行中"，否则与失败页自相矛盾。
+    dot.className = "dot danger";
+    text.textContent = "界面插件加载失败" + (s.SafeMode ? "（安全模式）" : "");
   } else if (s.State === "running") {
     dot.className = "dot ok";
     const host = hostLabel(s.URL);
@@ -262,8 +279,15 @@ function applyStatus(s) {
 
   // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页（预检占用时 ->
   // 预检页）；启动失败 -> 失败页（附失败原因）；手动停止（非重试间隙）-> 引导页。
+  // 客户端插件加载失败（ClientFailure）必须排在 Target 之前判定：运行态下 Target
+  // 恒非空，否则失败页永远轮不到，用户又被送回那张起不来的死路页。
   const frame = $("#harness");
-  if (s.Target) {
+  if (s.ClientFailure) {
+    clearStoppedTimer();
+    frame.removeAttribute("src");
+    $("#failed-reason").textContent = "界面插件加载失败（harness 服务进程仍在运行）\n" + s.ClientFailure;
+    showStageOnly($("#failed-page"));
+  } else if (s.Target) {
     clearStoppedTimer();
     if (frame.getAttribute("src") !== s.Target) frame.setAttribute("src", s.Target);
     showStageOnly(frame);
@@ -586,7 +610,9 @@ function renderRepairOutput(raw) {
 // （用户手动重启/安全模式）后重置，下一周期可再触发。
 // 预览模式（runDoctor 为 null）只记录标记，不弹窗不诊断。
 function updateStartupDoctor(s) {
-  if (s.State !== "failed") {
+  // 客户端插件加载失败同样是一次启动失败（进程健康而已），必须走同一套自动
+  // 诊断：否则界面卡在失败页，用户只能自己去点"诊断问题"。
+  if (s.State !== "failed" && !s.ClientFailure) {
     state._startupDoctorShown = false;
     // 退出失败态（用户重启/安全模式/修复后自动启动）：环境可能已变化，
     // 清空诊断缓存，进入下一次失败周期时重新检测而非展示旧结果。

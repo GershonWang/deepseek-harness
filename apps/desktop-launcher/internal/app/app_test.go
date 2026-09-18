@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,6 +182,98 @@ exit 1
 	if report.Checks[0].ID != "plugin-dynamic-load" || !report.Checks[0].Fixable {
 		t.Fatalf("检查项解析错误: %+v", report.Checks[0])
 	}
+}
+
+// 客户端插件加载失败（iframe 里的插件树起不来，harness 进程却健康）必须被当成一次
+// 启动失败：快照带上原因、iframe 目标清空、并触发一次自动诊断。
+func TestReportClientBootFailure_RecordsAndTriggersDoctor(t *testing.T) {
+	a := clientFailureTestApp(t)
+	defer a.sup.Stop()
+	defer a.stopDoctor()
+
+	status := a.ReportClientBootFailure("  web boot: 1 entry did not activate  ")
+
+	if status.ClientFailure != "web boot: 1 entry did not activate" {
+		t.Fatalf("快照应带上（去空白后的）失败原因, got %q", status.ClientFailure)
+	}
+	if status.Target != "" {
+		t.Errorf("客户端失败时不应再给出 iframe 目标, got %q", status.Target)
+	}
+	if !doctorTriggered(a) {
+		t.Error("上报应触发一次自动诊断")
+	}
+}
+
+// 空原因也要给出可读文案：桥只能确认"失败"而拿不到细节时，失败页不能空着。
+func TestReportClientBootFailure_EmptyReasonFallsBack(t *testing.T) {
+	a := clientFailureTestApp(t)
+	defer a.sup.Stop()
+	defer a.stopDoctor()
+
+	if status := a.ReportClientBootFailure("   "); status.ClientFailure == "" {
+		t.Error("空原因应回退为兜底文案")
+	}
+}
+
+// 外置模式的页面没有注入桥：一条伪造或滞留的上报不能把壳从外部服务切到失败页。
+func TestReportClientBootFailure_IgnoredInExternalMode(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ok.Close()
+
+	a := clientFailureTestApp(t)
+	defer a.sup.Stop()
+	if err := a.conn.BeginExternal(ok.URL); err != nil {
+		t.Fatalf("外部探针应成功, got %v", err)
+	}
+	defer a.conn.EndExternal()
+
+	if status := a.ReportClientBootFailure("web boot: 1 entry did not activate"); status.ClientFailure != "" {
+		t.Fatalf("外置模式不应受理上报, got %q", status.ClientFailure)
+	}
+	if doctorTriggered(a) {
+		t.Error("外置模式不应触发自动诊断")
+	}
+}
+
+// 用户重启/停止/切安全模式都意味着上一轮界面失败已经过去：标记清空，且下一次
+// 失败要能重新触发诊断（done-once 复位）。
+func TestClearClientFailure_ResetsFailureAndDoctorCycle(t *testing.T) {
+	a := &App{conn: connector.New()}
+	a.mu.Lock()
+	a.clientFailure = "web boot: 1 entry did not activate"
+	a.startupDoctorDoneOnce = true
+	a.mu.Unlock()
+
+	a.clearClientFailure()
+
+	a.mu.Lock()
+	failure, once := a.clientFailure, a.startupDoctorDoneOnce
+	a.mu.Unlock()
+	if failure != "" || once {
+		t.Fatalf("应清空失败标记并复位诊断周期, failure=%q once=%v", failure, once)
+	}
+}
+
+// clientFailureTestApp 构造一个不会真正拉起 harness、也不会真正跑通 doctor 的 App
+// （doctor 命令不存在），只用于验证客户端失败上报的状态流转。
+func clientFailureTestApp(t *testing.T) *App {
+	t.Helper()
+	return &App{
+		conn:            connector.New(),
+		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
+		home:            t.TempDir(),
+		dshCmd:          "dsh-doctor-no-such-bin",
+		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", t.TempDir()),
+	}
+}
+
+// doctorTriggered 读取本失败周期是否已触发过自动诊断。
+func doctorTriggered(a *App) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.startupDoctorDoneOnce
 }
 
 // writeBusyLoop 写一个纯忙循环的 sh 脚本（无孙进程，SIGKILL 即彻底退出），

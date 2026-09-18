@@ -421,6 +421,8 @@ button, input, select, textarea { font: inherit; }
   color: var(--fg-dim);
   max-width: 400px;
   line-height: 1.6;
+  /* 客户端插件加载失败会带上多行原因（哪些插件没激活），保留换行更易读。 */
+  white-space: pre-wrap;
 }
 
 .failed-actions {

@@ -121,6 +121,7 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
@@ -156,6 +157,8 @@ Packaging notes:
 - The Linglong package version is extracted from linglong.yaml by prepare-offline and injected into the launcher (`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`), shown in the about dialog
 
 External links cannot open through WebKit's new-window path in the Wails webview (`target="_blank"` does nothing), and the base runtime's `xdg-open` is a broken forwarding stub, so the package bundles the real xdg-utils and every handoff ends in the Wails runtime `BrowserOpenURL` (xdg-open → host portal → the machine's default browser). Links inside the embedded harness GUI are covered because the launcher cannot observe clicks in the cross-origin iframe: `prepare-offline.sh` injects `linglong/dsh-link-bridge.js` into the packaged GUI dist (`inject-link-bridge.sh`), the bridge hands each `target="_blank"` HTTP(S) click to the shell via `postMessage`, and `frontend/app.js` opens it. This covers the container mode only — an external harness (`dsh web` run elsewhere) serves an uninjected GUI, so its links still do nothing. The about dialog's repository link is wired the same way.
+
+The same bridge reports a client-side plugin load failure to the shell. The host only warns about non-required entries that fail to activate, so the harness process can be perfectly healthy while the browser-side plugin tree is not: the window is left with nothing but a `Failed to load plugins` dead end, the shell believes everything is fine, and the user sees neither a reason nor the diagnosis and safe-mode entries. The bridge detects that state on two channels and reports it once (`console.error` receiving text that starts with `web boot:`, or the boot-page node showing `Failed to load plugins`), sending `{ dshDesktop: true, type: "boot-failed", message }`; `frontend/app.js` forwards it to `ReportClientBootFailure`, the Go side records it as `ClientFailure` in the status snapshot, and the frontend switches to its own startup-failure page (iframe address cleared, status bar reading 界面插件加载失败) and reuses the existing auto-diagnosis, graded repair, and safe-mode paths. Restarting, stopping, switching to safe mode, or connecting to an external service clears the marker and resets the diagnosis cycle. Those two upstream strings are therefore load-bearing: `linglong/test-link-bridge.cjs` surfaces a change there first, then the packaged client is regression-tested.
 
 ## Container usability (toolchain/mounts)
 
