@@ -102,6 +102,79 @@ describe('plugin-patch-targets', () => {
     expect(c?.result.ok).toBe(false)
     expect(c?.result.message).toContain('some-removed-plugin')
   })
+
+  it('repair keeps !!js expressions intact instead of crashing on them', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    const patchPath = join(tempHome, 'profiles', 'web', 'cordis.patch.yml')
+    // 一个失效条目加一个含 !!js 表达式的有效条目（llm 存在于基准合成中）：
+    // 修复必须只删前者。旧实现在 yaml.load 处抛 unknown tag，整轮修复崩掉。
+    await writeFile(
+      patchPath,
+      '- id: some-removed-plugin\n  disabled: true\n- id: llm\n  config:\n    root: !!js process.cwd()\n',
+    )
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const targets = checks.find(c => c.id === 'plugin-patch-targets')!
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+
+    const result = await targets.fix!(tempHome, backupDir)
+    expect(result.ok).toBe(true)
+
+    const { readFileSync } = await import('node:fs')
+    const content = readFileSync(patchPath, 'utf8')
+    expect(content).not.toContain('some-removed-plugin')
+    expect(content).toContain('!!js process.cwd()')
+    expect(content).not.toContain('__jsExpr')
+  })
+
+  it('keeps the pristine backup when two checks repair the same file in one run', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    const original = '- id: some-removed-plugin\n  disabled: true\n'
+    await writeFile(join(tempHome, 'profiles', 'web', 'cordis.patch.yml'), original)
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+
+    // 两个检查按注册顺序先后修复同一文件；后者此时已无失效条目，
+    // 不得用已修改的内容覆盖前者保存的原件。
+    const composable = checks.find(c => c.id === 'plugin-patch-composable')!
+    const targets = checks.find(c => c.id === 'plugin-patch-targets')!
+    expect((await composable.fix!(tempHome, backupDir)).ok).toBe(true)
+    expect((await targets.fix!(tempHome, backupDir)).ok).toBe(true)
+
+    const { readFileSync } = await import('node:fs')
+    expect(readFileSync(join(backupDir, 'cordis.patch.yml'), 'utf8')).toBe(original)
+  })
+
+  it('reports nothing to fix when the patch file is absent', async () => {
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const targets = checks.find(c => c.id === 'plugin-patch-targets')!
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+
+    const result = await targets.fix!(tempHome, backupDir)
+    expect(result.ok).toBe(true)
+    expect(result.message).toContain('无需修复')
+  })
+
+  it('reports an unlocatable culprit when compose warns without orphaned entries', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- id: some-removed-plugin\n  disabled: true\n',
+    )
+    const { pluginChecks: checks } = await import('../src/checks/plugins.ts')
+    const composable = checks.find(c => c.id === 'plugin-patch-composable')!
+    const backupDir = join(tempHome, 'backups', 'doctor-test')
+    await mkdir(backupDir, { recursive: true })
+
+    // 首轮移除失效条目；次轮已无坏条目可定位，必须如实报告未修改，
+    // 而不是把"合成仍有告警"当成修复成功。
+    expect((await composable.fix!(tempHome, backupDir)).ok).toBe(true)
+    const second = await composable.fix!(tempHome, backupDir)
+    expect(second.ok).toBe(false)
+    expect(second.message).toContain('无法定位失效补丁条目')
+  })
 })
 
 describe('plugin-third-party-list', () => {

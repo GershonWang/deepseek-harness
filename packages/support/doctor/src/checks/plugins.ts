@@ -11,7 +11,7 @@
  */
 
 import { execFile } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,6 +38,72 @@ function isOfficialBundle(packageName: string): boolean {
 
 function webAppAnchor(): string {
   return require.resolve('@deepseek-ai/dsh-web-app/package.json')
+}
+
+/**
+ * 用户补丁层失效条目的修复结果。
+ *
+ * 刻意区分"文件缺失"、"无需移除"与"已移除"三种情况，因为两个调用检查对
+ * 前两者的成败判定不同：`plugin-patch-composable` 因合成告警而失败，定位
+ * 不到坏条目时必须如实报告未修改；`plugin-patch-targets` 的失败前提就是
+ * 存在失效 target，走到"无需移除"只可能是同一轮修复中已被前一个检查处理，
+ * 属幂等成功。
+ */
+type OrphanRemovalOutcome =
+  | { kind: 'file-missing' }
+  | { kind: 'none-removed' }
+  | { kind: 'removed'; removed: string[]; backupPath: string }
+
+/**
+ * 移除用户补丁中 target 已不存在的条目，供两个补丁检查共用。
+ *
+ * 以"不含用户层的合成结果"为基准：用户补丁条目里 id 不在基准 entries 中的
+ * 就是失效条目。加 `disabled` 无效——loader 对 target 缺失的补丁条目一视同仁
+ * 地报告 warning，`disabled` 只是写到 target 上的属性，不能让缺失的 target
+ * 复现，因此必须把坏条目从补丁列表移除；文件本身不删除、不改名，避免像整体
+ * 改名那样把好补丁一并禁用。
+ *
+ * 解析复用 `loadProfile` 已按 loader 的 `entryListSchema` 解析出的 `patches`，
+ * 回写使用同一 schema：用户补丁允许 `!!js` 表达式，无 schema 的解析会抛
+ * `unknown tag`、无 schema 的回写会把表达式降级成普通映射，二者都会破坏
+ * 用户配置。
+ *
+ * 备份只在确实要写回时创建：同一轮修复中可能有多个检查处理同一个文件，
+ * 后执行者此时已无失效条目，提前返回可避免用已修改的内容覆盖先执行者保存
+ * 的原件。
+ * @param dshHome - harness home 绝对路径。
+ * @param backupDir - 本轮修复的备份目录。
+ * @returns 修复结果；`removed` 分支携带被移除的条目 id 与备份路径。
+ */
+async function removeOrphanedPatchEntries(
+  dshHome: string, backupDir: string,
+): Promise<OrphanRemovalOutcome> {
+  const profileDir = resolveProfileDir('web', dshHome)
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  // 文件不存在（从未创建，或已被 cfg-user-patch 改名为 .disabled）：无条目可处置。
+  if (!existsSync(patchPath)) return { kind: 'file-missing' }
+
+  const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+  const baselineIds = new Set(
+    composeEntries(profile.layers.map(l => l.patches))
+      .map(entry => entry.id)
+      .filter((id): id is string => id !== undefined),
+  )
+  const patches: PatchOptions[] = structuredClone(profile.patches)
+  const removed: string[] = []
+  const kept = patches.filter((patch) => {
+    if (patch.id === undefined || baselineIds.has(String(patch.id))) return true
+    removed.push(String(patch.id))
+    return false
+  })
+  if (removed.length === 0) return { kind: 'none-removed' }
+
+  const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
+  const original = readFileSync(patchPath, 'utf8')
+  await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
+  const updated = yaml.dump(kept, { schema: entryListSchema, noRefs: true }).trimEnd() + '\n'
+  await writeFileAtomic(patchPath, updated, { mode: 0o600 })
+  return { kind: 'removed', removed, backupPath }
 }
 
 const pluginBundlesResolvable: DoctorCheck = {
@@ -118,56 +184,19 @@ const pluginPatchComposable: DoctorCheck = {
     }
   },
   fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
-    const profileDir = resolveProfileDir('web', dshHome)
-    const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
-    const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
-
-    // 文件不存在（从未创建，或此前已被禁用改名为 .disabled）：没有任何条目
-    // 需要处置，视为无需修复，而不是把"读不存在的文件"当成崩溃。
-    let content: string
-    try {
-      content = readFileSync(patchPath, 'utf8')
-    } catch {
+    const outcome = await removeOrphanedPatchEntries(dshHome, backupDir)
+    if (outcome.kind === 'file-missing') {
       return { ok: true, message: '用户补丁文件不存在（未创建或已禁用），无需修复' }
     }
-    // 原文件字节级备份：修复写回失败或误伤时都可用它还原。
-    await writeFileAtomic(backupPath, content, { mode: 0o600, dirMode: 0o700 })
-
-    // 识别引用不存在 target 的用户补丁：以不含用户层的合成结果为基准，
-    // 用户补丁条目里 target id 不在基准 entries 中的就是坏条目。把坏条目
-    // 从补丁列表移除（加 disabled 无效——loader 对 target 缺失的补丁条目
-    // 一视同仁地报告 warning，disabled 只是写到 target 上的属性，不能让
-    // 缺失的 target 复现），其余条目与原文件其余内容原样保留，文件本身
-    // 不删除、不改名，避免像整体改名那样把好补丁一并禁用。
-    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
-    const baselineIds = new Set(
-      composeEntries(profile.layers.map(l => l.patches))
-        .map(entry => entry.id)
-        .filter((id): id is string => id !== undefined),
-    )
-    const patches = structuredClone(profile.patches) satisfies PatchOptions[]
-    const removed: string[] = []
-    const kept: PatchOptions[] = []
-    for (const patch of patches) {
-      if (patch.id !== undefined && !baselineIds.has(String(patch.id))) {
-        removed.push(String(patch.id))
-      } else {
-        kept.push(patch)
-      }
-    }
-    if (removed.length === 0) {
+    if (outcome.kind === 'none-removed') {
       // 合成报警但识别不到坏条目（可能是 insert 子条目或跨层冲突）：
       // 不做不确定的修改，避免误伤。
-      return { ok: false, message: '无法定位失效补丁条目，未做修改', backupPath }
+      return { ok: false, message: '无法定位失效补丁条目，未做修改' }
     }
-
-    // 用与 loader 相同的 schema dump，保住 `!!js` 表达式语义。
-    const updated = yaml.dump(kept, { schema: entryListSchema, noRefs: true }).trimEnd() + '\n'
-    await writeFileAtomic(patchPath, updated, { mode: 0o600 })
     return {
       ok: true,
-      message: `已移除失效补丁条目：${removed.join('、')}（原文件已备份，其余补丁保留）`,
-      backupPath,
+      message: `已移除失效补丁条目：${outcome.removed.join('、')}（原文件已备份，其余补丁保留）`,
+      backupPath: outcome.backupPath,
     }
   },
 }
@@ -258,37 +287,19 @@ const pluginPatchTargets: DoctorCheck = {
     }
   },
   fix: async (dshHome: string, backupDir: string): Promise<FixResult> => {
-    const profileDir = resolveProfileDir('web', dshHome)
-    const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
-    const backupPath = join(backupDir, PROFILE_PATCH_FILENAME)
-    const original = readFileSync(patchPath, 'utf8')
-    await writeFileAtomic(backupPath, original, { mode: 0o600, dirMode: 0o700 })
-
-    // Re-derive the missing target ids
-    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
-    const baselineEntries = composeEntries(profile.layers.map(l => l.patches))
-    const baselineIds = new Set(baselineEntries.map(e => e.id).filter(Boolean) as string[])
-
-    // Parse the patch YAML, filter out patches whose id is missing, write back.
-    const patches = (yaml.load(original) ?? []) as Array<{ id?: string | number }>
-    const removed: string[] = []
-    const kept = patches.filter((p) => {
-      if (p.id === undefined) return true // patches without id (e.g. imports) stay
-      if (baselineIds.has(String(p.id))) return true
-      removed.push(String(p.id))
-      return false
-    })
-
-    if (removed.length === 0) {
+    const outcome = await removeOrphanedPatchEntries(dshHome, backupDir)
+    if (outcome.kind === 'file-missing') {
+      return { ok: true, message: '用户补丁文件不存在（未创建或已禁用），无需修复' }
+    }
+    // 该检查的失败前提就是存在失效 target；走到这里说明同一轮修复中已被
+    // plugin-patch-composable 处理，属幂等成功而非失败。
+    if (outcome.kind === 'none-removed') {
       return { ok: true, message: 'No orphaned patches to remove' }
     }
-
-    const output = yaml.dump(kept, { noRefs: true, lineWidth: -1 })
-    await writeFileAtomic(patchPath, output, { mode: 0o600 })
     return {
       ok: true,
-      message: `Removed ${removed.length} orphaned patch(es): ${removed.slice(0, 3).join(', ')}${removed.length > 3 ? '...' : ''}`,
-      backupPath,
+      message: `Removed ${outcome.removed.length} orphaned patch(es): ${outcome.removed.slice(0, 3).join(', ')}${outcome.removed.length > 3 ? '...' : ''}`,
+      backupPath: outcome.backupPath,
     }
   },
 }
