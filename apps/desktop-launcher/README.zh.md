@@ -162,7 +162,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
 - Go 启动器用 Wails 构建，须带 `-tags "production webkit2_41"`（wails 在该标签下选用 webkit2gtk-4.1）；旧的 webkit2gtk-4.0 pkg-config shim 不再需要
 - 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
-- 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`）。关于弹框的事实——两个版本号、封装作者、本封装（fork）与上游两个仓库地址——统一由 `internal/packaging` 的常量与解析函数给出，`app.About()` 聚合成 `AboutInfo`，前端只负责渲染，不另写一份
+- 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`）。关于弹框的事实——两个版本号、玲珑封装作者、玲珑封装（fork）与上游 DSH 两个仓库地址——统一由 `internal/packaging` 的常量与解析函数给出，`app.About()` 聚合成 `AboutInfo`，前端只负责渲染，不另写一份
 
 外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每个 `target="_blank"` 的 HTTP(S) 点击经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。「关于」弹框的两个仓库链接走同一通道。
 

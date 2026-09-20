@@ -165,8 +165,8 @@ type AboutInfo struct {
 	HarnessVersion string
 	PackageVersion string
 	Packager       string
-	Repo           string // 本封装（fork）仓库
-	UpstreamRepo   string // 上游官方仓库
+	Repo           string // 玲珑封装（fork）仓库
+	UpstreamRepo   string // 上游 DSH 官方仓库
 }
 
 // App 是绑定给 Web 壳的应用控制器。
