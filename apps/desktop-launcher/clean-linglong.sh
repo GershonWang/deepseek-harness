@@ -18,7 +18,7 @@
 #   - apps/desktop-launcher/dsh-desktop-launcher  Go 编译的二进制产物
 #   - lib/ 与 */*/lib/  根 solution 的遗留输出 + 所有包的 tsc 构建产物
 #   - */*/types/         所有包的类型声明输出
-#   - apps/desktop-launcher/frontend/.preview/    启动器前端预览产物
+#   - apps/desktop-launcher/.preview/             启动器前端预览产物
 #   - apps/desktop-launcher/.preview-cache/       预览工具的浏览器状态
 #   - .dsh-build/        客户端构建环境元数据
 #   - .typecheck/        TypeScript 类型检查缓存
@@ -145,11 +145,12 @@ for d in apps/*/dist; do
 done
 
 # 3e. 启动器前端预览工具的产物
-#     frontend/.preview/ 是截图与运行时生成的预览页；.preview-cache/ 是 Chromium
-#     的 profile/HOME/XDG。后者必须留在 go:embed 根 frontend/ 之外，否则
-#     Chromium 的缓存文件名会让启动器的 go build 直接失败（.gitignore:62-65）。
+#     .preview/ 是截图与运行时生成的预览页；.preview-cache/ 是 Chromium 的
+#     profile/HOME/XDG。两者都必须留在 go:embed 根 frontend/ 之外：写进里面
+#     会被 //go:embed all:frontend 原样嵌进启动器二进制（.gitignore 对 embed
+#     无效），而 Chromium 的缓存文件名会让 go build 直接失败（.gitignore:64-69）。
 #     两者都是几秒可再生的小缓存，与 .typecheck/.dsh-build 同档。
-for d in "$APP_DIR/frontend/.preview" "$APP_DIR/.preview-cache"; do
+for d in "$APP_DIR/.preview" "$APP_DIR/.preview-cache"; do
   if [ -d "$d" ]; then
     echo "  - $d/"
     rm -rf "$d"
