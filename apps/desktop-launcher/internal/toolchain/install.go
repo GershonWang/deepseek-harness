@@ -62,7 +62,7 @@ var errExtractTooLarge = errors.New("extracted data exceeds size limit")
 // 工具 ID) 粒度加锁即可覆盖单实例 launcher 的全部并发路径。
 //
 // 只覆盖进程内。同时开两个 launcher 实例仍会并发写同一目录，那需要文件锁（跨平台
-// 语义、陈旧锁回收、NFS 行为）——属独立话题，见 AUDIT.md N13 的残留说明。
+// 语义、陈旧锁回收、NFS 行为）——属独立话题，见 docs/AUDIT.md N13 的残留说明。
 var installLocks keyedMutex
 
 // keyedMutex 是按字符串键串行化的进程内互斥锁集合。
