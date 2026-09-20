@@ -626,9 +626,12 @@ button, input, select, textarea { font: inherit; }
   box-shadow: var(--shadow);
 }
 
-/* 关于弹框：事实行是「标签 + 长 URL」，360px 下值列被压到折行；加宽的这
-   一档只服务该弹框（modal-sm 目前仅关于弹框使用）。 */
-.modal-card.modal-sm { width: 420px; }
+/* 关于弹框：事实行是「标签 + 长 URL」。宽度不改变行内间距——.about 是
+   align-items:center 的纵向 flex，dl 收缩为内容宽，标签与值的间距由 .about-meta
+   的 column-gap 决定，加宽只增加两侧留白。它决定的是值变长时会不会折行：实测
+   dt 列 72px + 列间距 10px + 最长 URL 294px = 377px，420px 的卡片只剩约 9px 余量，
+   460px 留出约 49px。这一档只服务该弹框（modal-sm 目前仅关于弹框使用）。 */
+.modal-card.modal-sm { width: 460px; }
 
 .modal-head {
   display: flex;
