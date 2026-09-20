@@ -2,7 +2,7 @@
 
 本文是 `apps/desktop-launcher` 及其玲珑打包链路的缺陷清单与整改待办，面向维护者。
 
-它不在文档闸门覆盖范围内（`verify-translation-pairing` 的语料谓词只认 README 基名、`docs/`、`.agents/notes/`、`python/`；`verify-md-wrap` 与 `verify-md-links` 的 glob 都不含 `apps/`），因此**没有自动化手段保证本文与代码同步**：改动上面任一条目后，请在同一次提交里更新本文对应小节，并注明验证状态。
+它不在文档闸门覆盖范围内。`verify-translation-pairing` 的语料范围由 `scripts/translation-pairing.ts:185-192` 的 `isTranslationScopeFile` 判定，只收四类：**任意位置名为 `README.md`／`README.zh.md`／`README.i18n.yaml` 的文件**（`README_ARTIFACT`，按基名匹配、大小写不敏感）、仓库根的 `brand_guidelines`／`contributing`／`safety`、`.agents/notes/**`、以及**仓库根**的 `docs/**` 与 `python/**`（两者是 `file.startsWith(...)` 前缀匹配）。本文所在的 `apps/desktop-launcher/docs/` 不属这四类，这正是本目录三份文档得以保持单语的原因；同一事实也带来一条约束——**不要**把本目录的索引命名为 `README.md`，该基名会让它立刻背上双语配对义务。`verify-md-wrap` 与 `verify-md-links` 的 glob 同样不含 `apps/`。因此**没有自动化手段保证本文与代码同步**：改动上面任一条目后，请在同一次提交里更新本文对应小节，并注明验证状态。
 
 ## 审计基准
 
@@ -14,6 +14,7 @@
 - `N20`–`N24` 的基点：分支 `linglong-dev` 提交 `92d150b3cb`（索引钉在 `ee9c181bf6`），玲珑包版本 `0.1.2.7`；行号以该提交为准。
 - `N25` 的基点：提交 `9621d91bff`（JDK 17 下架前的清单状态）；行号以该提交为准。
 - `N26` 与 N18/N19 的修正基点：提交 `54483bf5c7`（2026-09-14 首次带依赖闸门的真实构建）；证据来自 `~/.cache/linglong-builder/merged/` 下真实产物层与基座层的实体清点。
+- **本次整理与复核的基点**：HEAD `bee1a78ff9`（2026-09-20），工作区干净。本次逐一复核了正文全部 33 条非「已修」条目（23 条「未修」+ 10 条「部分修复／部分实现」），结论见**附录 H**；同时修正了若干条目内已过期的叙述数字与取证路径（见该附录的末节）。
 
 ## 状态与验证等级
 
@@ -27,6 +28,73 @@
 `✅` 在条目内按取证方式细分为「已复核」「实测复核」「本次产物复核实测」，三者同级，只区分取证手段；`❓` 目前没有条目使用，保留以备将来。
 
 正文按严重级别分组，分组是本次审计的重新评估。首轮清单中定级为「中」但本次降入低危的条目（3、24、25）在该条目内注明了理由；定级未变的条目沿用原级别。
+
+## 条目总览
+
+下表按**状态**排列全部 59 个条目：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
+
+| # | 级别 | 条目 | 状态 |
+|---|---|---|---|
+| 1 | 中危 | 8 / 13 WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修｜✅ 已复核 |
+| 2 | 中危 | 9 / 10 无 CI 流水线与体积门禁 | 未修｜✅ 已复核 |
+| 3 | 中危 | 11 `inject_workspace_pkg` 仍是黑名单模式 | 未修｜✅ 已复核 |
+| 4 | 中危 | 14 启动预热 / 按需加载插件 | 未修｜✅ 已复核 |
+| 5 | 中危 | 23 打包态与外部 harness 共享 `~/.dsh` | 未修｜✅ 已复核 |
+| 6 | 中危 | 32 注入链路仍是三层补丁 | 未修｜✅ 已复核 |
+| 7 | 中危 | 35 外链桥只在容器模式生效 | 未修｜✅ 已复核 |
+| 8 | 中危 | 34 基础镜像的 `xdg-open` 是坏的 | 未修复（上游镜像问题，workaround 已就位）｜✅ 已复核 |
+| 9 | 中危 | S6 项目配置 tool ID 未校验 | 未修｜⚠️ 静态审查 |
+| 10 | 中危 | N22 端到端审计只覆盖 `versions[0]`，新增版本没有实证防线 | 未修｜✅ 已复核 |
+| 11 | 低危 | 3 精简 Node 闭包 | 未修（有意决策）｜✅ 已复核 |
+| 12 | 低危 | 12 去掉 `CFLAGS="-g"` | 未修（删除点不在本仓库）｜✅ 已复核 |
+| 13 | 低危 | 17 WebKit 单进程模式 | 未修｜✅ 已复核 |
+| 14 | 低危 | 24 壳前端 i18n | 未修｜✅ 已复核 |
+| 15 | 低危 | 25 系统托盘 | 未修｜✅ 已复核 |
+| 16 | 低危 | 30 `RunDoctorRepair` 的 level 参数构造 | 未修｜✅ 已复核 |
+| 17 | 低危 | 31 connector probe 非幂等 | 未修｜✅ 已复核 |
+| 18 | 低危 | N-extra2 三套自动化测试无执行入口 | 未修｜✅ 已复核（实跑） |
+| 19 | 低危 | N23 工具 ID `jdk21` 与内容不符（现含 8/21），改名需要一次性迁移 | 未修（有意延期）｜✅ 已复核 |
+| 20 | 低危 | N24 `ToolVersion.LibRel` 无消费点 | 未修｜✅ 已复核 |
+| 21 | 低危 | N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它 | 未修（记录待查）｜✅ 实测复核 |
+| 22 | 低危 | N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转 | 未修｜✅ 本次产物复核实测 |
+| 23 | 低危 | N29 49 个 `*.tsbuildinfo` 随包交付 | 未修｜✅ 本次产物复核实测 |
+| 24 | 高危 | N3 工具索引来自个人 fork 的可变分支，且无签名 | 部分修复｜✅ 实测复核 |
+| 25 | 高危 | 33 WebKit helper 字节补丁与版本号硬编码 | 部分修复｜✅ 实测复核 |
+| 26 | 高危 | N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上 | 部分修复（2026-09-14 修正落点）｜✅ 实测复核 |
+| 27 | 中危 | 19 postMessage 的 `targetOrigin` | 部分实现｜✅ 已复核 |
+| 28 | 中危 | N16 `verify-tools.sh` 的一致性校验可静默跳过 | 部分修复（2026-09-16：缺引用与缺 python3 已改为硬失败；多版本覆盖仍缺）｜✅ 实测复核 |
+| 29 | 低危 | 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 部分实现｜✅ 已复核 |
+| 30 | 低危 | 27 窗口位置未记忆 | 部分实现｜✅ 已复核 |
+| 31 | 低危 | 28 窗口背景色硬编码 | 部分实现｜✅ 已复核 |
+| 32 | 低危 | N-extra 前端转义与状态机缺口 | 部分修复（2026-09-16：转义、样式选择器与开发态提示已修）｜✅ 实测复核 |
+| 33 | 低危 | N-extra3 打包脚本中重复与漂移的事实 | 部分修复（2026-09-16：README glob 已修）｜✅ 实测复核 |
+| 34 | 高危 | N19 容器内新装的文件不落盘，包内实体停留在基础层旧版本 | 已修（2026-09-14，采纳本条建议的实现；待真实构建验证）｜✅ 实测复核 |
+| 35 | 高危 | N17 builder 的 `failed to copy` 只警告不中止，包会静默沿用旧库 | 已修（2026-09-14，待真实构建验证）｜✅ 实测复核 |
+| 36 | 中危 | 20 宿主挂载缺二次确认 | 已修（2026-09-16）｜✅ 实测复核 |
+| 37 | 中危 | N4 X11 `MIT-MAGIC-COOKIE-1` 长度字段字节序写反 | 已修（2026-09-16）｜✅ 实测复核 |
+| 38 | 中危 | N5 supervisor 重启退避整数溢出 | 已修（2026-09-16）｜✅ 实测复核 |
+| 39 | 中危 | N6 启动自动诊断的收尾判断用错变量 | 已修（2026-09-16）｜✅ 实测复核 |
+| 40 | 中危 | N7 「全部更新」从不激活新版本 | 已修（2026-09-14）｜✅ 已复核 |
+| 41 | 中危 | N8 下载与解压无体积上限 | 已修（2026-09-16）｜✅ 实测复核 |
+| 42 | 中危 | N9 断点续传 part 路径可预测且跟随符号链接 | 已修（2026-09-16）｜✅ 实测复核 |
+| 43 | 中危 | N10 索引下发的 `BinNames`/`BinDirs` 未校验即 Remove/Symlink | 已修（2026-09-16）｜✅ 实测复核 |
+| 44 | 中危 | N11 doctor 检查行的 `Category`/`Severity` 是全行唯一漏转义字段 | 已修（2026-09-16）｜✅ 实测复核 |
+| 45 | 中危 | N12 修复→自动启动窗口吞掉失败周期重置 | 已修（2026-09-16）｜✅ 实测复核 |
+| 46 | 中危 | N13 并发安装同一工具无锁 | 已修（2026-09-16，仅进程内）｜✅ 实测复核 |
+| 47 | 中危 | N14 `schemastery` 闭包注入是假阳性，且 `cp -a` 语义导致嵌套 | 已修（2026-09-16）｜✅ 实测复核 |
+| 48 | 中危 | S1 supervisor 保留已退出子进程的 `cmd` | 已修（2026-09-16）｜✅ 实测复核 |
+| 49 | 中危 | S2 Terminal 反向加锁顺序 | 已修（2026-09-16）｜✅ 实测复核 |
+| 50 | 中危 | S3 X11 服务端返回数据未校验 | 已修（2026-09-16）｜✅ 实测复核 |
+| 51 | 中危 | S4 `harness.log` 无轮转、行缓冲无上限 | 已修（2026-09-16）｜✅ 实测复核 |
+| 52 | 中危 | S5 `ConfigureChildEnv` 非幂等 | 已修（2026-09-16）｜✅ 实测复核 |
+| 53 | 中危 | S7 `preview.mjs` 的产物目录与样式路径 | 已修（2026-09-16）｜✅ 实测复核 |
+| 54 | 中危 | N20 多版本下「非推荐版本」恒显可更新，且「全部更新」不会切换 | 已修（2026-09-14）｜✅ 已复核 |
+| 55 | 中危 | N21 `Uninstall` 卸载激活版本后按字母序回退，多版本下会激活错误版本 | 已修（2026-09-14）｜✅ 已复核 |
+| 56 | 中危 | N30 Wayland 会话下粘贴截图不可用（四处缺陷叠加） | 已修（2026-09-17）｜✅ 实测复核 |
+| 57 | 低危 | 26 启动进度细化 | 已修（2026-09-15）｜✅ 已复核 |
+| 58 | 低危 | N25 JDK 17 从清单下架，远端索引重钉仍未完成 | 已执行（本地清单、文档与索引重钉）｜⏳ 待随发版到达用户｜✅ 已复核 |
+| 59 | 低危 | N27 包版本只存在于工作区，未进任何提交 | 已修（2026-09-16）｜✅ 本次产物复核实测（`0.1.3.2`） |
+
 
 ---
 
@@ -128,9 +196,9 @@
 
 ## 8 / 13 WebKit 依赖链未裁剪，`depends.yaml` 无人使用
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`apps/desktop-launcher/linglong/linglong.yaml:132-140`、`apps/desktop-launcher/linglong/verify-tools.sh`、构建产物 `linglong/depends.yaml`
-- **问题**：去重结果没问题（单一实体 `libwebkit2gtk-4.1.so.0.19.7` 92.8 MB + 两条软链，补丁版胜出），但 `skip_existing` **只写在注释里**，源码与生成物中都没有该配置键——去重完全依赖 ll-builder 默认行为，仓库既没声明也没校验。更关键的是**依赖链没有裁剪或比对**：`lib/x86_64-linux-gnu` 实测 **293 MB / 352 个 `.so`**，而 `depends.yaml` 只有 **175 条**，且没有任何受控文件引用它（`git grep depends.yaml` 零命中）。原清单第 13 条担心的是「静态文件会过期」；实际情况相反——它每次构建由 builder 重新生成，天然同步，**缺的是被使用**。
+- **状态**：未修｜✅ 已复核（2026-09-20 复跑：未修部分仍存在，两处叙述已校正）
+- **位置**：`apps/desktop-launcher/linglong/linglong.yaml`（webkit 段现为 `:139-174`）、`apps/desktop-launcher/linglong/verify-tools.sh`、构建产物 `linglong/depends.yaml`
+- **问题**：去重结果没问题（单一实体 `libwebkit2gtk-4.1.so.0.19.7` 92.8 MB + 两条软链，补丁版胜出），但 `skip_existing` 在源码与生成物中都没有该配置键——原先只在注释里提过，**2026-09-20 复核时那处注释也已不存在**，去重完全依赖 ll-builder 默认行为，仓库既没声明也没校验。更关键的是**依赖链没有裁剪或比对**：`lib/x86_64-linux-gnu` 实测 **293 MB / 352 个 `.so`**（2026-09-20 复核同值），而 `depends.yaml` 只有 **175 条**，且没有任何受控文件**消费**它——`git grep depends.yaml` 现有唯一命中是 `clean-linglong.sh:58` 的一句注释，不构成使用。原清单第 13 条担心的是「静态文件会过期」；实际情况相反——它每次构建由 builder 重新生成，天然同步，**缺的是被使用**。
 - **多合并的可见证据**：apt 默认 Recommends 带进了与嵌入式本地 Web 应用无关的栈——`gstreamer-1.0` 22 MB、`mfx` 12 MB、`lapack` 7 MB、`ImageMagick-6.9.13` 4.3 MB、`OpenNI2` 1.3 MB、`directfb-1.7-7` 1.2 MB、`perl5` 1.1 MB，另有 `blas`/`caca`/`enchant-2`。
 - **建议**：以 `depends.yaml` + `tools.yaml` 为准做一次依赖链比对，摘掉用不到的多媒体/图形栈（约 50 MB+），并把 `skip_existing` 从注释变成显式配置或校验。第 8 与第 13 条应合并成一个任务。
 
@@ -417,9 +485,9 @@
 
 ## 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp`
 
-- **状态**：部分实现｜✅ 已复核
-- **位置**：`internal/packaging/webkit_linux.go:34`、`:35-37`、`:78-90`
-- **问题**：路径常量仍是 `/tmp/dsh-webkit-4.1`，launcher 内 grep `XDG_RUNTIME_DIR` 零命中。**已有的防护**：`webkitHelperLinkUsable()` 校验读回链接并确认 `WebKitNetworkProcess` 可访问，能防悬空或指向旧包，防不住 TOCTOU。
+- **状态**：部分实现｜✅ 已复核（2026-09-20 复跑：未修部分仍存在）
+- **位置**：`internal/packaging/webkit-exec-path.txt`（**2026-09-20 起该路径字面量的唯一来源**，全文一行，由 `webkit_linux.go:13-24` 的 `//go:embed` 读入；此前内联在 `webkit_linux.go:34`，提交 `be5d56f452` 改为单源）、`internal/packaging/webkit_linux.go:35-37`、`:78-90`
+- **问题**：路径常量仍是 `/tmp/dsh-webkit-4.1`，launcher 的 Go 源码内 grep `XDG_RUNTIME_DIR` 零命中（全仓仅 `frontend/tools/preview.mjs` 与本文自身出现该词）。**已有的防护**：`webkitHelperLinkUsable()` 校验读回链接并确认 `WebKitNetworkProcess` 可访问，能防悬空或指向旧包，防不住 TOCTOU。
 - **建议**：改用 `$XDG_RUNTIME_DIR`。
 
 ## 24 壳前端 i18n
@@ -487,8 +555,8 @@
 
 - **状态**：未修｜✅ 已复核（实跑）
 - **位置**：`lefthook.yml:52-67`、`vitest.config.ts:118-123`、`apps/desktop-launcher/frontend/test-app.cjs`、`apps/desktop-launcher/linglong/test-verify-tools.sh`
-- **实测结果**（2026-09-16 复跑，数字已随附录 D/E 批次更新）：`go test ./...` **10 个有测试的包全部通过**（另有 root 与 `internal/domain` 两个包无测试文件）；`node --test frontend/test-app.cjs` **52 例全部通过**；`test-verify-tools.sh` 4 项全 PASS。但**三者都没有 CI 或 git hook 入口**：pre-push 只跑 `npm run typecheck` 与 `preview.mjs verify`。
-- **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则**剥掉全部 `<script>`**，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行。实测那 52 例在 N11 与上一条的缺陷全部存在时仍然 52/52 通过。
+- **实测结果**（**2026-09-20 复跑**）：`go test ./...` **10 个有测试的包全部通过**（另有 root 与 `internal/domain` 两个包无测试文件）；`node --test frontend/test-app.cjs` **60 例全部通过**；`sh linglong/test-verify-tools.sh` **6 项全 PASS**。但**三者都没有 CI 或 git hook 入口**：pre-push 只跑 `npm run typecheck` 与 `preview.mjs verify`。（2026-09-16 时此处记为 52 例与 4 项；用例数随后续修复增长，结论不变。）
+- **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则**剥掉全部 `<script>`**，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行。实测当时那 52 例在 N11 与上一条的缺陷全部存在时仍全数通过（现为 60 例）。
 - **建议**：把 `node --test apps/desktop-launcher/frontend/test-app.cjs` 加进 pre-push，或给该目录加 `package.json` + test 脚本让它进入 workspace 统一跑。
 
 ## N-extra3 打包脚本中重复与漂移的事实
@@ -554,13 +622,106 @@
 - **建议**（二选一）：(a) 把开发用文件移出 embed 根（如 `apps/desktop-launcher/frontend-tools/`），需同步改测试与文档中的路径；(b) 保留目录结构，在 `build-linglong.sh` 组装前加断言——`frontend/` 下的文件集合必须等于一份显式清单，出现新文件即失败。前者治本但要动目录，后者改动小且恰好挡住"游离文件被静默嵌入"。
 - **注**：既然 `all:` 当前为空转，若确认 `frontend/` 下永不出现被 gitignore 的文件，直接去掉该前缀即可消除这一面；代价是构建期 vendored 资源必须保持被跟踪。
 
-## N29 49 个 `*.tsbuildinfo` 随包交付
+## N29 49–54 个 `*.tsbuildinfo` 随包交付
 
 - **状态**：未修｜✅ 本次产物复核实测
-- **位置**：`harness/node_modules/@deepseek-ai/**`（47 个：46 个名为 `tsconfig.tsbuildinfo`，另有 `dsh-subagent-claude-code/lib/types/.tsbuildinfo`）、`harness/node_modules/gaxios/**`（2 个：`build/esm/tsconfig.tsbuildinfo` 与 `build/cjs/tsconfig.cjs.tsbuildinfo`）；来源是 `prepare-offline.sh` 整目录复制各包的 `lib/`
-- **问题**：合计 49 个、2.56 MB 的 tsc 增量编译元数据进了产物。抽查 3 个文件未发现构建机绝对路径，但内容是纯构建态数据。
+- **位置**：`harness/node_modules/@deepseek-ai/**`（2026-09-20 复核为 52 个：51 个名为 `tsconfig.tsbuildinfo`，另有 `dsh-subagent-claude-code/lib/types/.tsbuildinfo`）、`harness/node_modules/gaxios/**`（2 个：`build/esm/tsconfig.tsbuildinfo` 与 `build/cjs/tsconfig.cjs.tsbuildinfo`）；来源是 `prepare-offline.sh` 整目录复制各包的 `lib/`
+- **问题**：合计 **49–54 个、约 2.6–3.0 MB** 的 tsc 增量编译元数据进了产物（`0.1.3.2` 那版为 49 个 / 2,685,379 B；其后两版各为 54 个 / 2,953,568 B 与 2,953,331 B，@deepseek-ai 侧由 47 增至 52，计数随闭包增长而上升）。抽查 3 个文件未发现构建机绝对路径，但内容是纯构建态数据。
 - **影响**：体积少量增加；`.tsbuildinfo` 记录的是编译机上的文件清单与编译设置，属"把构建中间态当交付物"。
 - **建议**：`prepare-offline.sh` 在复制后统一删除 `*.tsbuildinfo`（按文件名前缀删会漏掉上面那 2 个）。取舍：按 tsc 语义它只服务于增量编译，运行时无人读取；若确实想保留增量编译能力，应留在构建缓存而非产物里。
+
+---
+
+# 附录 A：已结案
+
+以下条目在审计后已修复、已评估后决定不做，或前提不成立。保留在此避免重复提出。表中 `18` 附有一项尚未闭环的人工验证点（见文末「原编号 18 的遗留待验证点」），在该点验证前不应按「已结案」对待。
+
+| 原编号 | 结论 | 依据 |
+|---|---|---|
+| 1 剥离 GCC 工具链 | ✅ 已完成 | `linglong/prune-gcc-toolchain.sh` 存在，`build-linglong.sh:25` 调用；实测产物 `lib/gcc` 不存在 |
+| 2 删除 Node 头文件 | ✅ 已完成 | `prepare-offline.sh:169-172` + `linglong.yaml:62-64`；实测 `node/include` 不存在 |
+| 4 剔除 experimental 包 | ✅ 已完成 | `prepare-offline.sh:65-68`；264 个包中 experimental 命中数为 0 |
+| 5 注入包只拷 `lib/` | ✅ 已完成 | `prepare-offline.sh:81-88` |
+| 6 typescript 不在闭包 | ✅ 已完成 | `prepare-offline.sh:48-52`；实测闭包内不存在 |
+| 7 `@img/sharp` | ⚪ 已评估保留 | `sharp` 是 `@deepseek-ai/dsh-attachment-local` 的静态依赖（`packages/attachment/attachment-local/package.json:30`），`@img` 下只有 `colour` + `linux-x64`（19 MB），无可裁的多余平台包 |
+| 15 状态轮询改事件驱动 | ✅ 已完成 | `internal/app/app.go:385-420` `emitStatusIfChanged`，提交 `c7be7c8b23` |
+| 16 Node 二进制 strip | ✅ 已完成 | `prepare-offline.sh:173-176`；实测 `node/bin/node` 已 stripped（111.6 MB，仅减约 10%，非原估的 20–40%） |
+| 18 Go 绑定缺授权层 | 🔵 前提不成立（附一项未闭环验证） | harness GUI 是跨源 iframe，Wails 只向自己 asset server 的主页注入 runtime，iframe 内 `window.go` 不可达。**遗留待验证点见文末** |
+| 21 外部服务只确认一次 | 🟡 题面「或」分支已满足 | `NeedConfirmation` 仍按 hostname 每会话一次；但「状态栏常显 hostname」已落地（`app.js:156-175`，提交 `c3928e3192`） |
+| 29 前端 JS 去重 | ✅ 已完成 | 只剩 `escapeHtml`（`app.js:20`），`esc` 已不存在 |
+| 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/clipboard.go` 的 `ReadImage` 依次尝试 X11 CLIPBOARD → X11 PRIMARY → X11 `text/uri-list` → Wayland 位图 → Wayland `text/uri-list`。原先前「依赖 `wl-paste` 而 `wl-clipboard` 未随包」的缺口已由 N30 补齐；Wayland 侧的 `text/uri-list`/`x-special/gnome-copied-files` 来源见 N30 第 4 条 |
+| 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
+| N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
+| N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
+| N15 `clean-linglong.sh` 清理路径整体漂移 | ✅ 已修复 | 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore` 的 `/linglong/` 对齐；补收根 `lib/`、启动器预览产物（普通档）与 `profiles/`/`sessions/`/`backups/`（深度档）；ll-builder 异常退出留下的 `mode=0000` overlayfs workdir 在删除前 `chmod -R u+rwX`。提交 `4eb3a44acb`、`9f5fe65709`。附注：`pnpm run clean`（`scripts/clean.ts`）未覆盖根 `lib/`，收敛为调用统一入口的决定不做 |
+| N17 builder 的 `failed to copy` 只警告不中止 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N17 |
+| N18 `buildext.apt.depends` 吞掉安装错误 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N18 |
+| N19 容器内新装的文件不落盘 | 🟡 已绕开，上游缺陷未修 | 见正文 N19 |
+| 字体方案（时间文本挤压） | ✅ 已完成 | 随包字体 + `FONTCONFIG_FILE` 注入 + 前端字体栈前置；提交 `c1ea5016fa`、`38a44fe892`、`2fc0de8ef5`，已在 0.1.2.7 实机验证通过 |
+
+**N17 / N18 / N19 的结论以正文为准，本表不作「已结案」处理**：三条都已有仓库侧改动（构建期闸门、绕开 overlay 取物），但工具链侧（构建器把复制失败降级为警告、生成的 `buildext.sh` 吞掉 apt 错误）与上游 overlay 的写入缺陷仍未解决。此前本表以 `❌ 未修` 记这三条，既与正文的「已修／部分修复」冲突，也与本表「已结案」的标题冲突，现改为与正文一致的状态、并在此点明其未结案部分。
+
+### 字体方案（时间文本挤压）的记录
+
+客户端中 `6分32秒`、`17小时53分` 一类时间文本出现数字与汉字互相挤压，同一页面在 Chrome 中正常，仅基于 WebKitGTK 的客户端复现。
+
+**根因**：CSS 字体栈（`packages/client/ui-theme/src/styles/base.css` 的 `--dsw-font-family`）在容器内全部候选族缺失，退化到「一个同时覆盖拉丁与 CJK 的族」（思源黑体），同一行内拉丁与 CJK 共用一套度量而挤压。宿主用户级 fontconfig 配置会持续把通用族名改指 CJK 族（见下方「前端字体栈」），因此该问题必须在 CSS 字体栈层面收口：单纯在打包侧注册字体与别名不足以解决。
+
+**方案**：随包携带 Noto Sans Display（拉丁）与 JetBrains Mono（等宽，补 Regular 字重），落入 `${PREFIX}/share/dsh-fonts`——层内 `usr/` 与 `etc/` 均不进容器命名空间，`usr/share/fonts` 另被宿主挂载遮蔽，故不能沿用；由启动器在 WebKit 初始化前以 `FONTCONFIG_FILE` 指向 `install-container-fonts.sh` 生成的 `dsh-fonts.conf`，该配置 include 系统配置、显式声明可写 `<cachedir>`（容器 `/var/cache/fontconfig` 只读）、注册字体目录并把 CSS 栈中的族名别名到随包字体。中文族由 `buildext.apt.depends` 的 `fonts-wqy-microhei` 提供，与 webkit 同一机制。
+
+**实测的别名生效边界**：`sans-serif`、`BlinkMacSystemFont`、`PingFang SC`、`Hiragino Sans GB`、`Microsoft YaHei`、`Helvetica Neue`、`SF Mono`、`Fira Code`、`Menlo`、`Consolas` 均可把对应族名指到随包字体；`-apple-system` 是 fontconfig 内建兜底、别名改不动（`fc-match` 恒返回宿主默认）；`monospace` 被系统配置压住，且 CSS 等宽栈本就不含裸 `monospace`，故未设该别名。注：本机 `99-deepin.conf` 以 prepend+strong 把 `sans-serif` 指向思源黑体，我们的别名只在其后生效，分发到没有该配置的机器上则由我们这条接管。
+
+**已知限制**：fontconfig 按家族名匹配，宿主已装同名字体（思源黑体、微软雅黑等）时随包字体不会被选中；该限制只影响本机观感，不影响分发到缺字体机器上的行为。
+
+**验证证据**：改后脚本生成的配置与容器内实际生效那份逐行 diff，差异仅为删除 `monospace` 一行；用新旧两份配置对 CSS 栈的 17 个候选族名逐条复跑 `fc-match`，结果全部一致（`sans-serif` 命中思源黑体、`BlinkMacSystemFont` 与 `PingFang SC` 等命中 `NotoSansDisplay-Regular.ttf`、等宽族命中 `JetBrainsMono-*.ttf`）；`go test ./internal/packaging/` 通过；`sh -n` 语法检查通过；ui-theme 测试 81 通过（1 个既有失败与本次无关）。
+
+**保留的未验证边界**：`fc-match` 只反映 fontconfig 的解析结果，WebKit 的实际渲染选择由引擎内部逻辑决定，二者可能不同。**重新打包 0.1.2.7 后的实机验证已闭环**：时间文本不再挤压。
+
+**前端字体栈**：只靠打包侧的别名不足。宿主用户级 `~/.config/fontconfig/conf.d/99-deepin.conf` 以 `prepend`+`binding="strong"` 把 `sans-serif` 改指思源黑体，该方式胜过任何别名 `<prefer>`；而 CSS 栈尾正是 `sans-serif`，`-apple-system` 也无法用别名改变。实测在当前宿主上 `-apple-system` 与 `sans-serif` 均落到思源黑体——一个同时覆盖拉丁与 CJK 的族，数字与汉字因而共用一套度量。因此 `packages/client/ui-theme/src/styles/base.css` 把 `'Noto Sans Display'`、`'WenQuanYi Micro Hei'` 前置（提交 `2fc0de8ef5`）；`--dsw-font-family` 是全部 `--dsw-font-*` 排版 token 的基础族，33 个组件文件消费这些 token，时间文本用的 `--dsw-font-xs-13` 即由其派生。等宽栈同时前置 `'JetBrains Mono'`。该改动已在 0.1.2.7 的实机运行中验证：时间文本不再挤压。
+
+### N2 的修复记录
+
+原先两个独立故障，现已一并处理：
+
+1. **注入点**。`linglong.yaml` 不再把预设抽到 `${PREFIX}/harness/config/agent-presets`，改为用 `install -Dm644` 直接覆盖 `dsh-agent-presets` 真正读取的 shipped root（`${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`）；预设包布局若变化则构建 fail loud。
+2. **副本**。persona 由已移除的 `text` 改为 `prefix`/`suffix`，并按上游 `packages/preset/agent-presets/presets/standard/agent.cordis.yml` 重新同步 roster（此前静默落后四处：`command-goal` 与 `present` 两行被删、`tool-web.fetch` 由 true 变 false、`modelSelectionSettings` 被删）。
+3. **防线**。新增 `linglong/verify-preset-overlay.mjs`，在 `build-linglong.sh` 组装前拼接失败即中止：persona 之外的 roster 必须与上游逐行一致，persona 增量与 `tools.yaml` 对账，并把 persona 配置喂给随包 `dsh-persona` 的 schema。`test-verify-preset-overlay.sh` 覆盖通过路径与四条失败路径。
+
+**验证证据**：用打包闭包自己的 `discoverPresets` 实测——注入前后都是同样的四个预设（`cordis[创造模式] minimal[极简模式] ptc[PTC 模式] standard[标准模式]`），条目数与元数据未变，注入后 `standard` 文件含容器段落。UI 预设列表因此不变。闸门与自测各 5 项全过。
+
+**未做的端到端**：仍未触发一次真实会话观察系统提示（headless profile 不挂 `agent-presets`，只有 web-app bundle 设 `default: standard`）。已验证的链路是「发现 → persona 配置通过随包 schema」，而 `resolveConfig` 正是挂载时的校验点。
+
+**原编号 18 的遗留待验证点**：Wails 把消息处理器注册在 webview 的 content manager 上，而 `wails/v2@v2.15.0/internal/frontend/desktop/linux/window.c:56` 回传的是**顶层** URI。请在 iframe 内打开 Web Inspector，试 `window.go` 与 `window.webkit.messageHandlers` 是否可达——可达即为真漏洞，不可达则彻底结案。
+
+---
+
+# 附录 B：验证边界
+
+- 附录 A 中「已完成」条目，以及正文标注 ✅ 的条目，均经逐行读取代码或实跑命令验证。
+- 标注 ⚠️ 的条目来自静态代码审查，审计者未逐条复跑；标注 ❓ 的条目依赖尚未执行的端到端运行。
+- 保留本条以说明历史判据：N2 修复前「同一 schema + 同一配置 + `resolveConfig` 必然抛错」的函数链已实测，但那只是链路推演；修复后改为用打包闭包的 `discoverPresets` 做运行时发现验证（见附录 A 的修复记录）。两者的共同缺口是仍未触发真实会话观察系统提示。
+- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。这些构建缓存曾被清理、随后为验证字体方案重新生成；**2026-09-16 复核时两处都存在**，因此下一条里来自构建产物的失败是活跃的，不是历史残留。**2026-09-20 复核时两处又都已不存在**（本机无 ll-builder），N26／N28／N29 三条的产物类证据因此改取自 `~/.cache/linglong-builder/merged/<hash>/files` 中仍留存的交付层，结论不变但取证路径与正文所述不同，详见附录 H。
+- 仓库当前的文档闸门并非全绿。**2026-09-16 实跑**：`verify-translation-pairing` 报 33 处缺配对、**0 行 out-of-sync**、4 处 link target diverges；`verify-md-links` 报 7 行（`bundle-xdg-open` 与 `generic-file-attachments` 两对 Note 的链接目标不存在）；`verify-md-wrap` 报 `docs/superpowers/**` 下的硬换行；`verify-package-readme-limitations` 报 `packages/support/doctor/README.md` 缺 `## Known Limitations and Deferred Work` 小节。
+- **2026-09-20 复跑（HEAD `bee1a78ff9`，同一条目的复核轮次）**：`verify-translation-pairing` 报 **11 处缺配对**（全部是 `docs/superpowers/**` 缺对侧文件）、**0 行 out-of-sync**、**2 处 link target diverges**，合计 13 项；`verify-md-links` 报 **6 行**（分布在 4 个文件，仍是上述两对 Note 的目标不存在）；`verify-md-wrap` 报 **42 行**（`docs/superpowers/**` 的硬换行，分布在 3 个文件）；`verify-package-readme-limitations` 仍报 1 项（`packages/support/doctor/README.md`）。相对 09-16：缺配对由 33 降至 11、link target diverges 由 4 降至 2，其余同量级。
+- **`out-of-sync` 至此出现三处，同一对可复发**。第一处由本文附录 D 的 S7 修复提交 `593e30a184` 造成：它同改了中英两侧却没重录 `README.i18n.yaml`（记录值 `8e3350c0…`/`986eaaae…` 对当时的 `51f2c9f9…`/`9a3cb439…`），两侧改动一一对称（`.preview` 路径与 `all:frontend` 警告的措辞、范围同时改写），确认后重录即可。**第三处出现于 2026-09-20 复核**：`apps/desktop-launcher/README` 一对被 `e42c139507`（客户端插件加载失败接入失败页与自动诊断）与 `fecbd134a5`（启动成功后提示被自动禁用的插件）再次改成 `out-of-sync`（记录值 `7e72e15f…`/`71edc663…` 对当时的 `db4556fe…`/`73a6434e…`）；两个提交对中英两侧的改动行数各自相同（3/3、8/8）且逐段平行，确认对称后针对该配对重录，随即校验通过。**同一处漂移复发说明「改了 README 就要同步重录」是这条链上最容易漏的一步。**
+- **另一对（`.agents/notes/implemented/feature/2026-08-14-desktop-launcher-linux-linglong`）在重录后暴露出被记录掩盖的真实缺陷**：`0cad0f40e4` 把中文侧的语言切换行从 `English | [中文](….md)` 改成 `English | [中文](….zh.md)`——两种写法都属于**英文侧**形态，链接又指向中文文件自己，于是中文文件里没有任何指向英文文件的链接。记录过期时校验停在 out-of-sync、不再走链接检查，这个缺陷因此一直没暴露。修法取自 `translation-links.ts` 的机械判据（切换行只能是 `English | [中文](…)` 或 `[English](…) | 中文`，且该链接必须解析到对侧文件），改为 `[English](….md) | 中文`，与既有三对 Note 的写法一致，随后重录。两次重录都只针对该配对（未用 `--all`），以免把未复核的配对一并记录。
+- 其余失败来自含构建产物的工作区（`linglong/overlay/**`、`linglong/output/binary/files/**`、`apps/desktop-launcher/linglong/stage/**`）与 `docs/superpowers/**`。这些都会影响「闸门全绿」的判断。
+- 字体方案的验证边界见附录 A 的对应记录。
+- JDK 多版本条目（N20–N24）的证据边界：两份新增归档经真实下载，size 与 sha256 和 Adoptium v3 API 报出的值一致（`8u504` 103542511 字节 / `9c70e102…`；`17.0.20.1` 193252603 字节 / `3808d1d1…`），解包后为单一顶层目录且含 `bin/` 与 `lib/`，`java`/`javac`/`jdb`/`jar` 均可执行、`java -version` 分别报 `1.8.0_504` 与 `17.0.20.1`；`21.0.12.1` 未重下，API 当前 21 资产的 sha256 与清单现值相同。**未在玲珑容器内实跑**，也未走通 launcher 的真实安装路径——市场唯一入口是 Wails 绑定，端到端审计只覆盖 `versions[0]`（见 N22）。索引发布侧已实跑 curl 复核（见 N3 的验证）。`17.0.20.1` 已于 2026-09-14 下架（见 N25），上列 17 的实测数据保留为下架前的历史记录。
+
+---
+
+# 附录 C：建议起手顺序
+
+**2026-09-20 更新**：原第 2 项（20 宿主挂载二次确认）与第 3 项中的 N4（X11 cookie 字节序）已于 2026-09-16 完成（见附录 D），下列顺序相应重排。
+
+1. **9 / 10 / 13**（一条流水线带体积断言与 `depends.yaml` 比对）——一次性止住体积与工具链回归；这是唯一同时覆盖「体积」与「依赖链」的入口。
+2. **N3 的剩余部分**（离线公钥签名）——默认引用已钉到提交哈希，但那只提供完整性、不提供来源认证；签名需密钥托管与签名发布流程，属产品决策。
+3. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，实测约 50 MB+。
+4. **N22 / N16 / N-extra2**（把多版本与三套既有测试纳入门禁）——三者同属「测试或断言已存在但无人跑」；多版本的三处用户可见错误（N7 / N20 / N21）已于 2026-09-14 修复，门禁这几条仍待做；**N23** 的 ID 改名与一次性迁移可与此一并做。
+5. **S6 / 30 / 31 / N-extra**（小范围健壮性收口）——项目配置 tool ID 校验、repair level 构造、connector probe 幂等、前端异步错误兜底，四条彼此独立，可任选顺序。
+
+（原第 3 项 N2 已完成，见附录 A。`34` 与 `12` 不列入本顺序：前者是上游基础镜像问题、workaround 已就位，后者的删除点不在本仓库。）
 
 ---
 
@@ -670,90 +831,71 @@ uab 的字节数相同（363,190,928）但 sha256 不同，不要把体积相等
 
 ---
 
-# 附录 A：已结案
+# 附录 H：2026-09-20 非「已修」条目复核
 
-以下条目在审计后已修复、已评估后决定不做，或前提不成立。保留在此避免重复提出。表中 `18` 附有一项尚未闭环的人工验证点（见文末「原编号 18 的遗留待验证点」），在该点验证前不应按「已结案」对待。
+本节记录一次对正文全部 **33 条非「已修」条目**（23 条「未修」+ 10 条「部分修复／部分实现」）的独立复核：逐条回到当前工作区的代码取证，**不沿用文档自身的状态行**。行号基准为 HEAD `bee1a78ff9`。
 
-| 原编号 | 结论 | 依据 |
+- **总结论：33 条全部成立，无一条转为「已修」，也无一条前提不成立。**
+- 10 条「部分修复／部分实现」条目中，文档所称「已修的那部分」**全部属实**、「仍未修的那部分」**全部仍存在**——没有虚报，也没有被别的改动顺带解决。
+- 复核统一受两处环境限制：本机**无 ll-builder 与玲珑容器**，且文档原先点名的构建工作区（根 `linglong/output/`、`apps/desktop-launcher/linglong/stage/`）**已被清理**。产物类条目（N26／N28／N29）因此改取 `~/.cache/linglong-builder/merged/<hash>/files` 中仍留存的交付层，结论不变，但取证路径与正文所述不同。
+- 全部条目的**行号都已漂移**（代码改动未同步文档）——本文档开头已声明「行号以审计基点为准」，故本次只修叙述性事实，不逐条追行号。
+
+## H.1 「未修」条目（23 条）
+
+| # | 条目 | 复核结论 | 关键证据（2026-09-20 现值） |
+|---|---|---|---|
+| 1 | 8 / 13 WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 仍未修 | 产物层 `lib/x86_64-linux-gnu` 实测 293 MB / 352 个 `.so*`，多合并栈逐一吻合；`git grep depends.yaml` 唯一命中 `clean-linglong.sh:58` 的一句**注释**；`linglong.yaml` 内无 `skip_existing` 键。 |
+| 2 | 9 / 10 无 CI 流水线与体积门禁 | 仍未修 | `.gitlab-ci.yml` 的 `workflow.rules` 只放行 `python-v*` 标签；对 `.github/workflows/`＋`.gitlab-ci.yml`＋`scripts/` 检索 `\.uab\|build-linglong\|verify-tools\|ll-builder` **零命中**；`build-linglong.sh:53-56` 校验失败仍继续 export，全仓无体积阈值。 |
+| 3 | 11 `inject_workspace_pkg` 仍是黑名单模式 | 仍未修 | `prepare-offline.sh` 三段黑名单：`:66-68`（experimental）、`:71-72`（非 `@deepseek-ai/*`）、`:122-127`（`test-support`／`typert/generator`）；函数体 `:59-120` **无任何白名单**，默认「遍历到就注入」。 |
+| 4 | 14 启动预热 / 按需加载插件 | 仍未修 | `supervisor.go:280` 的 `run()` 循环在 `:330` 调 `spawn()`；重启路径 `:379-386` 退避后回到循环顶再 `spawn()`，每轮全新进程、全量重载插件树。唯一相关机制是 `:30-32` 的 `fatalLoadPattern`（快速失败，非预热）。 |
+| 5 | 23 打包态与外部 harness 共享 `~/.dsh` | 仍未修 | `internal/appenv/env.go` 四个分支构造 `supervisor.Config` 时只填 `Command/Args/LogDir`（`:37`/`:53`/`:62`/`:68`），**无 `Env` 字段**→`cmd.Env=nil` 继承 launcher 环境；仅降级路径 `app/preflight.go:232-234` 注入 `DSH_HOME=~/.dsh-fallback`。 |
+| 6 | 32 注入链路仍是三层补丁 | 仍未修 | 三层齐在且仍被调用：`scripts/fix-deploy-closure.mjs`＝152 行（`prepare-offline.sh:38` 调用）、`inject_workspace_pkg()`（`:59-120`，`:122-129` 调用）、`inject-link-bridge.sh`（`:135-136` 调用）。 |
+| 7 | 35 外链桥只在容器模式生效 | 仍未修 | `inject-link-bridge.sh:21` `cp` 到 dist、`:27` `sed` 注入 `</body>` 前，目标始终是**打包 harness 的 dist**；`README.md`/`README.zh.md:167` 仍自认「只覆盖容器模式」；`git grep link-bridge` 在 `packages/`、`apps/web/` 零命中。 |
+| 8 | 34 基础镜像的 `xdg-open` 是坏的 | 仍未修 | 基础层实体 `~/.cache/linglong-builder/merged/0a89fc61…/files/bin/xdg-open` 与 `usr/bin/xdg-open` 均为 **75 字节、内容相同**（`#!/bin/sh` + `systemd-run --user --service-type=forking /usr/bin/xdg-open "$@"`，自转发壳）→ 上游问题仍在。workaround 在位：`linglong.yaml:224` 的 `- xdg-utils`（注释 `:220-223`）、`tools.yaml:42-45`、`verify-merged-deps.sh:60`；真实合并层的 `files/bin/xdg-open` 为 **32289 字节**真实脚本，实跑 `verify-merged-deps.sh` 报 `OK xdg-utils`。 |
+| 9 | S6 项目配置 tool ID 未校验 | 仍未修 | `internal/toolchain/project.go:45-49` 的 id 直接取自 `.dsh-toolchain.yml` 映射，无 `LookupTool` 比对；`catalog.go:207-215` 在 `os.Remove(link)` 前**无 id 校验**。校验函数 `linkNameOK`/`binDirOK` 仅用于索引下发的 `bin_dirs`/`bin_names`。 |
+| 10 | N22 端到端审计只覆盖 `versions[0]` | 仍未修 | `e2e_install_test.go:24-31` 只按 `DSH_TC_E2E_IDS`（工具 ID）过滤，无版本维度；`:39` 传空 version → `install.go:217` `LatestVersion()` → `catalog.go:44-49` `return t.Versions[0]`。索引实读 43 项工具，`jdk21` 有 `21.0.12.1` 与 `8u504` 两版。 |
+| 11 | 3 精简 Node 闭包 | 仍未修（有意决策） | `prepare-offline.sh:195-197` 保留决策注释（删 npm/npx 会让 lefthook pre-push 的 typecheck 与用户习惯失效）；`:199-206` 的瘦身只有删 `node/include` 与 strip node 二进制，**无删除 `lib/node_modules/npm` 的代码**。 |
+| 12 | 12 去掉 `CFLAGS="-g"` | 仍未修（删除点不在本仓库） | 根 `linglong/` 在本机不存在（`.gitignore:44` = `/linglong/`）；`grep -rn CFLAGS apps/desktop-launcher/` 只命中 AUDIT.md 自身；`linglong.yaml` 无 `env`/`CFLAGS` 覆盖。前提未变。 |
+| 13 | 17 WebKit 单进程模式 | 仍未修 | `internal/packaging/webkit_linux.go:56`（`WEBKIT_INJECTED_BUNDLE_PATH`）与 `:79`（`WEBKIT_DISABLE_DMABUF_RENDERER`）是全部 `WEBKIT_*` 设置；`single.process`/`DISABLE_COMPOSITING`/`SINGLE_WEB_PROCESS` 检索只命中 AUDIT.md 自身。 |
+| 14 | 24 壳前端 i18n | 仍未修 | `frontend/index.html:2` 仍是 `<html lang="zh-CN">`；`frontend/app.js` 无 `import`/`require`、无 locale/i18n 命中，含中文行 365 行；闸门 `verify-client-ui-i18n` 的 glob 不含 `apps/desktop-launcher/frontend`。 |
+| 15 | 25 系统托盘 | 仍未修 | `go.mod` 直接依赖只有 `ulikunitz/xz` 与 `wails/v2`，`grep -i tray go.sum` 零命中；`internal/app/app.go:335-338` 的 `OnBeforeClose` 存状态后 `return false`（放行关闭）；`main.go` 无 `HideOnClose`，`OnShutdown` 停 harness 子进程。 |
+| 16 | 30 `RunDoctorRepair` 的 level 参数构造 | 仍未修 | `internal/app/app.go:898-907`：先 `DoctorArgs("--repair","1")`，再以 `if level >= 2 { args[len(args)-1] = "2" }`、`>= 3` 同理地改写**末位**；`preflight.go:141-143` 证实 extra 追加在末尾。 |
+| 17 | 31 connector probe 非幂等 | 仍未修 | `internal/connector/connector.go:39-51` 的 `Probe` 只判 `resp.StatusCode >= 200 && < 400`，不校验响应体；`:160-173` 探测通过即 `c.mode = domain.ModeExternal`；`grep -rn "api/health"` 在代码内零命中。 |
+| 18 | N-extra2 三套自动化测试无执行入口 | 仍未修 | `lefthook.yml:52-67` 的 pre-push 只有 `npm run typecheck` 与 `preview.mjs verify`；CI 全 0 命中。但三套测试本身可跑：`node --test frontend/test-app.cjs` 60 例全过、`sh linglong/test-verify-tools.sh` 6 项全 PASS。 |
+| 19 | N23 工具 ID `jdk21` 与内容不符（现含 8/21），改名需要一次性迁移 | 仍未修（有意延期） | `index.json:29` `"id":"jdk21"`、`:32` 描述「可选 8 / 21」、`:37` 21.0.12.1、`:45` 8u504（无 17）；`:689`／`:707` 的 gradle／maven 仍 `"dependencies": ["jdk21"]`；`tools.yaml:109` 仍为 `jdk21:`；`catalog_test.go:14`／`:158` 仍断言 `jdk21`。改名会触发 `install.go:214` 的 `unknown tool: %s`（由 `:245` 遍历 `tool.Dependencies` 触达）。 |
+| 20 | N24 `ToolVersion.LibRel` 无消费点 | 仍未修 | `catalog.go:380-394` 只 `os.Stat(root/lib)` 与 `root/lib64` 探测，**完全不读 `LibRel`**（`:306` 注释却写「如有 LibRel」）；`install.go:443-447` 只把它写进 `tool.yml`；全仓 `LibRel` 命中只有声明、写入、注释与索引数据，**零读取点**。 |
+| 21 | N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它 | 仍未修 | 对四个产物层（含 09-18 两层）逐层 `find -iname '*wqy*' -o -iname '*.ttc'` **全空**；基座层 `usr/share/fonts` 存在但为空；交付字体只有 `share/dsh-fonts/` 的 JetBrains Mono 与 Noto Sans Display；声明仍在 `linglong.yaml:180`／`:195-198`。 |
+| 22 | N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转 | 仍未修 | `main.go:22` 仍是 `//go:embed all:frontend`；`frontend/` 现有 16 个文件全部被 git 跟踪、`git status --ignored` 无忽略项（故 `all:` 与无前缀等价）；产物二进制内以 `grep -a` 命中 `test-app.cjs` 与 `preview.mjs` 的独有文案，各 1 处。 |
+| 23 | N29 49–54 个 `*.tsbuildinfo` 随包交付 | 仍未修 | 四个产物层实际计数为 49／50／54／54（@deepseek-ai 侧 47→52，另 gaxios 2 个），当前两版均为 54 个 / 2,953,568 B 与 2,953,331 B；`prepare-offline.sh:104` 仍是 `cp -a "$pkgdir/lib/."` 整目录复制，`linglong/*.sh` 内 `tsbuildinfo` 零命中。 |
+
+## H.2 「部分修复／部分实现」条目（10 条）
+
+| # | 条目 | 已修部分 | 未修部分 | 证据 |
+|---|---|---|---|---|
+| 1 | N3 工具索引来自个人 fork 的可变分支，且无签名 | 属实 | 仍存在 | 已修：`remote.go:44` 的 `defaultIndexURL` 引用 `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`（40 位哈希），守卫 `TestDefaultIndexURL_PinnedToCommit` 实跑 PASS；离线等价校验 `git rev-parse ff0b924d11:…/index.json` == `git hash-object` 工作区 `index.json`；README 两侧已改为「一致性校验，不是来源认证」。未修：`grep -rniE 'signature\|gpg\|ed25519\|cosign\|pgp\|minisign' internal/` 只命中 `clipboard.go` 的 PNG／BMP 魔数注释；`install.go:317-318`／`:360-365` 只有 sha256 一致性校验；`index.json` 无签名字段。 |
+| 2 | 33 WebKit helper 字节补丁与版本号硬编码 | 属实 | 仍存在 | 已修：`linglong.yaml:152-174` 改为 glob（`:157`／`:165`）＋`:158`／`:168` 唯一命中且用 `-f`，已无 `.so.0.19.7` 字面量；补丁脚本自检齐备（`:37-39`／`:50-52`／`:56-59`／`:70-73`／`:77-82`）；短路径已单源化到 `webkit-exec-path.txt`。实跑 `test-patch-webkit-exec-path.sh` 4/4 PASS；真实产物 `.so` 内 `/tmp/dsh-webkit-4.1` 计数 2、原路径计数 0，sha256 `765432e2…`。未修：交付仍靠**字节补丁**（`linglong.yaml:171` 调脚本，`webkit_linux.go:48-55` 建软链、`:56` 仅设 `WEBKIT_INJECTED_BUNDLE_PATH`），launcher 代码**无任何 `WEBKIT_EXEC_PATH` 使用点**，产物 `.so` 内该串计数 0。 |
+| 3 | N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上 | 属实 | 仍存在 | 已修：`linglong.yaml:36` 在 `build:` 段调用 `verify-container-deps.sh`（只校验 `build_depends`），`depends` 侧由 `verify-merged-deps.sh` 承接，`build-linglong.sh:45-51` 在 export 前调用且失败即中止。实跑 `test-verify-container-deps.sh` 10/10、`test-verify-merged-deps.sh` 8/8，对真实合并树 `verify-merged-deps.sh` 17/17 OK。未修：`linglong/buildext.sh` 在工作区不存在（构建时生成），`linglong.yaml` 的 `buildext:` 段（`:186-230`）只有包名、无命令文本 → 仓库侧**确实改不掉** `\|\| echo "$?"`。证据边界：本机无 ll-builder，生成器输出本轮无法重新观测。 |
+| 4 | 19 postMessage 的 `targetOrigin` | 属实 | 仍存在 | 已修：`frontend/app.js:142-151` 回包 `targetOrigin = new URL(frame.src).origin`（仅 catch 回退 `"*"`），接收侧 `:113` 校验 `e.source !== frame.contentWindow`；`dsh-link-bridge.js:35-39` 用 `location.ancestorOrigins[0]`。实跑 `test-link-bridge.cjs` 7/7 PASS。未修：`packages/client/ui-conversation/src/client/desktop-clipboard.ts:51` 仍是 `postMessage({ dshDesktop: true, … }, '*')`，其测试 `tests/desktop-clipboard.client.spec.ts:48-49` 明文期望 `'*'`（vitest 14/14 PASS）。 |
+| 5 | N16 `verify-tools.sh` 的一致性校验可静默跳过 | 属实 | 仍存在 | 已修：`verify-tools.sh:109-113` 缺 `index.json` 与 `:130-134` 缺 `python3` 均改为 `fail=1` + 点明原因（实跑两处均 exit=1，且 `test-verify-tools.sh` 6 项 PASS 含这两条）。未修：`:90-93` 仍只抓单个 `^    sha256:`；`:136-142` 只比对 ID 集合，**无 version/url/sha256 的逐版本比对**，而 `jdk21` 确有第二版本。 |
+| 6 | 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 属实 | 仍存在 | 已修（防护）：`webkit_linux.go:49` 调 `webkitHelperLinkUsable`，`:94-104` 读回链接并比对目标＋`os.Stat(WebKitNetworkProcess)`。未修：字面量仍是 `/tmp/dsh-webkit-4.1`（现读自单源文件 `webkit-exec-path.txt`），Go 源码内 `XDG_RUNTIME_DIR` 零命中。 |
+| 7 | 27 窗口位置未记忆 | 属实 | 仍存在 | 已修：`appconfig.go:18-22` 的 `WindowState{Width,Height,Maximized}` 与 `main.go:62-71` 的传参、`app.go:350-389` 的读写链均无位置字段。未修：`WindowGetPosition`/`PosX`/`PosY`/`WindowSetPosition` 全仓零命中；本机 `~/.config/dsh-desktop/config.json` 实测无 x/y。 |
+| 8 | 28 窗口背景色硬编码 | 属实 | 仍存在 | 已修：`frontend/styles.css:35` `color-scheme: light dark`、`:77-100` `@media (prefers-color-scheme: light)`、`:110` `background: var(--bg)`；`index.html` 无内联色值。未修：`main.go:75` `BackgroundColour: &options.RGBA{R:30,G:30,B:30,A:255}` 硬编码，Go 侧无主题联动。 |
+| 9 | N-extra 前端转义与状态机缺口 | 属实 | 仍存在 | 已修三处：`app.js:475-488` 按来源拆开 HTML/文本入口（动态字段全部 `escapeHtml`）、`:1045-1058` 改用 `dataset.toolId` 比对不再拼选择器、`:934` 收敛为 `renderTools` 单点写提示（实测该用例 pass）。未修：`#btn-about`（`:1438-1444`）与 `#market-refresh`（`:1501-1508`）的 `api()` 调用**无 try/catch**，全仓无 `unhandledrejection` 兜底。 |
+| 10 | N-extra3 打包脚本中重复与漂移的事实 | 属实 | 仍存在 | 已修：`prepare-offline.sh:112-118` 的 README glob 已锚定 `"$pkgdir"/README*` 并加 `-f` 守卫。未修：`NODE_VERSION="24.9.0"` 仍两处硬编码（`prepare-offline.sh:16` 与 `linglong.yaml:24`）；pnpm 守卫口径仍不一（`:164` 查文件 vs `linglong.yaml:51` 查目录）；包装器仍逐字重复（`:176-179` 与 `linglong.yaml:63-66`）。 |
+
+## H.3 本次同步修正的正文叙述
+
+复核同时暴露了若干**条目内**已过期的事实性叙述，已在同一次改动中就地修正：
+
+| 条目 | 原叙述 | 现状 |
 |---|---|---|
-| 1 剥离 GCC 工具链 | ✅ 已完成 | `linglong/prune-gcc-toolchain.sh` 存在，`build-linglong.sh:25` 调用；实测产物 `lib/gcc` 不存在 |
-| 2 删除 Node 头文件 | ✅ 已完成 | `prepare-offline.sh:169-172` + `linglong.yaml:62-64`；实测 `node/include` 不存在 |
-| 4 剔除 experimental 包 | ✅ 已完成 | `prepare-offline.sh:65-68`；264 个包中 experimental 命中数为 0 |
-| 5 注入包只拷 `lib/` | ✅ 已完成 | `prepare-offline.sh:81-88` |
-| 6 typescript 不在闭包 | ✅ 已完成 | `prepare-offline.sh:48-52`；实测闭包内不存在 |
-| 7 `@img/sharp` | ⚪ 已评估保留 | `sharp` 是 `@deepseek-ai/dsh-attachment-local` 的静态依赖（`packages/attachment/attachment-local/package.json:30`），`@img` 下只有 `colour` + `linux-x64`（19 MB），无可裁的多余平台包 |
-| 15 状态轮询改事件驱动 | ✅ 已完成 | `internal/app/app.go:385-420` `emitStatusIfChanged`，提交 `c7be7c8b23` |
-| 16 Node 二进制 strip | ✅ 已完成 | `prepare-offline.sh:173-176`；实测 `node/bin/node` 已 stripped（111.6 MB，仅减约 10%，非原估的 20–40%） |
-| 18 Go 绑定缺授权层 | 🔵 前提不成立（附一项未闭环验证） | harness GUI 是跨源 iframe，Wails 只向自己 asset server 的主页注入 runtime，iframe 内 `window.go` 不可达。**遗留待验证点见文末** |
-| 21 外部服务只确认一次 | 🟡 题面「或」分支已满足 | `NeedConfirmation` 仍按 hostname 每会话一次；但「状态栏常显 hostname」已落地（`app.js:156-175`，提交 `c3928e3192`） |
-| 29 前端 JS 去重 | ✅ 已完成 | 只剩 `escapeHtml`（`app.js:20`），`esc` 已不存在 |
-| 36 剪贴板桥 X11 only | ✅ 已完成 | `internal/clipboard/clipboard.go` 的 `ReadImage` 依次尝试 X11 CLIPBOARD → X11 PRIMARY → X11 `text/uri-list` → Wayland 位图 → Wayland `text/uri-list`。原先前「依赖 `wl-paste` 而 `wl-clipboard` 未随包」的缺口已由 N30 补齐；Wayland 侧的 `text/uri-list`/`x-special/gnome-copied-files` 来源见 N30 第 4 条 |
-| 37 GIT_EXEC_PATH | 🔶 现状即描述 | `internal/appenv/env.go:170-193` 由可执行文件位置推导；`verify-tools.sh:146-151` 有断言 |
-| N1 `build-deb.sh` 产不出包 | ✅ 已删除 | 脚本及其文档声明已移除，见 `.agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md` |
-| N2 容器工具清单 overlay 是死代码且副本过期 | ✅ 已修复 | 详见下方 |
-| N15 `clean-linglong.sh` 清理路径整体漂移 | ✅ 已修复 | 基准拆分为 `APP_DIR`/`LL_SRC`/`LL_WORK`/`LL_WORK_NESTED`，与 `build-linglong.sh` 的 `linglong/output/binary/files`、`.gitignore` 的 `/linglong/` 对齐；补收根 `lib/`、启动器预览产物（普通档）与 `profiles/`/`sessions/`/`backups/`（深度档）；ll-builder 异常退出留下的 `mode=0000` overlayfs workdir 在删除前 `chmod -R u+rwX`。提交 `4eb3a44acb`、`9f5fe65709`。附注：`pnpm run clean`（`scripts/clean.ts`）未覆盖根 `lib/`，收敛为调用统一入口的决定不做 |
-| N17 builder 的 `failed to copy` 只警告不中止 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N17 |
-| N18 `buildext.apt.depends` 吞掉安装错误 | 🟡 仓库侧已修，工具链侧未修 | 见正文 N18 |
-| N19 容器内新装的文件不落盘 | 🟡 已绕开，上游缺陷未修 | 见正文 N19 |
-| 字体方案（时间文本挤压） | ✅ 已完成 | 随包字体 + `FONTCONFIG_FILE` 注入 + 前端字体栈前置；提交 `c1ea5016fa`、`38a44fe892`、`2fc0de8ef5`，已在 0.1.2.7 实机验证通过 |
+| 8 / 13 | `git grep depends.yaml` **零命中** | 现有唯一命中：`clean-linglong.sh:58` 的一句注释（不构成消费） |
+| 8 / 13 | `skip_existing` **只写在注释里** | 连那处注释也已不存在；「源码与生成物中都没有该配置键」仍成立 |
+| N-extra2 | `test-app.cjs` **52 例**、`test-verify-tools.sh` **4 项** | 现为 **60 例**、**6 项**（用例数随修复增长，结论不变） |
+| N29 | **49 个** `*.tsbuildinfo` | 现为 **54 个**（@deepseek-ai 侧由 47 增至 52）；标题与正文已改为区间 49–54 |
+| 22 | 路径字面量在 `webkit_linux.go:34` 内联 | 提交 `be5d56f452` 已**单源化**到 `internal/packaging/webkit-exec-path.txt`（经 `//go:embed` 读入） |
+| 附录 C | 起手顺序列入了 **20**（已完成）与 **N4** | 两者已于 2026-09-16 完成，顺序已按剩余开放项重排 |
 
-**N17 / N18 / N19 的结论以正文为准，本表不作「已结案」处理**：三条都已有仓库侧改动（构建期闸门、绕开 overlay 取物），但工具链侧（构建器把复制失败降级为警告、生成的 `buildext.sh` 吞掉 apt 错误）与上游 overlay 的写入缺陷仍未解决。此前本表以 `❌ 未修` 记这三条，既与正文的「已修／部分修复」冲突，也与本表「已结案」的标题冲突，现改为与正文一致的状态、并在此点明其未结案部分。
+## H.4 复核方法
 
-### 字体方案（时间文本挤压）的记录
-
-客户端中 `6分32秒`、`17小时53分` 一类时间文本出现数字与汉字互相挤压，同一页面在 Chrome 中正常，仅基于 WebKitGTK 的客户端复现。
-
-**根因**：CSS 字体栈（`packages/client/ui-theme/src/styles/base.css` 的 `--dsw-font-family`）在容器内全部候选族缺失，退化到「一个同时覆盖拉丁与 CJK 的族」（思源黑体），同一行内拉丁与 CJK 共用一套度量而挤压。宿主用户级 fontconfig 配置会持续把通用族名改指 CJK 族（见下方「前端字体栈」），因此该问题必须在 CSS 字体栈层面收口：单纯在打包侧注册字体与别名不足以解决。
-
-**方案**：随包携带 Noto Sans Display（拉丁）与 JetBrains Mono（等宽，补 Regular 字重），落入 `${PREFIX}/share/dsh-fonts`——层内 `usr/` 与 `etc/` 均不进容器命名空间，`usr/share/fonts` 另被宿主挂载遮蔽，故不能沿用；由启动器在 WebKit 初始化前以 `FONTCONFIG_FILE` 指向 `install-container-fonts.sh` 生成的 `dsh-fonts.conf`，该配置 include 系统配置、显式声明可写 `<cachedir>`（容器 `/var/cache/fontconfig` 只读）、注册字体目录并把 CSS 栈中的族名别名到随包字体。中文族由 `buildext.apt.depends` 的 `fonts-wqy-microhei` 提供，与 webkit 同一机制。
-
-**实测的别名生效边界**：`sans-serif`、`BlinkMacSystemFont`、`PingFang SC`、`Hiragino Sans GB`、`Microsoft YaHei`、`Helvetica Neue`、`SF Mono`、`Fira Code`、`Menlo`、`Consolas` 均可把对应族名指到随包字体；`-apple-system` 是 fontconfig 内建兜底、别名改不动（`fc-match` 恒返回宿主默认）；`monospace` 被系统配置压住，且 CSS 等宽栈本就不含裸 `monospace`，故未设该别名。注：本机 `99-deepin.conf` 以 prepend+strong 把 `sans-serif` 指向思源黑体，我们的别名只在其后生效，分发到没有该配置的机器上则由我们这条接管。
-
-**已知限制**：fontconfig 按家族名匹配，宿主已装同名字体（思源黑体、微软雅黑等）时随包字体不会被选中；该限制只影响本机观感，不影响分发到缺字体机器上的行为。
-
-**验证证据**：改后脚本生成的配置与容器内实际生效那份逐行 diff，差异仅为删除 `monospace` 一行；用新旧两份配置对 CSS 栈的 17 个候选族名逐条复跑 `fc-match`，结果全部一致（`sans-serif` 命中思源黑体、`BlinkMacSystemFont` 与 `PingFang SC` 等命中 `NotoSansDisplay-Regular.ttf`、等宽族命中 `JetBrainsMono-*.ttf`）；`go test ./internal/packaging/` 通过；`sh -n` 语法检查通过；ui-theme 测试 81 通过（1 个既有失败与本次无关）。
-
-**保留的未验证边界**：`fc-match` 只反映 fontconfig 的解析结果，WebKit 的实际渲染选择由引擎内部逻辑决定，二者可能不同。**重新打包 0.1.2.7 后的实机验证已闭环**：时间文本不再挤压。
-
-**前端字体栈**：只靠打包侧的别名不足。宿主用户级 `~/.config/fontconfig/conf.d/99-deepin.conf` 以 `prepend`+`binding="strong"` 把 `sans-serif` 改指思源黑体，该方式胜过任何别名 `<prefer>`；而 CSS 栈尾正是 `sans-serif`，`-apple-system` 也无法用别名改变。实测在当前宿主上 `-apple-system` 与 `sans-serif` 均落到思源黑体——一个同时覆盖拉丁与 CJK 的族，数字与汉字因而共用一套度量。因此 `packages/client/ui-theme/src/styles/base.css` 把 `'Noto Sans Display'`、`'WenQuanYi Micro Hei'` 前置（提交 `2fc0de8ef5`）；`--dsw-font-family` 是全部 `--dsw-font-*` 排版 token 的基础族，33 个组件文件消费这些 token，时间文本用的 `--dsw-font-xs-13` 即由其派生。等宽栈同时前置 `'JetBrains Mono'`。该改动已在 0.1.2.7 的实机运行中验证：时间文本不再挤压。
-
-### N2 的修复记录
-
-原先两个独立故障，现已一并处理：
-
-1. **注入点**。`linglong.yaml` 不再把预设抽到 `${PREFIX}/harness/config/agent-presets`，改为用 `install -Dm644` 直接覆盖 `dsh-agent-presets` 真正读取的 shipped root（`${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`）；预设包布局若变化则构建 fail loud。
-2. **副本**。persona 由已移除的 `text` 改为 `prefix`/`suffix`，并按上游 `packages/preset/agent-presets/presets/standard/agent.cordis.yml` 重新同步 roster（此前静默落后四处：`command-goal` 与 `present` 两行被删、`tool-web.fetch` 由 true 变 false、`modelSelectionSettings` 被删）。
-3. **防线**。新增 `linglong/verify-preset-overlay.mjs`，在 `build-linglong.sh` 组装前拼接失败即中止：persona 之外的 roster 必须与上游逐行一致，persona 增量与 `tools.yaml` 对账，并把 persona 配置喂给随包 `dsh-persona` 的 schema。`test-verify-preset-overlay.sh` 覆盖通过路径与四条失败路径。
-
-**验证证据**：用打包闭包自己的 `discoverPresets` 实测——注入前后都是同样的四个预设（`cordis[创造模式] minimal[极简模式] ptc[PTC 模式] standard[标准模式]`），条目数与元数据未变，注入后 `standard` 文件含容器段落。UI 预设列表因此不变。闸门与自测各 5 项全过。
-
-**未做的端到端**：仍未触发一次真实会话观察系统提示（headless profile 不挂 `agent-presets`，只有 web-app bundle 设 `default: standard`）。已验证的链路是「发现 → persona 配置通过随包 schema」，而 `resolveConfig` 正是挂载时的校验点。
-
-**原编号 18 的遗留待验证点**：Wails 把消息处理器注册在 webview 的 content manager 上，而 `wails/v2@v2.15.0/internal/frontend/desktop/linux/window.c:56` 回传的是**顶层** URI。请在 iframe 内打开 Web Inspector，试 `window.go` 与 `window.webkit.messageHandlers` 是否可达——可达即为真漏洞，不可达则彻底结案。
-
----
-
-# 附录 B：验证边界
-
-- 附录 A 中「已完成」条目，以及正文标注 ✅ 的条目，均经逐行读取代码或实跑命令验证。
-- 标注 ⚠️ 的条目来自静态代码审查，审计者未逐条复跑；标注 ❓ 的条目依赖尚未执行的端到端运行。
-- 保留本条以说明历史判据：N2 修复前「同一 schema + 同一配置 + `resolveConfig` 必然抛错」的函数链已实测，但那只是链路推演；修复后改为用打包闭包的 `discoverPresets` 做运行时发现验证（见附录 A 的修复记录）。两者的共同缺口是仍未触发真实会话观察系统提示。
-- 所有体积数据来自 `linglong/output/binary/files` 与 `apps/desktop-launcher/linglong/stage/` 的实际构建产物；二者是 gitignore 的构建工作区，不是受控源码。这些构建缓存曾被清理、随后为验证字体方案重新生成；**2026-09-16 复核时两处都存在**，因此下一条里来自构建产物的失败是活跃的，不是历史残留。
-- 仓库当前的文档闸门并非全绿。**2026-09-16 实跑**：`verify-translation-pairing` 报 33 处缺配对、**0 行 out-of-sync**、4 处 link target diverges；`verify-md-links` 报 7 行（`bundle-xdg-open` 与 `generic-file-attachments` 两对 Note 的链接目标不存在）；`verify-md-wrap` 报 `docs/superpowers/**` 下的硬换行；`verify-package-readme-limitations` 报 `packages/support/doctor/README.md` 缺 `## Known Limitations and Deferred Work` 小节。
-- **原有两处 out-of-sync 均已处理，但两者性质不同**。`apps/desktop-launcher/README` 一对由本文附录 D 的 S7 修复提交 `593e30a184` 造成：它同改了中英两侧却没重录 `README.i18n.yaml`（记录值 `8e3350c0…`/`986eaaae…` 对当时的 `51f2c9f9…`/`9a3cb439…`），两侧改动一一对称（`.preview` 路径与 `all:frontend` 警告的措辞、范围同时改写），确认后重录即可。
-- **另一对（`.agents/notes/implemented/feature/2026-08-14-desktop-launcher-linux-linglong`）在重录后暴露出被记录掩盖的真实缺陷**：`0cad0f40e4` 把中文侧的语言切换行从 `English | [中文](….md)` 改成 `English | [中文](….zh.md)`——两种写法都属于**英文侧**形态，链接又指向中文文件自己，于是中文文件里没有任何指向英文文件的链接。记录过期时校验停在 out-of-sync、不再走链接检查，这个缺陷因此一直没暴露。修法取自 `translation-links.ts` 的机械判据（切换行只能是 `English | [中文](…)` 或 `[English](…) | 中文`，且该链接必须解析到对侧文件），改为 `[English](….md) | 中文`，与既有三对 Note 的写法一致，随后重录。两次重录都只针对该配对（未用 `--all`），以免把未复核的配对一并记录。
-- 其余失败来自含构建产物的工作区（`linglong/overlay/**`、`linglong/output/binary/files/**`、`apps/desktop-launcher/linglong/stage/**`）与 `docs/superpowers/**`。这些都会影响「闸门全绿」的判断。
-- 字体方案的验证边界见附录 A 的对应记录。
-- JDK 多版本条目（N20–N24）的证据边界：两份新增归档经真实下载，size 与 sha256 和 Adoptium v3 API 报出的值一致（`8u504` 103542511 字节 / `9c70e102…`；`17.0.20.1` 193252603 字节 / `3808d1d1…`），解包后为单一顶层目录且含 `bin/` 与 `lib/`，`java`/`javac`/`jdb`/`jar` 均可执行、`java -version` 分别报 `1.8.0_504` 与 `17.0.20.1`；`21.0.12.1` 未重下，API 当前 21 资产的 sha256 与清单现值相同。**未在玲珑容器内实跑**，也未走通 launcher 的真实安装路径——市场唯一入口是 Wails 绑定，端到端审计只覆盖 `versions[0]`（见 N22）。索引发布侧已实跑 curl 复核（见 N3 的验证）。`17.0.20.1` 已于 2026-09-14 下架（见 N25），上列 17 的实测数据保留为下架前的历史记录。
-
----
-
-# 附录 C：建议起手顺序
-
-1. **9 / 10 / 13**（一条流水线带体积断言与 `depends.yaml` 比对）——一次性止住体积与工具链回归。
-2. **20**（宿主挂载二次确认）——复用现成两击确认模式，改动最小、安全收益最大。
-3. **N3 / N4**——供应链来源认证与 X11 cookie 字节序（N7 那处「用户可见的静默无效」已于 2026-09-14 修复）。
-4. **8**（WebKit 依赖链裁剪）——剩余体积里唯一的大块，约 50 MB+。
-5. **N22 / N16**（把多版本纳入两道门禁）——多版本的三处用户可见错误（N7 / N20 / N21）已于 2026-09-14 修复，门禁这两条仍待做；**N23** 的 ID 改名与一次性迁移可与此一并做。
-
-（原第 3 项 N2 已完成，见附录 A。）
+每个条目由独立的子代理只读取证，要求给出 `文件路径:行号` 加实际读到的内容片段，或实际命令加实际输出；无法确定时必须写「无法判定」，禁止凭文件名或目录存在性推断。产物类条目另做实体清点（层内 `find`／二进制内 `grep -a`）。所有子代理均未修改任何文件。
