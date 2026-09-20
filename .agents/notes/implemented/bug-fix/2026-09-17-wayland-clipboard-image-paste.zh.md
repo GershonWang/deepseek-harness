@@ -62,4 +62,4 @@ Wayland 侧持有的 selection 也无法经 X11 兜底：实测 XWayland 不把 
 
 ## 相关
 
-同类打包先例：[Bundle a real xdg-open in the desktop launcher package](2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md)。审计条目（`apps/desktop-launcher/AUDIT.md`）：N4（cookie 长度字节序，同一次握手上更早的一处缺陷）、S3（setup 回复未校验）、N30（本轮）。
+同类打包先例：[Bundle a real xdg-open in the desktop launcher package](2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md)。审计条目（`apps/desktop-launcher/docs/AUDIT.md`）：N4（cookie 长度字节序，同一次握手上更早的一处缺陷）、S3（setup 回复未校验）、N30（本轮）。

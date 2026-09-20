@@ -62,4 +62,4 @@ The X11 session was then verified on the machine as well. After switching sessio
 
 ## Related
 
-Packaging precedent: [Bundle a real xdg-open in the desktop launcher package](2026-08-27-bundle-xdg-open-for-host-browser-opening.md). Audit entries in `apps/desktop-launcher/AUDIT.md`: N4 (cookie length byte order, the previous defect in this same handshake), S3 (unvalidated setup reply) and N30 (this round).
+Packaging precedent: [Bundle a real xdg-open in the desktop launcher package](2026-08-27-bundle-xdg-open-for-host-browser-opening.md). Audit entries in `apps/desktop-launcher/docs/AUDIT.md`: N4 (cookie length byte order, the previous defect in this same handshake), S3 (unvalidated setup reply) and N30 (this round).
