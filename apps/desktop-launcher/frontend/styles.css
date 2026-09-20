@@ -165,7 +165,22 @@ button, input, select, textarea { font: inherit; }
   align-items: center;
   gap: 2px;
   margin-left: auto;
-  margin-right: 4px;
+}
+
+/* 动作图标组与窗口控制组之间的分组线：两组相邻时图标（30px）与窗口按钮
+   （46px）的宽度差不足以分开它们，靠一条发丝线补上分组感。线高取图标
+   16px 一档并随标题栏垂直居中，两侧留白由本元素接管（原来 .titlebar-actions
+   的 4px 右外边距已移除，否则会叠成不对称间距）。颜色由 --fg-dim 低比例
+   混合：--border/--border-strong 是面板描边的实色，用在标题栏底色上会像
+   一道硬缝。本元素落在 #titlebar 的 drag 区内（只有 button 是 no-drag），
+   因此线本身仍可拖动窗口。 */
+.titlebar-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--fg-dim) 32%, transparent);
+  flex-shrink: 0;
 }
 
 /* 动作图标按钮（服务器/设置/关于） */
