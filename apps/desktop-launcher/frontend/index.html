@@ -341,8 +341,15 @@
     <div class="modal-body about">
       <svg id="about-logo" class="about-logo" viewBox="0 0 50 50" fill="none" aria-hidden="true"><use href="#dsh-whale"/></svg>
       <div class="about-title">DeepSeek Harness</div>
-      <div id="about-version" class="hint"></div>
-      <a id="about-repo" href="#" target="_blank"></a>
+      <!-- 事实全部来自 App.About()，这里只留标签与占位节点；两个仓库地址
+           必须并列——它们对应不同的责任方，只留一个会让用户报错地方。 -->
+      <dl class="about-meta">
+        <dt>玲珑包版本</dt><dd id="about-package-version"></dd>
+        <dt>harness 版本</dt><dd id="about-harness-version"></dd>
+        <dt>封装作者</dt><dd id="about-packager"></dd>
+        <dt>本封装仓库</dt><dd><a id="about-repo" href="#" target="_blank"></a></dd>
+        <dt>上游仓库</dt><dd><a id="about-upstream" href="#" target="_blank"></a></dd>
+      </dl>
     </div>
   </div>
 </div>

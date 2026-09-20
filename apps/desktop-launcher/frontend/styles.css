@@ -626,7 +626,9 @@ button, input, select, textarea { font: inherit; }
   box-shadow: var(--shadow);
 }
 
-.modal-card.modal-sm { width: 360px; }
+/* 关于弹框：事实行是「标签 + 长 URL」，360px 下值列被压到折行；加宽的这
+   一档只服务该弹框（modal-sm 目前仅关于弹框使用）。 */
+.modal-card.modal-sm { width: 420px; }
 
 .modal-head {
   display: flex;
@@ -935,6 +937,20 @@ button, input, select, textarea { font: inherit; }
 }
 .about-title { font-size: 15px; font-weight: 600; color: var(--fg-strong); }
 .about a { color: var(--accent); font-size: 12px; text-decoration: none; }
+/* 事实行：标签独立成列并右对齐，值占满余下宽度。仓库地址是长 URL，弹框
+   没有横向滚动，故值列必须允许任意断行（minmax(0,1fr) 让网格轨道能被压
+   缩，否则长 URL 会把轨道顶宽、撑破卡片）。 */
+.about-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 3px 10px;
+  margin: 12px 0 0;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.about-meta dt { color: var(--fg-dim); white-space: nowrap; }
+.about-meta dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
 
 /* 宿主命令挂载 */
 .host-row { display: flex; align-items: center; gap: 8px; }

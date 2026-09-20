@@ -13,8 +13,17 @@ import (
 // "-X main.packageVersion=..." 注入；本地构建未注入时为 "dev"。
 var Version = "dev"
 
-// GithubRepo 是项目仓库地址，用于关于弹框。
+// GithubRepo 是本封装（fork）仓库地址，用于关于弹框：玲珑包特有的改动都
+// 落在这里，而不是上游。
 const GithubRepo = "https://github.com/GershonWang/deepseek-harness"
+
+// UpstreamRepo 是上游官方仓库地址。关于弹框必须同时给出两者：本包是在上游
+// 之上做的封装，只留 fork 地址会让用户把上游的问题报到这里。
+const UpstreamRepo = "https://github.com/deepseek-ai/deepseek-harness"
+
+// Packager 是玲珑包的封装署名。它标识的是「谁把这个 fork 打成玲珑包」，
+// 与上游作者无关，故不随上游同步变动。
+const Packager = "Jokul"
 
 type packageManifest struct {
 	Version string `json:"version"`

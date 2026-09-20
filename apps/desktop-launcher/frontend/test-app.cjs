@@ -110,8 +110,12 @@ class El {
   addEventListener(type, fn) {
     (this.events[type] ||= []).push(fn);
   }
+  // 事件对象补齐真实 DOM 的两个方法：外链绑定会调 preventDefault 阻止
+  // WebKitGTK 里失效的默认跳转，缺了它用例会以 TypeError 失败而不是断言失败。
   fire(type, arg) {
-    for (const fn of this.events[type] || []) fn({ target: this, data: arg });
+    for (const fn of this.events[type] || []) {
+      fn({ target: this, data: arg, preventDefault() {}, stopPropagation() {} });
+    }
   }
   appendChild(child) {
     if (child.parentNode) child.parentNode.removeChild(child);
@@ -269,7 +273,8 @@ function buildHtml(document) {
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
     "card-hosts", "host-list", "host-hint",
-    "about-repo", "about-version", "win-min", "win-max", "win-close", "titlebar",
+    "about-repo", "about-upstream", "about-package-version", "about-harness-version", "about-packager",
+    "win-min", "win-max", "win-close", "titlebar",
     "btn-server", "btn-tools", "btn-about", "btn-doctor",
     "doctor-content", "doctor-checks", "doctor-start",
     "repair-plans", "doctor-repair-output",
@@ -436,6 +441,8 @@ function makeStorage() {
 
 function makeWails(runCalls, overrides = {}) {
   const events = {};
+  /* 转交给系统浏览器的外链目标，按调用顺序记录（见 BrowserOpenURL）。 */
+  const openedUrls = [];
   /* window 上的事件监听（app.js 只监听 message：注入桥转发的 iframe 消息）。
    * 真实 window 有 addEventListener，桩这里记录下来供用例按来源驱动。 */
   const windowEvents = {};
@@ -487,7 +494,7 @@ function makeWails(runCalls, overrides = {}) {
     AddHostTool: overrides.AddHostTool ?? (async () => ({})),
     // 宿主导入扫描（可选覆盖：用例按需给出待导入条目）。
     ScanHostTools: overrides.ScanHostTools ?? (async () => []),
-    About: async () => ({}),
+    About: overrides.About ?? (async () => ({})),
     ReadClipboardImage: async () => "",
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
     TerminalStart: async () => "pty-" + (++terminalSeq),
@@ -499,13 +506,17 @@ function makeWails(runCalls, overrides = {}) {
     events,
     windowEvents,
     autoDisabled,
+    openedUrls,
     window: {
       go: { app: { App: app } },
       runtime: {
         EventsOn: (name, cb) => {
           events[name] = cb;
         },
-        BrowserOpenURL() {},
+        // 外链统一走这条通道（target=_blank 在 Wails WebKitGTK 里不生效）。
+        // 单独记账而不混进 runCalls：已有的 message 用例会驱动一条合法的
+        // open-external 消息，混进去会打乱它们对「壳侧动作」的断言。
+        BrowserOpenURL: (url) => { openedUrls.push(url); },
         WindowMinimise() {},
         WindowToggleMaximise() {},
         Quit() {},
@@ -565,9 +576,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events, windowEvents, autoDisabled } = hasWails
+  const { window, events, windowEvents, autoDisabled, openedUrls } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] } };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, openedUrls: [] };
 
   const sandbox = {
     console,
@@ -606,6 +617,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     document,
     registry,
     runCalls,
+    openedUrls,
     overrides,
     autoDisabled,
     terminals: xterm.instances,
@@ -1994,4 +2006,35 @@ test("关掉最后一个标签回到空态，并提示下一步操作", async ()
   assert.match(content.innerHTML, /Ctrl\+Shift\+T/, "空态应指明下一步操作");
   assert.equal(content.children.length, 0, "空态不应留下会话节点");
   assert.equal(h.document.getElementById("terminal-tabs").innerHTML, "", "标签栏应清空");
+});
+
+test("关于弹框：事实来自 App.About()，两个仓库外链都转交 Wails 打开", async () => {
+  // 与 Go 侧 AboutInfo 同构：少一个字段前端就读到 undefined，弹框会留空行。
+  const about = {
+    Program: "DeepSeek Harness",
+    HarnessVersion: "0.1.6-alpha.2",
+    PackageVersion: "0.1.3.4",
+    Packager: "Jokul",
+    Repo: "https://github.com/GershonWang/deepseek-harness",
+    UpstreamRepo: "https://github.com/deepseek-ai/deepseek-harness",
+  };
+  const h = loadApp({ overrides: { About: async () => about } });
+  await flush();
+  h.document.getElementById("btn-about").fire("click");
+  await flush();
+
+  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), false,
+    "点击关于应打开弹框");
+  assert.equal(h.document.getElementById("about-package-version").textContent, about.PackageVersion);
+  assert.equal(h.document.getElementById("about-harness-version").textContent, about.HarnessVersion);
+  assert.equal(h.document.getElementById("about-packager").textContent, about.Packager);
+  assert.equal(h.document.getElementById("about-repo").getAttribute("href"), about.Repo);
+  assert.equal(h.document.getElementById("about-repo").textContent, about.Repo);
+  assert.equal(h.document.getElementById("about-upstream").getAttribute("href"), about.UpstreamRepo);
+
+  // 两个链接都必须登记过外链绑定：WebKitGTK 里 target=_blank 不生效，
+  // 漏绑的表现是「点了没反应」，只有真的转交到运行时才算数。
+  h.document.getElementById("about-repo").fire("click");
+  h.document.getElementById("about-upstream").fire("click");
+  assert.deepEqual(h.openedUrls, [about.Repo, about.UpstreamRepo]);
 });

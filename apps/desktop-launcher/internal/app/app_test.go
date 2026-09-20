@@ -13,6 +13,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
@@ -611,5 +612,37 @@ func TestResetStartupDoctor_InvalidatesInFlightRun(t *testing.T) {
 	if running || ready || doneOnce || errText != "" {
 		t.Fatalf("reset 后应保持清空态: running=%v ready=%v doneOnce=%v err=%q",
 			running, ready, doneOnce, errText)
+	}
+}
+
+// About 是"关于"弹框的唯一事实来源：署名与两个仓库地址写错或漏填，用户就
+// 找不到对的人报缺陷。这里锚定字段到 packaging 常量，避免前端改渲染时把
+// 某个字段悄悄丢掉（前端测试只覆盖渲染，覆盖不到 Go 侧取值）。
+func TestAbout_ReportsPackagingFacts(t *testing.T) {
+	info := testApp().About()
+
+	if info.Program != "DeepSeek Harness" {
+		t.Errorf("Program = %q, want DeepSeek Harness", info.Program)
+	}
+	if info.PackageVersion != packaging.Version {
+		t.Errorf("PackageVersion = %q, want %q", info.PackageVersion, packaging.Version)
+	}
+	if info.Packager != packaging.Packager {
+		t.Errorf("Packager = %q, want %q", info.Packager, packaging.Packager)
+	}
+	if info.Repo != packaging.GithubRepo {
+		t.Errorf("Repo = %q, want %q", info.Repo, packaging.GithubRepo)
+	}
+	if info.UpstreamRepo != packaging.UpstreamRepo {
+		t.Errorf("UpstreamRepo = %q, want %q", info.UpstreamRepo, packaging.UpstreamRepo)
+	}
+	// fork 与上游是两个不同的责任方，填成同一个地址会让用户把上游问题报到这里。
+	if info.Repo == info.UpstreamRepo {
+		t.Errorf("Repo 与 UpstreamRepo 相同（%q），两者必须指向不同仓库", info.Repo)
+	}
+	// harness 版本由打包态 package.json 解析，解析不到时是 "unknown" 而非空串：
+	// 空串会在弹框里留一行空白，看不出是「没装」还是「没取到」。
+	if info.HarnessVersion == "" {
+		t.Error("HarnessVersion 为空，解析失败时应返回 unknown")
 	}
 }

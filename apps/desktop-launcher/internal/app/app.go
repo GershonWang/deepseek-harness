@@ -157,12 +157,16 @@ type ProjectToolchainResult struct {
 	Error       string
 }
 
-// AboutInfo 是"关于"弹框的内容。
+// AboutInfo 是"关于"弹框的内容。字段全部由打包态解析或常量给出，前端只
+// 负责渲染：维护者署名与两个仓库地址是用户定位问题来源的唯一线索，
+// 不允许散落到前端各写一份。
 type AboutInfo struct {
 	Program        string
 	HarnessVersion string
 	PackageVersion string
-	Repo           string
+	Packager       string
+	Repo           string // 本封装（fork）仓库
+	UpstreamRepo   string // 上游官方仓库
 }
 
 // App 是绑定给 Web 壳的应用控制器。
@@ -1411,7 +1415,9 @@ func (a *App) About() AboutInfo {
 		Program:        "DeepSeek Harness",
 		HarnessVersion: packaging.ResolveHarnessVersion(),
 		PackageVersion: packaging.Version,
+		Packager:       packaging.Packager,
 		Repo:           packaging.GithubRepo,
+		UpstreamRepo:   packaging.UpstreamRepo,
 	}
 }
 

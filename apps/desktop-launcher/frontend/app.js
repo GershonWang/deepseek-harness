@@ -85,14 +85,30 @@ function openExternal(url) {
   if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
 }
 
-function bindExternalLinks() {
-  $("#about-repo").addEventListener("click", (e) => {
-    const url = $("#about-repo").getAttribute("href") || "";
+// 关于弹框里的外链：选择器 → App.About() 返回的字段名。绑定与填充都从这里
+// 取，新增一个仓库地址只需在这里登记一行、在 index.html 放一个同 id 的
+// <a target="_blank">，不会出现「显示了但没绑上」（点了没反应）或
+// 「绑上了但没填」（点了打开占位 #）这类只差一半的状态。
+const ABOUT_LINKS = [
+  ["#about-repo", "Repo"],
+  ["#about-upstream", "UpstreamRepo"],
+];
+
+// 每个外链共用这一份点击逻辑：target=_blank 在 Wails WebKitGTK 里不生效，
+// 必须显式转交运行时；浏览器预览（无 window.runtime）时保持原生行为。
+function bindExternalAnchor(selector) {
+  const link = $(selector);
+  link.addEventListener("click", (e) => {
+    const url = link.getAttribute("href") || "";
     if (!isHttpUrl(url)) return; // 非 http(s) 保留默认行为
     if (!window.runtime || !window.runtime.BrowserOpenURL) return; // 预览模式
     e.preventDefault();
     openExternal(url);
   });
+}
+
+function bindExternalLinks() {
+  for (const [selector] of ABOUT_LINKS) bindExternalAnchor(selector);
 
   // 打包注入的 GUI 链接桥（dsh-link-bridge.js）把 iframe 内的外链点击
   // postMessage 上来（{ dshDesktop: true, type: "open-external", url }），
@@ -1437,9 +1453,17 @@ function bindUI() {
   });
   $("#btn-about").addEventListener("click", async () => {
     const info = await api().About();
-    $("#about-version").textContent = "harness " + info.HarnessVersion + "   客户端 " + info.PackageVersion;
-    $("#about-repo").textContent = info.Repo;
-    $("#about-repo").href = info.Repo;
+    $("#about-package-version").textContent = info.PackageVersion;
+    $("#about-harness-version").textContent = info.HarnessVersion;
+    $("#about-packager").textContent = info.Packager;
+    for (const [selector, field] of ABOUT_LINKS) {
+      const link = $(selector);
+      const url = info[field];
+      link.textContent = url;
+      // 写属性而不是 .href 属性：点击处理读的就是 getAttribute("href")，
+      // 两者同源才不会出现「显示有、点了没反应」。
+      link.setAttribute("href", url);
+    }
     openModal("about-modal");
   });
 
