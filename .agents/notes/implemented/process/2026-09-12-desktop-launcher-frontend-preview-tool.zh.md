@@ -14,7 +14,7 @@ Status: implemented
 
 预览页在运行时从 `index.html` 生成——剥掉脚本、改写样式路径——因此不可能与被验证的页面漂移。状态放在 `FIXTURES` 表里，一个弹框状态一条，每条写明 `app.js` 会写入的文本、类名、值、可见性与禁用标志；新增状态只是改数据。一条状态一条记录，因此夹具表就是覆盖范围。
 
-`verify` 断言 DOM 桩看不见的几何：所有常规状态在 1 px 容差内保持同一卡片高度、两张面板始终等高、地址框保持两行预留、服务地址输入框不超过封顶。`measure` 把同一份几何按 JSON 打印，`render` 按主题与状态各写一张截图到被忽略的 `frontend/.preview`。`lefthook.yml` 在 pre-push 上以 `apps/desktop-launcher/frontend/**` 为 glob 跑 `verify`。
+`verify` 断言 DOM 桩看不见的几何：所有常规状态在 1 px 容差内保持同一卡片高度、两张面板始终等高、地址框保持两行预留、服务地址输入框不超过封顶。`measure` 把同一份几何按 JSON 打印，`render` 按主题与状态各写一张截图到被忽略的 `apps/desktop-launcher/.preview`，`--out` 指进 `frontend/` 会被直接拒绝。`lefthook.yml` 在 pre-push 上以 `apps/desktop-launcher/frontend/**` 为 glob 跑 `verify`。
 
 ## Alternatives considered
 

@@ -14,7 +14,7 @@ The launcher frontend's only automated test, `frontend/test-app.cjs`, runs `app.
 
 The preview page is generated at run time from `index.html` — scripts stripped, the stylesheet path rewritten — so it cannot drift from the page it verifies. States live in a `FIXTURES` table, one entry per dialog state, each naming the text, classes, values, visibility and disabled flags that `app.js` writes; adding a state is a data edit. One entry per state means the fixture list is exactly the coverage.
 
-`verify` asserts the geometry the DOM stub cannot see: every routine state keeps one card height within a 1 px tolerance, the two panels are always equal in height, the address box keeps its two-line reservation, and the service-address field stays within its cap. `measure` prints the same geometry as JSON, and `render` writes one screenshot per theme and state into the ignored `frontend/.preview`. `lefthook.yml` runs `verify` on pre-push with a glob on `apps/desktop-launcher/frontend/**`.
+`verify` asserts the geometry the DOM stub cannot see: every routine state keeps one card height within a 1 px tolerance, the two panels are always equal in height, the address box keeps its two-line reservation, and the service-address field stays within its cap. `measure` prints the same geometry as JSON, and `render` writes one screenshot per theme and state into the ignored `apps/desktop-launcher/.preview`; an `--out` inside `frontend/` is rejected outright. `lefthook.yml` runs `verify` on pre-push with a glob on `apps/desktop-launcher/frontend/**`.
 
 ## Alternatives considered
 
