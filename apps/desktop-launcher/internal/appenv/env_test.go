@@ -2,6 +2,7 @@ package appenv
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -360,4 +361,117 @@ func TestConfigureChildEnv_KeepsForeignEntries(t *testing.T) {
 	if strings.Contains(got, sep+sep) {
 		t.Fatalf("空段应被丢弃（POSIX 下空段表示当前目录）: %q", got)
 	}
+}
+
+// stubHostEscape 覆盖宿主根挂载点与启动器解析：真实挂载点只有沙箱内才有，
+// 声明条件必须能在任意测试机上确定性复现。
+func stubHostEscape(t *testing.T, rootfs string, launcherFound bool) {
+	t.Helper()
+	prevRootfs, prevLookPath := hostRootfsBase, lookPath
+	hostRootfsBase = rootfs
+	lookPath = func(string) (string, error) {
+		if launcherFound {
+			return "/usr/bin/" + hostLauncher, nil
+		}
+		return "", exec.ErrNotFound
+	}
+	t.Cleanup(func() { hostRootfsBase, lookPath = prevRootfs, prevLookPath })
+}
+
+// clearHostEscapeEnv 清空两个声明变量并在测试后还原，使断言不依赖运行环境取值。
+func clearHostEscapeEnv(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{hostRootfsEnv, hostLauncherEnv} {
+		prev, had := os.LookupEnv(key)
+		_ = os.Unsetenv(key)
+		t.Cleanup(func() {
+			if had {
+				_ = os.Setenv(key, prev)
+				return
+			}
+			_ = os.Unsetenv(key)
+		})
+	}
+}
+
+// 声明是与 harness 侧 dsh-launch-environment 的跨语言契约：两个变量成对出现，
+// 缺一不可；缺失时 harness 保持沙箱内行为，因此绝不声明一条用不了的通道。
+func TestConfigureHostEscapeEnv_DeclaresChannel(t *testing.T) {
+	clearHostEscapeEnv(t)
+	rootfs := t.TempDir()
+	stubHostEscape(t, rootfs, true)
+
+	configureHostEscapeEnv()
+
+	if got := os.Getenv(hostRootfsEnv); got != rootfs {
+		t.Fatalf("%s = %q, want %q", hostRootfsEnv, got, rootfs)
+	}
+	if got := os.Getenv(hostLauncherEnv); got != hostLauncher {
+		t.Fatalf("%s = %q, want %q", hostLauncherEnv, got, hostLauncher)
+	}
+}
+
+func TestConfigureHostEscapeEnv_SkipsUnusableChannel(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "rootfs-file")
+	if err := os.WriteFile(notADir, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name   string
+		rootfs string
+		found  bool
+	}{
+		{name: "宿主根不存在", rootfs: filepath.Join(t.TempDir(), "absent"), found: true},
+		{name: "宿主根不是目录", rootfs: notADir, found: true},
+		{name: "启动器不在 PATH", rootfs: t.TempDir(), found: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clearHostEscapeEnv(t)
+			stubHostEscape(t, tc.rootfs, tc.found)
+
+			configureHostEscapeEnv()
+
+			if _, ok := os.LookupEnv(hostRootfsEnv); ok {
+				t.Fatalf("不该声明 %s", hostRootfsEnv)
+			}
+			if _, ok := os.LookupEnv(hostLauncherEnv); ok {
+				t.Fatalf("不该声明 %s", hostLauncherEnv)
+			}
+		})
+	}
+}
+
+// 两个变量同时是使用者手工调试与临时关闭的入口：已存在的取值一律不覆盖。
+func TestConfigureHostEscapeEnv_KeepsUserValues(t *testing.T) {
+	t.Run("空值即关闭", func(t *testing.T) {
+		clearHostEscapeEnv(t)
+		stubHostEscape(t, t.TempDir(), true)
+		_ = os.Setenv(hostRootfsEnv, "")
+		_ = os.Setenv(hostLauncherEnv, "custom-launcher")
+
+		configureHostEscapeEnv()
+
+		if got := os.Getenv(hostRootfsEnv); got != "" {
+			t.Fatalf("%s 被覆盖为 %q", hostRootfsEnv, got)
+		}
+		if got := os.Getenv(hostLauncherEnv); got != "custom-launcher" {
+			t.Fatalf("%s 被覆盖为 %q", hostLauncherEnv, got)
+		}
+	})
+
+	t.Run("只覆盖一项时补齐另一项", func(t *testing.T) {
+		clearHostEscapeEnv(t)
+		stubHostEscape(t, t.TempDir(), true)
+		_ = os.Setenv(hostRootfsEnv, "/custom/rootfs")
+
+		configureHostEscapeEnv()
+
+		if got := os.Getenv(hostRootfsEnv); got != "/custom/rootfs" {
+			t.Fatalf("%s 被覆盖为 %q", hostRootfsEnv, got)
+		}
+		if got := os.Getenv(hostLauncherEnv); got != hostLauncher {
+			t.Fatalf("%s = %q, want %q", hostLauncherEnv, got, hostLauncher)
+		}
+	})
 }

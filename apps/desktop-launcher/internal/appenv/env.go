@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -196,11 +197,51 @@ func packagedGitExecPath(exe string) (string, bool) {
 	return gitCore, true
 }
 
+// hostRootfsBase 是沙箱内宿主根文件系统的只读挂载点（测试可覆盖）。
+var hostRootfsBase = "/run/host/rootfs"
+
+// lookPath 解析 PATH 上的可执行文件（测试可覆盖）。
+var lookPath = exec.LookPath
+
+// 宿主逃逸通道的声明变量。这是一份跨语言契约：harness 侧的
+// dsh-launch-environment 用同一对名字解析事实，改名必须两侧同步。
+const (
+	hostRootfsEnv   = "DSH_HOST_ROOTFS"
+	hostLauncherEnv = "DSH_HOST_LAUNCH"
+	hostLauncher    = "systemd-run"
+)
+
+// configureHostEscapeEnv 声明本沙箱的宿主逃逸通道：宿主根的只读挂载点，加上
+// 在宿主机上运行程序的启动器。两者成对出现，harness 侧据此判断本次运行能否把
+// 工作区交给宿主应用打开；缺失时 harness 保持沙箱内的既有行为，因此宿主根不可读
+// 或转发启动器不在 PATH 上都不设置，绝不声明一条用不了的通道。
+//
+// 已存在的同名变量一律不覆盖：这两个变量也是使用者手工调试与临时关闭该通道的入口，
+// 覆盖会把开关从使用者手里拿走（把 DSH_HOST_ROOTFS 设为空即关闭）。
+func configureHostEscapeEnv() {
+	if info, err := os.Stat(hostRootfsBase); err != nil || !info.IsDir() {
+		return
+	}
+	if _, err := lookPath(hostLauncher); err != nil {
+		return
+	}
+	setenvIfUnset(hostRootfsEnv, hostRootfsBase)
+	setenvIfUnset(hostLauncherEnv, hostLauncher)
+}
+
+// setenvIfUnset 仅在变量完全缺失时写入；空值也视为使用者的显式取值。
+func setenvIfUnset(key, value string) {
+	if _, ok := os.LookupEnv(key); !ok {
+		_ = os.Setenv(key, value)
+	}
+}
+
 // ConfigureChildEnv 设置子进程（harness 及其后代）需要的环境变量。
 // PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 按需安装(~/.dsh-tools/bin) > 现有 PATH。
 func ConfigureChildEnv(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
+	configureHostEscapeEnv()
 
 	if exe, err := os.Executable(); err == nil {
 		if gitCore, ok := packagedGitExecPath(exe); ok {
