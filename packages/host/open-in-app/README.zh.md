@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-将 `dsh-host-open-in-app` 与其[浏览器配套包](../../client/ui-open-in-app/README.zh.md)一起使用，让用户能在已安装的编辑器、Git GUI、终端或文件管理器中打开 workspace 目录。本包提供固定的应用目录，并只显示主机能够验证的条目；新安装的应用在重启后出现，而检测到启动器缺失时会移除对应条目。请求须通过部署的浏览器认证与主机来源信任检查。检测与启动命令使用可配置的期限，且不会把继承的凭据传给启动的应用。
+将 `dsh-host-open-in-app` 与其[浏览器配套包](../../client/ui-open-in-app/README.zh.md)一起使用，让用户能在已安装的编辑器、Git GUI、终端或文件管理器中打开 workspace 目录。本包提供固定的应用目录，并只显示主机能够验证的条目；新安装的应用在重启后出现，而检测到启动器缺失时会移除对应条目；在声明了宿主逃逸通道的沙箱内，宿主机自身的安装与卸载改为随菜单打开即时反映。请求须通过部署的浏览器认证与主机来源信任检查。检测与启动命令使用可配置的期限，且不会把继承的凭据传给启动的应用。
 
 ## 目录
 
@@ -56,13 +56,13 @@ kind: "package-reference"
 - **macOS** 在已知应用目录（`/Applications`、`~/Applications`）中查找条目的 bundle 拼写，启动 `open -a <解析出的 bundle>`；Xcode 跟随 `xcode-select -p`，因此能找到 Beta 或改名的安装。不做 Launch Services 查询，也不扫描磁盘。
 - **Windows** 依次读取 `App Paths` 注册表键、Uninstall 记录（仅当它们能证明磁盘上存在可执行文件时才采用）、已知安装路径，以及采用版本化安装目录的应用中最新的目录。GitHub Desktop 会同时解析版本化可执行文件与随包提供的 `cli.js`，不经命令 shell 调用受支持的 `github open <path>` 行为。注册表读取按批进行，每次解析每个根只跑一条 `reg.exe query`。
 - **Linux 与 Windows 的 CLI（命令行界面）名称**经组合的 subprocess 能力在进程内解析（PATH/PATHEXT stat，无 shell、无 `which`）；CLI 不在 PATH 上的 Linux GUI 条目回退到其 XDG desktop 条目验证过的 `TryExec`/`Exec` 可执行文件，且只有主机声明了 display server 时才提供 `xdg-open` 文件管理器条目。
-- **处于沙箱内**且沙箱声明了宿主逃逸通道（[launch-environment](../../util/launch-environment/README.zh.md)）时，Linux 条目还会读取宿主自己的 desktop 条目：只读各条目记录的 id，来源是宿主的 `/usr/local/share`、`/usr/share`、玲珑应用商店导出的条目目录，以及与宿主共享的 home。条目的 `Exec` 程序必须在宿主机上存在，启动时经沙箱的转发启动器在宿主用户管理器上运行该宿主路径。每趟解析只做一次探测来决定是否提供该通道，因此转发启动器起不了宿主进程的沙箱不会列出任何宿主应用，而不是列出点击即失败的条目；沙箱之外的主机解析行为与从前完全一致。
+- **处于沙箱内**且沙箱声明了宿主逃逸通道（[launch-environment](../../util/launch-environment/README.zh.md)）时，Linux 条目还会读取宿主自己的 desktop 条目：只读各条目记录的 id，来源是宿主的 `/usr/local/share`、`/usr/share`、玲珑应用商店导出的条目目录，以及与宿主共享的 home。条目的 `Exec` 程序必须在宿主机上存在，启动时经沙箱的转发启动器在宿主用户管理器上运行该宿主路径。一次探测决定是否提供该通道，因此转发启动器起不了宿主进程的沙箱不会列出任何宿主应用，而不是列出点击即失败的条目；菜单读取会重解析这些宿主条目——在宿主上安装或卸载的程序无需重启即可反映到下一次菜单；沙箱之外的主机解析行为与从前完全一致。
 
 ### 预期行为
 
 [启动环境](../../util/launch-environment/README.zh.md)中继承的进程层的 `SSH_CONNECTION` 或 `SSH_TTY` 非空时，应用列表为空，Web 头部隐藏 Open In，包括已记住的应用选择。项目与用户 `.env` 中的值不作为 SSH 启动的依据。主机跳过应用探测，并拒绝不可用应用的图标和启动请求。SSH 会话即使携带显示服务或 VS Code IPC 连接，也遵循此规则；若启动器移除了两个 SSH 标记，本规则无法识别该远端部署。
 
-解析惰性执行，每主机进程一次，在首个需要它的请求上进行；安装应用要下次重启后生效，卸载方向则立即自愈——启动时发现可执行文件已消失会只重解析该条目一次，无法再证明时把它从列表中移除。图标路由在每个可提取的平台上提供应用真实图标：macOS 上 bundle 的 `.icns` 转 128px PNG，Windows 上可执行文件的关联图标转 32px PNG，Linux 上 desktop 条目在 hicolor 主题中的图标（PNG 或 SVG）；提取不到的图标应答 404，浏览器表面渲染通用占位图形。
+解析惰性执行，在首个需要它的请求上进行；每次菜单读取会就地把沙箱的宿主逃逸条目重解析一遍，因此宿主上的安装或卸载随菜单打开即时反映；沙箱内的检测、以及所有未声明通道的主机，仍是每进程一趟，安装应用要下次重启后生效。卸载方向两种情况都立即自愈——启动时发现可执行文件已消失会只重解析该条目一次，无法再证明时把它从列表中移除。图标路由在每个可提取的平台上提供应用真实图标：macOS 上 bundle 的 `.icns` 转 128px PNG，Windows 上可执行文件的关联图标转 32px PNG，Linux 上 desktop 条目在 hicolor 主题中的图标（PNG 或 SVG）；提取不到的图标应答 404，浏览器表面渲染通用占位图形。
 
 ### `./shared` 子路径
 
@@ -78,7 +78,7 @@ kind: "package-reference"
 
 本包拆为一张数据表与三个角色。[`src/catalog.ts`](src/catalog.ts) 是编译期表格：每个条目按平台的 locator 链（`fixed`、`app`、`xcode`、`cli`、`file`、`scan`、`app-paths`、`install-record`、`github-desktop`、`desktop`、`host-desktop`），以及 Linux 上拥有其图标的 desktop 条目 id。[`src/resolver.ts`](src/resolver.ts) 把表格解析到本机：一趟产出目录 id 到已验证启动的映射（主/回退 argv 加图标来源），共享一次批量的 Windows 注册表读取；argv 启动以清理过凭据的环境（`scrubbedParentEnv`）叠加适配器显式环境后 detached 派生，Windows GUI 默认保持可见，只有负责另行打开 GUI 的 CLI 适配器会隐藏自己的进程。`shell-open` 启动（文件管理器）在同一看护窗口下经 `dsh-native-command` 的路径打开器执行 OS shell 的 open verb，spawn 的 `ENOENT` 被归类为 `missing`，让路由能刷新失效条目。`host-argv` 启动则改为经沙箱的转发启动器（`systemd-run --user --service-type=exec`）把宿主的程序安装为宿主用户管理器的一次性单元，其桥接命令是 `/bin/sh -c 'exec "$0" "$@"'`：转发出去的 argv 绝不走 shell 字符串，宿主侧 exec 失败即视为启动失败。[`src/icons.ts`](src/icons.ts) 按平台提取图标：macOS 在解析出的 bundle 上跑 `plutil`/`sips`，Windows 在解析出的可执行文件上跑生成的 PowerShell `ExtractAssociatedIcon` 脚本（`-File` 位置参数让路径不经过命令行解析），Linux 走 desktop 条目/hicolor/pixmaps 的文件系统查找——当启动解析在宿主侧完成时改查宿主的数据目录。
 
-[`src/index.ts`](src/index.ts) 在 `ctx.webServer` 上注册三条路由：`GET /open-in-app/apps`（解析映射的 keys）、`GET /open-in-app/icon/<id>`（提取的图标，进程内内存缓存）、`POST /open-in-app/open`（直接使用映射中已验证的启动器——绝不重新检测）。每条路由都先向组合的 `connection` 服务询问是否拒绝；完整的信任叙述——Host/Origin 栅栏与浏览器认证——唯一的出处在 [`src/index.ts`](src/index.ts) 的模块注释。在该栅栏之上，open 路由在 wire 边界校验请求体：`application/json` 媒体类型、64 KiB 上限、解析为可用的目录 id、指向现存目录的绝对路径。解析与图标命令经 [`@deepseek-ai/dsh-native-command`](../../util/native-command/README.zh.md)（argv，绝不走 shell）在各自期限内执行；PATH 名称走 `ctx.subprocess.resolveExecutable()` 进程内解析。
+[`src/index.ts`](src/index.ts) 在 `ctx.webServer` 上注册三条路由：`GET /open-in-app/apps`（解析映射的 keys；沙箱声明了通道时先重解析宿主逃逸条目）、`GET /open-in-app/icon/<id>`（提取的图标，进程内内存缓存）、`POST /open-in-app/open`（直接使用映射中已验证的启动器——绝不重新检测）。每条路由都先向组合的 `connection` 服务询问是否拒绝；完整的信任叙述——Host/Origin 栅栏与浏览器认证——唯一的出处在 [`src/index.ts`](src/index.ts) 的模块注释。在该栅栏之上，open 路由在 wire 边界校验请求体：`application/json` 媒体类型、64 KiB 上限、解析为可用的目录 id、指向现存目录的绝对路径。解析与图标命令经 [`@deepseek-ai/dsh-native-command`](../../util/native-command/README.zh.md)（argv，绝不走 shell）在各自期限内执行；PATH 名称走 `ctx.subprocess.resolveExecutable()` 进程内解析。
 
 </details>
 
@@ -111,7 +111,7 @@ kind: "package-reference"
 - **目录在构建期固定。** 部署无法从 cordis.yml 增加自己的编辑器或 Git GUI；扩展列表意味着同时扩展 `OPEN_IN_APP_CATALOG` 与浏览器包的词典。操作系统可以定位已知应用，但无法证明每个已安装应用都能接收 workspace 目录，也无法给出各应用需要的启动协议，因此本包不会无边界地枚举 OS 应用。可配置的 custom handler 仍然延后；其中由用户提供的 label 属于用户数据，不是 locale 拥有的产品文案。
 - **macOS 检测只查已知路径。** bundle 改名超出目录收录的拼写、或挪到 `/Applications` 与 `~/Applications` 之外就不会被检测；不做 Launch Services 查询（原生 LaunchServices/NSWorkspace 查询需要仓库尚无的 addon），也刻意不扫描磁盘。
 - **图标保真度受平台约束。** Windows 图标来自 32px 的 `ExtractAssociatedIcon`——不带原生 addon 时 .NET 标准面能给出的最大尺寸——在高分屏上可能略微发软；Linux 图标只查 hicolor 主题与 pixmaps，不追用户的自定义图标主题；若干条目（没有 desktop 条目的纯 CLI 启动器）没有图标来源，保持通用占位图形。
-- **新安装要重启后出现。** 解析每主机进程一次；只有卸载方向自愈（启动器缺失时当场只重解析该条目）。
+- **菜单跟随宿主，而不是沙箱。** 每次菜单读取会重解析沙箱的宿主逃逸条目，因此在宿主上安装或卸载的程序随下一次菜单生效；在沙箱内安装的应用，以及任何未声明通道的主机，仍要重启后才出现，那种情况下也只有卸载方向自愈（启动器缺失时当场只重解析该条目）。
 - **宿主应用来自一条已声明且已验证的通道。** 沙箱内的宿主视野就只有上述目录加上与宿主共享的 home；每个用户自己的 `~/.local/share/applications` 对该用户可写，因此放在那里的条目只按用户自己的 home 来信任。只要沙箱声明该通道且一次探测能起宿主进程，通道就可用；会话中途不可达的宿主用户管理器会在下一次失效启动刷新时被重新检查，探测失败后即不再提供。
 
 <a id="dev-note"></a>

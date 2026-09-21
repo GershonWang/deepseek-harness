@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-20-host-escape-open-in-app-design.md
-2026-09-20-host-escape-open-in-app-design.md: 576511854ea986bac8d2867d6549c95a88a4e4f0
-2026-09-20-host-escape-open-in-app-design.zh.md: 3fedc7f85a85a9a02fc4edacb6451cdf7ea7066b
+2026-09-20-host-escape-open-in-app-design.md: f62b6b561e976b23dfd5f4a92ade78a390995b8b
+2026-09-20-host-escape-open-in-app-design.zh.md: ea76e9a8cfbfc27dd4f8e17f74a7299003efc272

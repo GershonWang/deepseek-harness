@@ -404,18 +404,25 @@ describe('open-in-app host routes (real Loader composition)', () => {
       launches.push([command, ...args])
       return Promise.resolve()
     }
+    const resolveExecutable = vi.fn(pathTable({ 'xdg-open': '/usr/bin/xdg-open', code: '/usr/bin/code' }))
     internals.catalog = {
       platform: 'linux',
       home,
       env: { XDG_DATA_DIRS: join(home, 'xdg-empty'), DISPLAY: ':0' },
       run: () => Promise.reject(new Error('fixture rejects')),
       launch,
-      resolveExecutable: pathTable({ 'xdg-open': '/usr/bin/xdg-open', code: '/usr/bin/code' }),
+      resolveExecutable,
     }
     const base = await boot()
     try {
       expect(await (await fetch(`${base}/open-in-app/apps`)).json())
         .toEqual({ apps: ['filemanager', 'vscode'] })
+      // Without a declared host channel a second menu read serves the pass it
+      // already has: no detection runs again (the PATH resolver is the witness).
+      const detections = resolveExecutable.mock.calls.length
+      expect(await (await fetch(`${base}/open-in-app/apps`)).json())
+        .toEqual({ apps: ['filemanager', 'vscode'] })
+      expect(resolveExecutable.mock.calls.length).toBe(detections)
       // The icon follows the desktop entry; xdg-open declares none.
       const icon = await fetch(`${base}/open-in-app/icon/vscode`)
       expect(icon.status).toBe(200)
@@ -512,6 +519,64 @@ describe('open-in-app host routes (real Loader composition)', () => {
     }])
     try {
       expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [] })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(hostRootfs, { recursive: true, force: true })
+    }
+  })
+
+  it('re-resolves the host entries on every menu read, adding and dropping host applications', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-home-'))
+    const hostRootfs = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-rootfs-'))
+    const applications = join(hostRootfs, 'usr', 'share', 'applications')
+    await mkdir(applications, { recursive: true })
+    // VS Code is installed on the host; nothing resolves inside the sandbox.
+    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
+    await mkdir(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true })
+    await writeFile(join(hostRootfs, 'usr', 'share', 'code', 'code'), 'binary')
+    // The channel probe is the channel's only host command; counting it is how
+    // these reads prove they re-resolved instead of replaying the first pass.
+    const probes = vi.fn(async (command: string, args: readonly string[]) => {
+      if (command === 'systemd-run' && args[args.length - 1] === '/bin/true') return { stdout: '', stderr: '' }
+      throw new Error(`fixture rejects: ${command} ${args.join(' ')}`)
+    })
+    internals.catalog = {
+      platform: 'linux',
+      home,
+      env: { XDG_DATA_DIRS: join(home, 'xdg-empty') },
+      run: probes,
+      launch: () => Promise.resolve(),
+      resolveExecutable: pathTable(),
+    }
+    const base = await boot([{
+      source: 'process',
+      values: { DSH_HOST_ROOTFS: hostRootfs, DSH_HOST_LAUNCH: 'systemd-run' },
+    }])
+    try {
+      const apps = (): Promise<{ apps: string[] }> =>
+        fetch(`${base}/open-in-app/apps`).then(response => response.json() as Promise<{ apps: string[] }>)
+      // The first read resolves the whole catalog: one pass, one probe.
+      expect(await apps()).toEqual({ apps: ['vscode'] })
+      expect(probes).toHaveBeenCalledTimes(1)
+
+      // The user installs Sublime Text on the host while the sandbox lives; the
+      // next menu read sees it without restarting the client.
+      await writeFile(join(applications, 'sublime_text.desktop'), '[Desktop Entry]\nExec=/opt/sublime_text/sublime_text %F\n')
+      await mkdir(join(hostRootfs, 'opt', 'sublime_text'), { recursive: true })
+      await writeFile(join(hostRootfs, 'opt', 'sublime_text', 'sublime_text'), 'binary')
+      expect(await apps()).toEqual({ apps: ['vscode', 'sublimetext'] })
+      expect(probes).toHaveBeenCalledTimes(2)
+
+      // An icon read attaches to the list it already has: it is not a menu read.
+      expect((await fetch(`${base}/open-in-app/icon/vscode`)).status).toBe(404)
+      expect(probes).toHaveBeenCalledTimes(2)
+
+      // Uninstalling it on the host drops it from the next menu read, and the
+      // entry itself leaves the map the icon route reads.
+      await rm(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true, force: true })
+      expect(await apps()).toEqual({ apps: ['sublimetext'] })
+      expect(probes).toHaveBeenCalledTimes(3)
+      expect((await fetch(`${base}/open-in-app/icon/vscode`)).status).toBe(404)
     } finally {
       await rm(home, { recursive: true, force: true })
       await rm(hostRootfs, { recursive: true, force: true })

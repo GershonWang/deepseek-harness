@@ -2,8 +2,9 @@
  * Browser half of open-in-app: one Session-header split button opening the
  * session's workspace directory (the summary's `cwd`) in the remembered
  * installed application. Availability arrives once per page from the host
- * apps route; the last choice persists in the browser through the controller's
- * persisted snapshot store.
+ * apps route and is read again when the menu opens, because the host's own
+ * installed applications change while the page lives; the last choice persists
+ * in the browser through the controller's persisted snapshot store.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -47,6 +48,7 @@ export function apply(ctx: ClientContext): void {
       },
       launch: (appId, path) => controller.launch(appId, path),
       choose: (appId) => { controller.choose(appId) },
+      refresh: () => { void controller.refresh() },
       iconUrl: appId => `${OPEN_IN_APP_ICON_PREFIX}/${appId}`,
     }),
   }, OpenInAppAction))

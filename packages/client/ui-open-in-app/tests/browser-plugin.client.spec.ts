@@ -83,6 +83,12 @@ describe('open-in-app browser half', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ app: 'cursor', path: '/w/dir' }),
     })
+
+    // The menu-open refresh is a second read of the same route.
+    injected.refresh()
+    await vi.waitFor(() => {
+      expect(fetcher.mock.calls.filter(call => String(call[0]).includes('/open-in-app/apps'))).toHaveLength(2)
+    })
     await fiber.dispose()
   })
 

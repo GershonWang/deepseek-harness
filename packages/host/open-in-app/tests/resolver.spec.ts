@@ -13,7 +13,7 @@ import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 import { OPEN_IN_APP_CATALOG, PATH_TOKEN, type OpenInAppApp } from '../src/catalog.ts'
 import {
   execCommand, hostDataDirectories, launchDetachedApp, launchResolved, parseDesktopEntry, parseRegistryDump,
-  resolveInternals, resolveLaunch, resolveOpenInAppApps, xdgDataDirectories,
+  refreshHostEntries, resolveInternals, resolveLaunch, resolveOpenInAppApps, xdgDataDirectories,
   type OpenInAppInternals, type OpenInAppLauncher, type OpenInAppResolvedLaunch,
 } from '../src/resolver.ts'
 
@@ -859,5 +859,63 @@ describe('host-desktop locators', () => {
       resolved, '/workspace', TIMEOUT_MS,
       bare({ launch: () => Promise.reject(Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })) }),
     )).resolves.toBe('missing')
+  })
+})
+
+describe('refreshHostEntries', () => {
+  it('runs no detection without a declared channel, and none over SSH', async () => {
+    const home = await tempRoot()
+    const run = vi.fn(runner(() => null))
+    const map = new Map<string, OpenInAppResolvedLaunch>([
+      ['finder', { launch: { kind: 'argv', command: '/usr/bin/xdg-open', args: [] } }],
+    ])
+    const base = { platform: 'linux' as const, home, env: linuxEnv(home), run }
+
+    await expect(refreshHostEntries(map, TIMEOUT_MS, bare(base))).resolves.toEqual([])
+    await expect(refreshHostEntries(map, TIMEOUT_MS, bare({
+      ...base, ssh: true, hostEscape: { hostRootfs: '/host', launcher: 'systemd-run' },
+    }))).resolves.toEqual([])
+
+    expect(run).not.toHaveBeenCalled()
+    expect([...map.keys()]).toEqual(['finder'])
+  })
+
+  it('re-resolves the host-eligible entries only, keeping the sandbox ones and catalog order', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    // The host entry names a program the host no longer holds: the refresh
+    // must drop the entry rather than offer a launch that fails on click.
+    await mkdir(join(hostRootfs, 'usr', 'share', 'applications'), { recursive: true })
+    await writeFile(
+      join(hostRootfs, 'usr', 'share', 'applications', 'sublime_text.desktop'),
+      '[Desktop Entry]\nExec=/opt/sublime_text/sublime_text %F\n',
+    )
+    const run = vi.fn(runner((command, args) =>
+      command === 'systemd-run' && args[args.length - 1] === '/bin/true' ? '' : null))
+    const map = new Map<string, OpenInAppResolvedLaunch>([
+      ['finder', { launch: { kind: 'argv', command: '/usr/bin/xdg-open', args: [] } }],
+      ['vscode', { launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] }, hostDesktopId: 'code' }],
+      ['sublimetext', { launch: { kind: 'host-argv', command: '/opt/sublime_text/sublime_text', args: [PATH_TOKEN] }, hostDesktopId: 'sublime_text' }],
+    ])
+
+    const touched = await refreshHostEntries(map, TIMEOUT_MS, bare({
+      platform: 'linux',
+      home,
+      env: linuxEnv(home),
+      run,
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+      // VS Code resolves inside the sandbox again: the refresh reaches the same
+      // launcher through the chain, not through the host branch.
+      resolveExecutable: pathTable({ code: '/usr/bin/code' }),
+    }))
+
+    // One probe covers the whole refresh, and only host-eligible entries are
+    // re-resolved: the sandbox-only entry is not one of them.
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(touched).toContain('sublimetext')
+    expect(touched).toContain('vscode')
+    expect(touched).not.toContain('finder')
+    expect([...map.keys()]).toEqual(['finder', 'vscode'])
+    expect(map.get('vscode')).toEqual({ launch: { kind: 'argv', command: '/usr/bin/code', args: [] } })
   })
 })

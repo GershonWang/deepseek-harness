@@ -15,9 +15,9 @@ function hostBase(): string {
 }
 
 /**
- * Owns the once-per-page availability read, the persisted last choice, and
- * the launch POST. Availability and choice publish through uSES-safe sources
- * so every Session header shares one truth.
+ * Owns the availability read, the persisted last choice, and the launch POST.
+ * Availability and choice publish through uSES-safe sources so every Session
+ * header shares one truth.
  */
 export class OpenInAppController {
   /** Installed app ids in host menu order; null until the host answered. */
@@ -41,6 +41,18 @@ export class OpenInAppController {
    */
   load(): Promise<void> {
     this.loading ??= this.run()
+    return this.loading
+  }
+
+  /**
+   * Read availability again, before a menu opens: the host re-resolves the
+   * applications it can escape to, so one installed or removed on the host
+   * since the last read reaches the menu. The published list stays until the
+   * fresh read lands, so an open menu never empties while the host answers.
+   * @returns after the fresh availability is published.
+   */
+  refresh(): Promise<void> {
+    this.loading = this.run()
     return this.loading
   }
 

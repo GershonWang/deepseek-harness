@@ -36,6 +36,21 @@ describe('OpenInAppController availability', () => {
     expect(malformed.apps.getSnapshot()).toEqual([])
   })
 
+  it('re-reads availability on refresh and publishes the fresh list', async () => {
+    const answers = [['finder'], ['finder', 'cursor']]
+    const fetcher = vi.fn(async () => jsonResponse({ apps: answers.shift() ?? [] }))
+    const controller = new OpenInAppController(fetcher)
+    await controller.load()
+    expect(controller.apps.getSnapshot()).toEqual(['finder'])
+
+    await controller.refresh()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(controller.apps.getSnapshot()).toEqual(['finder', 'cursor'])
+    // The refreshed list is the published one: a later load does not read again.
+    await controller.load()
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
   it('resolves routes against the page origin when the page has one', async () => {
     vi.stubGlobal('location', { origin: 'http://dsh.example:8080' })
     const fetcher = vi.fn(async (input: string | URL) => { void input; return jsonResponse({ apps: [] }) })

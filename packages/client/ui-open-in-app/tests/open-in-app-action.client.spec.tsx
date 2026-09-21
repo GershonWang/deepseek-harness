@@ -21,6 +21,7 @@ interface Bench {
   props: OpenInAppActionProps
   launch: ReturnType<typeof vi.fn>
   choose: ReturnType<typeof vi.fn>
+  refresh: ReturnType<typeof vi.fn>
 }
 
 function bench(over: {
@@ -42,6 +43,7 @@ function bench(over: {
   const choice = createSnapshotStore<string>(over.choice ?? '')
   const launch = vi.fn(over.launch ?? (async () => {}))
   const choose = vi.fn()
+  const refresh = vi.fn()
   function useSessions<T>(select: (snapshot: SessionListState) => T): T {
     return select(state)
   }
@@ -55,10 +57,11 @@ function bench(over: {
     useOpenInAppChoice: useSelector(choice),
     launch,
     choose,
+    refresh,
     iconUrl: (appId: string) => `/open-in-app/icon/${appId}`,
     t,
   } as unknown as OpenInAppActionProps
-  return { props, launch, choose }
+  return { props, launch, choose, refresh }
 }
 
 describe('OpenInAppAction visibility', () => {
@@ -173,6 +176,20 @@ describe('OpenInAppAction launching', () => {
     fireEvent.click(cursorItem)
     expect(b.choose).toHaveBeenCalledWith('cursor')
     expect(b.launch).toHaveBeenCalledWith('cursor', '/w/dir')
+  })
+
+  it('asks the host to re-read availability as the menu opens, not as it closes', async () => {
+    const b = bench({ apps: ['finder', 'cursor'], cwd: '/w/dir' })
+    render(<OpenInAppAction {...b.props} />)
+    const toggle = screen.getByRole('button', { name: zh['menu.toggle'] })
+    fireEvent.click(toggle)
+    expect(b.refresh).toHaveBeenCalledTimes(1)
+    await screen.findByText('Cursor')
+    // Closing the menu is not a reason to read the host again.
+    fireEvent.click(toggle)
+    expect(b.refresh).toHaveBeenCalledTimes(1)
+    fireEvent.click(toggle)
+    expect(b.refresh).toHaveBeenCalledTimes(2)
   })
 
   it('ignores a menu pick while a launch is in flight', async () => {

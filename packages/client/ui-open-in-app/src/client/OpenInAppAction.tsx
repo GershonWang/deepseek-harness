@@ -14,6 +14,8 @@ export interface OpenInAppActionInjected {
   }
   launch: (appId: string, path: string) => Promise<void>
   choose: (appId: string) => void
+  /** Ask the host to re-read availability; the fresh list replaces the menu's when it lands. */
+  refresh: () => void
   iconUrl: (appId: string) => string
 }
 
@@ -119,10 +121,10 @@ const BUSY_DRESS_DELAY_MS = 250
 /**
  * Session-header split button: the main button opens the session's workspace
  * directory in the remembered application, the chevron opens the menu of
- * every application the host probed as installed. It renders nothing until
- * the host reported at least one nameable application and the session has a
- * known workspace directory, so a host without the capability never grows
- * the control.
+ * every application the host probed as installed and asks the host to re-read
+ * that list as it opens. It renders nothing until the host reported at least
+ * one nameable application and the session has a known workspace directory, so
+ * a host without the capability never grows the control.
  * @param props - session runtime, injected controller face, and localized copy.
  * @returns the split button and its menu, or null when there is nothing to offer.
  */
@@ -217,7 +219,13 @@ export function OpenInAppAction(props: OpenInAppActionProps): React.JSX.Element 
             aria-haspopup="menu"
             title={t('menu.toggle')}
             aria-label={t('menu.toggle')}
-            onClick={() => { setOpen(value => !value) }}
+            onClick={() => {
+              // Read again as the menu opens: the list is host state that moves
+              // while this page lives, and the current list keeps painting
+              // until the fresh one arrives.
+              if (!open) props.refresh()
+              setOpen(!open)
+            }}
           >
             <IconChevronDownOutline14 size={11} />
           </button>

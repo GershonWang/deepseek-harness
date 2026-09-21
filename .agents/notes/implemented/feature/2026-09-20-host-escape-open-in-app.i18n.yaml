@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.md
-2026-09-20-host-escape-open-in-app.md: e17eb3e3b3d940ea7606a240aaf0653d173654c9
-2026-09-20-host-escape-open-in-app.zh.md: c719ac38baddb3bac6406bc9ca0016c2aafc8aae
+2026-09-20-host-escape-open-in-app.md: 76d6ed80fc6403b7480b2e7f5cf4ba53957b999b
+2026-09-20-host-escape-open-in-app.zh.md: 6ab2c97052f0c6e6a18c0f0b4cd53afe66d8d2d9

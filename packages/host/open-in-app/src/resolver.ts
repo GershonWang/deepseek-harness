@@ -16,7 +16,10 @@
  * the host's own desktop entry for it and launch that through the host user
  * manager, so applications installed on the host stay reachable from the
  * sandbox. The channel is offered only after one probe proves it can start a
- * host process, and never on a host without one.
+ * host process, and never on a host without one. Those host entries are the
+ * one part of a resolved catalog that is refreshed in place
+ * ({@link refreshHostEntries}), because the host's own installs change while
+ * the sandbox lives; detection inside the sandbox stays once per pass.
  */
 
 import { spawn } from 'node:child_process'
@@ -817,6 +820,54 @@ export async function resolveOpenInAppApps(
     if (launch !== null) map.set(id, launch)
   }
   return map
+}
+
+/**
+ * Whether this entry's locators for the current platform include the
+ * host-escape one; an entry without it cannot be resolved or dropped by a host
+ * refresh, so a refresh skips it without running detection.
+ */
+function hasHostLocator(app: OpenInAppApp, internals: ResolvedInternals): boolean {
+  return (specFor(app, internals.platform)?.locators ?? [])
+    .some(locator => locator.kind === 'host-desktop')
+}
+
+/**
+ * Refresh the host-escape entries of an already resolved catalog against the
+ * host as it is now: the channel probe, the host data directories, and each
+ * candidate's `Exec` program are re-read, while entries resolved inside the
+ * sandbox keep the values of the pass that resolved them. A sandbox's host is
+ * the one machine whose installed applications change while this process
+ * lives, and re-resolving everything per menu open would put the Windows
+ * registry read on that path. Without a declared channel, and over SSH, this
+ * returns without running any detection.
+ *
+ * The refreshed entries are written back into the map in catalog order, so the
+ * map stays the authority the routes read and the menu keeps catalog order.
+ * @param map - resolved catalog rewritten in place.
+ * @param probeTimeoutMs - per-command deadline for resolution host commands.
+ * @param internals - platform and runner hooks for deterministic tests.
+ * @returns the catalog ids this refresh rewrote or removed, whose cached icons are stale.
+ */
+export async function refreshHostEntries(
+  map: Map<string, OpenInAppResolvedLaunch>,
+  probeTimeoutMs: number,
+  internals: OpenInAppInternals = {},
+): Promise<readonly string[]> {
+  const resolved = resolveInternals(internals)
+  if (resolved.ssh || resolved.hostEscape === undefined) return []
+  const registry = new RegistryViewOnce(probeTimeoutMs, resolved)
+  const hostEscape = new HostEscapeViewOnce(resolved.hostEscape, probeTimeoutMs, resolved)
+  const candidates = OPEN_IN_APP_CATALOG.filter(app => hasHostLocator(app, resolved))
+  const refreshed = new Map(await Promise.all(candidates.map(async app =>
+    [app.id, await resolveWithRegistry(app, probeTimeoutMs, registry, hostEscape, resolved)] as const)))
+  const previous = new Map(map)
+  map.clear()
+  for (const app of OPEN_IN_APP_CATALOG) {
+    const value = refreshed.has(app.id) ? refreshed.get(app.id) : previous.get(app.id)
+    if (value !== undefined && value !== null) map.set(app.id, value)
+  }
+  return candidates.map(app => app.id)
 }
 
 /**

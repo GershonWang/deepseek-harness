@@ -13,11 +13,15 @@
  * type, a 64 KiB ceiling, string `app`/`path` fields, a resolved-available
  * catalog id, and an absolute path naming an existing directory.
  *
- * The catalog resolves lazily, once per plugin life, on the first request
- * that needs it, into one map of verified launchers: the apps route serves
- * its keys and the open route launches its values, so a click, menu open, or
- * page reload never re-runs detection. A launch that finds its executable
- * gone (`ENOENT`) invalidates that one entry and re-resolves it once.
+ * The catalog resolves lazily on the first request that needs it, into one map
+ * of verified launchers: the apps route serves its keys and the open route
+ * launches its values, and the icon route attaches to the same values. A menu
+ * open re-resolves the sandbox's host-escape entries in place, because the
+ * host's own installed applications change while this process lives; that
+ * refresh runs only under a declared host-escape channel, so detection outside
+ * a sandbox stays the once-per-plugin-life pass it is. A launch that finds its
+ * executable gone (`ENOENT`) invalidates that one entry and re-resolves it
+ * once.
  */
 
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -30,7 +34,7 @@ import { hostEscapeOf, launchedThroughSsh, launchEnvironmentOf } from '@deepseek
 import z from '@deepseek-ai/schemastery'
 import { OPEN_IN_APP_CATALOG, type OpenInAppApp } from './catalog.ts'
 import {
-  launchResolved, resolveLaunch, resolveOpenInAppApps,
+  launchResolved, refreshHostEntries, resolveLaunch, resolveOpenInAppApps,
   type OpenInAppInternals, type OpenInAppResolvedLaunch,
 } from './resolver.ts'
 import { extractAppIcon, type OpenInAppIcon } from './icons.ts'
@@ -163,6 +167,21 @@ export function apply(ctx: Context, config: Config): void {
     resolutions ??= resolveOpenInAppApps(config.probeTimeoutMs, catalogInternals())
   /** Per-app icon promise cache (null = resolved as unavailable). */
   const icons = new Map<string, Promise<OpenInAppIcon | null>>()
+  /**
+   * Availability for a menu read: inside a sandbox that declared a channel the
+   * host entries are re-resolved first, so an application installed or removed
+   * on the host since the last menu shows up (or disappears) now. The first
+   * read's own pass is already current, and a host without a channel serves the
+   * map as it is — which is every host outside a sandbox.
+   */
+  const availabilityForMenu = async (): Promise<Map<string, OpenInAppResolvedLaunch>> => {
+    if (resolutions === undefined || hostEscape === undefined) return await availability()
+    const map = await availability()
+    // A host entry's icon follows the entry the current resolution names, so a
+    // refreshed or removed entry drops its cached icon.
+    for (const id of await refreshHostEntries(map, config.probeTimeoutMs, catalogInternals())) icons.delete(id)
+    return map
+  }
   const iconOf = (app: OpenInAppApp, resolved: OpenInAppResolvedLaunch): Promise<OpenInAppIcon | null> => {
     let cached = icons.get(app.id)
     if (cached === undefined) {
@@ -205,7 +224,7 @@ export function apply(ctx: Context, config: Config): void {
         sendMethodNotAllowed(res, 'GET')
         return
       }
-      sendJson(res, 200, { apps: [...(await availability()).keys()] })
+      sendJson(res, 200, { apps: [...(await availabilityForMenu()).keys()] })
     },
   }), `open-in-app: GET ${OPEN_IN_APP_APPS_ROUTE}`)
 
