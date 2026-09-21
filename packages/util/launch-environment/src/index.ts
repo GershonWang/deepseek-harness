@@ -129,6 +129,46 @@ export function launchedThroughSsh(environment: LaunchEnvironmentSnapshot): bool
   })
 }
 
+/** Launcher a sandbox provides for running a program on the host that started it; closed union. */
+export type HostEscapeLauncher = 'systemd-run'
+
+/**
+ * The host-escape channel this run may use, as the sandbox's launcher declared
+ * it. Absent outside such a sandbox, so a consumer that finds no fact keeps its
+ * sandbox-local behavior unchanged.
+ */
+export interface HostEscapeFact {
+  /** Absolute path of the sandbox's read-only mount of the host root filesystem. */
+  readonly hostRootfs: string
+  readonly launcher: HostEscapeLauncher
+}
+
+/** Inherited-process variable naming the sandbox's read-only host-root mount. */
+const HOST_ROOTFS_VAR = 'DSH_HOST_ROOTFS'
+/** Inherited-process variable naming the launcher that runs programs on the host. */
+const HOST_LAUNCHER_VAR = 'DSH_HOST_LAUNCH'
+
+/**
+ * Resolve the sandbox's host-escape channel. Both variables must come from the
+ * inherited process layer: a project directory must never be able to declare a
+ * channel that starts programs outside the sandbox, so this reads no `.env`
+ * layer for the same reason {@link launchedThroughSsh} does not. A missing,
+ * empty, relative, or unknown value means the run has no such channel — the
+ * declaration is optional and its producer may be older than this reader.
+ * @param environment - the launcher's environment snapshot.
+ * @returns the declared channel, or undefined when this run has none.
+ */
+export function hostEscapeOf(environment: LaunchEnvironmentSnapshot): HostEscapeFact | undefined {
+  const hostRootfs = environment.getFrom(HOST_ROOTFS_VAR, ['process'])?.value
+  const launcher = environment.getFrom(HOST_LAUNCHER_VAR, ['process'])?.value
+  if (hostRootfs === undefined || launcher === undefined) return undefined
+  // A POSIX sandbox mount, so an absolute path is the only usable form.
+  if (!hostRootfs.startsWith('/')) return undefined
+  // Closed union: a second sandbox kind joins the launcher list here.
+  if (launcher !== 'systemd-run') return undefined
+  return { hostRootfs, launcher }
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** Launcher-owned snapshot of this run's environment; absent in compositions the product CLI did not boot. */

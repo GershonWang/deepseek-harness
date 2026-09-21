@@ -39,6 +39,8 @@ const endpoint = launchEnvironmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 
 `launchedThroughSsh(snapshot)` 仅在继承的进程层中存在非空 `SSH_CONNECTION` 或 `SSH_TTY` 时返回 true。Web 浏览器唤起、自适应目录选择器与 Open In 共用此判断；项目与用户 `.env` 中的值不作为 SSH 会话的依据。
 
+`hostEscapeOf(snapshot)` 返回沙箱声明的宿主逃逸通道，形如 `{ hostRootfs, launcher }`：宿主根文件系统的只读挂载点，加上在宿主机上运行程序的启动器（`systemd-run`）。返回 `undefined` 表示本次运行没有该通道，调用方必须保持沙箱内的既有行为。声明来自继承进程层的 `DSH_HOST_ROOTFS` 与 `DSH_HOST_LAUNCH` 这一对变量；与 SSH 标记同理，只从进程层读取——项目目录绝不能声明一条"在沙箱外启动程序"的通道。缺失、空值、相对路径或未知取值一律视为没有通道。
+
 ### 各层的优先级
 
 | 层 | 它是什么 |

@@ -39,6 +39,8 @@ const endpoint = launchEnvironmentOf(ctx).get('DEEPSEEK_BASE_URL')?.value
 
 `launchedThroughSsh(snapshot)` returns true only for a non-empty `SSH_CONNECTION` or `SSH_TTY` in the inherited process layer. Web browser handoff, the adaptive directory picker, and Open In share this predicate; project and user `.env` values never establish an SSH session.
 
+`hostEscapeOf(snapshot)` returns the host-escape channel a sandbox declared, as `{ hostRootfs, launcher }`: the read-only mount of the host root filesystem plus the launcher that runs a program on the host (`systemd-run`). `undefined` means this run has no such channel, and a consumer must keep its sandbox-local behavior. The declaration is the inherited-process pair `DSH_HOST_ROOTFS` and `DSH_HOST_LAUNCH`, and, like the SSH markers, it is read from the process layer only — a project directory must never be able to declare a channel that starts programs outside the sandbox. A missing, empty, relative, or unknown value reads as no channel.
+
 ### How layers rank
 
 | Layer | What it is |
