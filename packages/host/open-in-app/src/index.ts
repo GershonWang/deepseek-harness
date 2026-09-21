@@ -26,7 +26,7 @@ import { stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-subprocess'
-import { launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
+import { hostEscapeOf, launchedThroughSsh, launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import z from '@deepseek-ai/schemastery'
 import { OPEN_IN_APP_CATALOG, type OpenInAppApp } from './catalog.ts'
 import {
@@ -136,10 +136,16 @@ function parseOpenBody(text: string): { app: string; path: string } | null {
 
 /** Register the apps, icon, and open routes behind the connection trust fence. */
 export function apply(ctx: Context, config: Config): void {
-  const ssh = launchedThroughSsh(launchEnvironmentOf(ctx))
+  const environment = launchEnvironmentOf(ctx)
+  const ssh = launchedThroughSsh(environment)
+  // A sandbox that declares a host-escape channel makes the host's own
+  // installed applications reachable; a host without one leaves every
+  // locator chain unchanged.
+  const hostEscape = hostEscapeOf(environment)
   /** Test-seam facts completed with the composition's PATH resolver. */
   const catalogInternals = (): OpenInAppInternals => ({
     ssh,
+    hostEscape,
     resolveExecutable: async (name) => {
       try {
         return await ctx.subprocess.resolveExecutable(name)

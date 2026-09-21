@@ -435,6 +435,89 @@ describe('open-in-app host routes (real Loader composition)', () => {
     }
   })
 
+  it('offers the host\'s own applications through the declared escape channel', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-home-'))
+    const hostRootfs = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-rootfs-'))
+    const workspace = join(home, 'workspace')
+    await mkdir(workspace, { recursive: true })
+    const applications = join(hostRootfs, 'usr', 'share', 'applications')
+    await mkdir(applications, { recursive: true })
+    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
+    await mkdir(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true })
+    await writeFile(join(hostRootfs, 'usr', 'share', 'code', 'code'), 'binary')
+    const launches: string[][] = []
+    const launch: OpenInAppLauncher = (command, args) => {
+      launches.push([command, ...args])
+      return Promise.resolve()
+    }
+    internals.catalog = {
+      platform: 'linux',
+      home,
+      env: { XDG_DATA_DIRS: join(home, 'xdg-empty') },
+      // The channel probe is the only host command this composition answers;
+      // resolution itself never runs another.
+      run: async (command, args) => {
+        if (command === 'systemd-run' && args[args.length - 1] === '/bin/true') return { stdout: '', stderr: '' }
+        throw new Error(`fixture rejects: ${command} ${args.join(' ')}`)
+      },
+      launch,
+      resolveExecutable: pathTable(),
+    }
+    // Declared the way the sandbox launcher declares it — as facts on the
+    // inherited process layer, never by project or user configuration.
+    const base = await boot([{
+      source: 'process',
+      values: { DSH_HOST_ROOTFS: hostRootfs, DSH_HOST_LAUNCH: 'systemd-run' },
+    }])
+    try {
+      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: ['vscode'] })
+      const open = await fetch(`${base}/open-in-app/open`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ app: 'vscode', path: workspace }),
+      })
+      expect(open.status).toBe(200)
+      expect(launches).toHaveLength(1)
+      // The bridge execs the host's own program with the workspace path, and
+      // the launcher is the forwarding one, not the sandbox-side path.
+      expect(launches[0]?.slice(0, 5))
+        .toEqual(['systemd-run', '--user', '--collect', '--quiet', '--service-type=exec'])
+      expect(launches[0]?.slice(-5))
+        .toEqual(['/bin/sh', '-c', 'exec "$0" "$@"', '/usr/share/code/code', workspace])
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(hostRootfs, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps host entries out when the channel is declared but cannot start a process', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-home-'))
+    const hostRootfs = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-rootfs-'))
+    const applications = join(hostRootfs, 'usr', 'share', 'applications')
+    await mkdir(applications, { recursive: true })
+    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/usr/share/code/code\n')
+    await mkdir(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true })
+    await writeFile(join(hostRootfs, 'usr', 'share', 'code', 'code'), 'binary')
+    internals.catalog = {
+      platform: 'linux',
+      home,
+      env: { XDG_DATA_DIRS: join(home, 'xdg-empty') },
+      run: () => Promise.reject(new Error('fixture: no host user manager')),
+      launch: () => Promise.reject(new Error('fixture: nothing may launch')),
+      resolveExecutable: pathTable(),
+    }
+    const base = await boot([{
+      source: 'process',
+      values: { DSH_HOST_ROOTFS: hostRootfs, DSH_HOST_LAUNCH: 'systemd-run' },
+    }])
+    try {
+      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [] })
+    } finally {
+      await rm(home, { recursive: true, force: true })
+      await rm(hostRootfs, { recursive: true, force: true })
+    }
+  })
+
   it('answers 400 when the connection dies mid-body', async () => {
     internals.catalog = { platform: 'aix', resolveExecutable: pathTable() }
     const base = await boot()

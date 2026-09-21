@@ -10,9 +10,17 @@
  * declared Windows visibility policy ({@link launchDetachedApp}); `shell-open`
  * launches (the file managers) go through the same package's path opener —
  * the OS shell's open verb — instead of a direct spawn.
+ *
+ * Inside a sandbox that declares a host-escape channel
+ * ({@link OpenInAppInternals.hostEscape}), each Linux entry may also resolve
+ * the host's own desktop entry for it and launch that through the host user
+ * manager, so applications installed on the host stay reachable from the
+ * sandbox. The channel is offered only after one probe proves it can start a
+ * host process, and never on a host without one.
  */
 
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir, platform as osPlatform } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
@@ -20,6 +28,7 @@ import {
   canOpenNativePath, openNativePath, runNativeCommand, type NativeCommandRunner,
 } from '@deepseek-ai/dsh-native-command'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
+import type { HostEscapeFact } from '@deepseek-ai/dsh-launch-environment'
 import {
   OPEN_IN_APP_CATALOG, PATH_TOKEN,
   type OpenInAppApp, type OpenInAppLaunch, type OpenInAppLocator, type OpenInAppPlatformSpec,
@@ -39,6 +48,12 @@ export interface OpenInAppResolvedLaunch {
    * desktop entry instead) and for launchers with no artwork of their own.
    */
   readonly icon?: OpenInAppIconSource | undefined
+  /**
+   * Desktop id a host launch was derived from. The Linux icon route follows
+   * this entry's `Icon=` key inside the host data directories; absent for
+   * sandbox-local launches, which use the spec's own desktop id.
+   */
+  readonly hostDesktopId?: string | undefined
 }
 
 /** One detached GUI launch: spawn, then watch the window for early failure. */
@@ -110,6 +125,11 @@ export interface OpenInAppInternals {
   launch?: OpenInAppLauncher
   /** In-process PATH-name resolution; null when the name is not on PATH. */
   resolveExecutable?: (name: string) => Promise<string | null>
+  /**
+   * Host-escape channel of the sandbox this process runs in. Absent on a host
+   * that provides none, which keeps `host-desktop` locators unreachable.
+   */
+  hostEscape?: HostEscapeFact | undefined
 }
 
 /** Platform facts after the one explicit defaulting step at each public entry. */
@@ -122,6 +142,7 @@ export interface ResolvedInternals {
   run: NativeCommandRunner
   launch: OpenInAppLauncher
   resolveExecutable: (name: string) => Promise<string | null>
+  hostEscape: HostEscapeFact | undefined
 }
 
 /**
@@ -147,6 +168,7 @@ export function resolveInternals(internals: OpenInAppInternals): ResolvedInterna
     run: internals.run ?? runNativeCommand,
     launch: internals.launch ?? launchDetachedApp,
     resolveExecutable,
+    hostEscape: internals.hostEscape,
   }
 }
 
@@ -344,6 +366,83 @@ class RegistryViewOnce {
   }
 }
 
+/**
+ * The forwarding launcher a sandbox declares. The host user manager validates
+ * the outer executable on the sandbox side, so the bridge it runs is
+ * `/bin/sh` — present in both namespaces — and the host's own program is the
+ * `$0` that bridge execs. `--service-type=exec` makes a failed host exec fail
+ * the launch immediately instead of after a timeout, `--expand-environment=no`
+ * keeps `%` and `$` in workspace paths literal, and `--collect` releases a
+ * failed unit rather than leaving it in the host manager.
+ */
+const HOST_ESCAPE_LAUNCHER = 'systemd-run'
+
+/** `systemd-run` options shared by the channel probe and every host launch. */
+const HOST_ESCAPE_OPTIONS = [
+  '--user', '--collect', '--quiet', '--service-type=exec', '--expand-environment=no',
+] as const
+
+/** The bridge the host user manager execs; see {@link HOST_ESCAPE_LAUNCHER}. */
+const HOST_ESCAPE_BRIDGE = ['/bin/sh', '-c', 'exec "$0" "$@"'] as const
+
+/** Unit-name prefix keeping host units attributable to this route. */
+const HOST_ESCAPE_UNIT_PREFIX = 'dsh-open-in-app'
+
+/**
+ * argv installing one host command: shared options, a unique unit name (the
+ * host manager rejects a duplicate), the bridge, and the host-side argv the
+ * bridge execs.
+ */
+function hostEscapeArgs(target: readonly string[]): readonly string[] {
+  const unit = `${HOST_ESCAPE_UNIT_PREFIX}-${process.pid}-${randomBytes(6).toString('hex')}`
+  return [...HOST_ESCAPE_OPTIONS, `--unit=${unit}`, '--', ...HOST_ESCAPE_BRIDGE, ...target]
+}
+
+/**
+ * Verify one host desktop entry's executable the way the host will resolve
+ * it: an absolute path under the host root is checked through the sandbox's
+ * read-only mount of that root, and a path in the shared home directly — the
+ * home directory is the same file on both sides, so it is the very binary the
+ * host execs. A path this process cannot see proves nothing and is rejected
+ * rather than offered as a launch that would fail on click.
+ * @param command - absolute program path from the entry's `Exec`.
+ * @param internals - completed platform facts.
+ * @returns true when the host-side program exists.
+ */
+async function verifyHostExecutable(command: string, internals: ResolvedInternals): Promise<boolean> {
+  const hostRootfs = internals.hostEscape?.hostRootfs
+  if (hostRootfs !== undefined && await isFile(join(hostRootfs, command))) return true
+  return await isFile(command)
+}
+
+/**
+ * Pass-scoped host-escape state: which data directories hold the host's
+ * entries, or none when this pass offers no host launches. The channel probe
+ * runs at most once per pass and its failure withholds the channel for the
+ * whole pass — an entry that errors on click is worse than an absent one, and
+ * the sandbox's channel is a per-machine fact that cannot change mid-pass.
+ * Pairing the probe with the directories keeps a caller from reading host
+ * entries without a channel that has been proven to work.
+ */
+class HostEscapeViewOnce {
+  private reach: Promise<readonly string[] | null> | undefined
+  constructor(
+    private readonly fact: HostEscapeFact | undefined,
+    private readonly timeoutMs: number,
+    private readonly internals: ResolvedInternals,
+  ) {}
+
+  /** The host's data directories, or null when this pass offers no host launch. */
+  reachable(): Promise<readonly string[] | null> {
+    const fact = this.fact
+    this.reach ??= fact === undefined
+      ? Promise.resolve(null)
+      : output(HOST_ESCAPE_LAUNCHER, hostEscapeArgs(['/bin/true']), this.timeoutMs, this.internals)
+        .then(stdout => stdout === null ? null : hostDataDirectories(fact.hostRootfs, this.internals))
+    return this.reach
+  }
+}
+
 /** The executable a Windows Uninstall record proves, or null when it proves none. */
 async function recordLauncher(
   record: WindowsInstallRecord,
@@ -411,15 +510,36 @@ export function xdgDataDirectories(internals: ResolvedInternals): readonly strin
 }
 
 /**
+ * Data directories of the host filesystem a sandbox mounts read-only, in
+ * precedence order: the host's own application entries (distribution
+ * directories and the Linglong store's exported entries), then the user's
+ * shared home — the home directory is the same file on both sides of the
+ * sandbox, so a per-user entry and its launcher are readable at their host
+ * paths.
+ * @param hostRootfs - host root mount point declared by the sandbox.
+ * @param internals - completed platform facts.
+ * @returns the host data directories, user entries last.
+ */
+export function hostDataDirectories(hostRootfs: string, internals: ResolvedInternals): readonly string[] {
+  const dataHome = internals.env['XDG_DATA_HOME'] ?? join(internals.home, '.local', 'share')
+  return [
+    join(hostRootfs, 'usr', 'local', 'share'),
+    join(hostRootfs, 'usr', 'share'),
+    join(hostRootfs, 'var', 'lib', 'linglong', 'entries', 'share'),
+    dataHome,
+  ]
+}
+
+/**
  * Read one desktop entry by id from the XDG application directories.
  * @param desktopId - entry id without the `.desktop` suffix.
- * @param internals - completed platform facts.
+ * @param dataDirs - data directories to search, in precedence order.
  * @returns the parsed entry, or null when no directory holds it.
  */
 export async function findDesktopEntry(
-  desktopId: string, internals: ResolvedInternals,
+  desktopId: string, dataDirs: readonly string[],
 ): Promise<DesktopEntry | null> {
-  for (const dataDir of xdgDataDirectories(internals)) {
+  for (const dataDir of dataDirs) {
     const path = join(dataDir, 'applications', `${desktopId}.desktop`)
     try {
       return parseDesktopEntry(await readFile(path, 'utf8'))
@@ -477,6 +597,7 @@ async function locate(
   locator: OpenInAppLocator,
   probeTimeoutMs: number,
   registry: RegistryViewOnce,
+  hostEscape: HostEscapeViewOnce,
   internals: ResolvedInternals,
 ): Promise<OpenInAppResolvedLaunch | null> {
   switch (locator.kind) {
@@ -605,10 +726,28 @@ async function locate(
       return null
     }
     case 'desktop': {
-      const entry = await findDesktopEntry(locator.desktopId, internals)
+      const entry = await findDesktopEntry(locator.desktopId, xdgDataDirectories(internals))
       if (entry === null) return null
       const launcher = await desktopLauncher(entry, internals)
       return launcher === null ? null : { launch: { kind: 'argv', command: launcher, args: locator.args } }
+    }
+    case 'host-desktop': {
+      const dataDirs = await hostEscape.reachable()
+      if (dataDirs === null) return null
+      for (const desktopId of locator.desktopIds) {
+        const entry = await findDesktopEntry(desktopId, dataDirs)
+        if (entry === null) continue
+        // The program the entry itself launches is what runs on the host:
+        // `TryExec` only marks installation, and a bare name cannot be
+        // verified across the sandbox boundary.
+        const command = execCommand(entry.exec)
+        if (command === null || !isAbsolute(command) || !await verifyHostExecutable(command, internals)) continue
+        return {
+          launch: { kind: 'host-argv', command, args: locator.args },
+          hostDesktopId: desktopId,
+        }
+      }
+      return null
     }
     /* v8 ignore next -- closed locator union */
     default: return assertNever(locator)
@@ -628,7 +767,10 @@ export async function resolveLaunch(
 ): Promise<OpenInAppResolvedLaunch | null> {
   const resolved = resolveInternals(internals)
   if (resolved.ssh) return null
-  return resolveWithRegistry(app, probeTimeoutMs, new RegistryViewOnce(probeTimeoutMs, resolved), resolved)
+  return resolveWithRegistry(
+    app, probeTimeoutMs, new RegistryViewOnce(probeTimeoutMs, resolved),
+    new HostEscapeViewOnce(resolved.hostEscape, probeTimeoutMs, resolved), resolved,
+  )
 }
 
 /** Resolve one entry against a pass-shared registry view. */
@@ -636,12 +778,13 @@ async function resolveWithRegistry(
   app: OpenInAppApp,
   probeTimeoutMs: number,
   registry: RegistryViewOnce,
+  hostEscape: HostEscapeViewOnce,
   internals: ResolvedInternals,
 ): Promise<OpenInAppResolvedLaunch | null> {
   const platformSpec = specFor(app, internals.platform)
   if (platformSpec === undefined) return null
   for (const locator of platformSpec.locators) {
-    const found = await locate(locator, probeTimeoutMs, registry, internals)
+    const found = await locate(locator, probeTimeoutMs, registry, hostEscape, internals)
     if (found !== null) return found
   }
   return null
@@ -666,8 +809,9 @@ export async function resolveOpenInAppApps(
     return new Map()
   }
   const registry = new RegistryViewOnce(probeTimeoutMs, resolved)
+  const hostEscape = new HostEscapeViewOnce(resolved.hostEscape, probeTimeoutMs, resolved)
   const entries = await Promise.all(OPEN_IN_APP_CATALOG.map(async app =>
-    [app.id, await resolveWithRegistry(app, probeTimeoutMs, registry, resolved)] as const))
+    [app.id, await resolveWithRegistry(app, probeTimeoutMs, registry, hostEscape, resolved)] as const))
   const map = new Map<string, OpenInAppResolvedLaunch>()
   for (const [id, launch] of entries) {
     if (launch !== null) map.set(id, launch)
@@ -744,6 +888,22 @@ async function runLaunch(
         // meaning — the launcher never opened anything — and the caller may
         // still try a fallback.
         return isMissingExecutable(error) ? 'missing' : 'failed'
+      }
+    case 'host-argv':
+      try {
+        await internals.launch(
+          HOST_ESCAPE_LAUNCHER,
+          hostEscapeArgs([launch.command, ...launchArgs(launch.args, path)]),
+          { watchMs },
+        )
+        return 'launched'
+      } catch {
+        // Swallows a spawn failure or a nonzero exit of the forwarding
+        // launcher: the bridge always exists, and `exec` reports a vanished
+        // host program as a failed start, so both mean the same thing here.
+        // Reported as stale because re-resolving is the only repair available
+        // from inside the sandbox — it drops an entry whose program is gone.
+        return 'missing'
       }
     /* v8 ignore next -- closed launch union */
     default: return assertNever(launch)

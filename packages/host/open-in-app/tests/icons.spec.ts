@@ -281,4 +281,58 @@ describe('Linux desktop-entry icons', () => {
     // filemanager (xdg-open) declares no desktop entry to read an icon from.
     await expect(extractAppIcon(byId('filemanager'), resolved, TIMEOUT_MS, internals(empty))).resolves.toBeNull()
   })
+
+  it('follows a host-resolved launch into the host data directories', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    const applications = join(hostRootfs, 'usr', 'share', 'applications')
+    await mkdir(applications, { recursive: true })
+    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/usr/share/code/code\nIcon=mycode\n')
+    const themeIcon = join(hostRootfs, 'usr', 'share', 'icons', 'hicolor', '128x128', 'apps', 'mycode.png')
+    await mkdir(dirname(themeIcon), { recursive: true })
+    await writeFile(themeIcon, 'host-png')
+
+    const icon = await extractAppIcon(byId('vscode'), {
+      launch: { kind: 'host-argv', command: '/usr/share/code/code', args: ['{path}'] },
+      hostDesktopId: 'code',
+    }, TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))
+
+    expect(icon).toEqual({ bytes: Buffer.from('host-png'), contentType: 'image/png' })
+  })
+
+  it('serves an absolute host Icon= path through the host-root mount, and refuses it without a channel', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    const applications = join(hostRootfs, 'usr', 'share', 'applications')
+    await mkdir(applications, { recursive: true })
+    await writeFile(
+      join(applications, 'code.desktop'),
+      '[Desktop Entry]\nExec=/usr/share/code/code\nIcon=/usr/share/pixmaps/code.svg\n')
+    const svg = join(hostRootfs, 'usr', 'share', 'pixmaps', 'code.svg')
+    await mkdir(dirname(svg), { recursive: true })
+    await writeFile(svg, '<svg>host</svg>')
+    const resolved: OpenInAppResolvedLaunch = {
+      launch: { kind: 'host-argv', command: '/usr/share/code/code', args: ['{path}'] },
+      hostDesktopId: 'code',
+    }
+
+    await expect(extractAppIcon(byId('vscode'), resolved, TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))).resolves.toEqual({ bytes: Buffer.from('<svg>host</svg>'), contentType: 'image/svg+xml' })
+
+    // Without a declared channel the host root is not a filesystem this
+    // process may read on the strength of a resolution's claim alone.
+    const containerApplications = join(home, '.local', 'share', 'applications')
+    await mkdir(containerApplications, { recursive: true })
+    await writeFile(
+      join(containerApplications, 'code.desktop'),
+      '[Desktop Entry]\nExec=/usr/share/code/code\nIcon=/dsh-spec-absent/code.svg\n')
+    await expect(extractAppIcon(byId('vscode'), resolved, TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home),
+    }))).resolves.toBeNull()
+  })
 })

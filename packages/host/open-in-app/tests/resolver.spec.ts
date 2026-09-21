@@ -7,13 +7,13 @@
  */
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
-import { OPEN_IN_APP_CATALOG, type OpenInAppApp } from '../src/catalog.ts'
+import { OPEN_IN_APP_CATALOG, PATH_TOKEN, type OpenInAppApp } from '../src/catalog.ts'
 import {
-  execCommand, launchDetachedApp, launchResolved, parseDesktopEntry, parseRegistryDump, resolveInternals,
-  resolveLaunch, resolveOpenInAppApps, xdgDataDirectories,
+  execCommand, hostDataDirectories, launchDetachedApp, launchResolved, parseDesktopEntry, parseRegistryDump,
+  resolveInternals, resolveLaunch, resolveOpenInAppApps, xdgDataDirectories,
   type OpenInAppInternals, type OpenInAppLauncher, type OpenInAppResolvedLaunch,
 } from '../src/resolver.ts'
 
@@ -682,5 +682,182 @@ describe('launchDetachedApp', () => {
       delete process.env.OPEN_IN_APP_SPEC_PLAIN
     }
     expect(JSON.parse(await readFile(witness, 'utf8'))).toEqual([null, 'overridden', '1'])
+  })
+})
+
+/**
+ * Host-escape resolution: a sandbox that declares a channel may offer the
+ * host's own desktop entries, but only after one probe proves the channel can
+ * start a host process and only for entries whose program this process can
+ * verify. A wrong or failing answer here shows up as a menu entry that errors
+ * on click, so every withholding path is pinned.
+ */
+describe('host-desktop locators', () => {
+  /** One desktop entry inside a data directory, creating the tree. */
+  async function writeEntry(dataDir: string, desktopId: string, body: string): Promise<void> {
+    await mkdir(join(dataDir, 'applications'), { recursive: true })
+    await writeFile(join(dataDir, 'applications', `${desktopId}.desktop`), body)
+  }
+
+  /** Write a host-side program file, creating its directories. */
+  async function writeProgram(path: string): Promise<void> {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, 'binary')
+  }
+
+  /** Runner answering the channel probe and rejecting every other command. */
+  function probeRunner(): NativeCommandRunner {
+    return runner((command, args) =>
+      command === 'systemd-run' && args[args.length - 1] === '/bin/true' ? '' : null)
+  }
+
+  it('resolves a host entry through the host-root mount, recording the entry it came from', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    await writeEntry(join(hostRootfs, 'usr', 'share'), 'code', '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
+    await writeProgram(join(hostRootfs, 'usr', 'share', 'code', 'code'))
+
+    await expect(resolveLaunch(byId('vscode'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))).resolves.toEqual({
+      launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] },
+      hostDesktopId: 'code',
+    })
+  })
+
+  it('reads a per-user host entry from the shared home, trying the declared ids in order', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    const idea = join(home, 'Documents', 'jetbrains', 'idea', 'bin', 'idea')
+    await writeProgram(idea)
+    // The Toolbox spelling is the second declared id: the first is absent.
+    await writeEntry(join(home, '.local', 'share'), 'intellij-idea', `[Desktop Entry]\nExec="${idea}" %f\n`)
+
+    await expect(resolveLaunch(byId('intellij'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))).resolves.toEqual({
+      launch: { kind: 'host-argv', command: idea, args: [PATH_TOKEN] },
+      hostDesktopId: 'intellij-idea',
+    })
+  })
+
+  it('skips host entries without an Exec, with a bare program name, or with a program this process cannot verify', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    const applications = join(hostRootfs, 'usr', 'share')
+    // vscode: the entry's program is not on the host root.
+    await writeEntry(applications, 'code', '[Desktop Entry]\nExec=/usr/share/code/code\n')
+    // vscodeinsiders: a bare name cannot be verified across the sandbox.
+    await writeEntry(applications, 'code-insiders', '[Desktop Entry]\nExec=code-insiders\n')
+    // cursor: no Exec key at all.
+    await writeEntry(applications, 'cursor', '[Desktop Entry]\nIcon=cursor\n')
+    const internals = bare({
+      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    })
+
+    await expect(resolveLaunch(byId('vscode'), TIMEOUT_MS, internals)).resolves.toBeNull()
+    await expect(resolveLaunch(byId('vscodeinsiders'), TIMEOUT_MS, internals)).resolves.toBeNull()
+    await expect(resolveLaunch(byId('cursor'), TIMEOUT_MS, internals)).resolves.toBeNull()
+  })
+
+  it('withholds every host entry when the channel probe fails, after exactly one attempt', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    await writeEntry(join(hostRootfs, 'usr', 'share'), 'code', '[Desktop Entry]\nExec=/usr/share/code/code\n')
+    await writeProgram(join(hostRootfs, 'usr', 'share', 'code', 'code'))
+    const run = vi.fn<NativeCommandRunner>()
+    run.mockRejectedValue(new Error('fixture: no host user manager'))
+
+    const map = await resolveOpenInAppApps(TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run,
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))
+
+    expect([...map.keys()]).toEqual([])
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(run.mock.calls[0]?.[0]).toBe('systemd-run')
+  })
+
+  it('probes the channel once per pass and lists the verified host entries in menu order', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    await writeEntry(join(hostRootfs, 'usr', 'share'), 'code', '[Desktop Entry]\nExec=/usr/share/code/code\n')
+    await writeProgram(join(hostRootfs, 'usr', 'share', 'code', 'code'))
+    // The Linglong store exports host applications into its own entries directory.
+    await writeEntry(
+      join(hostRootfs, 'var', 'lib', 'linglong', 'entries', 'share'), 'cursor',
+      '[Desktop Entry]\nExec=/opt/cursor/cursor %U\n')
+    await writeProgram(join(hostRootfs, 'opt', 'cursor', 'cursor'))
+    const run = vi.fn(probeRunner())
+
+    const map = await resolveOpenInAppApps(TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run,
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))
+
+    expect([...map.keys()]).toEqual(['cursor', 'vscode'])
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(map.get('cursor')?.launch).toEqual({
+      kind: 'host-argv', command: '/opt/cursor/cursor', args: [PATH_TOKEN],
+    })
+  })
+
+  it('orders host data directories with the shared home last, honoring XDG_DATA_HOME', () => {
+    const hostEscape = { hostRootfs: '/host', launcher: 'systemd-run' } as const
+    const defaults = resolveInternals(bare({ home: '/home/u', env: {}, hostEscape }))
+    expect(hostDataDirectories('/host', defaults)).toEqual([
+      '/host/usr/local/share',
+      '/host/usr/share',
+      '/host/var/lib/linglong/entries/share',
+      '/home/u/.local/share',
+    ])
+    const override = resolveInternals(bare({ home: '/home/u', env: { XDG_DATA_HOME: '/home/u/.data' } }))
+    expect(hostDataDirectories('/host', override).at(-1)).toBe('/home/u/.data')
+  })
+
+  it('launches a host program through the forwarding bridge with argv, never a shell string', async () => {
+    const attempts: { command: string; args: readonly string[] }[] = []
+    const path = '/workspace/100% $HOME'
+    const outcome = await launchResolved(
+      { launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] } },
+      path,
+      TIMEOUT_MS,
+      bare({
+        launch: (command, args) => {
+          attempts.push({ command, args: [...args] })
+          return Promise.resolve()
+        },
+      }),
+    )
+
+    expect(outcome).toBe('launched')
+    const [attempt] = attempts
+    expect(attempt?.command).toBe('systemd-run')
+    expect(attempt?.args.slice(0, 5))
+      .toEqual(['--user', '--collect', '--quiet', '--service-type=exec', '--expand-environment=no'])
+    // A unique unit name per attempt: the host manager rejects duplicates.
+    expect(attempt?.args[5]).toMatch(/^--unit=dsh-open-in-app-\d+-[0-9a-f]{12}$/)
+    expect(attempt?.args.slice(6))
+      .toEqual(['--', '/bin/sh', '-c', 'exec "$0" "$@"', '/usr/share/code/code', path])
+  })
+
+  it('reports every host launch failure as stale so the caller refreshes the entry once', async () => {
+    const resolved: OpenInAppResolvedLaunch = {
+      launch: { kind: 'host-argv', command: '/opt/one', args: [] },
+    }
+    // A nonzero `systemd-run` exit (the host program vanished since
+    // resolution) and the forwarding launcher itself missing both mean the
+    // host could not start the program; re-resolving is the only repair.
+    await expect(launchResolved(
+      resolved, '/workspace', TIMEOUT_MS,
+      bare({ launch: () => Promise.reject(new Error('Transaction for dsh-open-in-app-x.service/start failed')) }),
+    )).resolves.toBe('missing')
+    await expect(launchResolved(
+      resolved, '/workspace', TIMEOUT_MS,
+      bare({ launch: () => Promise.reject(Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' })) }),
+    )).resolves.toBe('missing')
   })
 })

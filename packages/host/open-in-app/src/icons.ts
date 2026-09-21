@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { OpenInAppApp } from './catalog.ts'
 import {
-  findDesktopEntry, isFile, output, resolveInternals, specFor, xdgDataDirectories,
+  findDesktopEntry, hostDataDirectories, isFile, output, resolveInternals, specFor, xdgDataDirectories,
   type OpenInAppInternals, type OpenInAppResolvedLaunch, type ResolvedInternals,
 } from './resolver.ts'
 
@@ -165,15 +165,28 @@ async function findLinuxThemeIcon(
   return null
 }
 
-/** One Linux application's icon from its desktop entry's `Icon=` key. */
+/**
+ * One Linux application's icon from one desktop entry's `Icon=` key.
+ * @param desktopId - entry id without the `.desktop` suffix.
+ * @param dataDirs - data directories to search (the container's own, or the
+ * host's when the launch was resolved on the host side).
+ * @param internals - completed platform facts.
+ * @returns the icon bytes and media type, or null when the entry names none
+ * that is readable here.
+ */
 async function extractLinuxIcon(
-  desktopId: string, internals: ResolvedInternals,
+  desktopId: string, dataDirs: readonly string[], internals: ResolvedInternals,
 ): Promise<OpenInAppIcon | null> {
-  const entry = await findDesktopEntry(desktopId, internals)
+  const entry = await findDesktopEntry(desktopId, dataDirs)
   const icon = entry?.icon
   if (icon === undefined || icon === '') return null
-  if (isAbsolute(icon)) return readIconFile(icon)
-  return findLinuxThemeIcon(icon, xdgDataDirectories(internals))
+  if (!isAbsolute(icon)) return findLinuxThemeIcon(icon, dataDirs)
+  const direct = await readIconFile(icon)
+  if (direct !== null) return direct
+  // An absolute icon path inside the host's own root is readable through the
+  // sandbox's read-only mount of it; a shared-home path read directly above.
+  const hostRootfs = internals.hostEscape?.hostRootfs
+  return hostRootfs === undefined ? null : readIconFile(join(hostRootfs, icon))
 }
 
 /**
@@ -192,8 +205,17 @@ export async function extractAppIcon(
 ): Promise<OpenInAppIcon | null> {
   const completed = resolveInternals(internals)
   if (completed.platform === 'linux') {
-    const desktopId = specFor(app, completed.platform)?.desktopId
-    return desktopId === undefined ? null : extractLinuxIcon(desktopId, completed)
+    // A host launch carries the entry it came from: its `Icon=` key lives in
+    // the host's data directories, while a sandbox-local launch uses the
+    // spec's own desktop id in the container's directories.
+    const hostDesktopId = resolved.hostDesktopId
+    const hostRootfs = completed.hostEscape?.hostRootfs
+    const desktopId = hostDesktopId ?? specFor(app, completed.platform)?.desktopId
+    if (desktopId === undefined) return null
+    const dataDirs = hostDesktopId !== undefined && hostRootfs !== undefined
+      ? hostDataDirectories(hostRootfs, completed)
+      : xdgDataDirectories(completed)
+    return extractLinuxIcon(desktopId, dataDirs, completed)
   }
   if (resolved.icon === undefined) return null
   if (resolved.icon.kind === 'app-bundle') {

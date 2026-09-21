@@ -21,7 +21,9 @@ export const PATH_TOKEN = '{path}'
  * operating system shell's open verb through `dsh-native-command`'s path
  * opener — the channel the file managers use, because they are the OS default
  * for a directory and a direct `explorer.exe <dir>` spawn does not reliably
- * raise a window.
+ * raise a window. `host-argv` is `argv` for a path that exists on the host
+ * rather than in this process's filesystem view: the sandbox's forwarding
+ * launcher runs it through the host user manager (see `resolver.ts`).
  */
 export type OpenInAppLaunch =
   | {
@@ -32,6 +34,12 @@ export type OpenInAppLaunch =
     readonly windowsHide?: boolean | undefined
   }
   | { readonly kind: 'shell-open' }
+  | {
+    readonly kind: 'host-argv'
+    /** Absolute executable path in the host's filesystem view, not this process's. */
+    readonly command: string
+    readonly args: readonly string[]
+  }
 
 /**
  * How one platform derives a verified launcher. Every kind resolves to an
@@ -83,6 +91,19 @@ export type OpenInAppLocator =
   }
   | { readonly kind: 'github-desktop'; readonly root: string }
   | { readonly kind: 'desktop'; readonly desktopId: string; readonly args: readonly string[] }
+  | {
+    /**
+     * The host's own desktop entries, resolved only inside a sandbox that
+     * declares a host-escape channel. Candidates are probed in order and the
+     * entry's `Exec` program must exist on the host (through the sandbox's
+     * host-root mount) or in the shared home; the resolved launch then runs
+     * that program on the host. Entries are never enumerated: only these
+     * documented ids are read.
+     */
+    readonly kind: 'host-desktop'
+    readonly desktopIds: readonly string[]
+    readonly args: readonly string[]
+  }
 
 /** One platform's launcher sources and, on Linux, its icon-owning desktop entry. */
 export interface OpenInAppPlatformSpec {
@@ -132,6 +153,15 @@ function file(candidates: string[], ...args: string[]): OpenInAppLocator {
   return { kind: 'file', candidates, args }
 }
 
+/**
+ * Host desktop-entry locator: the ids a host installation is known to use,
+ * tried in order. Only reachable inside a sandbox that declares a host-escape
+ * channel, so a host without one resolves exactly as before.
+ */
+function hostDesktop(desktopIds: readonly string[], ...args: string[]): OpenInAppLocator {
+  return { kind: 'host-desktop', desktopIds, args }
+}
+
 /** Windows `App Paths` registry locator for one registered executable name. */
 function appPaths(exe: string, ...args: string[]): OpenInAppLocator {
   return { kind: 'app-paths', exe, args }
@@ -146,10 +176,12 @@ function installRecord(displayNamePrefix: string, relativeLauncher?: string, ...
  * JetBrains product entry: known bundle names on macOS (direct-download and
  * Toolbox spellings), the newest versioned `%ProgramFiles%\JetBrains` install
  * or a verified Uninstall record on Windows, PATH command or Toolbox shell
- * script on Linux.
+ * script on Linux, and the host's own desktop entries when this process runs
+ * inside a sandbox (the Toolbox desktop entries are per-user files).
  */
 function jetBrains(
   id: string, productName: string, cliName: string, winExe: string, macNames: readonly string[],
+  linuxDesktopIds: readonly string[],
 ): OpenInAppApp {
   return {
     id,
@@ -165,7 +197,11 @@ function jetBrains(
         },
         installRecord(productName, `bin/${winExe}`),
       ),
-      linux: spec(cli(cliName), file([`~/.local/share/JetBrains/Toolbox/scripts/${cliName}`])),
+      linux: spec(
+        cli(cliName),
+        file([`~/.local/share/JetBrains/Toolbox/scripts/${cliName}`]),
+        hostDesktop(linuxDesktopIds, PATH_TOKEN),
+      ),
     },
   }
 }
@@ -209,7 +245,7 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Cursor'),
         file(['${LOCALAPPDATA}/Programs/cursor/Cursor.exe']),
       ),
-      linux: spec(cli('cursor')),
+      linux: spec(cli('cursor'), hostDesktop(['cursor'], PATH_TOKEN)),
     },
   },
   {
@@ -224,7 +260,7 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
           '${ProgramFiles}/Microsoft VS Code/Code.exe',
         ]),
       ),
-      linux: desktopSpec('code', cli('code')),
+      linux: desktopSpec('code', cli('code'), hostDesktop(['code'], PATH_TOKEN)),
     },
   },
   {
@@ -236,7 +272,7 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Microsoft Visual Studio Code Insiders', 'Code - Insiders.exe'),
         file(['${LOCALAPPDATA}/Programs/Microsoft VS Code Insiders/Code - Insiders.exe']),
       ),
-      linux: desktopSpec('code-insiders', cli('code-insiders')),
+      linux: desktopSpec('code-insiders', cli('code-insiders'), hostDesktop(['code-insiders'], PATH_TOKEN)),
     },
   },
   {
@@ -248,14 +284,19 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Windsurf'),
         file(['${LOCALAPPDATA}/Programs/Windsurf/Windsurf.exe']),
       ),
-      linux: spec(cli('windsurf')),
+      linux: spec(cli('windsurf'), hostDesktop(['windsurf'], PATH_TOKEN)),
     },
   },
   {
     id: 'zed',
     platforms: {
       darwin: macApp('Zed.app', 'Zed Preview.app'),
-      linux: desktopSpec('dev.zed.Zed', cli('zed'), { kind: 'desktop', desktopId: 'dev.zed.Zed', args: [] }),
+      linux: desktopSpec(
+        'dev.zed.Zed',
+        cli('zed'),
+        { kind: 'desktop', desktopId: 'dev.zed.Zed', args: [] },
+        hostDesktop(['dev.zed.Zed'], PATH_TOKEN),
+      ),
     },
   },
   {
@@ -267,7 +308,7 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Sublime Text'),
         file(['${ProgramFiles}/Sublime Text/sublime_text.exe']),
       ),
-      linux: desktopSpec('sublime_text', cli('subl')),
+      linux: desktopSpec('sublime_text', cli('subl'), hostDesktop(['sublime_text'], PATH_TOKEN)),
     },
   },
   { id: 'xcode', platforms: { darwin: spec({ kind: 'xcode' }) } },
@@ -279,21 +320,32 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Android Studio', 'bin/studio64.exe'),
         file(['${ProgramFiles}/Android/Android Studio/bin/studio64.exe']),
       ),
-      linux: spec(cli('studio'), file([
-        '~/.local/share/JetBrains/Toolbox/scripts/studio',
-        '/opt/android-studio/bin/studio.sh',
-      ])),
+      linux: spec(
+        cli('studio'),
+        file([
+          '~/.local/share/JetBrains/Toolbox/scripts/studio',
+          '/opt/android-studio/bin/studio.sh',
+        ]),
+        hostDesktop(['android-studio'], PATH_TOKEN),
+      ),
     },
   },
   jetBrains('intellij', 'IntelliJ IDEA', 'idea', 'idea64.exe',
-    ['IntelliJ IDEA.app', 'IntelliJ IDEA Ultimate.app', 'IntelliJ IDEA CE.app']),
+    ['IntelliJ IDEA.app', 'IntelliJ IDEA Ultimate.app', 'IntelliJ IDEA CE.app'],
+    ['jetbrains-idea', 'intellij-idea']),
   jetBrains('pycharm', 'PyCharm', 'pycharm', 'pycharm64.exe',
-    ['PyCharm.app', 'PyCharm Professional.app', 'PyCharm CE.app', 'PyCharm Community.app']),
-  jetBrains('webstorm', 'WebStorm', 'webstorm', 'webstorm64.exe', ['WebStorm.app']),
-  jetBrains('phpstorm', 'PhpStorm', 'phpstorm', 'phpstorm64.exe', ['PhpStorm.app']),
-  jetBrains('goland', 'GoLand', 'goland', 'goland64.exe', ['GoLand.app']),
-  jetBrains('rider', 'Rider', 'rider', 'rider64.exe', ['Rider.app', 'JetBrains Rider.app']),
-  jetBrains('rustrover', 'RustRover', 'rustrover', 'rustrover64.exe', ['RustRover.app']),
+    ['PyCharm.app', 'PyCharm Professional.app', 'PyCharm CE.app', 'PyCharm Community.app'],
+    ['jetbrains-pycharm', 'pycharm']),
+  jetBrains('webstorm', 'WebStorm', 'webstorm', 'webstorm64.exe', ['WebStorm.app'],
+    ['jetbrains-webstorm']),
+  jetBrains('phpstorm', 'PhpStorm', 'phpstorm', 'phpstorm64.exe', ['PhpStorm.app'],
+    ['jetbrains-phpstorm']),
+  jetBrains('goland', 'GoLand', 'goland', 'goland64.exe', ['GoLand.app'],
+    ['jetbrains-goland']),
+  jetBrains('rider', 'Rider', 'rider', 'rider64.exe', ['Rider.app', 'JetBrains Rider.app'],
+    ['jetbrains-rider']),
+  jetBrains('rustrover', 'RustRover', 'rustrover', 'rustrover64.exe', ['RustRover.app'],
+    ['jetbrains-rustrover']),
   {
     id: 'fork',
     platforms: {
