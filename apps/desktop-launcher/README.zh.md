@@ -94,6 +94,8 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
+| `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
+| `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
 
 ## 连接外部服务
 

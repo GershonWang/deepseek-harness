@@ -94,6 +94,8 @@ Development infers the repo root from CWD rather than the executable path, becau
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | Directory where `harness.log` is written |
 | `DSH_DESKTOP_NODE` | unset | Overrides the node executable path |
 | `DSH_DESKTOP_DMABUF_RENDERER` | unset | `1` keeps webkit2gtk's DMABUF accelerated compositing on a machine with the NVIDIA driver, where the launcher otherwise disables it (see Known issues) |
+| `DSH_HOST_ROOTFS` | `/run/host/rootfs` when that mount exists | Written for the harness child process, not read by the launcher: the sandbox's read-only mount of the host root, which together with the next variable declares the host-escape channel. An existing value is never overwritten, so an empty one disables the channel |
+| `DSH_HOST_LAUNCH` | `systemd-run` when that forwarder resolves on `PATH` | Written for the harness child process, not read by the launcher: the forwarder that starts a process on the host, which is what lets the Open In menu offer host applications ([rationale](../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.md)) |
 
 ## Connecting to an external service
 
