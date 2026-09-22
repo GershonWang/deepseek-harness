@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,7 +47,6 @@ type ProgressEvent struct {
 	ID      string // 工具链 ID
 	Phase   string // queued / downloading / extracting / verifying / linking / done / error
 	Percent int    // 0-100
-	Message string // 人类可读描述（如"下载中 45%"）
 }
 
 // FrontendStatus 是 Web 壳每次状态刷新收到的快照。
@@ -461,7 +459,7 @@ func (a *App) emitToolchain(s ToolStatus) {
 // emitProgress 推送单个工具链安装的实时进度（下载/解压/校验百分比）。
 // 下载进度回调频率高（io.Copy 每读一块触发一次），这里直接事件发射，
 // 前端按 ID 定向更新对应卡片的进度条，不重渲染整个网格，避免卡顿。
-func (a *App) emitProgress(id, phase string, percent int, message string) {
+func (a *App) emitProgress(id, phase string, percent int) {
 	if a.ctx == nil {
 		return
 	}
@@ -469,7 +467,6 @@ func (a *App) emitProgress(id, phase string, percent int, message string) {
 		ID:      id,
 		Phase:   phase,
 		Percent: percent,
-		Message: message,
 	})
 }
 
@@ -669,7 +666,7 @@ func (a *App) ReportClientBootFailure(reason string) FrontendStatus {
 	}
 	message := strings.TrimSpace(reason)
 	if message == "" {
-		message = "客户端插件加载失败（未提供原因）"
+		message = a.t("client.bootFailedNoReason")
 	}
 	a.mu.Lock()
 	a.clientFailure = message
@@ -834,7 +831,7 @@ func (a *App) runDoctor(ctx context.Context) DoctorReport {
 
 	out := outBuf.Bytes()
 	if len(bytes.TrimSpace(out)) == 0 {
-		return DoctorReport{Error: "doctor 无输出: exit status " + exitCodeText(cmd)}
+		return DoctorReport{Error: a.t("doctor.noOutputExit", exitCodeText(cmd))}
 	}
 
 	// 用 json.RawMessage 先解一层结构
@@ -922,7 +919,7 @@ func (a *App) RunDoctorRepair(level int) string {
 	cmd.Env = a.preflightRunner.Env()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {
-		return "修复失败: " + err.Error()
+		return a.t("doctor.repairFailed", err.Error())
 	}
 	return string(out)
 }
@@ -931,21 +928,21 @@ func (a *App) RunDoctorRepair(level int) string {
 // 校验失败立即返回错误文本；成功则后台探测，结果随状态事件推送。
 func (a *App) ConnectExternal(raw string) string {
 	if a.ctx == nil {
-		return "应用尚未就绪"
+		return a.t("app.notReady")
 	}
 	u, err := a.conn.ValidateURL(raw)
 	if err != nil {
-		return "地址无效: " + err.Error()
+		return a.t("server.addressInvalid", err.Error())
 	}
 	if a.conn.NeedConfirmation(u) {
 		selected, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
 			Type:          runtime.QuestionDialog,
-			Title:         "确认连接",
-			Message:       "将连接远端 harness 服务 " + u + "，其命令在远端机器上执行，API key 等配置将发往该机器。确认连接？",
-			Buttons:       []string{"连接", "取消"},
-			DefaultButton: "取消",
+			Title:         a.t("server.confirmTitle"),
+			Message:       a.t("server.confirmMessage", u),
+			Buttons:       []string{a.t("common.connect"), a.t("common.cancel")},
+			DefaultButton: a.t("common.cancel"),
 		})
-		if err != nil || selected != "连接" {
+		if err != nil || selected != a.t("common.connect") {
 			return ""
 		}
 		a.conn.ConfirmHost(u)
@@ -1027,7 +1024,7 @@ func (a *App) collectTools() ToolStatus {
 	}
 
 	catalog := toolchain.ToolStatuses(dir)
-	annotateRuntime(catalog, checks, a.home, a.bundledBinPrefix())
+	annotateRuntime(a.t, catalog, checks, a.home, a.bundledBinPrefix())
 	updateCount := 0
 	for _, t := range catalog {
 		if t.HasUpdate {
@@ -1037,7 +1034,7 @@ func (a *App) collectTools() ToolStatus {
 
 	return ToolStatus{
 		Rows:           rows,
-		Installed:      joinOrNone(installed),
+		Installed:      joinOrNone(a.t, installed),
 		Installable:    catalogInstallable(),
 		Catalog:        catalog,
 		CategoryLabels: toolchain.CategoryLabels(),
@@ -1056,7 +1053,7 @@ func (a *App) collectTools() ToolStatus {
 // 按需 LookPath 补充。只处理未安装工具：已安装工具的仓库状态信息更准，混入
 // PATH 提示会模糊两套语义。home 与 bundledBin 由调用方传入（市场目录与随包
 // 前缀的判定依据），本函数除按需探测外不读取进程环境，保证分类结果确定可测。
-func annotateRuntime(catalog []toolchain.ToolStatus, checks []domain.ToolCheck, home, bundledBin string) {
+func annotateRuntime(t translate, catalog []toolchain.ToolStatus, checks []domain.ToolCheck, home, bundledBin string) {
 	known := make(map[string]domain.ToolCheck, len(checks))
 	for _, c := range checks {
 		known[c.Name] = c
@@ -1090,7 +1087,7 @@ func annotateRuntime(catalog []toolchain.ToolStatus, checks []domain.ToolCheck, 
 			if !ok || !c.OK {
 				continue
 			}
-			source := classifyRuntimeSource(c.Path, home, bundledBin)
+			source := classifyRuntimeSource(t, c.Path, home, bundledBin)
 			if source == "" {
 				continue
 			}
@@ -1117,18 +1114,18 @@ func (a *App) bundledBinPrefix() string {
 // "/"：MountBase 与 LookPath 结果都是 Linux 绝对路径语义。市场自管目录
 // （~/.dsh-tools）返回空——那是 Installed 已覆盖的仓库语义，不应再以运行时
 // 来源出现，避免同一命令展示两个出处。
-func classifyRuntimeSource(path, home, bundledBin string) string {
+func classifyRuntimeSource(t translate, path, home, bundledBin string) string {
 	switch {
 	case path == "":
 		return ""
 	case strings.HasPrefix(path, hosttools.MountBase+"/"):
-		return "宿主导入"
+		return t("runtimeSource.host")
 	case bundledBin != "" && strings.HasPrefix(path, bundledBin+"/"):
-		return "随包"
+		return t("runtimeSource.bundled")
 	case strings.HasPrefix(path, toolchain.InstallDir(home)+"/"):
 		return ""
 	default:
-		return "系统"
+		return t("runtimeSource.system")
 	}
 }
 
@@ -1171,11 +1168,11 @@ func (a *App) UpdateAllTools() string {
 				failed++
 				continue
 			}
-			a.emitProgress(id, "queued", 0, "等待更新")
+			a.emitProgress(id, "queued", 0)
 			err := toolchain.InstallTool(dir, id, "", &toolchain.InstallOptions{
 				Activate: &activate,
-				Progress: func(phase string, percent int, message string) {
-					a.emitProgress(id, phase, percent, message)
+				Progress: func(phase string, percent int, _ string) {
+					a.emitProgress(id, phase, percent)
 				},
 			})
 			if err != nil {
@@ -1186,7 +1183,7 @@ func (a *App) UpdateAllTools() string {
 		}
 		appenv.ConfigureChildEnv(a.home)
 		st := a.collectTools()
-		st.Notice = updateNotice(updated, failed)
+		st.Notice = updateNotice(a.t, updated, failed)
 		a.emitToolchain(st)
 	}()
 	return ""
@@ -1194,17 +1191,17 @@ func (a *App) UpdateAllTools() string {
 
 // updateNotice 组装一键更新的结果通知：列出每个成功工具的目标版本，并说明旧版本的去向。
 // 措辞集中在此，避免「旧版本保留」这条多版本事实分散在多处、说法不一致。
-func updateNotice(updated []string, failed int) string {
+func updateNotice(t translate, updated []string, failed int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "已更新 %d 个工具", len(updated))
+	b.WriteString(t("toolchain.updatedCount", len(updated)))
 	if len(updated) > 0 {
-		b.WriteString("：" + strings.Join(updated, "、"))
+		b.WriteString(t("common.listIntro") + strings.Join(updated, t("common.listSeparator")))
 	}
 	if failed > 0 {
-		fmt.Fprintf(&b, "；失败 %d 个", failed)
+		b.WriteString(t("toolchain.updatedFailed", failed))
 	}
 	if len(updated) > 0 {
-		b.WriteString("。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载")
+		b.WriteString(t("toolchain.updatedKept"))
 	}
 	return b.String()
 }
@@ -1228,7 +1225,7 @@ func catalogInstallable() string {
 func (a *App) InstallToolchain(id string) string {
 	tool, ok := toolchain.LookupTool(id)
 	if !ok {
-		return "未知工具链: " + id
+		return a.t("toolchain.unknownID", id)
 	}
 	a.installToolAsync(tool, "")
 	return ""
@@ -1238,10 +1235,10 @@ func (a *App) InstallToolchain(id string) string {
 func (a *App) InstallToolVersion(id, version string) string {
 	tool, ok := toolchain.LookupTool(id)
 	if !ok {
-		return "未知工具链: " + id
+		return a.t("toolchain.unknownID", id)
 	}
 	if _, found := tool.FindVersion(version); !found {
-		return "工具链 " + id + " 无版本 " + version
+		return a.t("toolchain.unknownVersion", id, version)
 	}
 	a.installToolAsync(tool, version)
 	return ""
@@ -1254,7 +1251,7 @@ func (a *App) InstallToolVersion(id, version string) string {
 // 结束后通过 toolchain:status 推送最终状态与结果通知。
 func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 	// 立即推送"排队中"进度，前端据此把卡片切到"安装中"并显示进度条。
-	a.emitProgress(tool.ID, "queued", 0, "等待下载")
+	a.emitProgress(tool.ID, "queued", 0)
 	go func() {
 		dir := toolchain.InstallDir(a.home)
 		activate := true
@@ -1262,8 +1259,8 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		// 前端按 ID 定向更新进度条（见 emitProgress 注释）。
 		opts := &toolchain.InstallOptions{
 			Activate: &activate,
-			Progress: func(phase string, percent int, message string) {
-				a.emitProgress(tool.ID, phase, percent, message)
+			Progress: func(phase string, percent int, _ string) {
+				a.emitProgress(tool.ID, phase, percent)
 			},
 		}
 		err := toolchain.InstallTool(dir, tool.ID, version, opts)
@@ -1271,9 +1268,9 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		if version != "" {
 			label += " " + version
 		}
-		notice := "工具链 " + label + " 已安装并设为当前版本"
+		notice := a.t("toolchain.installDone", label)
 		if err != nil {
-			notice = "工具链 " + label + " 安装失败: " + err.Error()
+			notice = a.t("toolchain.installFailed", label, err.Error())
 		} else {
 			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
 			appenv.ConfigureChildEnv(a.home)
@@ -1288,7 +1285,7 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 func (a *App) SetActiveToolVersion(id, version string) string {
 	dir := toolchain.InstallDir(a.home)
 	if err := toolchain.SetActiveVersion(dir, id, version); err != nil {
-		return "切换失败: " + err.Error()
+		return a.t("toolchain.activateFailed", err.Error())
 	}
 	appenv.ConfigureChildEnv(a.home)
 	a.RefreshTools()
@@ -1299,7 +1296,7 @@ func (a *App) SetActiveToolVersion(id, version string) string {
 func (a *App) UninstallTool(id, version string) string {
 	dir := toolchain.InstallDir(a.home)
 	if err := toolchain.Uninstall(dir, id, version); err != nil {
-		return "卸载失败: " + err.Error()
+		return a.t("toolchain.uninstallFailed", err.Error())
 	}
 	appenv.ConfigureChildEnv(a.home)
 	a.RefreshTools()
@@ -1375,7 +1372,7 @@ func (a *App) ScanHostTools() []HostToolScanEntry {
 // AddHostTool 把宿主命令路径挂载进沙箱（写 linglong config.d），返回冲突提示。
 func (a *App) AddHostTool(source, name string) HostToolResult {
 	if !a.sandboxed() {
-		return HostToolResult{Error: "宿主挂载仅在玲珑打包环境生效（开发态宿主命令本就在 PATH）"}
+		return HostToolResult{Error: a.t("hosttool.sandboxOnly")}
 	}
 	if name == "" {
 		name = hosttools.SuggestName(source)
@@ -1386,9 +1383,9 @@ func (a *App) AddHostTool(source, name string) HostToolResult {
 	}
 	if conflicts := hostToolConflicts(e.Source, a.home); len(conflicts) > 0 {
 		if warn != "" {
-			warn += "；"
+			warn += a.t("common.clauseSeparator")
 		}
-		warn += "与按需安装同名的命令，宿主挂载优先生效: " + strings.Join(conflicts, ", ")
+		warn += a.t("hosttool.conflictWarning", strings.Join(conflicts, ", "))
 	}
 	a.RefreshTools()
 	return HostToolResult{Warning: warn}
@@ -1464,9 +1461,9 @@ func stateName(s domain.HarnessState) string {
 	}
 }
 
-func joinOrNone(items []string) string {
+func joinOrNone(t translate, items []string) string {
 	if len(items) == 0 {
-		return "无"
+		return t("common.none")
 	}
 	out := ""
 	for i, it := range items {

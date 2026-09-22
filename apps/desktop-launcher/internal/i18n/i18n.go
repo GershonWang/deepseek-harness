@@ -27,15 +27,6 @@ const (
 	Fallback = En
 )
 
-// messages 按语言存放字典。Zh 是键全集真源：En 缺键时回退 Zh，再缺则返回键名
-// 本身，让漏配在界面上直接可见，而不是显示空串。
-//
-// P0 只建立机制，尚未迁入任何文案（见 docs/i18n.md 第七节）；P2 起按区域分批迁入。
-var messages = map[Locale]map[string]string{
-	Zh: {},
-	En: {},
-}
-
 // Normalize 把任意语言标签归一化为内置语言；识别不了时返回空串。
 //
 // 形如 zh_CN.UTF-8、zh-CN、zh-Hans 的标签对壳是同一件事：主语言子标签之外的部分

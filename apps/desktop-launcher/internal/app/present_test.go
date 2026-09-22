@@ -47,10 +47,10 @@ func TestStateName(t *testing.T) {
 }
 
 func TestJoinOrNone(t *testing.T) {
-	if got := joinOrNone(nil); got != "无" {
+	if got := joinOrNone(zhText, nil); got != "无" {
 		t.Errorf("joinOrNone(nil) = %q", got)
 	}
-	if got := joinOrNone([]string{"go", "rg"}); got != "go,rg" {
+	if got := joinOrNone(zhText, []string{"go", "rg"}); got != "go,rg" {
 		t.Errorf("joinOrNone = %q", got)
 	}
 }

@@ -28,6 +28,28 @@ func (a *App) SetLocale(id string) {
 	a.locale = locale
 }
 
+// translate 是「键 → 当前语言文案」的渲染函数签名。
+//
+// 为什么要显式传它而不是让组装函数变成 App 方法：这些函数（通知文案、运行时来源、
+// 列表拼接）不持有 App，测试也直接调它们断言输出；把渲染函数作为参数传入，测试里
+// 传 i18n.Zh 的渲染即可固定语言，无需为一个字符串拼接构造整个 App。
+type translate func(key string, args ...any) string
+
+// t 按当前生效语言渲染一个键。
+//
+// 语言在渲染那一刻读取，而不是启动时快照：前端可在任意时刻经 SetLocale 回推，而
+// 预检结果、安装通知这些文案都在那之后才产生。锁只覆盖读取，渲染本身不持锁。
+//
+// @param key 点分命名空间的键，见 internal/i18n/messages.go。
+// @param args 占位符取值，按文案里的 %s/%d 顺序给出。
+// @returns 当前语言下的文案；缺键时为键名本身。
+func (a *App) t(key string, args ...any) string {
+	a.localeMu.RLock()
+	locale := a.locale
+	a.localeMu.RUnlock()
+	return i18n.T(locale, key, args...)
+}
+
 // GetLocale 返回当前生效的壳语言，由 Wails 绑定给前端（供调试与断言）。
 //
 // @returns 内置语言 id：zh 或 en。

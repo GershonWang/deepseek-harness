@@ -12,12 +12,19 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 )
+
+// zhText 用真实 Zh 字典渲染，供这些组装函数（通知、来源、列表拼接）的断言固定语言。
+//
+// 断言沿用迁移前的中文期望值：既钉住组装逻辑（分隔符、分支、顺序），也钉住字典里的
+// 中文没有在搬迁中走样——比断言键名更能发现"文案搬错了位置"。
+func zhText(key string, args ...any) string { return i18n.T(i18n.Zh, key, args...) }
 
 // testApp 构造一个不会真正执行 dsh 的 App：RunDoctor 命令不存在，
 // exec 立即失败返回错误报告，便于在测试中同步验证自动诊断标志的转换。
@@ -418,7 +425,7 @@ func TestClassifyRuntimeSource(t *testing.T) {
 		{"bundled 为空时不命中随包", bundled + "/node", "", "系统"},
 	}
 	for _, c := range cases {
-		if got := classifyRuntimeSource(c.path, home, c.bundled); got != c.want {
+		if got := classifyRuntimeSource(zhText, c.path, home, c.bundled); got != c.want {
 			t.Errorf("%s: classifyRuntimeSource(%q) = %q, want %q", c.name, c.path, got, c.want)
 		}
 	}
@@ -443,7 +450,7 @@ func TestAnnotateRuntime(t *testing.T) {
 		{Name: "python", OK: true, Version: "3.10.12", Path: "/usr/bin/python"},
 		{Name: "dsh-annotate-ghost-cmd", OK: false, Err: "not found"},
 	}
-	annotateRuntime(catalog, checks, "/home/tester", "/opt/apps/com.deepseek.dsh-desktop/files/bin")
+	annotateRuntime(zhText, catalog, checks, "/home/tester", "/opt/apps/com.deepseek.dsh-desktop/files/bin")
 
 	if got := catalog[0]; got.RuntimeCmd != "node" || got.RuntimeVersion != "24.9.0" || got.RuntimeSource != "随包" {
 		t.Fatalf("node 应命中随包来源: %+v", got)
@@ -534,7 +541,7 @@ func TestUpdateNotice(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := updateNotice(c.updated, c.failed); got != c.want {
+			if got := updateNotice(zhText, c.updated, c.failed); got != c.want {
 				t.Fatalf("updateNotice = %q, want %q", got, c.want)
 			}
 		})

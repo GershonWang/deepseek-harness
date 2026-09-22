@@ -1,9 +1,12 @@
 package i18n
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
 
-// withTestMessages 临时替换字典：P0 阶段真实字典为空（文案自 P2 起迁入），回退链与
-// 占位符替换只能靠注入的键验证。用例串行执行（不使用 t.Parallel），退出时恢复原表。
+// withTestMessages 临时替换字典：回退链与占位符替换用注入的键验证，不依赖真实文案的
+// 内容（否则改一句文案就要动机制用例）。用例串行执行（不使用 t.Parallel），退出时恢复原表。
 func withTestMessages(t *testing.T, dict map[Locale]map[string]string) {
 	t.Helper()
 	original := messages
@@ -100,5 +103,56 @@ func TestT(t *testing.T) {
 				t.Fatalf("T(%q, %q) = %q, 期望 %q", tt.locale, tt.key, got, tt.want)
 			}
 		})
+	}
+}
+
+// 字典完整性：这些不变量决定「英文界面里会不会蹦出中文」或「占位符会不会变成
+// %!s(MISSING)」。它们比逐条校对译文更能防住迁移过程中的漏配。
+func TestMessagesIntegrity(t *testing.T) {
+	// 1) 中英同键集。En 缺键会静默回退 Zh，表现为英文环境里出现中文；En 多键则是
+	// 键名漂移的残留。
+	for key := range messages[Zh] {
+		if _, ok := messages[En][key]; !ok {
+			t.Errorf("En 缺键 %q（会回退成中文）", key)
+		}
+	}
+	for key := range messages[En] {
+		if _, ok := messages[Zh][key]; !ok {
+			t.Errorf("En 多出键 %q（Zh 才是键全集真源）", key)
+		}
+	}
+
+	// 2) 漏翻：En 与 Zh 逐字相同。键名相同不算问题，文案整句相同才是。
+	for key, zh := range messages[Zh] {
+		if en, ok := messages[En][key]; ok && en == zh {
+			t.Errorf("En 的 %q 与中文逐字相同（未翻译）", key)
+		}
+	}
+
+	// 3) 占位符必须逐项对应：数量或顺序不同，渲染出来的就是 %!d(MISSING) 或错位的值。
+	verbs := regexp.MustCompile(`%[a-z]`)
+	for key, zh := range messages[Zh] {
+		en, ok := messages[En][key]
+		if !ok {
+			continue
+		}
+		zhVerbs, enVerbs := verbs.FindAllString(zh, -1), verbs.FindAllString(en, -1)
+		if len(zhVerbs) != len(enVerbs) {
+			t.Errorf("%q 占位符数量不一致：zh %v / en %v", key, zhVerbs, enVerbs)
+			continue
+		}
+		for i := range zhVerbs {
+			if zhVerbs[i] != enVerbs[i] {
+				t.Errorf("%q 第 %d 个占位符不一致：zh %s / en %s", key, i+1, zhVerbs[i], enVerbs[i])
+			}
+		}
+	}
+
+	// 4) 英文里不该残留全角标点：那是中文标点混进译文的典型痕迹。
+	fullWidth := regexp.MustCompile(`[\x{3000}-\x{303F}\x{FF00}-\x{FFEF}]`)
+	for key, en := range messages[En] {
+		if fullWidth.MatchString(en) {
+			t.Errorf("En 的 %q 含全角标点：%q", key, en)
+		}
 	}
 }
