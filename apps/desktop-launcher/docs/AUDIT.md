@@ -31,7 +31,7 @@
 
 ## 条目总览
 
-下表按**状态**排列全部 59 个条目：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
+下表列出全部 59 个条目，按 2026-09-20 复核时点的状态排列：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。此后第 14 行（24 壳前端 i18n）于 2026-09-22 转为「已修」，为保持与附录 H 的行号对应未移动该行，故现值为 22／10／27。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
 
 | # | 级别 | 条目 | 状态 |
 |---|---|---|---|
@@ -48,7 +48,7 @@
 | 11 | 低危 | 3 精简 Node 闭包 | 未修（有意决策）｜✅ 已复核 |
 | 12 | 低危 | 12 去掉 `CFLAGS="-g"` | 未修（删除点不在本仓库）｜✅ 已复核 |
 | 13 | 低危 | 17 WebKit 单进程模式 | 未修｜✅ 已复核 |
-| 14 | 低危 | 24 壳前端 i18n | 未修｜✅ 已复核 |
+| 14 | 低危 | 24 壳前端 i18n | 已修（2026-09-22）｜✅ 本次产物复核实测 |
 | 15 | 低危 | 25 系统托盘 | 未修｜✅ 已复核 |
 | 16 | 低危 | 30 `RunDoctorRepair` 的 level 参数构造 | 未修｜✅ 已复核 |
 | 17 | 低危 | 31 connector probe 非幂等 | 未修｜✅ 已复核 |
@@ -493,10 +493,14 @@
 
 ## 24 壳前端 i18n
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`frontend/index.html:2`、`frontend/app.js`
+- **状态**：已修（2026-09-22）｜✅ 本次产物复核实测
+- **位置**：`frontend/{index.html,app.js,i18n.js,locales/}`、`internal/i18n/{messages.go,scan_test.go}`、`internal/app/render.go`、`internal/toolchain/install.go`、`internal/{connector,hosttools,preflight}`
 - **问题**：`lang="zh-CN"`，无字典、无 `t()`。`verify-client-ui-i18n` 的扫描范围是 `packages/client/*`、`apps/web/src`、`apps/desktop`(Electron) 的 `{main,update-coordinator}` 与 `renderer/*.js`——**`apps/desktop-launcher/frontend` 不在闸门内**。
 - **定级说明**：原清单为 🟡 中，本次降为低危——属体验改进，无功能或安全风险。
+- **修复**：语言真源定为 iframe 内 harness GUI 的 `<html lang>`，由桥上报给壳（壳不设自己的语言开关）；壳前端字典 246 键、Go 侧字典 48 键，两侧中英同键集；Go 侧按「领域包只报事实、app 层渲染」分层，事实 → 文案的转换集中在 `internal/app/render.go`；`verify-client-ui-i18n` 的扫描范围纳入 `apps/desktop-launcher/frontend/*.{js,html}`，规则收敛为「CJK 字面量即报错」（带壳前端不用 `textContent` 的命名启发式，实测会误报内嵌 SVG 与 HTML 模板）。方案、范围与取舍见 [i18n.md](./i18n.md)。
+- **机器判据**：前端既有 `node --test` 用例（20 + 63 + 9 例，含字典完整性硬失败）；Go 侧 `internal/i18n` 8 例，其中 `scan_test.go` 四条扫描（源码不许出现中文文案、静态键必须存在、动态键前缀必须存在、枚举 kind 必须配齐字典）经注入无效输入逐条自证；闸门自证 JS／HTML 各一条。全部实跑通过（`CGO_ENABLED=0 go test ./...` 11 个包）。
+- **交付态实测（2026-09-22，安装态 `0.1.3.8`）**：`go version -m <已装二进制>` 读出 `vcs.revision=ebdd4daa15`、`vcs.modified=false`，即交付物确为本次改动的构建。二进制内含 `DSHI18N`(12)、`data-i18n`(104)、`dsh-desktop.locale`(7)、`app.SetLocale`(2) 与 `toolchain.error.`／`preflight.doctor.`／`connector.error.`／`hosttool.warning.outsideHome`；打包 harness 的 `dsh-link-bridge.js` 含 `reportLocale` 4 处（桥已注入，「dist 是旧产物」不再成立）。运行中的壳已把自身源 `wails://wails` 的 localStorage 项 `dsh-desktop.locale` 记为 `"en"`（与 `dsh-desktop.terminal.fontSize` 同库，可证是壳自己的库；该源不随端口变化，故缓存跨重启存活）。**待办仅剩目视确认**：升级后的第一次启动仍按系统语言渲染首帧（缓存只能被一次 GUI 上报播种），重启一次后应首帧即英文。
+- **与附录 H 的关系**：附录 H（2026-09-20）记的「仍未修」是那次复核时点的结论，已被本节取代；H 是时点记录，保持原样不改写。
 
 ## 25 系统托盘
 
