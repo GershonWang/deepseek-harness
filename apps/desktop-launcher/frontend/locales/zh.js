@@ -89,6 +89,9 @@ window.DSH_LOCALES.zh = {
   "preflight.safeMode": "安全模式启动",
   "preflight.freshHome": "全新环境启动",
   "preflight.skip": "忽略问题，仍然启动",
+  // 全新环境的原生确认框：多行提示整句进字典，换行符留在值里。
+  "preflight.freshHomeConfirm": "将以全新的运行时环境启动（~/.dsh-fallback）：\n\n· 会话历史、模型设置、第三方插件均不可见\n· API Key 等凭证不迁移，需要重新配置\n· 原始 ~/.dsh 数据原样保留，可随时回到默认环境\n\n确认继续？",
+
 
   /* ---------- 启动失败页 ---------- */
   "failed.title": "启动失败",
@@ -177,6 +180,32 @@ window.DSH_LOCALES.zh = {
   "tools.installing": "安装中…",
   "tools.uninstall": "卸载",
   "tools.uninstallConfirm": "确认卸载?",
+  // 市场状态栏与宿主导入区的动态文案。状态栏片段之间用全角间隔号拼接，英文换成
+  // 半角「 · 」，因此分隔符也进字典。
+  "tools.statusSeparator": "　·　",
+  "tools.status.bundled": "随包 {ok}/{total}",
+  "tools.status.installed": "已装 {installed}/{total} 个工具",
+  "tools.status.totalSize": "总大小 {size}",
+  "tools.status.hostMounts": "宿主挂载 {count} 项",
+  "tools.status.filtered": "筛选 {count} 个",
+  "tools.hostsSummary": "已挂载 {count} 项",
+  "tools.hostRemove": "移除",
+  "tools.hostMounted": "✓ 生效中",
+  "tools.hostPending": "配置已写入 · 重启应用后生效",
+  "tools.hostScanEmpty": "未发现可导入的宿主工具链（可在 /opt、/usr/local、~/tools 等放工具目录后重扫）",
+  "tools.hostConflict": "与已装重名",
+  // 挂载的后果提示：路径是数据，由代码作占位符传入。
+  "tools.hostMountWarning": "挂载后沙箱内所有进程都能读取 {path}（只读）；再点一次「确认挂载」生效",
+  "tools.hostMountConfirm": "确认挂载?",
+  "tools.hostMountFailed": "挂载失败: {error}",
+  "tools.hostMountWritten": "已写入挂载配置，请重启应用后生效",
+  // 带警告的形态单独成键：警告文本与全角空格的拼接顺序各语言不同。
+  "tools.hostMountWrittenWithWarning": "⚠ {warning}　已写入挂载配置，请重启应用后生效",
+  "tools.refreshing": "刷新中…",
+  "tools.updating": "更新中…",
+  "tools.updateFailed": "更新失败: {error}",
+  "tools.scanning": "扫描中…",
+
 
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",

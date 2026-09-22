@@ -1357,13 +1357,15 @@ function renderStatusbar(t) {
   let total = 0;
   for (const c of cats) if (c.Installed) total += Number(c.Size) || 0;
   const parts = [];
-  if (rows.length > 0) parts.push("随包 " + ok + "/" + rows.length);
-  parts.push("已装 " + installed + "/" + cats.length + " 个工具");
-  if (total > 0) parts.push("总大小 " + fmtSize(total));
-  if (t.Sandboxed && (t.HostTools || []).length > 0) parts.push("宿主挂载 " + t.HostTools.length + " 项");
+  if (rows.length > 0) parts.push(tr("tools.status.bundled", { ok: ok, total: rows.length }));
+  parts.push(tr("tools.status.installed", { installed: installed, total: cats.length }));
+  if (total > 0) parts.push(tr("tools.status.totalSize", { size: fmtSize(total) }));
+  if (t.Sandboxed && (t.HostTools || []).length > 0) {
+    parts.push(tr("tools.status.hostMounts", { count: t.HostTools.length }));
+  }
   // 定高弹框里筛选后留下的空白需要有交代：报出当前条件命中的工具数。
-  if (hasFilter()) parts.push("筛选 " + filteredCatalog().length + " 个");
-  sb.textContent = parts.join("　·　");
+  if (hasFilter()) parts.push(tr("tools.status.filtered", { count: filteredCatalog().length }));
+  sb.textContent = parts.join(tr("tools.statusSeparator"));
 }
 
 // renderHostTools 渲染宿主挂载列表与扫描结果；开发态隐藏整个宿主导入区，
@@ -1377,7 +1379,7 @@ function renderHostTools(t) {
   hostBox.classList.remove("hidden");
   const mounts = t.HostTools || [];
   // 折叠态下唯一可见的一行：报出已挂载项数，用户不必展开就知道有没有配置。
-  $("#hosts-summary").textContent = mounts.length ? "已挂载 " + mounts.length + " 项" : "";
+  $("#hosts-summary").textContent = mounts.length ? tr("tools.hostsSummary", { count: mounts.length }) : "";
   const hl = $("#host-list");
   hl.innerHTML = "";
   for (const h of mounts) {
@@ -1385,11 +1387,11 @@ function renderHostTools(t) {
     row.className = "host-item";
     const rm = document.createElement("button");
     rm.className = "btn btn-danger";
-    rm.textContent = "移除";
+    rm.textContent = tr("tools.hostRemove");
     rm.addEventListener("click", () => api().RemoveHostTool(h.Name));
     const mounted = h.Mounted
-      ? "<span class='state-ok'>✓ 生效中</span>"
-      : "<span class='state-missing'>配置已写入 · 重启应用后生效</span>";
+      ? "<span class='state-ok'>" + tr("tools.hostMounted") + "</span>"
+      : "<span class='state-missing'>" + tr("tools.hostPending") + "</span>";
     row.innerHTML =
       "<span class='selectable host-name'>" + escapeHtml(h.Name) + "</span>" +
       "<span class='hint selectable'>" + escapeHtml(h.Source) + " → " + escapeHtml(h.Target) + "</span>" +
@@ -1404,7 +1406,7 @@ function renderHostScan(entries) {
   const box = $("#host-scan-list");
   box.innerHTML = "";
   if (!entries || entries.length === 0) {
-    box.innerHTML = "<div class='empty'>未发现可导入的宿主工具链（可在 /opt、/usr/local、~/tools 等放工具目录后重扫）</div>";
+    box.innerHTML = "<div class='empty'>" + tr("tools.hostScanEmpty") + "</div>";
     return;
   }
   for (const e of entries) {
@@ -1412,27 +1414,34 @@ function renderHostScan(entries) {
     row.className = "host-item";
     const add = document.createElement("button");
     add.className = "btn btn-primary";
-    add.textContent = "挂载";
+    add.textContent = tr("tools.hostAdd");
     add.addEventListener("click", async () => {
       const hint = $("#host-hint");
-      if (!consumeConfirmClick(add, "挂载", "确认挂载?")) {
+      if (!consumeConfirmClick(add, tr("tools.hostAdd"), tr("tools.hostMountConfirm"))) {
         // 首次点击：把这次挂载的后果写进提示行（按钮一行放不下）。挂载以 rbind,ro
         // 写进 config.d，生效后沙箱内所有进程都能读到该目录——用户需要知道这一点
         // 才能判断该不该继续。
         hint.className = "hint";
-        hint.textContent = "挂载后沙箱内所有进程都能读取 " + e.Source + "（只读）；再点一次「确认挂载」生效";
+        hint.textContent = tr("tools.hostMountWarning", { path: e.Source });
         return;
       }
       const res = await api().AddHostTool(e.Source, e.Name);
-      if (res.Error) { hint.className = "error"; hint.textContent = "挂载失败: " + res.Error; }
-      else { hint.className = "hint"; hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效"; }
+      if (res.Error) {
+        hint.className = "error";
+        hint.textContent = tr("tools.hostMountFailed", { error: res.Error });
+      } else {
+        hint.className = "hint";
+        hint.textContent = res.Warning
+          ? tr("tools.hostMountWrittenWithWarning", { warning: res.Warning })
+          : tr("tools.hostMountWritten");
+      }
       api().RefreshTools();
     });
     row.innerHTML =
       "<span class='selectable host-name'>" + escapeHtml(e.Name) + "</span>" +
       "<span class='hint selectable'>" + escapeHtml(e.Tool) + (e.Version ? " " + escapeHtml(e.Version) : "") + "</span>" +
       "<span class='hint selectable'>" + escapeHtml(e.Source) + "</span>" +
-      (e.Conflict ? "<span class='pill warn'>与已装重名</span>" : "");
+      (e.Conflict ? "<span class='pill warn'>" + tr("tools.hostConflict") + "</span>" : "");
     row.appendChild(add);
     box.appendChild(row);
   }
@@ -1539,7 +1548,7 @@ function bindUI() {
     applyStatus(await api().StartSafeModeLevel("config"));
   });
   $("#btn-preflight-fresh").addEventListener("click", async () => {
-    if (!confirm("将以全新的运行时环境启动（~/.dsh-fallback）：\n\n· 会话历史、模型设置、第三方插件均不可见\n· API Key 等凭证不迁移，需要重新配置\n· 原始 ~/.dsh 数据原样保留，可随时回到默认环境\n\n确认继续？")) {
+    if (!confirm(tr("preflight.freshHomeConfirm"))) {
       return;
     }
     applyStatus(await api().StartFreshHome());
@@ -1565,10 +1574,10 @@ function bindUI() {
   $("#market-refresh").addEventListener("click", async () => {
     const btn = $("#market-refresh");
     btn.disabled = true;
-    btn.textContent = "刷新中…";
+    btn.textContent = tr("tools.refreshing");
     await api().RefreshToolIndex();
     btn.disabled = false;
-    btn.textContent = "刷新索引";
+    btn.textContent = tr("tools.refreshIndex");
   });
 
   // 一键更新所有过时工具
@@ -1577,12 +1586,12 @@ function bindUI() {
     updateAllBtn.addEventListener("click", async () => {
       if (updateAllBtn.disabled) return;
       updateAllBtn.disabled = true;
-      updateAllBtn.textContent = "更新中…";
+      updateAllBtn.textContent = tr("tools.updating");
       var err = await api().UpdateAllTools();
       if (err) {
-        $("#toolchain-notice").textContent = "更新失败: " + err;
+        $("#toolchain-notice").textContent = tr("tools.updateFailed", { error: err });
         updateAllBtn.disabled = false;
-        updateAllBtn.textContent = "一键更新";
+        updateAllBtn.textContent = tr("tools.updateAll");
       }
       // 成功时由 toolchain:status 事件刷新 UI 和按钮状态
     });
@@ -1592,12 +1601,12 @@ function bindUI() {
   $("#host-scan").addEventListener("click", async () => {
     const btn = $("#host-scan");
     btn.disabled = true;
-    btn.textContent = "扫描中…";
+    btn.textContent = tr("tools.scanning");
     try {
       renderHostScan(await api().ScanHostTools());
     } finally {
       btn.disabled = false;
-      btn.textContent = "扫描宿主";
+      btn.textContent = tr("tools.hostScan");
     }
   });
 
@@ -1610,9 +1619,9 @@ function bindUI() {
     // 与卸载工具同一套两击确认：挂载以 rbind,ro 写进 config.d，生效后沙箱内所有
     // 进程都能读到该目录，而按钮一行放不下这句后果，首次点击时写进提示行。
     // 确认时按输入框当前值执行——两次点击之间用户仍可修改，改动由他自己作出。
-    if (!consumeConfirmClick(hostAdd, "挂载", "确认挂载?")) {
+    if (!consumeConfirmClick(hostAdd, tr("tools.hostAdd"), tr("tools.hostMountConfirm"))) {
       hint.className = "hint";
-      hint.textContent = "挂载后沙箱内所有进程都能读取 " + src + "（只读）；再点一次「确认挂载」生效";
+      hint.textContent = tr("tools.hostMountWarning", { path: src });
       return;
     }
     const res = await api().AddHostTool(src, name);
@@ -1620,10 +1629,12 @@ function bindUI() {
     $("#host-name").value = "";
     if (res.Error) {
       hint.className = "error";
-      hint.textContent = "挂载失败: " + res.Error;
+      hint.textContent = tr("tools.hostMountFailed", { error: res.Error });
     } else {
       hint.className = "hint";
-      hint.textContent = (res.Warning ? "⚠ " + res.Warning + "　" : "") + "已写入挂载配置，请重启应用后生效";
+      hint.textContent = res.Warning
+        ? tr("tools.hostMountWrittenWithWarning", { warning: res.Warning })
+        : tr("tools.hostMountWritten");
     }
     api().RefreshTools();
   });

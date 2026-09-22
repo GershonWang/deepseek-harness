@@ -85,6 +85,8 @@ window.DSH_LOCALES.en = {
   "preflight.safeMode": "Start in safe mode",
   "preflight.freshHome": "Start with a fresh environment",
   "preflight.skip": "Ignore issues and start anyway",
+  "preflight.freshHomeConfirm": "Starts with a fresh runtime environment (~/.dsh-fallback):\n\n· Session history, model settings and third-party plugins are not visible\n· Credentials such as the API key are not migrated and must be configured again\n· The original ~/.dsh data is left untouched, so you can return to the default environment at any time\n\nContinue?",
+
 
   /* ---------- 启动失败页 ---------- */
   "failed.title": "Startup failed",
@@ -165,6 +167,28 @@ window.DSH_LOCALES.en = {
   "tools.installing": "Installing…",
   "tools.uninstall": "Uninstall",
   "tools.uninstallConfirm": "Confirm uninstall?",
+  "tools.statusSeparator": " · ",
+  "tools.status.bundled": "Bundled {ok}/{total}",
+  "tools.status.installed": "{installed}/{total} toolchains installed",
+  "tools.status.totalSize": "Total {size}",
+  "tools.status.hostMounts": "{count} host mounts",
+  "tools.status.filtered": "{count} matching",
+  "tools.hostsSummary": "{count} mounted",
+  "tools.hostRemove": "Remove",
+  "tools.hostMounted": "✓ Active",
+  "tools.hostPending": "Config written · takes effect after a restart",
+  "tools.hostScanEmpty": "No importable host toolchain found (put tool directories under /opt, /usr/local or ~/tools, then scan again)",
+  "tools.hostConflict": "Name clashes with an installed one",
+  "tools.hostMountWarning": "After mounting, every process in the sandbox can read {path} (read-only); click “Confirm mount” once more to apply",
+  "tools.hostMountConfirm": "Confirm mount?",
+  "tools.hostMountFailed": "Mount failed: {error}",
+  "tools.hostMountWritten": "Mount config written; restart the app to apply",
+  "tools.hostMountWrittenWithWarning": "⚠ {warning}　Mount config written; restart the app to apply",
+  "tools.refreshing": "Refreshing…",
+  "tools.updating": "Updating…",
+  "tools.updateFailed": "Update failed: {error}",
+  "tools.scanning": "Scanning…",
+
 
   /* ---------- 关于弹框 ---------- */
   "about.title": "About",
