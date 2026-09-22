@@ -105,14 +105,14 @@ func installLockKey(dir, toolID string) string {
 // 激活」的中间状态能被一次调用补上（AUDIT N7），各写一遍容易让语义漂移。
 func finishInstalled(dir, toolID, version string, activate bool, progress InstallProgress) error {
 	if !activate {
-		progress("done", 100, "已安装")
+		progress("done", 100)
 		return nil
 	}
-	progress("linking", 90, "设置为当前版本")
+	progress("linking", 90)
 	if err := SetActiveVersion(dir, toolID, version); err != nil {
 		return err
 	}
-	progress("done", 100, fmt.Sprintf("已安装并设为当前版本: %s %s", toolID, version))
+	progress("done", 100)
 	return nil
 }
 
@@ -131,34 +131,87 @@ func copyCapped(dst io.Writer, src io.Reader, limit int64, over error) (int64, e
 }
 
 // InstallProgress 安装进度回调。
+//
+// 只报「阶段 + 百分比」两个事实：措辞属于界面语言，由前端按 phase 查字典渲染（见
+// docs/i18n.md 第六节）。原先还有一个 message 参数，但前端从未读取它——文案只出不进，
+// 已随 P2 删除；阶段本身仍是协议的一部分（前端靠 error 阶段清掉卡片的进度条）。
 // phase: "downloading" | "verifying" | "extracting" | "linking" | "done" | "error"
 // percent: 0-100，仅 downloading 阶段有准确值，其他阶段为估算值
-type InstallProgress func(phase string, percent int, message string)
+type InstallProgress func(phase string, percent int)
 
 // noopProgress 空进度回调。
-func noopProgress(string, int, string) {}
+func noopProgress(string, int) {}
 
-// friendlyError 把原始安装错误归类为面向用户的友好提示。
-// 返回 "分类：提示" 格式的字符串，原始错误通过 %w 包装保留。
+// ErrorKind 是安装失败的归类。
+//
+// 领域包只报「哪一类失败」这一事实：面向用户的措辞属于界面语言，由 app 层按 kind 查
+// 字典渲染。因此取值是稳定的分类 id（可进日志、可断言），不是给人看的句子。
+type ErrorKind string
+
+const (
+	// ErrorKindUnknown 无法归类的失败。
+	ErrorKindUnknown ErrorKind = "unknown"
+	// ErrorKindNoSpace 磁盘空间不足。
+	ErrorKindNoSpace ErrorKind = "noSpace"
+	// ErrorKindPermission 写入权限不足。
+	ErrorKindPermission ErrorKind = "permission"
+	// ErrorKindTimeout 下载超时。
+	ErrorKindTimeout ErrorKind = "timeout"
+	// ErrorKindNetwork 网络层失败（DNS、连接被拒、TLS 等）。
+	ErrorKindNetwork ErrorKind = "network"
+	// ErrorKindArchiveTooLarge 安装包体积超出上限。
+	ErrorKindArchiveTooLarge ErrorKind = "archiveTooLarge"
+	// ErrorKindExtractTooLarge 解压后数据超出上限。
+	ErrorKindExtractTooLarge ErrorKind = "extractTooLarge"
+	// ErrorKindChecksum sha256 校验不通过。
+	ErrorKindChecksum ErrorKind = "checksum"
+	// ErrorKindExtract 解压失败，归档可能已损坏。
+	ErrorKindExtract ErrorKind = "extract"
+)
+
+// InstallError 是归类后的安装失败。
+type InstallError struct {
+	// Kind 失败归类；界面措辞由 app 层按它查字典渲染。
+	Kind ErrorKind
+	// Err 原始错误，保留技术细节供日志与排障。
+	Err error
+}
+
+// Error 实现 error：kind 前缀让日志一眼看出归类，细节保持原始 ASCII 技术文本。
+func (e *InstallError) Error() string {
+	if e.Err == nil {
+		return string(e.Kind)
+	}
+	return string(e.Kind) + ": " + e.Err.Error()
+}
+
+// Unwrap 暴露原始错误，保留 errors.Is/As 的判定能力（如 errArchiveTooLarge）。
+func (e *InstallError) Unwrap() error { return e.Err }
+
+// friendlyError 把原始安装错误归类为 ErrorKind 并保留原错。
+//
+// 归类留在这里（本包知道 errArchiveTooLarge 这类内部哨兵值），措辞留给 app 层。
 func friendlyError(err error) error {
 	if err == nil {
 		return nil
 	}
-	msg := classifyError(err)
-	return fmt.Errorf("%s：%w", msg, err)
+	return &InstallError{Kind: classifyError(err), Err: err}
 }
 
-// classifyError 根据错误类型返回人类可读的分类描述与建议。
-func classifyError(err error) string {
+// classifyError 按错误链与哨兵值归类安装失败。
+//
+// 判据全部来自结构与哨兵，不解释措辞：措辞是 app 层的事。字符串匹配只用于下载库回传
+// 的英文技术错误（sha256 / TLS / extract），它们是数据而非文案。
+func classifyError(err error) ErrorKind {
 	// 磁盘空间不足
 	var pathErr *os.PathError
 	if errors.As(err, &pathErr) {
 		if errno, ok := pathErr.Err.(syscall.Errno); ok {
 			if errno == syscall.ENOSPC {
-				return "磁盘空间不足，请清理后重试"
+				return ErrorKindNoSpace
 			}
 			if errno == syscall.EACCES || errno == syscall.EPERM {
-				return "写入权限不足，请检查安装目录权限"
+				return ErrorKindPermission
 			}
 		}
 	}
@@ -167,31 +220,31 @@ func classifyError(err error) string {
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if urlErr.Timeout() {
-			return "下载超时，请检查网络后重试"
+			return ErrorKindTimeout
 		}
 		// DNS 失败、连接被拒等
-		return "网络连接失败，请检查网络后重试"
+		return ErrorKindNetwork
 	}
 
 	// 归档或解压超出资源上限：按上限中止，而不是把磁盘写满。
 	if errors.Is(err, errArchiveTooLarge) {
-		return "安装包体积超出上限，已中止安装"
+		return ErrorKindArchiveTooLarge
 	}
 	if errors.Is(err, errExtractTooLarge) {
-		return "解压后的数据超出上限，已中止安装"
+		return ErrorKindExtractTooLarge
 	}
 
 	errMsg := err.Error()
 	switch {
 	case strings.Contains(errMsg, "sha256 mismatch") || strings.Contains(errMsg, "sha256"):
-		return "文件校验失败，可能下载不完整或被篡改"
+		return ErrorKindChecksum
 	case strings.Contains(errMsg, "no such host") || strings.Contains(errMsg, "TLS"):
-		return "网络连接失败，请检查网络后重试"
+		return ErrorKindNetwork
 	case strings.Contains(errMsg, "extract"):
-		return "文件解压失败，归档可能已损坏"
+		return ErrorKindExtract
 	}
 
-	return "安装失败"
+	return ErrorKindUnknown
 }
 
 // InstallOptions 安装选项。
@@ -244,11 +297,11 @@ func InstallTool(dir string, toolID, version string, opts *InstallOptions) error
 	// 先装依赖（单层）
 	for _, depID := range tool.Dependencies {
 		if len(ListVersions(dir, depID)) == 0 {
-			progress("downloading", 0, fmt.Sprintf("安装依赖: %s", depID))
+			progress("downloading", 0)
 			if err := InstallTool(dir, depID, "", &InstallOptions{
 				Progress: progress,
 			}); err != nil {
-				progress("error", 0, fmt.Sprintf("依赖安装失败: %s", err))
+				progress("error", 0)
 				return fmt.Errorf("install dependency %s: %w", depID, err)
 			}
 		}
@@ -282,13 +335,13 @@ func installVersion(dir, toolID string, tv ToolVersion, progress InstallProgress
 	}
 
 	if activate || !hadOther {
-		progress("linking", 90, "设置为当前版本")
+		progress("linking", 90)
 		if err := SetActiveVersion(dir, toolID, tv.Version); err != nil {
 			return err
 		}
 	}
 
-	progress("done", 100, fmt.Sprintf("安装完成: %s %s", toolID, tv.Version))
+	progress("done", 100)
 	_ = root
 	return nil
 }
@@ -323,7 +376,7 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 
 	// 1) 缓存命中 → 直接从缓存解压
 	if _, statErr := os.Stat(cachePath); statErr == nil {
-		progress("verifying", 30, "使用缓存...")
+		progress("verifying", 30)
 		if valid, _ := verifyFileSHA256(cachePath, tv.SHA256); valid {
 			return extractFromFile(cachePath, format, dir, toolID, tv, progress)
 		}
@@ -344,24 +397,24 @@ func downloadAndExtract(dir string, toolID string, tv ToolVersion, progress Inst
 		// 但若大小为 0 或明显损坏则删除重来
 	}
 
-	progress("downloading", 0, "下载中...")
+	progress("downloading", 0)
 	if err := downloadToFile(tv.URL, partPath, func(pct int) {
-		progress("downloading", pct, fmt.Sprintf("下载中 %d%%", pct))
+		progress("downloading", pct)
 	}); err != nil {
 		// 超限的 part 永远续不下去（同一 URL 只会再次超限），留着会让该工具每次
 		// 安装都停在同一步；其余失败保留残片，下次可续传。
 		if errors.Is(err, errArchiveTooLarge) {
 			_ = os.Remove(partPath)
 		}
-		progress("error", 0, fmt.Sprintf("下载失败: %s", err))
+		progress("error", 0)
 		return "", fmt.Errorf("download %s: %w", tv.URL, err)
 	}
 
 	// 3) 校验 sha256
-	progress("verifying", 75, "校验 sha256...")
+	progress("verifying", 75)
 	if valid, _ := verifyFileSHA256(partPath, tv.SHA256); !valid {
 		_ = os.Remove(partPath)
-		progress("error", 0, "sha256 校验失败")
+		progress("error", 0)
 		return "", fmt.Errorf("sha256 mismatch for %s", toolID)
 	}
 
@@ -396,7 +449,7 @@ func moveOrCopy(src, dst string) error {
 // extractFromFile 从归档文件流式解压到工具版本目录。
 // 不把整个归档读进内存，大文件（几百 MB 到几 GB）场景下节省显著内存。
 func extractFromFile(archivePath, format, dir, toolID string, tv ToolVersion, progress InstallProgress) (string, error) {
-	progress("extracting", 85, "解压中...")
+	progress("extracting", 85)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -407,7 +460,7 @@ func extractFromFile(archivePath, format, dir, toolID string, tv ToolVersion, pr
 	defer os.RemoveAll(tmp)
 
 	if err := extractArchiveFromFile(format, archivePath, tmp); err != nil {
-		progress("error", 0, fmt.Sprintf("解压失败: %s", err))
+		progress("error", 0)
 		return "", fmt.Errorf("extract %s: %w", toolID, err)
 	}
 

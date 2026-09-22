@@ -475,49 +475,48 @@ func TestClassifyError(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
-		want string
+		want ErrorKind
 	}{
 		{
 			name: "网络超时",
 			err:  &url.Error{Op: "Get", URL: "http://x", Err: timeoutErr{}},
-			want: "下载超时",
+			want: ErrorKindTimeout,
 		},
 		{
 			name: "sha256 不匹配",
 			err:  fmt.Errorf("sha256 mismatch for foo"),
-			want: "文件校验失败",
+			want: ErrorKindChecksum,
 		},
 		{
 			name: "解压失败",
 			err:  fmt.Errorf("extract foo: unexpected EOF"),
-			want: "文件解压失败",
+			want: ErrorKindExtract,
 		},
 		{
 			name: "DNS 失败",
 			err:  &url.Error{Op: "Get", URL: "http://x", Err: fmt.Errorf("no such host")},
-			want: "网络连接失败",
+			want: ErrorKindNetwork,
 		},
 		{
 			name: "磁盘空间不足",
 			err:  &os.PathError{Op: "write", Path: "/tmp/x", Err: syscall.ENOSPC},
-			want: "磁盘空间不足",
+			want: ErrorKindNoSpace,
 		},
 		{
 			name: "权限不足",
 			err:  &os.PathError{Op: "open", Path: "/root/x", Err: syscall.EACCES},
-			want: "写入权限不足",
+			want: ErrorKindPermission,
 		},
 		{
 			name: "未知错误",
 			err:  fmt.Errorf("something went wrong"),
-			want: "安装失败",
+			want: ErrorKindUnknown,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := classifyError(tt.err)
-			if !strings.Contains(got, tt.want) {
-				t.Fatalf("期望包含 %q, 实际得到 %q", tt.want, got)
+			if got := classifyError(tt.err); got != tt.want {
+				t.Fatalf("classifyError = %q, 期望 %q", got, tt.want)
 			}
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1171,7 +1172,7 @@ func (a *App) UpdateAllTools() string {
 			a.emitProgress(id, "queued", 0)
 			err := toolchain.InstallTool(dir, id, "", &toolchain.InstallOptions{
 				Activate: &activate,
-				Progress: func(phase string, percent int, _ string) {
+				Progress: func(phase string, percent int) {
 					a.emitProgress(id, phase, percent)
 				},
 			})
@@ -1244,6 +1245,26 @@ func (a *App) InstallToolVersion(id, version string) string {
 	return ""
 }
 
+// installErrorText 渲染安装失败原因。
+//
+// 领域包给出归类（toolchain.InstallError）时按 kind 查字典，再接上原始错误：原始错误是
+// ASCII 技术细节，两种语言下都照原样显示，它是排障线索而不是文案。其余错误（激活失败、
+// 解包 IO 等）没有可归类的事实，直接显示原文——硬塞一句「安装失败」反而丢掉线索。
+//
+// @param err 安装失败原因。
+// @returns 当前语言下的原因文本。
+func (a *App) installErrorText(err error) string {
+	var installErr *toolchain.InstallError
+	if !errors.As(err, &installErr) {
+		return err.Error()
+	}
+	text := a.t("toolchain.error." + string(installErr.Kind))
+	if installErr.Err != nil {
+		text += a.t("common.detailSeparator") + installErr.Err.Error()
+	}
+	return text
+}
+
 // installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
 // 用户在卡片上显式点安装或选了版本，都视为「要用这个版本」，因此显式要求激活：
 // 只有依赖自动安装与并存安装才走 InstallTool 的默认规则（不覆盖当前激活版本）。
@@ -1259,7 +1280,7 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		// 前端按 ID 定向更新进度条（见 emitProgress 注释）。
 		opts := &toolchain.InstallOptions{
 			Activate: &activate,
-			Progress: func(phase string, percent int, _ string) {
+			Progress: func(phase string, percent int) {
 				a.emitProgress(tool.ID, phase, percent)
 			},
 		}
@@ -1270,7 +1291,7 @@ func (a *App) installToolAsync(tool toolchain.Tool, version string) {
 		}
 		notice := a.t("toolchain.installDone", label)
 		if err != nil {
-			notice = a.t("toolchain.installFailed", label, err.Error())
+			notice = a.t("toolchain.installFailed", label, a.installErrorText(err))
 		} else {
 			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
 			appenv.ConfigureChildEnv(a.home)
