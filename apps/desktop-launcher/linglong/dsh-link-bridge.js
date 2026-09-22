@@ -1,4 +1,4 @@
-/* dsh 桌面壳桥：外链转发 + 客户端启动失败上报。
+/* dsh 桌面壳桥：外链转发 + 客户端启动失败上报 + 语言上报。
  *
  * 由打包流程（inject-link-bridge.sh）注入到桌面版 harness Web GUI 的 dist，
  * 与页面同源加载，并先于 <head> 里的 module 入口执行（module 脚本延迟）。
@@ -23,6 +23,12 @@
  *   2) 观察 DOM 兜底：失败页根节点带 data-dsh-boot（boot-page.ts），一旦出现
  *      且文案为 "Failed to load plugins" 即上报，覆盖失败不经过 console.error
  *      的上游改动。代价是对上游这两处文案有依赖，两处同时改才会同时失效。
+ *
+ * 职责三：语言上报。壳（启动器）的全部文案跟随 harness GUI 的生效语言，而 GUI 的
+ * 生效语言由它自己的 <html lang> 表达（客户端 locale 服务在每次语言快照变化时同步
+ * 该属性），因此以 { dshDesktop: true, type: "locale", id } 上报该值即可，壳不需要
+ * 读 settings.yaml、也不需要在 GUI 里再开一个入口。真源选型的取舍见
+ * apps/desktop-launcher/docs/i18n.md 第五节。
  */
 (function () {
   "use strict";
@@ -103,7 +109,12 @@
   var bootWatcher = new MutationObserver(function () {
     var page = container.querySelector("[data-dsh-boot]");
     if (page === null) {
-      if (seenBootPage) bootWatcher.disconnect();
+      if (seenBootPage) {
+        // 应用挂载完成，locale 服务此时已激活：补报一次语言。详见下方"语言上报"
+        // 一节——函数声明在本作用域内提升，此处调用不受定义位置影响。
+        reportLocale();
+        bootWatcher.disconnect();
+      }
       return;
     }
     seenBootPage = true;
@@ -113,4 +124,28 @@
     }
   });
   bootWatcher.observe(container, { childList: true, subtree: true });
+
+  /* ---------- 语言上报 ---------- */
+
+  // 已上报过的语言；重复上报对壳没有意义，也避免观察回调里反复 postMessage。
+  var reportedLang = null;
+
+  /** 上报当前文档语言；取不到或与上次相同则忽略。 */
+  function reportLocale() {
+    var lang = document.documentElement.lang;
+    if (lang === "" || lang === reportedLang) return;
+    reportedLang = lang;
+    window.parent.postMessage({ dshDesktop: true, type: "locale", id: lang }, targetOrigin());
+  }
+
+  // 通道一：<html lang> 变化。覆盖"用户在 GUI 设置里切换语言"。
+  //
+  // 只有这一条会漏掉一种组合：服务端 index.html 的默认 lang 恰好等于生效语言
+  // （中文系统 + 用户在 GUI 里选英文），此时属性自始至终没变过，观察回调不会触发，
+  // 壳就会一直用系统语言。因此再由引导页消失时的 reportLocale()（通道二，见上）
+  // 在应用挂载后补报一次——那一刻 locale 服务必然已激活。
+  new MutationObserver(reportLocale).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["lang"],
+  });
 })();

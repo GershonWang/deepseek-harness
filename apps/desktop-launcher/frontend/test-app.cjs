@@ -24,6 +24,14 @@ const vm = require("node:vm");
 
 const APP_CODE = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
+/* index.html 在 app.js 之前加载的国际化脚本，顺序一致：字典先挂到全局，i18n.js
+ * 建立门面，app.js 的 init 再消费。app.js 会直接调用 window.DSHI18N（无守卫），
+ * 因此这里必须按真实加载顺序把它们放进同一个上下文。 */
+const I18N_SCRIPTS = ["locales/zh.js", "locales/en.js", "i18n.js"].map((rel) => ({
+  name: rel,
+  code: fs.readFileSync(path.join(__dirname, rel), "utf8"),
+}));
+
 /* ---------- 最小 DOM stub ---------- */
 
 class ClassList {
@@ -251,6 +259,8 @@ function makeDocument() {
     },
   };
   document.body = document.createElement("body");
+  // i18n.js 用 <html lang> 表达文档语言；桩只需承接这个属性。
+  document.documentElement = { lang: "zh-CN" };
   return { document, registry };
 }
 
@@ -451,6 +461,9 @@ function makeWails(runCalls, overrides = {}) {
    * 包名确认（internal/app/autodisabled.go）。调用单独记账而不混进 runCalls —— 运行态
    * 快照本来就会问一次，混进去会打乱其它用例对 runCalls 的断言。 */
   const autoDisabled = { pending: 0, ack: [] };
+  /* i18n 的语言回推（frontend/i18n.js → App.SetLocale）：单独记账而不混进 runCalls
+   * ——初始化就会回推一次兜底语言，混进去会打乱既有用例对「壳侧动作」的断言。 */
+  const localeCalls = [];
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
@@ -496,6 +509,10 @@ function makeWails(runCalls, overrides = {}) {
     ScanHostTools: overrides.ScanHostTools ?? (async () => []),
     About: overrides.About ?? (async () => ({})),
     ReadClipboardImage: async () => "",
+    // 壳语言回推（frontend/i18n.js 在 applyLocale 时调用）。
+    SetLocale: async (id) => {
+      localeCalls.push(id);
+    },
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
     TerminalStart: async () => "pty-" + (++terminalSeq),
     TerminalWrite: async () => {},
@@ -506,6 +523,7 @@ function makeWails(runCalls, overrides = {}) {
     events,
     windowEvents,
     autoDisabled,
+    localeCalls,
     openedUrls,
     window: {
       go: { app: { App: app } },
@@ -576,9 +594,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events, windowEvents, autoDisabled, openedUrls } = hasWails
+  const { window, events, windowEvents, autoDisabled, localeCalls, openedUrls } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, openedUrls: [] };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], openedUrls: [] };
 
   const sandbox = {
     console,
@@ -599,6 +617,11 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     navigator: {},
   };
   vm.createContext(sandbox);
+  // 先按 index.html 的顺序加载国际化脚本：app.js 的 init 会调 window.DSHI18N.init()，
+  // 缺了它会在 init 处抛错、后面所有用例一起失败（见文件头 I18N_SCRIPTS）。
+  for (const script of I18N_SCRIPTS) {
+    vm.runInContext(script.code, sandbox, { filename: script.name });
+  }
   // 加一行暴露模块级绑定供测试直接调用（函数声明提升，运行前已定义）
   const code = APP_CODE + "\n;globalThis.__testMaybeAutoStart = maybeAutoStartAfterRepair;"
     + "\n;globalThis.__testRenderRepairOutput = renderRepairOutput;"
@@ -622,6 +645,8 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     autoDisabled,
     terminals: xterm.instances,
     storage: window.localStorage,
+    i18n: window.DSHI18N,
+    localeCalls,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -822,6 +847,38 @@ test("客户端失败消息校验：非法类型不上报，非 iframe 来源不
   await flush();
 
   assert.deepEqual(h.runCalls, [], "非法载荷不应触发任何壳侧动作");
+});
+
+/* ---------- 语言跟随（iframe 内 GUI 的 <html lang>，见 linglong/dsh-link-bridge.js） ---------- */
+
+test("桥上报 GUI 语言：壳切语言、同步文档语言并把生效语言回推给 Go", async () => {
+  const h = loadApp();
+  await flush();
+
+  // 桩的 navigator 是空对象：无语言信息 → 兜底 en。真机上这一步通常是系统语言，
+  // 因为 GUI 还没起来、拿不到它的 <html lang>。
+  assert.equal(h.i18n.current(), "en", "无语言信息时壳应回退 en");
+  assert.equal(h.document.documentElement.lang, "en", "文档语言应同步为当前语言");
+  assert.deepEqual(h.localeCalls, ["en"], "初始化应把兜底语言回推给 Go");
+
+  h.message({ dshDesktop: true, type: "locale", id: "zh-CN" });
+  assert.equal(h.i18n.current(), "zh", "GUI 语言应覆盖兜底值");
+  assert.equal(h.document.documentElement.lang, "zh-CN", "文档语言应跟随 GUI");
+  assert.deepEqual(h.localeCalls, ["en", "zh"], "语言变化应回推给 Go");
+});
+
+test("语言消息校验：非法载荷不改语言也不回推", async () => {
+  const h = loadApp();
+  await flush();
+
+  h.message({ dshDesktop: true, type: "locale" }); // 缺 id
+  h.message({ dshDesktop: true, type: "locale", id: 7 }); // id 非字符串
+  h.message({ type: "locale", id: "zh-CN" }); // 缺 dshDesktop 标记
+  h.message({ dshDesktop: true, type: "unknown", id: "zh" }); // 未知类型
+  await flush();
+
+  assert.equal(h.i18n.current(), "en", "非法载荷不应改变语言");
+  assert.deepEqual(h.localeCalls, ["en"], "非法载荷不应产生新的回推");
 });
 
 test("客户端失败优先于 iframe 目标：不给死路页设置地址", async () => {

@@ -61,7 +61,7 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 ```
 main.go                 Wails 入口：环境 → 控制器 → wails.Run（内嵌 frontend）
-frontend/               壳 UI：index.html / styles.css / app.js（无 Node 构建链）
+frontend/               壳 UI：index.html / styles.css / app.js / i18n.js / locales/（无 Node 构建链）
 internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
 internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
 internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
@@ -131,13 +131,14 @@ make build          # 等价: go build -tags "production webkit2_41" -o dsh-desk
 cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
-node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报）
+node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 
-前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）；它还逐形状核对卡片的 `min-height` 档位装得下该形状的内容高——WebKitGTK 拿这个档位当行高，档位不足时内容会溢出压到下一排——并断言安装中形状的进度条轨道与卡片异色。加载页进度条也在它的量测范围内：50% 与 100% 的宽度必须与轨道一致、进度块落在舞台内、长计数保持单行且不与提示行重叠。`render` 按主题与状态各出一张截图到 `apps/desktop-launcher/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，因此写在 `frontend/` 里的任何东西——浏览器缓存、截图产物，以及 `verify` 每次推送都会重写的预览页——都会进入启动器二进制，而 Go 拒绝的嵌入文件名会让构建直接失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）；它还逐形状核对卡片的 `min-height` 档位装得下该形状的内容高——WebKitGTK 拿这个档位当行高，档位不足时内容会溢出压到下一排——并断言安装中形状的进度条轨道与卡片异色。加载页进度条也在它的量测范围内：50% 与 100% 的宽度必须与轨道一致、进度块落在舞台内、长计数保持单行且不与提示行重叠。`render` 按主题与状态各出一张截图到 `apps/desktop-launcher/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`//go:embed all:frontend` 不看 `.gitignore` 就把整个前端目录嵌进二进制，因此写在 `frontend/` 里的任何东西——浏览器缓存、截图产物，以及 `verify` 每次推送都会重写的预览页——都会进入启动器二进制，而 Go 拒绝的嵌入文件名会让构建直接失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。`i18n.js` 是壳前端的国际化运行时（语言解析、字典回退、`data-i18n` 回填），`locales/` 按语言各存一份字典；`test-i18n.cjs` 只用最小 DOM 桩测这个运行时，断言不依赖 `app.js` 的弹框。
 
 市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐个真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按 ID 抽查。
 
@@ -169,6 +170,8 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每个 `target="_blank"` 的 HTTP(S) 点击经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。「关于」弹框的两个仓库链接走同一通道。
 
 同一个桥还负责第二件事：把 iframe 内的**客户端插件加载失败**上报给壳。宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张 `Failed to load plugins` 死路页，壳却以为一切正常，用户既看不到原因也看不到诊断与安全模式入口。桥在两条通道上侦测该状态并只上报一次（`console.error` 收到以 `web boot:` 开头的文案；引导页节点出现 `Failed to load plugins` 文案），消息为 `{ dshDesktop: true, type: "boot-failed", message }`；`frontend/app.js` 转交 `ReportClientBootFailure`，Go 侧记录为快照里的 `ClientFailure`，前端据此切到自己的启动失败页（清空 iframe 地址、状态栏改「界面插件加载失败」）并复用既有的自动诊断、分级修复与安全模式链路，用户重启、停止、切安全模式或连接外部服务时清除该标记并复位诊断周期。两处上游文案因此成为判据：本包的 `linglong/test-link-bridge.cjs` 会先在这里暴露变化，真机再回归一次。
+
+桥还负责第三件事：把 GUI 的生效语言上报给壳。壳渲染的每一处文案都跟随 iframe 内 harness GUI 的语言，而 GUI 的语言由它自己的 `<html lang>` 表达（客户端 locale 服务在每次语言快照变化时同步该属性），因此桥在属性变化时、以及应用挂载完成时各上报一次 `{ dshDesktop: true, type: "locale", id }`；`frontend/app.js` 转交 `frontend/i18n.js`，壳据此切换文案并把语言回推给 Go 侧（`App.SetLocale`）。挂载后的补报不可省略：服务端 `index.html` 的默认 `lang` 恰好等于生效语言时（中文系统 + 用户在 GUI 里选英文），属性自始至终不变，只观察变化会漏掉这种组合。真源选型与分期实施见 `docs/i18n.md`。
 
 ## 容器可用性（工具链/挂载）
 

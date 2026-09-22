@@ -125,6 +125,15 @@ function bindExternalLinks() {
       return;
     }
 
+    // iframe 内 harness GUI 的生效语言（桥观察它的 <html lang> 后上报）：壳的
+    // 全部文案跟随这一个真源，因此壳不设自己的语言开关。GUI 起来之前壳按
+    // navigator 兜底，见 i18n.js 的 init 与 docs/i18n.md 第五节。
+    if (d.type === "locale") {
+      if (typeof d.id !== "string") return;
+      window.DSHI18N.applyFromGui(d.id);
+      return;
+    }
+
     // iframe 内的客户端插件树激活失败（桥侦测到 boot 失败并上报）：harness
     // 进程可能完全健康，页面却只剩一张死路页。交给 Go 侧记录并触发自动诊断，
     // 前端由返回的快照切到启动失败页（见 applyStatus 的 ClientFailure 分支）。
@@ -1592,6 +1601,10 @@ function bindUI() {
 /* ---------- 启动 ---------- */
 
 function init() {
+  // 先定语言再渲染：加载页、预检页、失败页都在 GUI 起来之前出现，此时只能按
+  // navigator 兜底；GUI 起来后由桥上报的 locale 消息覆盖（见 i18n.js）。
+  window.DSHI18N.init();
+
   bindUI();
 
   if (!window.go || !window.go.app) {

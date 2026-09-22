@@ -1,4 +1,4 @@
-/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的两条职责。
+/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的三条职责。
  *
  * 桥由打包流程注入到桌面版 GUI 的 dist，在真实的 Wails WebKitGTK 里只与
  * window.parent / document / console / MutationObserver 打交道，因此这里用
@@ -6,7 +6,10 @@
  *   - 外链转发：target="_blank" 的 HTTP(S) 点击 → { type: "open-external" }，
  *     非 http(s)、已 preventDefault、非左键、带 download 的都不转发；
  *   - 启动失败上报：console.error 收到 "web boot:" 文案，或引导页出现
- *     "Failed to load plugins" → { type: "boot-failed" }，只上报一次。
+ *     "Failed to load plugins" → { type: "boot-failed" }，只上报一次；
+ *   - 语言上报：<html lang> 变化 → { type: "locale", id }，未变化不重复上报，
+ *     应用挂载完成时补报一次（服务端默认 lang 恰好等于生效语言时属性不会变化，
+ *     只靠属性观察会漏掉这种组合）。
  * 运行：node --test linglong/test-link-bridge.cjs（工作目录 apps/desktop-launcher）
  *
  * 为什么用桩而不是真实浏览器：桥的判据都落在它自己发出的消息上，桩能精确控制
@@ -97,6 +100,9 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
 
   const document = {
     body: root,
+    // 语言真源：桥读 <html lang> 并上报（见 dsh-link-bridge.js 的"语言上报"一节）。
+    // 服务端 index.html 的默认值是 en，与真实 dist 一致。
+    documentElement: { lang: "en" },
     getElementById(id) {
       return id === "root" ? root : null;
     },
@@ -117,7 +123,7 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
   vm.createContext(sandbox);
   vm.runInContext(BRIDGE_CODE, sandbox, { filename: "dsh-link-bridge.js" });
 
-  return { messages, docListeners, root, observers: instances, console: consoleStub };
+  return { messages, docListeners, root, document, observers: instances, console: consoleStub };
 }
 
 /** 造一次左键点击事件；返回的事件对象可断言 defaultPrevented。 */
@@ -217,7 +223,7 @@ test("DOM 兜底：引导页出现失败文案时上报，加载中不报", () =
   assert.equal(h.observers[0].disconnected, true, "上报后应停止观察");
 });
 
-test("应用挂载成功（引导页节点消失）后停止观察，不再上报", () => {
+test("应用挂载成功（引导页节点消失）后补报语言并停止观察", () => {
   const h = loadBridge();
   h.root.bootPage = { textContent: "HARNESS Loading plugins…" };
   h.observers[0].trigger();
@@ -227,7 +233,44 @@ test("应用挂载成功（引导页节点消失）后停止观察，不再上�
   h.observers[0].trigger();
 
   assert.equal(h.observers[0].disconnected, true, "引导页消失后应断开观察");
-  assert.deepEqual(sentMessages(h), [], "正常启动不应上报任何消息");
+  // 挂载完成即补报一次语言：服务端默认 lang 恰好等于生效语言时（中文系统 +
+  // 用户在 GUI 里选英文）属性自始至终没变，只靠属性观察会漏掉这种组合。
+  assert.deepEqual(sentMessages(h), [{
+    message: { dshDesktop: true, type: "locale", id: "en" },
+    targetOrigin: "http://127.0.0.1:8080",
+  }]);
+});
+
+test("语言上报：<html lang> 变化即上报，未变化不重复上报", () => {
+  const h = loadBridge();
+  assert.equal(h.observers.length, 2, "应注册引导页观察与语言观察两个观察器");
+  const langObserver = h.observers[1];
+
+  // 真实浏览器里观察回调只在属性变化时触发，桩用显式 trigger 表示这一次变化。
+  h.document.documentElement.lang = "zh-CN";
+  langObserver.trigger();
+  assert.equal(h.messages.length, 1, "语言变化应上报");
+  assert.deepEqual(sentMessages(h)[0], {
+    message: { dshDesktop: true, type: "locale", id: "zh-CN" },
+    targetOrigin: "http://127.0.0.1:8080",
+  });
+
+  langObserver.trigger(); // 语言未变却再次回调
+  assert.equal(h.messages.length, 1, "语言未变不应重复上报");
+
+  // 切回英文同样要上报：壳必须跟着切回去，不能只在首次生效。
+  h.document.documentElement.lang = "en";
+  langObserver.trigger();
+  assert.equal(h.messages.length, 2, "切回英文也应上报");
+  assert.equal(h.messages[1].message.id, "en");
+});
+
+test("语言上报：取不到 <html lang> 时不发消息", () => {
+  const h = loadBridge();
+  h.document.documentElement.lang = "";
+  h.observers[1].trigger();
+
+  assert.deepEqual(sentMessages(h), [], "空语言不应上报");
 });
 
 test("父窗口不支持 ancestorOrigins 时回退为 *", () => {

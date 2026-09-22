@@ -23,6 +23,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
@@ -186,6 +187,12 @@ type App struct {
 	freshHome     bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
 	clientFailure string // iframe 内客户端插件加载失败的原因；非空时前端改显启动失败页
 
+	// 当前生效的壳语言（受 localeMu 保护）：真源是 iframe 内 GUI 的 <html lang>，
+	// 由前端 applyLocale 时经 SetLocale 回推；前端起来之前用环境语言兜底。
+	// 与 mu 分开，避免渲染路径上的读锁与状态锁相互牵连（见 locale.go）。
+	localeMu sync.RWMutex
+	locale   i18n.Locale
+
 	// 启动前预检（preflight.go 状态机）与 doctor 面板共用的 doctor 执行器。
 	preflightRunner *preflight.Runner
 	preflight       PreflightSummary
@@ -237,6 +244,7 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 		dshCmd:          dshCmd,
 		dshScript:       dshScript,
 		term:            term,
+		locale:          i18n.FromEnv(),
 		preflightRunner: preflight.NewRunner(dshCmd, dshScript, preflightHomePath(home)),
 	}
 	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。

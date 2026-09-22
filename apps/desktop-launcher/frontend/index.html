@@ -358,6 +358,12 @@
      UMD 构建在浏览器环境暴露 window.Terminal 与 window.FitAddon.FitAddon -->
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
+<!-- 国际化：字典先挂到全局，i18n.js 再据此建立门面，app.js 最后消费。
+     顺序不可调换——i18n.js 在初始化时要读 window.DSH_LOCALES，app.js 在首次
+     渲染前要调 window.DSHI18N.init()。见 docs/i18n.md 6.1 -->
+<script src="locales/zh.js"></script>
+<script src="locales/en.js"></script>
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
