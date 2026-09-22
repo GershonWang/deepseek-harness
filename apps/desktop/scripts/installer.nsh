@@ -2,14 +2,22 @@
 !define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
 !define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
+ManifestDPIAware true
 !ifndef BUILD_UNINSTALLER
-  ManifestDPIAware true
   !define MUI_CUSTOMFUNCTION_GUIINIT InstallerGuiInit
 !endif
 
 !macro customHeader
   !define /ifndef INSTALLER_STRINGS_FILE "${INSTALLER_SOURCE_DIR}\strings.nsh"
   !include "${INSTALLER_STRINGS_FILE}"
+  !ifdef BUILD_UNINSTALLER
+    BrandingText " "
+    SetFont "Segoe UI" 9
+    !ifdef LANG_SIMPCHINESE
+      SetFont /LANG=${LANG_SIMPCHINESE} "Microsoft YaHei UI" 9
+    !endif
+    !include "${INSTALLER_SOURCE_DIR}\uninstall.nsh"
+  !endif
   !ifndef BUILD_UNINSTALLER
     !include "${INSTALLER_SOURCE_DIR}\theme.nsh"
     !include "${INSTALLER_SOURCE_DIR}\pages.nsh"
@@ -72,6 +80,10 @@
 
 !macro customWelcomePage
   Page custom InstallerWelcome InstallerWelcomeLeave
+!macroend
+
+!macro customUnInstall
+  Call un.CleanData
 !macroend
 
 !macro customPageAfterChangeDir
@@ -163,6 +175,8 @@
   ${EndIf}
   !insertmacro InstallerPublishStage 4
   !insertmacro dshFinishDirectories
+  ; Standard uninstall-entry metadata read by inventory tools; the upstream template records it only under its private key.
+  WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" InstallLocation "$INSTDIR"
   ${If} $0 == 1
     SetErrors
   ${Else}

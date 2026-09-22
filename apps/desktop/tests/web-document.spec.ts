@@ -43,7 +43,7 @@ it('forwards upload bytes and cancellation with Host credentials while keeping t
     method: 'POST', body: 'upload bytes', headers: { origin: 'dsh-app://app', cookie: 'untrusted' },
   })
   const response = await forwardWebRequest(request, 'http://127.0.0.1:1234/?token=secret', 'session=owned')
-  const [target, init] = fetch.mock.calls[0] as unknown as [URL, RequestInit]
+  const [target, init] = fetch.mock.calls[0] as [URL, RequestInit]
   expect(target.href).toBe('http://127.0.0.1:1234/api/upload?name=file')
   expect(new Headers(init.headers).get('cookie')).toBe('session=owned')
   expect(new Headers(init.headers).get('origin')).toBeNull()

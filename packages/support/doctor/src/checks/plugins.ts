@@ -24,6 +24,7 @@ import {
   resolveProfileDir,
   writeProfileBundles,
   PROFILE_PATCH_FILENAME,
+  type Profile,
 } from '@deepseek-ai/dsh-app-boot'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { recordAutoDisabled } from '../auto-disabled.js'
@@ -38,6 +39,31 @@ function isOfficialBundle(packageName: string): boolean {
 
 function webAppAnchor(): string {
   return require.resolve('@deepseek-ai/dsh-web-app/package.json')
+}
+
+/**
+ * 以诊断视角加载 web profile：宿主为了让应用仍然启动，会把解析不到的 bundle
+ * 静默剔除（只在 stderr 留一行告警），而 doctor 的检查必须看见它们——否则缺装
+ * 的第三方 bundle 会以「bundle 均已解析」或「无第三方插件」的形式从报告里消失，
+ * fatal 级的可解析性检查也永远不触发。启动器为此在 preflight 的子进程环境里剥离
+ * DSH_SAFE_MODE，这里同样显式关闭安全模式的收紧，保证诊断看到真实组合。
+ *
+ * 报错沿用解析器的 `cannot resolve profile bundle` 措辞：`plugin-bundles-resolvable`
+ * 靠这段文字把「第三方缺依赖」与其它 profile 故障分开，改动措辞会静默丢掉那条提示。
+ * @param dshHome - 被测的 Harness home。
+ * @returns 声明的 bundle 全部解析出层的 profile。
+ * @throws 清单或用户补丁层不可读，以及某个声明的 bundle 没有对应层时。
+ */
+function loadDoctorProfile(dshHome: string): Profile {
+  const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome, { skipThirdPartyBundles: false })
+  const declared = readProfileManifest('doctor', profile.dir).dsh?.profile?.bundles ?? []
+  const resolved = new Set(profile.layers.map(layer => layer.packageName))
+  const missing = [...new Set(declared)].filter(name => !resolved.has(name))
+  if (missing.length === 0) return profile
+  throw new Error(
+    `doctor: cannot resolve profile bundle ${missing.map(name => JSON.stringify(name)).join(', ')} from the dsh installation or ${profile.dir}; `
+    + 'run \'dsh plugin --profile web install\' if the dependency is not installed',
+  )
 }
 
 /**
@@ -83,7 +109,7 @@ async function removeOrphanedPatchEntries(
   // 文件不存在（从未创建，或已被 cfg-user-patch 改名为 .disabled）：无条目可处置。
   if (!existsSync(patchPath)) return { kind: 'file-missing' }
 
-  const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+  const profile = loadDoctorProfile(dshHome)
   const baselineIds = new Set(
     composeEntries(profile.layers.map(l => l.patches))
       .map(entry => entry.id)
@@ -113,7 +139,7 @@ const pluginBundlesResolvable: DoctorCheck = {
   severity: 'fatal',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+      const profile = loadDoctorProfile(dshHome)
       const official = profile.layers.filter(l => isOfficialBundle(l.packageName))
       const thirdParty = profile.layers.filter(l => !isOfficialBundle(l.packageName))
       const base = {
@@ -150,7 +176,7 @@ const pluginPatchComposable: DoctorCheck = {
   severity: 'error',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+      const profile = loadDoctorProfile(dshHome)
       const allLayers = [
         ...profile.layers.map(l => l.patches),
         profile.patches,
@@ -208,7 +234,7 @@ const pluginThirdPartyList: DoctorCheck = {
   severity: 'info',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+      const profile = loadDoctorProfile(dshHome)
       const thirdParty = profile.layers.filter(l => !isOfficialBundle(l.packageName))
       if (thirdParty.length === 0) {
         return {
@@ -244,7 +270,7 @@ const pluginPatchTargets: DoctorCheck = {
   severity: 'warning',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+      const profile = loadDoctorProfile(dshHome)
       if (profile.patches.length === 0) {
         return { ok: true, message: 'No user patches', fixable: false, suggestedLevel: 2 }
       }
@@ -410,7 +436,7 @@ interface LocateCulpritResult {
 async function locateCulprit(dshHome: string): Promise<LocateCulpritResult> {
   let thirdParty: string[]
   try {
-    const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome)
+    const profile = loadDoctorProfile(dshHome)
     thirdParty = profile.layers
       .filter(layer => !isOfficialBundle(layer.packageName))
       .map(layer => layer.packageName)

@@ -6,11 +6,11 @@
  * Static checks (bundle resolution, patch composition) cannot see a plugin
  * module that imports a dependency the current installation no longer
  * provides; only a real boot surfaces that failure. This probe is that boot:
- * it resolves the profile's bundle layers, heals the module fallback the
- * Loader needs for bare import specifiers, writes the empty root config the
- * include tree patches over, mounts the tree, and waits for every entry to
- * settle. The doctor's dynamic-loading check spawns this process and reads
- * its exit code.
+ * it resolves the profile's bundle layers, computes the runtime resolution
+ * that lets the Loader resolve bare import specifiers, writes the empty root
+ * config the include tree patches over, mounts the tree, and waits for every
+ * entry to settle. The doctor's dynamic-loading check spawns this process and
+ * reads its exit code.
  *
  * Exit codes:
  *   0 - the tree loaded and every enabled entry activated.
@@ -31,9 +31,10 @@ import { parseArgs } from 'node:util'
 import {
   auditStartupEntries,
   boot,
-  healProfilesModuleFallback,
+  createRuntimeResolution,
   loadOptionalPatches,
   loadProfile,
+  PluginPackages,
   PROFILE_PATCH_FILENAME,
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
@@ -130,10 +131,7 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
   const installAnchor = resolveInstallAnchor()
   const profile = loadProfile(BIN_NAME, options.profile, installAnchor, options.home)
   const selected = selectLayers(options.profile, profile.layers, options.include)
-  // The Loader resolves bare bundle/plugin specifiers by walking up from the
-  // profile directory; the module fallback materializes the installation's
-  // dependency closure there, exactly as a real launch does before booting.
-  await healProfilesModuleFallback({ installAnchor, profile, home: options.home })
+  const resolution = await createRuntimeResolution({ installAnchor, profile, home: options.home })
 
   const rootConfig = join(profile.dir, 'cordis.yml')
   writeFileSync(rootConfig, PROFILE_ROOT_CONFIG)
@@ -143,7 +141,7 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
 
   let requestedExit: number | undefined
   const readyListeners = new Set<() => void>()
-  const ctx = await boot(BIN_NAME, rootConfig, patches, (hostCtx) => {
+  const ctx = await boot(BIN_NAME, rootConfig, patches, async (hostCtx) => {
     // 宿主把插件加载期的日志私有收进 startupLogs，只在致命路径（StartupError）
     // 才随错误带出；第三方条目的失败在宿主策略下只是告警，于是真正的失败原因
     // ——缺失的模块名、插件在模块求值阶段抛出的错误——永远到不了 stderr，审计
@@ -158,6 +156,10 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
         process.stderr.write(`${BIN_NAME}: plugin ${type} (${name}): ${detail}\n`)
       },
     })
+    // 模块解析必须与真实启动一致：启动器在 prepare 阶段挂载 PluginPackages 来
+    // 安装运行时拦截，Loader 才能解析 profile 组合里的裸包名；探针少了这一步，
+    // 会把「依赖解析不到」误报成插件本身的故障。
+    await hostCtx.plugin(PluginPackages, { resolution })
     // Launcher facts every profile app expects. No invocation-level flags are
     // handed over: probing must not reject a profile whose app owns a
     // different flag family. Readiness is never committed — the probe disposes

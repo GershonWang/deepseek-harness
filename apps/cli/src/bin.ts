@@ -64,7 +64,12 @@ export async function runCli(): Promise<void> {
       )
       break
     }
-    // 本地 doctor 子命令：启动前预检与诊断修复，上游无此 mode。
+    case 'dump-config-schema': {
+      const { runDumpConfigSchema } = await import('./dump-config-schema.ts')
+      await runDumpConfigSchema(invocation.profile, invocation.patches, invocation.fromDefaultProfile)
+      break
+    }
+    // 启动前预检：检查环境、配置与插件，并按请求的级别做诊断修复。
     case 'doctor': {
       const { runDoctor } = await import('./doctor.ts')
       process.exit(await runDoctor(invocation))

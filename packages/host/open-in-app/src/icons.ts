@@ -5,16 +5,18 @@
  * icon as a 32px PNG through a generated PowerShell script (the largest size
  * `ExtractAssociatedIcon` yields without a native addon); Linux follows the
  * spec's desktop entry `Icon=` key into the hicolor theme and pixmaps
- * directories (PNG or SVG, no subprocess). Every failure resolves null and
+ * directories (PNG or SVG, no subprocess), retrying an absolute path that is
+ * not readable here under the sandbox's host-rootfs mount. Every failure resolves null and
  * the icon route answers 404, which the browser renders as a generic glyph.
  */
 
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
+import { desktopApplicationIcon } from '@deepseek-ai/dsh-native-command'
 import type { OpenInAppApp } from './catalog.ts'
 import {
-  findDesktopEntry, hostDataDirectories, isFile, output, resolveInternals, specFor, xdgDataDirectories,
+  findDesktopEntry, hostDataDirectories, output, resolveInternals, specFor, xdgDataDirectories,
   type OpenInAppInternals, type OpenInAppResolvedLaunch, type ResolvedInternals,
 } from './resolver.ts'
 
@@ -121,50 +123,6 @@ async function extractExecutableIconPng(
   }
 }
 
-/** Theme sizes searched largest-first; the button renders at 15-18 CSS px. */
-const HICOLOR_SIZES = ['512x512', '256x256', '128x128', '64x64', '48x48', '32x32'] as const
-
-/** The media type an icon file's extension names. */
-function iconContentType(path: string): OpenInAppIcon['contentType'] | null {
-  if (path.endsWith('.png')) return 'image/png'
-  if (path.endsWith('.svg')) return 'image/svg+xml'
-  return null
-}
-
-/** Read one icon file when it exists and carries a servable media type. */
-async function readIconFile(path: string): Promise<OpenInAppIcon | null> {
-  const contentType = iconContentType(path)
-  if (contentType === null || !await isFile(path)) return null
-  return { bytes: await readFile(path), contentType }
-}
-
-/**
- * Resolve a Linux icon name through the hicolor theme and pixmaps
- * directories, largest size first. The user's active icon theme is not
- * consulted (README Known Limitations): hicolor is the freedesktop fallback
- * every theme inherits from, so the stock icon is found wherever the
- * application installed one.
- */
-async function findLinuxThemeIcon(
-  name: string, dataDirs: readonly string[],
-): Promise<OpenInAppIcon | null> {
-  for (const dataDir of dataDirs) {
-    for (const size of HICOLOR_SIZES) {
-      for (const extension of ['png', 'svg'] as const) {
-        const icon = await readIconFile(join(dataDir, 'icons', 'hicolor', size, 'apps', `${name}.${extension}`))
-        if (icon !== null) return icon
-      }
-    }
-    const scalable = await readIconFile(join(dataDir, 'icons', 'hicolor', 'scalable', 'apps', `${name}.svg`))
-    if (scalable !== null) return scalable
-    for (const extension of ['png', 'svg'] as const) {
-      const pixmap = await readIconFile(join(dataDir, 'pixmaps', `${name}.${extension}`))
-      if (pixmap !== null) return pixmap
-    }
-  }
-  return null
-}
-
 /**
  * One Linux application's icon from one desktop entry's `Icon=` key.
  * @param desktopId - entry id without the `.desktop` suffix.
@@ -180,13 +138,13 @@ async function extractLinuxIcon(
   const entry = await findDesktopEntry(desktopId, dataDirs)
   const icon = entry?.icon
   if (icon === undefined || icon === '') return null
-  if (!isAbsolute(icon)) return findLinuxThemeIcon(icon, dataDirs)
-  const direct = await readIconFile(icon)
+  if (!isAbsolute(icon)) return await desktopApplicationIcon(icon, dataDirs)
+  const direct = await desktopApplicationIcon(icon, dataDirs)
   if (direct !== null) return direct
   // An absolute icon path inside the host's own root is readable through the
-  // sandbox's read-only mount of it; a shared-home path read directly above.
+  // sandbox's read-only mount of it; a shared-home path was read directly above.
   const hostRootfs = internals.hostEscape?.hostRootfs
-  return hostRootfs === undefined ? null : readIconFile(join(hostRootfs, icon))
+  return hostRootfs === undefined ? null : await desktopApplicationIcon(join(hostRootfs, icon), dataDirs)
 }
 
 /**

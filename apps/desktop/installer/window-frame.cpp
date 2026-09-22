@@ -12,8 +12,19 @@
 #include <algorithm>
 #include "progress.h"
 #include "extract.h"
+#include "uninstall-data.h"
 
 using namespace Gdiplus;
+
+// Returns a Win32 error code; no cleanup request may traverse a linked root or touch the protected root.
+extern "C" __declspec(dllexport) DWORD __cdecl UninstallRemoveData(LPCWSTR path, LPCWSTR installation, LPCWSTR protectedRoot) {
+    return uninstall_data::Remove(path, installation, protectedRoot);
+}
+
+// Returns a Win32 error code; only ordinary empty directories strictly below the stop directory are removed.
+extern "C" __declspec(dllexport) DWORD __cdecl UninstallRemoveEmptyParents(LPCWSTR path, LPCWSTR stop) {
+    return uninstall_data::RemoveEmptyParents(path, stop);
+}
 
 // Match the affected executable, not another user's or directory's same-named application.
 // Returns 0 while running, 1 when absent, and -1 if the process list cannot be read.
