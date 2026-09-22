@@ -24,8 +24,21 @@ func (a *App) SetLocale(id string) {
 		return
 	}
 	a.localeMu.Lock()
-	defer a.localeMu.Unlock()
+	changed := a.locale != locale
 	a.locale = locale
+	a.localeMu.Unlock()
+	if !changed {
+		return
+	}
+	// 语言变了要重推已渲染的快照：Go 侧文案是在渲染那一刻取语言的，之前推出去的旧语言
+	// 字符串不会自己变，而工具链弹框正开着时不会有新的 toolchain:status 到来。状态快照
+	// 只读内存，同步推；工具链采集含命令探测，走既有的异步 RefreshTools。
+	//
+	// 没有 Wails ctx 时不推：既没有前端可刷新，采集探测也白跑（测试路径）。
+	if a.ctx != nil {
+		a.emitStatus()
+		a.RefreshTools()
+	}
 }
 
 // translate 是「键 → 当前语言文案」的渲染函数签名。

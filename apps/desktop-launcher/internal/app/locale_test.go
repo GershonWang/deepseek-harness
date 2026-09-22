@@ -43,3 +43,23 @@ func TestSetLocaleIgnoresUnknown(t *testing.T) {
 		})
 	}
 }
+
+// TestRenderedCopyFollowsLocale 钉住「Go 侧文案跟着语言走」依赖的机制：渲染读的是
+// 调用那一刻的语言，而不是启动时的快照。
+//
+// 这是 SetLocale 里重推快照之所以有效的原因——旧快照不会自己变，但重新渲染一次就会
+// 用上新语言。没有 Wails ctx 时测不了事件本身，因此测机制。
+func TestRenderedCopyFollowsLocale(t *testing.T) {
+	a := testApp()
+	a.SetLocale("zh")
+	if got := joinOrNone(a.t, nil); got != "无" {
+		t.Fatalf("中文下 joinOrNone = %q，期望 无", got)
+	}
+	a.SetLocale("en")
+	if got := joinOrNone(a.t, nil); got != "None" {
+		t.Fatalf("切到英文后 joinOrNone = %q，期望 None", got)
+	}
+	if got := updateNotice(a.t, []string{"go 1.25 → 1.26"}, 1); got != "Updated 1 tool(s): go 1.25 → 1.26; 1 failed. Older versions stay on disk; switch or uninstall them from the version dropdown on the card" {
+		t.Fatalf("切到英文后 updateNotice = %q", got)
+	}
+}
