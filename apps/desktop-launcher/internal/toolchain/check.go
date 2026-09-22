@@ -61,8 +61,9 @@ func Check(specs []Spec) []domain.ToolCheck {
 		} else {
 			c.OK = true
 			if s.NoVersion {
-				// 仅存在性探测（如 xdg-open）：版本号无意义，标记为"内置"。
-				c.Version = "内置"
+				// 仅存在性探测（如 xdg-open）：版本号无意义，只报这一事实，
+				// 界面上的「内置」由 app 层渲染。
+				c.NoVersion = true
 			} else {
 				c.Version = firstLine(buf.String())
 			}

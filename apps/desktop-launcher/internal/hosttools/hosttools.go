@@ -7,7 +7,6 @@ package hosttools
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,10 +27,10 @@ var namePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 
 // Entry 是一条宿主工具链挂载配置。
 type Entry struct {
-	Name   string // 标识（配置文件与挂载目录名）
-	Source string // 宿主路径
-	Target string // 容器内挂载路径 /opt/host-tools/<name>
-	Mounted bool // 本次实例启动时挂载是否已生效（容器内 /opt/host-tools/<name> 是否存在）
+	Name    string // 标识（配置文件与挂载目录名）
+	Source  string // 宿主路径
+	Target  string // 容器内挂载路径 /opt/host-tools/<name>
+	Mounted bool   // 本次实例启动时挂载是否已生效（容器内 /opt/host-tools/<name> 是否存在）
 }
 
 // mountJSON 与 linglong config.d 的挂载配置格式一致。
@@ -82,22 +81,62 @@ func SuggestName(source string) string {
 }
 
 // Add 校验宿主路径并把挂载配置写入 config.d。name 为空时由 source 派生。
-// 返回 (挂载项, 警告, 错误)：源路径不在家目录下时给出警告（玲珑的绑定挂载
-// 由用户态 ll-cli 执行，非家目录源在部分系统上可能失败）。
-func Add(home, name, source string) (Entry, string, error) {
+// ErrorKind 是宿主挂载操作的失败归类。
+//
+// 领域包只报事实：措辞属于界面语言，由 app 层按 kind 查字典渲染（见 docs/i18n.md
+// 第六节）。Detail 保留名称、路径或 os.Stat 错误原文，它是排障线索不是文案。
+type ErrorKind string
+
+const (
+	// ErrorKindInvalidName 挂载名称不合法。
+	ErrorKindInvalidName ErrorKind = "invalidName"
+	// ErrorKindPathUnavailable 宿主路径不可访问。
+	ErrorKindPathUnavailable ErrorKind = "pathUnavailable"
+	// ErrorKindPathNotDir 宿主路径不是目录。
+	ErrorKindPathNotDir ErrorKind = "pathNotDir"
+)
+
+// Error 是归类后的挂载失败。
+type Error struct {
+	// Kind 失败归类。
+	Kind ErrorKind
+	// Detail 技术细节（名称、路径或 os.Stat 错误原文）。
+	Detail string
+}
+
+// Error 实现 error；kind 前缀便于日志一眼看出归类。
+func (e *Error) Error() string {
+	if e.Detail == "" {
+		return string(e.Kind)
+	}
+	return string(e.Kind) + ": " + e.Detail
+}
+
+// WarningKind 是挂载成功但需要提醒用户的情况。
+type WarningKind string
+
+const (
+	// WarningOutsideHome 源路径不在家目录下：部分系统环境的绑定挂载可能失败。
+	WarningOutsideHome WarningKind = "outsideHome"
+)
+
+// 返回 (挂载项, 警告归类, 错误)：源路径不在家目录下时给出警告（玲珑的绑定挂载
+// 由用户态 ll-cli 执行，非家目录源在部分系统上可能失败）。警告与错误都只报归类，
+// 措辞由 app 层渲染——它们是界面文案，不是本包的数据（见 docs/i18n.md 第六节）。
+func Add(home, name, source string) (Entry, WarningKind, error) {
 	if name == "" {
 		name = SuggestName(source)
 	}
 	name = SanitizeName(name)
 	if !namePattern.MatchString(name) {
-		return Entry{}, "", fmt.Errorf("挂载名称非法（仅允许小写字母/数字/连字符，长度≤32）: %q", name)
+		return Entry{}, "", &Error{Kind: ErrorKindInvalidName, Detail: name}
 	}
 	info, err := os.Stat(source)
 	if err != nil {
-		return Entry{}, "", fmt.Errorf("宿主路径不可访问: %v", err)
+		return Entry{}, "", &Error{Kind: ErrorKindPathUnavailable, Detail: err.Error()}
 	}
 	if !info.IsDir() {
-		return Entry{}, "", fmt.Errorf("宿主路径不是目录: %s", source)
+		return Entry{}, "", &Error{Kind: ErrorKindPathNotDir, Detail: source}
 	}
 	abs, err := filepath.Abs(source)
 	if err != nil {
@@ -122,10 +161,10 @@ func Add(home, name, source string) (Entry, string, error) {
 	if err := os.WriteFile(fileFor(dir, name), data, 0o644); err != nil {
 		return Entry{}, "", err
 	}
-	warn := ""
+	warn := WarningKind("")
 	homeClean := filepath.Clean(home) + string(os.PathSeparator)
 	if abs != filepath.Clean(home) && !strings.HasPrefix(abs, homeClean) {
-		warn = "路径不在家目录下，部分系统环境的绑定挂载可能失败（建议放入 ~/tools 或改用一键安装）；挂载为只读，工具需自写安装目录时不可用"
+		warn = WarningOutsideHome
 	}
 	return Entry{Name: name, Source: abs, Target: targetFor(name)}, warn, nil
 }
@@ -208,7 +247,7 @@ func hasExecutable(dir string) bool {
 func Remove(home, name string) error {
 	name = SanitizeName(name)
 	if !namePattern.MatchString(name) {
-		return fmt.Errorf("挂载名称非法: %q", name)
+		return &Error{Kind: ErrorKindInvalidName, Detail: name}
 	}
 	err := os.Remove(fileFor(ConfigDir(home), name))
 	if err != nil && !os.IsNotExist(err) {

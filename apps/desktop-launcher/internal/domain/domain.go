@@ -57,4 +57,8 @@ type ToolCheck struct {
 	// Path 是命令在当前 PATH 中解析到的绝对路径（exec.LookPath 结果），
 	// 供调用方按路径前缀归类来源（随包/宿主导入/系统）；未命中为空。
 	Path string
+	// NoVersion 表示该命令只做存在性探测，版本号对用户无意义（如 xdg-open）。
+	// 为什么不在 Version 里塞「内置」这类措辞：Version 是数据字段，会经 JSON 直达
+	// 界面；塞中文等于让数据层携带界面语言（见 docs/i18n.md 第六节）。
+	NoVersion bool
 }

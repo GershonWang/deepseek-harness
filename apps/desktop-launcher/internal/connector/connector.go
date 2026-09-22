@@ -4,7 +4,6 @@ package connector
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -116,6 +115,28 @@ func (c *Connector) LastError() string {
 	return c.lastError
 }
 
+// ValidationKind 是 URL 校验失败的归类。
+//
+// 领域包只报事实：措辞属于界面语言，由 app 层按 kind 查字典渲染（见 docs/i18n.md
+// 第六节）。url.Parse 自身的错误不归类——那是英文技术细节，原样透传给排障。
+type ValidationKind string
+
+const (
+	// ValidationScheme 协议不是 http/https。
+	ValidationScheme ValidationKind = "scheme"
+	// ValidationHost 缺少主机名。
+	ValidationHost ValidationKind = "host"
+)
+
+// ValidationError 是归类后的 URL 校验失败。
+type ValidationError struct {
+	// Kind 失败归类。
+	Kind ValidationKind
+}
+
+// Error 实现 error；取值即分类 id，便于日志与断言。
+func (e *ValidationError) Error() string { return string(e.Kind) }
+
 // ValidateURL 解析并规范化用户输入的 URL；仅允许 http/https 协议。
 func (c *Connector) ValidateURL(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
@@ -123,10 +144,10 @@ func (c *Connector) ValidateURL(raw string) (string, error) {
 		return "", err
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", errors.New("仅支持 http/https 地址")
+		return "", &ValidationError{Kind: ValidationScheme}
 	}
 	if u.Host == "" {
-		return "", errors.New("缺少主机名")
+		return "", &ValidationError{Kind: ValidationHost}
 	}
 	return u.String(), nil
 }

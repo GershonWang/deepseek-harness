@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -933,7 +932,7 @@ func (a *App) ConnectExternal(raw string) string {
 	}
 	u, err := a.conn.ValidateURL(raw)
 	if err != nil {
-		return a.t("server.addressInvalid", err.Error())
+		return a.t("server.addressInvalid", a.connectorErrorText(err))
 	}
 	if a.conn.NeedConfirmation(u) {
 		selected, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
@@ -1014,7 +1013,13 @@ func (a *App) collectTools() ToolStatus {
 		row := ToolRow{Name: c.Name, State: "missing"}
 		if c.OK {
 			row.State = "installed"
-			row.Version = toolchain.VersionNumber(c.Version)
+			// 只做存在性探测的命令没有有意义的版本号（见 domain.ToolCheck.NoVersion），
+			// 显示本地措辞而不是空列。
+			if c.NoVersion {
+				row.Version = a.t("tools.builtin")
+			} else {
+				row.Version = toolchain.VersionNumber(c.Version)
+			}
 		}
 		rows = append(rows, row)
 	}
@@ -1245,26 +1250,6 @@ func (a *App) InstallToolVersion(id, version string) string {
 	return ""
 }
 
-// installErrorText 渲染安装失败原因。
-//
-// 领域包给出归类（toolchain.InstallError）时按 kind 查字典，再接上原始错误：原始错误是
-// ASCII 技术细节，两种语言下都照原样显示，它是排障线索而不是文案。其余错误（激活失败、
-// 解包 IO 等）没有可归类的事实，直接显示原文——硬塞一句「安装失败」反而丢掉线索。
-//
-// @param err 安装失败原因。
-// @returns 当前语言下的原因文本。
-func (a *App) installErrorText(err error) string {
-	var installErr *toolchain.InstallError
-	if !errors.As(err, &installErr) {
-		return err.Error()
-	}
-	text := a.t("toolchain.error." + string(installErr.Kind))
-	if installErr.Err != nil {
-		text += a.t("common.detailSeparator") + installErr.Err.Error()
-	}
-	return text
-}
-
 // installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
 // 用户在卡片上显式点安装或选了版本，都视为「要用这个版本」，因此显式要求激活：
 // 只有依赖自动安装与并存安装才走 InstallTool 的默认规则（不覆盖当前激活版本）。
@@ -1398,10 +1383,11 @@ func (a *App) AddHostTool(source, name string) HostToolResult {
 	if name == "" {
 		name = hosttools.SuggestName(source)
 	}
-	e, warn, err := hosttools.Add(a.home, name, source)
+	e, warnKind, err := hosttools.Add(a.home, name, source)
 	if err != nil {
-		return HostToolResult{Error: err.Error()}
+		return HostToolResult{Error: a.hostToolErrorText(err)}
 	}
+	warn := a.hostToolWarningText(warnKind)
 	if conflicts := hostToolConflicts(e.Source, a.home); len(conflicts) > 0 {
 		if warn != "" {
 			warn += a.t("common.clauseSeparator")

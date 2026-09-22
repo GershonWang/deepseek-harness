@@ -113,7 +113,7 @@ func (a *App) runPreflightGate() {
 	if err != nil {
 		// 预检是尽力而为的前置检查，doctor 本身失败绝不阻塞启动；
 		// 启动失败的兜底仍是现有的事后自动诊断。
-		a.setPreflight(func(s *PreflightSummary) { s.Phase = PreflightError; s.Error = err.Error() })
+		a.setPreflight(func(s *PreflightSummary) { s.Phase = PreflightError; s.Error = a.preflightErrorText(err) })
 		a.resumeAfterPreflight()
 		return
 	}
@@ -195,7 +195,7 @@ func (a *App) ConfirmDeepRepair() FrontendStatus {
 		defer cancelFull()
 		recheck, recheckErr := a.preflightRunner.Diagnose(fullCtx, false)
 		if recheckErr != nil {
-			a.setPreflight(func(s *PreflightSummary) { s.Busy = false; s.Error = recheckErr.Error() })
+			a.setPreflight(func(s *PreflightSummary) { s.Busy = false; s.Error = a.preflightErrorText(recheckErr) })
 			return
 		}
 		if !preflight.Classify(recheck).HasFatal() {

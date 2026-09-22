@@ -148,6 +148,35 @@ func (r *Runner) Env() []string {
 	return r.env
 }
 
+// DoctorErrorKind 是 doctor 子命令失败的归类。
+//
+// 领域包只报事实：措辞属于界面语言，由 app 层按 kind 查字典渲染（见 docs/i18n.md
+// 第六节）。Detail 保留 stderr 片段或 JSON 解析错误原文，它是排障线索不是文案。
+type DoctorErrorKind string
+
+const (
+	// DoctorNoOutput doctor 没有任何输出（Detail 可能为空，即 stderr 也为空）。
+	DoctorNoOutput DoctorErrorKind = "noOutput"
+	// DoctorOutputUnparsable doctor 有输出但不是合法 JSON。
+	DoctorOutputUnparsable DoctorErrorKind = "outputUnparsable"
+)
+
+// DoctorError 是归类后的 doctor 调用失败。
+type DoctorError struct {
+	// Kind 失败归类。
+	Kind DoctorErrorKind
+	// Detail stderr 片段（无输出时）或 JSON 解析错误原文（解析失败时）。
+	Detail string
+}
+
+// Error 实现 error；kind 前缀便于日志一眼看出归类。
+func (e *DoctorError) Error() string {
+	if e.Detail == "" {
+		return string(e.Kind)
+	}
+	return string(e.Kind) + ": " + e.Detail
+}
+
 // runDoctor 执行一次 doctor 子命令并解析 JSON 输出。
 func (r *Runner) runDoctor(ctx context.Context, extra []string, out any) error {
 	var stdout, stderr bytes.Buffer
@@ -155,13 +184,10 @@ func (r *Runner) runDoctor(ctx context.Context, extra []string, out any) error {
 	output := bytes.TrimSpace(stdout.Bytes())
 	if len(output) == 0 {
 		detail := strings.TrimSpace(stderr.String())
-		if detail == "" {
-			return fmt.Errorf("doctor 无输出")
-		}
-		return fmt.Errorf("doctor 无输出: %s", detail)
+		return &DoctorError{Kind: DoctorNoOutput, Detail: detail}
 	}
 	if err := json.Unmarshal(output, out); err != nil {
-		return fmt.Errorf("doctor 输出解析失败: %w", err)
+		return &DoctorError{Kind: DoctorOutputUnparsable, Detail: err.Error()}
 	}
 	return nil
 }
