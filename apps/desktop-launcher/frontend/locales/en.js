@@ -4,109 +4,121 @@
  * 引用；加载顺序（index.html 保证）只决定挂到全局的先后，不决定回退关系——
  * 回退关系在 i18n.js 的 lookup 里，缺键一律先回退 zh，再回退键名本身。
  *
- * 现状：**下列值仍是中文占位**，英文文案待维护者提供（决策 D）。逐字复制 zh.js
- * 的目的有两个：键集先与 zh.js 对齐，缺键/多键在评审与闸门里立刻可见；界面在
- * 英文语言下与中文语言下完全一致，不会出现半截英文。英文到位后逐条替换即可，
- * 机制不变，也不要为此改动调用点。见 docs/i18n.md 6.5。
+ * 键集由 zh.js 决定，本文件不自增键：键只增在 zh.js，英文照抄键名改值，否则两处
+ * 各自长键、总有一处漏。test-i18n.cjs 的「字典完整性」用例比对键集、占位符与
+ * 「值与中文逐字相同」三种情况：最后一类只放过 status.exitCode 这种两种语言本来
+ * 就同形的条目。
+ *
+ * 字符串里的 {name} 是占位符，与 zh.js 同键必须同占位符。句子中间的 `<code>` 由
+ * HTML 提供，于是 .before / .after 两段要各自读通：.before 结尾、.after 开头会被
+ * HTML 里的空格与命令串接起来，英文语序在这两段里自己调整，不要回到代码里拼词序。
  */
 "use strict";
 
 window.DSH_LOCALES = window.DSH_LOCALES || {};
 window.DSH_LOCALES.en = {
   /* ---------- 标题栏 ---------- */
-  "titlebar.server": "服务器",
-  "titlebar.tools": "工具链",
-  "titlebar.terminal": "终端",
-  "titlebar.doctor": "诊断与修复",
-  "titlebar.about": "关于",
-  "titlebar.minimize": "最小化",
-  "titlebar.maximize": "最大化",
-  "titlebar.close": "关闭",
+  "titlebar.server": "Server",
+  "titlebar.tools": "Toolchains",
+  "titlebar.terminal": "Terminal",
+  "titlebar.doctor": "Diagnosis & repair",
+  "titlebar.about": "About",
+  "titlebar.minimize": "Minimize",
+  "titlebar.maximize": "Maximize",
+  "titlebar.close": "Close",
 
   /* ---------- 引导页 ---------- */
-  "guidance.intro": "当前没有可用的 harness 会话：容器内服务未运行，外部服务未连接。选择一种方式开始使用（服务启动中时请稍候片刻）。",
-  "guidance.container.title": "容器内",
-  "guidance.step.openServer": "点击右上角「服务器」",
-  "guidance.container.keepMode": "保持「容器内」模式",
-  "guidance.container.start": "点击「启动」并等待就绪",
-  "guidance.remote.title": "连接本机/远端服务",
-  "guidance.remote.switchMode": "切换「本机/远端服务」",
-  "guidance.remote.fillAddress": "填入服务地址，点击「连接」",
-  "guidance.remote.hint.before": "目标 harness 需以",
-  "guidance.remote.hint.after": "启动；非本机地址首次连接需确认。",
-  "guidance.npx.title": "本机安装并连接（npx）",
-  "guidance.npx.step1.before": "在终端运行",
-  "guidance.npx.step1.after": "启动本机 harness 服务",
-  "guidance.npx.step2.before": "就绪后服务地址与端口会显示在终端（如",
-  "guidance.npx.step2.after": "）",
-  "guidance.npx.step3": "点「服务器」→ 切「本机/远端服务」→ 填入该地址 →「连接」",
-  "guidance.npx.hint.before": "本机回环地址（127.0.0.1/localhost）无需安全确认；需要局域网访问时加",
-  "guidance.npx.hint.after": "重新启动。",
+  "guidance.intro": "No harness session is available: the in-container service is not running and no external service is connected. Pick one way to start (if a service is starting, give it a moment).",
+  "guidance.container.title": "In container",
+  "guidance.step.openServer": "Click “Server” in the top right",
+  "guidance.container.keepMode": "Keep the “In container” mode",
+  "guidance.container.start": "Click “Start” and wait until it is ready",
+  "guidance.remote.title": "Connect to a local/remote service",
+  "guidance.remote.switchMode": "Switch to “Local/remote service”",
+  "guidance.remote.fillAddress": "Enter the service address and click “Connect”",
+  // 连起来读：Start the target harness with `dsh web --host <LAN-IP>` to reach it
+  // from another machine; the first connection to a non-local address needs confirmation.
+  "guidance.remote.hint.before": "Start the target harness with",
+  "guidance.remote.hint.after": "to reach it from another machine; the first connection to a non-local address needs confirmation.",
+  "guidance.npx.title": "Install locally and connect (npx)",
+  // 连起来读：Run `npx @deepseek-ai/dsh web` in a terminal to start a local harness service.
+  "guidance.npx.step1.before": "Run",
+  "guidance.npx.step1.after": "in a terminal to start a local harness service",
+  // 连起来读：Once ready, the address and port appear in the terminal (e.g. `http://127.0.0.1:3456`)
+  "guidance.npx.step2.before": "Once ready, the address and port appear in the terminal (e.g.",
+  "guidance.npx.step2.after": ")",
+  "guidance.npx.step3": "Open “Server” → switch to “Local/remote service” → enter that address → “Connect”",
+  // 连起来读：Loopback addresses (127.0.0.1/localhost) need no security confirmation;
+  // restart with `--host <LAN-IP>` for LAN access.
+  "guidance.npx.hint.before": "Loopback addresses (127.0.0.1/localhost) need no security confirmation; restart with",
+  "guidance.npx.hint.after": "for LAN access.",
 
   /* ---------- 加载页 ---------- */
-  "loading.title": "正在启动...",
-  "loading.hint": "DeepSeek Harness 正在加载插件和服务，请稍候",
-  "loading.phase.starting": "正在启动服务进程，请稍候",
-  "loading.phase.serving": "插件已就绪，正在启动服务端口",
-  "loading.progress": "已加载 {loaded}/{total} 个插件",
+  "loading.title": "Starting...",
+  "loading.hint": "DeepSeek Harness is loading plugins and services, please wait",
+  "loading.phase.starting": "Starting the service process, please wait",
+  "loading.phase.serving": "Plugins are ready, starting the service port",
+  "loading.progress": "Loaded {loaded}/{total} plugins",
 
   /* ---------- 状态栏 ---------- */
-  "status.external": "外部服务",
-  "status.externalWithHost": "外部服务 {host}",
-  "status.clientFailed": "界面插件加载失败",
-  "status.running": "运行中",
-  "status.runningWithHost": "运行中 {host}",
-  "status.starting": "启动中",
-  "status.failed": "启动失败",
-  "status.stopped": "已停止",
-  "status.suffix.safeMode": "（安全模式）",
-  "status.suffix.freshHome": "（全新环境）",
+  // 状态栏各片段由代码首尾相接、不加分隔符，所以修饰语自带前导空格。
+  "status.external": "External service",
+  "status.externalWithHost": "External service {host}",
+  "status.clientFailed": "UI plugins failed to load",
+  "status.running": "Running",
+  "status.runningWithHost": "Running {host}",
+  "status.starting": "Starting",
+  "status.failed": "Startup failed",
+  "status.stopped": "Stopped",
+  "status.suffix.safeMode": " (safe mode)",
+  "status.suffix.freshHome": " (fresh environment)",
   "status.exitCode": " ({code})",
 
   /* ---------- 预检页 ---------- */
-  "preflight.title": "启动前预检…",
-  "preflight.checking": "正在检查运行环境、配置与插件，稍候片刻",
-  "preflight.deepRepair": "深度修复（含移除问题插件）",
-  "preflight.safeMode": "安全模式启动",
-  "preflight.freshHome": "全新环境启动",
-  "preflight.skip": "忽略问题，仍然启动",
+  "preflight.title": "Preflight checks…",
+  "preflight.checking": "Checking the environment, configuration and plugins, one moment",
+  "preflight.deepRepair": "Deep repair (removes problem plugins)",
+  "preflight.safeMode": "Start in safe mode",
+  "preflight.freshHome": "Start with a fresh environment",
+  "preflight.skip": "Ignore issues and start anyway",
 
   /* ---------- 启动失败页 ---------- */
-  "failed.title": "启动失败",
-  "failed.diagnose": "诊断问题",
-  "failed.safeMode": "以安全模式启动",
-  "failed.logHint": "完整日志:",
+  "failed.title": "Startup failed",
+  "failed.diagnose": "Diagnose",
+  "failed.safeMode": "Start in safe mode",
+  // 冒号后由 HTML 接上日志路径。
+  "failed.logHint": "Full log:",
 
   /* ---------- 服务器弹框 ---------- */
-  "server.title": "服务器",
-  "server.mode.label": "连接模式",
-  "server.mode.container": "容器内",
-  "server.mode.external": "本机/远端服务",
-  "server.state.label": "状态",
-  "server.address.label": "地址",
-  "server.copyAddress": "复制服务地址",
-  "server.copied": "已复制",
-  "server.start": "启动",
-  "server.restart": "重启",
-  "server.stop": "停止",
-  "server.safeMode.start": "以插件安全模式启动",
-  "server.safeMode.hint": "跳过后装的第三方插件，保留你的会话和设置。升级后启动失败时可以试试。",
-  "server.safeMode.active": "插件安全模式运行中",
-  "server.safeMode.exit": "退出安全模式",
-  "server.freshHome.active": "全新环境运行中（原 ~/.dsh 数据保留）",
-  "server.freshHome.exit": "回到默认环境",
-  "server.ext.address": "服务地址",
-  "server.ext.connect": "连接",
-  "server.ext.disconnect": "断开",
+  "server.title": "Server",
+  "server.mode.label": "Connection mode",
+  "server.mode.container": "In container",
+  "server.mode.external": "Local/remote service",
+  "server.state.label": "Status",
+  "server.address.label": "Address",
+  "server.copyAddress": "Copy service address",
+  "server.copied": "Copied",
+  "server.start": "Start",
+  "server.restart": "Restart",
+  "server.stop": "Stop",
+  "server.safeMode.start": "Start in plugin safe mode",
+  "server.safeMode.hint": "Skips third-party plugins installed later, keeping your sessions and settings. Worth trying if startup fails after an upgrade.",
+  "server.safeMode.active": "Running in plugin safe mode",
+  "server.safeMode.exit": "Exit safe mode",
+  "server.freshHome.active": "Running with a fresh environment (existing ~/.dsh data preserved)",
+  "server.freshHome.exit": "Back to the default environment",
+  "server.ext.address": "Service address",
+  "server.ext.connect": "Connect",
+  "server.ext.disconnect": "Disconnect",
 
   /* ---------- 关于弹框 ---------- */
-  "about.title": "关于",
-  "about.harnessVersion": "DSH版本",
-  "about.upstreamRepo": "上游DSH仓库",
-  "about.packageVersion": "玲珑包版本",
-  "about.packager": "玲珑封装作者",
-  "about.repo": "玲珑封装仓库",
+  "about.title": "About",
+  "about.harnessVersion": "DSH version",
+  "about.upstreamRepo": "Upstream DSH repository",
+  "about.packageVersion": "Linglong package version",
+  "about.packager": "Linglong packager",
+  "about.repo": "Linglong packaging repo",
 
   /* ---------- 浏览器预览分支 ---------- */
-  "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",
+  "preview.noWails": "Wails runtime not detected (browser preview mode)",
 };

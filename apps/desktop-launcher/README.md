@@ -135,6 +135,7 @@ node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字
 node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
+DSH_PREVIEW_LOCALE=en node frontend/tools/preview.mjs verify  # 同一组不变量按英文文案再量一遍（英文更长）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
 ```
 

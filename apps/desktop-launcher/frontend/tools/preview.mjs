@@ -341,6 +341,14 @@ function findBrowser() {
 const LOCALE_SCRIPTS = ['locales/zh.js', 'locales/en.js', 'i18n.js']
 
 /**
+ * 预览页应用的语言，默认中文。
+ *
+ * 留开关的原因：同一句话的英文通常比中文长一截，几何不变量必须按语言各量一遍，
+ * 否则量到的只是中文排版下的结论。用 `DSH_PREVIEW_LOCALE=en` 跑英文那一遍。
+ */
+const PREVIEW_LOCALE = process.env.DSH_PREVIEW_LOCALE || 'zh-CN'
+
+/**
  * 生成预览页：index.html 逐字复制，剥掉脚本、改样式相对路径，再把国际化脚本内联回来。
  *
  * 为什么要内联字典：index.html 不留中文兜底文案（单一真源，见 docs/i18n.md 6.3），
@@ -358,7 +366,7 @@ async function buildPreview(dir) {
   const stripped = source
     .replace(/<script\b[^>]*><\/script>\s*/gu, '')
     .replace('href="styles.css"', `href="file://${join(FRONTEND, 'styles.css')}"`)
-    + `\n<script>\n${localeSource}\nwindow.DSHI18N.applyFromGui('zh-CN')\n</script>\n`
+    + `\n<script>\n${localeSource}\nwindow.DSHI18N.applyFromGui(${JSON.stringify(PREVIEW_LOCALE)})\n</script>\n`
   const target = join(dir, 'preview.html')
   await writeFile(target, stripped)
   return `file://${target}`

@@ -244,3 +244,26 @@ test("没有 Wails 运行时时（浏览器预览）不抛错", () => {
   h.i18n.init();
   assert.equal(h.i18n.current(), "zh");
 });
+
+/* 字典完整性单独一例、不依赖桩：它比对的是两份字典文件本身，因此新增键却忘了
+ * 写英文时报错点直接落在键名上，而不是等到界面上看到中文才发现。 */
+test("字典完整性：en 与 zh 同键集、同占位符，且没有漏翻的值", () => {
+  const box = { window: {} };
+  vm.createContext(box);
+  vm.runInContext(`${ZH_CODE}\n${EN_CODE}`, box, { filename: "locales" });
+  const zh = box.window.DSH_LOCALES.zh;
+  const en = box.window.DSH_LOCALES.en;
+
+  assert.deepEqual(Object.keys(en).sort(), Object.keys(zh).sort(), "en 与 zh 必须同键集");
+
+  const placeholders = (text) => (text.match(/\{[a-zA-Z][a-zA-Z0-9]*\}/gu) || []).sort();
+  // 唯一允许两种语言同形的条目：它只包一个纯数字占位符，没有可翻译的词。
+  const IDENTICAL_ALLOWED = new Set(["status.exitCode"]);
+  for (const key of Object.keys(zh)) {
+    assert.ok(en[key] && en[key].length > 0, `${key} 缺英文值`);
+    assert.deepEqual(placeholders(en[key]), placeholders(zh[key]), `${key} 的占位符与中文不一致`);
+    if (!IDENTICAL_ALLOWED.has(key)) {
+      assert.notEqual(en[key], zh[key], `${key} 的英文值与中文逐字相同，等于漏翻`);
+    }
+  }
+});
