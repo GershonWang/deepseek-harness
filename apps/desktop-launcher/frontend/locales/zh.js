@@ -269,6 +269,24 @@ window.DSH_LOCALES.zh = {
   "doctor.repair.failed": "✗ 修复失败",
   "doctor.repair.failedDetail": "修复失败：{error}",
 
+  // 自动诊断提示条与失败页的客户端插件失败原因。
+  "doctor.autoBanner": "检测到启动失败，已为你自动诊断",
+  "doctor.autoHint.done": "诊断完成",
+  "doctor.autoHint.running": "正在自动诊断问题…",
+  "failed.clientFailureReason": "界面插件加载失败（harness 服务进程仍在运行）",
+  // 修复结果面板：状态徽章、汇总行与逐条徽标、备份目录。
+  "doctor.repairPanel.incomplete": "⚠ 未完成",
+  "doctor.repairPanel.noop": "— 无操作",
+  "doctor.repairPanel.badgeApplied": "应用",
+  "doctor.repairPanel.badgeAppliedRow": "已执行",
+  "doctor.repairPanel.badgeSkipped": "跳过",
+  "doctor.repairPanel.count": "{count} 项",
+  "doctor.repairPanel.noOutput": "无输出",
+  "doctor.repairPanel.backupDir": "备份目录: {path}",
+  // 插件被自动禁用后的提示条。
+  "plugins.autoDisabled.title": "已自动禁用不兼容的插件",
+  "plugins.autoDisabled.hint": "安装与依赖仍然保留：可在「插件」页重新启用，或自行卸载。",
+  "plugins.autoDisabled.ack": "知道了",
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
   // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于

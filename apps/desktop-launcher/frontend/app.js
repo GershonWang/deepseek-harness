@@ -325,7 +325,8 @@ function applyStatus(s) {
   if (s.ClientFailure) {
     clearStoppedTimer();
     frame.removeAttribute("src");
-    $("#failed-reason").textContent = "界面插件加载失败（harness 服务进程仍在运行）\n" + s.ClientFailure;
+    // 换行是结构而非文案：第一行说明"进程还在、只是界面起不来"，第二行是插件错误原文。
+    $("#failed-reason").textContent = tr("failed.clientFailureReason") + "\n" + s.ClientFailure;
     showStageOnly($("#failed-page"));
   } else if (s.Target) {
     clearStoppedTimer();
@@ -496,7 +497,7 @@ function showDoctorAutoBanner() {
     banner = document.createElement("div");
     banner.id = "doctor-auto-hint";
     banner.className = "doctor-auto-hint";
-    banner.textContent = "检测到启动失败，已为你自动诊断";
+    banner.textContent = tr("doctor.autoBanner");
     const summary = $("#doctor-summary");
     summary.parentNode.insertBefore(banner, summary);
   }
@@ -610,16 +611,16 @@ function showAutoDisabledNotice(list) {
     el.id = "auto-disabled-notice";
     const title = document.createElement("div");
     title.className = "auto-disabled-title";
-    title.textContent = "已自动禁用不兼容的插件";
+    title.textContent = tr("plugins.autoDisabled.title");
     const body = document.createElement("div");
     body.className = "auto-disabled-body";
     const hint = document.createElement("div");
     hint.className = "auto-disabled-hint";
-    hint.textContent = "安装与依赖仍然保留：可在「插件」页重新启用，或自行卸载。";
+    hint.textContent = tr("plugins.autoDisabled.hint");
     const ack = document.createElement("button");
     ack.id = "auto-disabled-ack";
     ack.className = "btn";
-    ack.textContent = "知道了";
+    ack.textContent = tr("plugins.autoDisabled.ack");
     ack.addEventListener("click", () => {
       // 先收起再确认：确认失败最多让下次启动再提示一次，不该把提示挂在界面上不走。
       // 确认时按展示过的包名回传，展示期间 doctor 新禁用的插件留到下次启动提示。
@@ -712,35 +713,38 @@ function renderRepairOutput(raw) {
 
   // 状态徽章 + 摘要行
   if (appliedCount > 0) {
-    statusEl.textContent = "✓ 修复成功";
+    // 与修复进行中的成功状态同句（"✓ 修复成功"），共用 doctor.repair.success。
+    statusEl.textContent = tr("doctor.repair.success");
     statusEl.className = "repair-panel-status ok";
   } else if (skippedCount > 0 && appliedCount === 0) {
-    statusEl.textContent = "⚠ 未完成";
+    statusEl.textContent = tr("doctor.repairPanel.incomplete");
     statusEl.className = "repair-panel-status error";
   } else {
-    statusEl.textContent = "— 无操作";
+    statusEl.textContent = tr("doctor.repairPanel.noop");
     statusEl.className = "repair-panel-status";
   }
 
+  // 汇总行与逐条徽标：句子拆成"徽标 + 计数"，两者都进字典（英文语序与中文不同，
+  // 计数单位不能写在代码里）。
   const rows = [];
   rows.push(`
     <div class="rp-summary">
-      <span class="rp-row"><span class="rp-badge">应用</span>${appliedCount} 项</span>
-      <span class="rp-row"><span class="rp-badge">跳过</span>${skippedCount} 项</span>
+      <span class="rp-row"><span class="rp-badge">${tr("doctor.repairPanel.badgeApplied")}</span>${tr("doctor.repairPanel.count", { count: appliedCount })}</span>
+      <span class="rp-row"><span class="rp-badge">${tr("doctor.repairPanel.badgeSkipped")}</span>${tr("doctor.repairPanel.count", { count: skippedCount })}</span>
     </div>`);
   for (const m of appliedRows) {
-    rows.push(`<div class="rp-row ok"><span class="rp-badge">已执行</span>${escapeHtml(m)}</div>`);
+    rows.push(`<div class="rp-row ok"><span class="rp-badge">${tr("doctor.repairPanel.badgeAppliedRow")}</span>${escapeHtml(m)}</div>`);
   }
   for (const m of skippedRows) {
-    rows.push(`<div class="rp-row warn"><span class="rp-badge">跳过</span>${escapeHtml(m)}</div>`);
+    rows.push(`<div class="rp-row warn"><span class="rp-badge">${tr("doctor.repairPanel.badgeSkipped")}</span>${escapeHtml(m)}</div>`);
   }
   if (appliedRows.length + skippedRows.length === 0) {
-    rows.push(`<div class="rp-row">${escapeHtml(text.trim() || "无输出")}</div>`);
+    rows.push(`<div class="rp-row">${escapeHtml(text.trim() || tr("doctor.repairPanel.noOutput"))}</div>`);
   }
   bodyEl.innerHTML = rows.join("");
 
   if (backupPath) {
-    backupEl.textContent = "备份目录: " + backupPath;
+    backupEl.textContent = tr("doctor.repairPanel.backupDir", { path: backupPath });
     backupEl.classList.remove("hidden");
   } else {
     backupEl.classList.add("hidden");
@@ -776,8 +780,8 @@ function updateStartupDoctor(s) {
   if (diagnosisState.repairing) return;
 
   if (s.StartupDoctorReady || s.StartupDiagnosing) {
-    if (s.StartupDoctorReady) setAutoDiagHint("诊断完成", false);
-    else setAutoDiagHint("正在自动诊断问题…", true);
+    if (s.StartupDoctorReady) setAutoDiagHint(tr("doctor.autoHint.done"), false);
+    else setAutoDiagHint(tr("doctor.autoHint.running"), true);
     // 诊断一开始（Diagnosing）或已就绪（Ready）都打开弹窗。
     if (!state._startupDoctorShown) {
       state._startupDoctorShown = true;
