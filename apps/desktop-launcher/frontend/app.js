@@ -907,13 +907,18 @@ function fmtSize(bytes) {
 // 分类的标签，以及生效的还是引入 category_labels 之前的旧索引。索引优先，因此新增分类
 // 只要在索引里写一行标签，客户端不必跟着发版。
 const DEFAULT_CATEGORY_LABELS = {
-  "language-sdk": "语言 SDK", "build-tools": "构建与编译", "modern-cli": "现代 CLI",
-  "code-quality": "代码质量", "debug": "调试",
+  "language-sdk": "tools.category.languageSdk", "build-tools": "tools.category.buildTools",
+  "modern-cli": "tools.category.modernCli",
+  "code-quality": "tools.category.codeQuality", "debug": "tools.category.debug",
 };
 
-// categoryLabel 分类 ID → 中文标签：索引声明优先，其次兜底表，都没有则原样返回 ID。
+// categoryLabel 分类 ID → 标签：索引声明优先，其次字典兜底，都没有则原样返回 ID。
+// 索引下发的 category_labels 是数据（内容由索引作者写），因此不经字典；只有兜底表
+// 里的措辞是客户端的文案，值存的是键。
 function categoryLabel(cat) {
-  return marketState.categoryLabels[cat] || DEFAULT_CATEGORY_LABELS[cat] || cat;
+  const fromIndex = marketState.categoryLabels[cat];
+  if (fromIndex) return fromIndex;
+  return DEFAULT_CATEGORY_LABELS[cat] ? tr(DEFAULT_CATEGORY_LABELS[cat]) : cat;
 }
 
 // MARKET_CATEGORY_ORDER 只决定已知分类在页签里的先后，不再是页签全集：清单来自独立
@@ -939,7 +944,7 @@ function renderMarketTabs() {
   if (marketState.category !== "all" && !cats.includes(marketState.category)) {
     marketState.category = "all";
   }
-  const items = [{ cat: "all", label: "全部" }].concat(cats.map((c) => ({ cat: c, label: categoryLabel(c) })));
+  const items = [{ cat: "all", label: tr("tools.category.all") }].concat(cats.map((c) => ({ cat: c, label: categoryLabel(c) })));
   for (const item of items) {
     const btn = document.createElement("button");
     btn.className = "market-tab" + (marketState.category === item.cat ? " active" : "");
@@ -981,7 +986,7 @@ function renderTools(t) {
 // `t.Notice` 无条件覆盖，开发态提示因此在渲染周期里消失。
 function hostToolsNotice(t) {
   if (t.Sandboxed) return t.Notice || "";
-  const devMsg = "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。";
+  const devMsg = tr("tools.devNotice");
   return t.Notice ? devMsg + " " + t.Notice : devMsg;
 }
 
@@ -999,11 +1004,11 @@ function renderUpdateBadge(t) {
       var targets = (t.Catalog || [])
         .filter(function (c) { return c.HasUpdate; })
         .map(function (c) { return c.Name + " → " + c.AvailableVersion; });
-      text.textContent = "检测到 " + count + " 个工具可更新"
-        + (targets.length ? "：" + targets.join("、") : "");
-      text.title = targets.length
-        ? "一键更新会切到这些版本：" + targets.join("、") + "；旧版本保留在磁盘上，可在卡片下拉中切换或卸载"
-        : "";
+      const list = targets.join(tr("common.listSeparator"));
+      text.textContent = targets.length
+        ? tr("tools.updateBanner.withTargets", { count: count, targets: list })
+        : tr("tools.updateBanner.count", { count: count });
+      text.title = targets.length ? tr("tools.updateBanner.title", { targets: list }) : "";
       banner.classList.remove("hidden");
     } else {
       banner.classList.add("hidden");
@@ -1018,13 +1023,17 @@ function renderBuiltin() {
   const rows = marketState.builtinRows || [];
   box.innerHTML = "";
   if (!rows || rows.length === 0) {
-    box.innerHTML = '<span class="builtin-empty">暂无内置工具信息</span>';
+    const empty = document.createElement("span");
+    empty.className = "builtin-empty";
+    empty.textContent = tr("tools.builtinEmpty");
+    box.textContent = "";
+    box.appendChild(empty);
     return;
   }
   for (const r of rows) {
     const chip = document.createElement("span");
     chip.className = "builtin-chip" + (r.State === "installed" ? " ok" : " missing");
-    chip.title = r.State === "installed" ? "已随包内置" : "内置工具缺失";
+    chip.title = r.State === "installed" ? tr("tools.builtinInstalled") : tr("tools.builtinMissing");
     const nm = document.createElement("span");
     nm.className = "builtin-name";
     nm.textContent = r.Name;
@@ -1123,15 +1132,15 @@ function emptyState() {
   box.className = "market-empty";
   const text = document.createElement("div");
   text.className = "market-empty-text";
-  text.textContent = "没有匹配的工具";
+  text.textContent = tr("tools.empty");
   box.appendChild(text);
   if (hasFilter()) {
     const hint = document.createElement("div");
     hint.className = "market-empty-hint";
-    hint.textContent = "换个关键词，或清空当前的分类筛选。";
+    hint.textContent = tr("tools.emptyHint");
     const btn = document.createElement("button");
     btn.className = "btn btn-quiet btn-sm";
-    btn.textContent = "清空筛选";
+    btn.textContent = tr("tools.clearFilters");
     btn.addEventListener("click", () => {
       marketState.search = "";
       $("#market-search").value = "";
@@ -1184,18 +1193,18 @@ function toolCard(c) {
     // 徽标保持短文案：卡片仅约 170px 宽，写上「可更新到 v21.0.12.1」会把工具名挤成
     // 省略号。目标版本由横幅（有整行空间）与这里的 title 共同给出。
     status.className = "pill warn";
-    status.textContent = "可更新";
-    status.title = "可更新到 v" + c.AvailableVersion + "：点顶部「一键更新」切过去；旧版本保留在磁盘上，可在下拉中切换或卸载";
+    status.textContent = tr("tools.pill.update");
+    status.title = tr("tools.card.updateHint", { version: c.AvailableVersion });
   } else if (c.Installed) {
     status.className = "pill ok";
-    status.textContent = "✓ 已安装";
+    status.textContent = tr("tools.pill.installed");
   } else if (installing) {
     // 徽标只表状态：百分比由进度条与其下方的读数承担，同一个数字不必出现三处
     status.className = "pill warn";
-    status.textContent = "安装中";
+    status.textContent = tr("tools.pill.installing");
   } else {
     status.className = "pill brand";
-    status.textContent = "可安装";
+    status.textContent = tr("tools.pill.installable");
   }
   head.append(name, status);
 
@@ -1210,10 +1219,10 @@ function toolCard(c) {
   if (!c.Installed && c.RuntimeCmd) {
     runtimeHint = document.createElement("div");
     runtimeHint.className = "tool-card-runtime";
-    runtimeHint.textContent = "容器内已可用：" + c.RuntimeCmd
-      + (c.RuntimeVersion ? " " + c.RuntimeVersion : "")
-      + "（" + c.RuntimeSource + "）";
-    runtimeHint.title = "该命令由玲珑容器环境提供，市场仓库尚未安装；通过市场安装后将由 ~/.dsh-tools 统一管理，注入 PATH 时优先使用";
+    runtimeHint.textContent = c.RuntimeVersion
+      ? tr("tools.runtime.availableVersion", { cmd: c.RuntimeCmd, version: c.RuntimeVersion, source: c.RuntimeSource })
+      : tr("tools.runtime.available", { cmd: c.RuntimeCmd, source: c.RuntimeSource });
+    runtimeHint.title = tr("tools.runtime.title");
   }
 
   const meta = document.createElement("div");
@@ -1241,11 +1250,13 @@ function toolCard(c) {
     const installed = c.InstalledVersions || [];
     const sel = document.createElement("select");
     sel.className = "version-select";
-    sel.title = "已装版本选中即切换；未装版本点「安装」";
+    sel.title = tr("tools.versionSelect.title");
     const appendOption = (v, isInstalled) => {
       const opt = document.createElement("option");
       opt.value = v;
-      opt.textContent = "v" + v + (v === c.ActiveVersion ? " · 当前" : (isInstalled ? " · 已装" : " · 可安装"));
+      opt.textContent = "v" + v + (v === c.ActiveVersion
+        ? tr("tools.version.current")
+        : (isInstalled ? tr("tools.version.installed") : tr("tools.version.installable")));
       if (v === c.ActiveVersion) opt.selected = true;
       sel.appendChild(opt);
     };
@@ -1257,18 +1268,18 @@ function toolCard(c) {
 
     const install = document.createElement("button");
     install.className = "btn btn-primary";
-    install.textContent = "安装";
+    install.textContent = tr("tools.install");
     install.addEventListener("click", () => {
       install.disabled = true;
-      install.textContent = "安装中…";
+      install.textContent = tr("tools.installing");
       api().InstallToolVersion(c.ID, sel.value);
     });
 
     const un = document.createElement("button");
     un.className = "btn btn-danger";
-    un.textContent = "卸载";
+    un.textContent = tr("tools.uninstall");
     un.addEventListener("click", async () => {
-      if (!consumeConfirmClick(un, "卸载", "确认卸载?")) return;
+      if (!consumeConfirmClick(un, tr("tools.uninstall"), tr("tools.uninstallConfirm"))) return;
       const err = await api().UninstallTool(c.ID, sel.value);
       if (err) { $("#toolchain-notice").textContent = err; }
       api().RefreshTools();
@@ -1280,7 +1291,7 @@ function toolCard(c) {
       const ok = isInstalled();
       install.classList.toggle("hidden", ok);
       un.classList.toggle("hidden", !ok);
-      if (!ok) install.textContent = "安装 " + sel.value;
+      if (!ok) install.textContent = tr("tools.installVersion", { version: sel.value });
     };
 
     sel.addEventListener("change", async () => {
@@ -1309,11 +1320,14 @@ function toolCard(c) {
     }
     const b = document.createElement("button");
     b.className = "btn btn-primary";
-    b.textContent = installing ? "安装中…" : "安装" + (fmtSize(c.Size) ? " (" + fmtSize(c.Size) + ")" : "");
+    const size = fmtSize(c.Size);
+    b.textContent = installing
+      ? tr("tools.installing")
+      : (size ? tr("tools.installWithSize", { size: size }) : tr("tools.install"));
     b.disabled = installing;
     b.addEventListener("click", () => {
       b.disabled = true;
-      b.textContent = "安装中…";
+      b.textContent = tr("tools.installing");
       api().InstallToolVersion(c.ID, sel ? sel.value : c.AvailableVersion);
     });
     actions.appendChild(b);

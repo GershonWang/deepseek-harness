@@ -21,6 +21,12 @@
 
 window.DSH_LOCALES = window.DSH_LOCALES || {};
 window.DSH_LOCALES.zh = {
+  /* ---------- 通用 ---------- */
+  // 列表分隔符属于文案：中文用顿号，英文用逗号加空格。放进代码就等于把中文排版
+  // 习惯焊死在逻辑里（见 docs/i18n.md 6.2）。
+  "common.listSeparator": "、",
+  "common.close": "关闭",
+
   /* ---------- 标题栏 ---------- */
   "titlebar.server": "服务器",
   "titlebar.tools": "工具链",
@@ -115,6 +121,62 @@ window.DSH_LOCALES.zh = {
   "server.ext.address": "服务地址",
   "server.ext.connect": "连接",
   "server.ext.disconnect": "断开",
+
+  /* ---------- 工具链市场弹框 ---------- */
+  "tools.title": "工具链市场",
+  "tools.search": "搜索工具",
+  "tools.refreshIndexTitle": "刷新远程索引",
+  "tools.refreshIndex": "刷新索引",
+  // 计数与目标版本是数据，句子在字典里整句给出。
+  "tools.updateBanner.count": "检测到 {count} 个工具可更新",
+  "tools.updateBanner.withTargets": "检测到 {count} 个工具可更新：{targets}",
+  "tools.updateBanner.title": "一键更新会切到这些版本：{targets}；旧版本保留在磁盘上，可在卡片下拉中切换或卸载",
+  "tools.updateAll": "一键更新",
+  "tools.gridLabel": "工具列表",
+  "tools.builtin": "内置",
+  "tools.builtinLabel": "内置工具清单",
+  "tools.builtinEmpty": "暂无内置工具信息",
+  "tools.builtinInstalled": "已随包内置",
+  "tools.builtinMissing": "内置工具缺失",
+  "tools.hostsLabel": "宿主导入",
+  "tools.hostsTitle": "宿主导入（玲珑沙箱，重启应用生效）",
+  "tools.hostScan": "扫描宿主",
+  "tools.hostPathPlaceholder": "宿主工具链目录，如 /usr/lib/jvm/java-21",
+  "tools.hostNamePlaceholder": "名称(可选)",
+  "tools.hostAdd": "挂载",
+  "tools.recheck": "重新检查",
+  "tools.devNotice": "开发态：宿主命令本就在 PATH，宿主导入仅玲珑打包环境可用。",
+  // 分类兜底标签：权威来源是索引里的 category_labels（数据，不经字典），这几个键
+  // 只在索引没带标签时生效。
+  "tools.category.all": "全部",
+  "tools.category.languageSdk": "语言 SDK",
+  "tools.category.buildTools": "构建与编译",
+  "tools.category.modernCli": "现代 CLI",
+  "tools.category.codeQuality": "代码质量",
+  "tools.category.debug": "调试",
+  "tools.empty": "没有匹配的工具",
+  "tools.emptyHint": "换个关键词，或清空当前的分类筛选。",
+  "tools.clearFilters": "清空筛选",
+  "tools.pill.update": "可更新",
+  "tools.pill.installed": "✓ 已安装",
+  "tools.pill.installing": "安装中",
+  "tools.pill.installable": "可安装",
+  "tools.card.updateHint": "可更新到 v{version}：点顶部「一键更新」切过去；旧版本保留在磁盘上，可在下拉中切换或卸载",
+  // 运行时可用提示有两个形态：带版本号的那句多一段，因此单独成键，而不是在代码里
+  // 拼半句（占位符之间的空格与标点各语言不同）。
+  "tools.runtime.available": "容器内已可用：{cmd}（{source}）",
+  "tools.runtime.availableVersion": "容器内已可用：{cmd} {version}（{source}）",
+  "tools.runtime.title": "该命令由玲珑容器环境提供，市场仓库尚未安装；通过市场安装后将由 ~/.dsh-tools 统一管理，注入 PATH 时优先使用",
+  "tools.versionSelect.title": "已装版本选中即切换；未装版本点「安装」",
+  "tools.version.current": " · 当前",
+  "tools.version.installed": " · 已装",
+  "tools.version.installable": " · 可安装",
+  "tools.install": "安装",
+  "tools.installWithSize": "安装 ({size})",
+  "tools.installVersion": "安装 {version}",
+  "tools.installing": "安装中…",
+  "tools.uninstall": "卸载",
+  "tools.uninstallConfirm": "确认卸载?",
 
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
