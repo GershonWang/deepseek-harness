@@ -51,6 +51,10 @@ const IMMUTABLE_LANGUAGE_TOKENS = new Set([
   'undefined',
 ])
 const LOCALE_KEY = /^[a-z][a-zA-Z0-9]*(?:[._-][a-zA-Z0-9]+)+$/
+/** 带壳前端：无打包器的纯 JS + HTML，文案的唯一归属地是 `frontend/locales/*.js`。 */
+const LAUNCHER_SHELL = /^apps\/desktop-launcher\/frontend\//
+/** CJK 统一表意文字：带壳前端里出现即文案（英文数据与字典键都是 ASCII）。 */
+const CJK_TEXT = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/u
 
 /** One hard-coded product-copy occurrence. */
 export interface UiI18nViolation {
@@ -109,6 +113,8 @@ function looksLikeNaturalText(text: string): boolean {
  */
 export function findUiI18nViolations(file: string, sourceText: string): UiI18nViolation[] {
   if (localeOwner(file)) return []
+  // HTML 不是 JS：它走"可见文本里不许有中文"的直接扫描，不经过语法树。
+  if (file.endsWith('.html')) return findHtmlI18nViolations(file, sourceText)
   const source = ts.createSourceFile(
     file,
     sourceText,
@@ -135,6 +141,27 @@ export function findUiI18nViolations(file: string, sourceText: string): UiI18nVi
       file,
       line: position.line + 1,
       reason,
+      text: compactText(text),
+    })
+  }
+
+  /**
+   * Report one Chinese literal in the launcher shell.
+   *
+   * Deliberately not gated by `containsProductText`: that filter drops punctuation-only
+   * text, and a bare full-width bracket is copy too. The shell routes every string
+   * through `locales/*.js`, so CJK presence alone decides.
+   * @param node - literal node used for the diagnostic position.
+   * @param text - normalized literal text.
+   */
+  const reportChinese = (node: ts.Node, text: string): void => {
+    if (!CJK_TEXT.test(text) || violations.has(node.getStart(source))) return
+    const position = source.getLineAndCharacterOfPosition(node.getStart(source))
+    violations.set(node.getStart(source), {
+      column: position.character + 1,
+      file,
+      line: position.line + 1,
+      reason: 'Chinese literal (copy belongs in locales/*.js)',
       text: compactText(text),
     })
   }
@@ -235,6 +262,27 @@ export function findUiI18nViolations(file: string, sourceText: string): UiI18nVi
     return false
   }
 
+  /**
+   * Visit one launcher-shell node: Chinese literals only, then keep descending.
+   *
+   * The generic rules below stay off this tree. They key on names like `*Label`/`*Text`
+   * and on `textContent` assignments, and the shell legitimately holds non-copy strings
+   * in exactly those positions — an embedded SVG icon and an HTML wrapper template both
+   * match, and neither is copy. CJK presence is the whole rule here.
+   * @param node - current node.
+   */
+  const visitLauncherShell = (node: ts.Node): void => {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      reportChinese(node, node.text)
+    } else if (ts.isTemplateExpression(node)) {
+      reportChinese(
+        node,
+        [node.head.text, ...node.templateSpans.map(span => span.literal.text)].join(''),
+      )
+    }
+    ts.forEachChild(node, visitLauncherShell)
+  }
+
   const visit = (node: ts.Node): void => {
     if (ts.isJsxText(node)) report(node, node.text, 'JSX text')
 
@@ -300,8 +348,40 @@ export function findUiI18nViolations(file: string, sourceText: string): UiI18nVi
 
     ts.forEachChild(node, visit)
   }
-  visit(source)
+  if (LAUNCHER_SHELL.test(file)) visitLauncherShell(source)
+  else visit(source)
   return [...violations.values()].sort((left, right) => left.line - right.line || left.column - right.column)
+}
+
+/**
+ * Find Chinese copy hard-coded in a shell HTML file.
+ *
+ * The launcher shell is buildless markup: every string lives in `locales/*.js` and the
+ * markup carries only `data-i18n*` hooks, so CJK outside a comment cannot follow the
+ * GUI language. Comments keep Chinese on purpose and are blanked out (newlines kept, so
+ * reported line numbers stay accurate).
+ * @param file - repository-relative path used in diagnostics.
+ * @param sourceText - HTML source.
+ * @returns violations in source order.
+ */
+export function findHtmlI18nViolations(file: string, sourceText: string): UiI18nViolation[] {
+  const withoutComments = sourceText.replaceAll(
+    /<!--[\s\S]*?-->/gu,
+    comment => comment.replace(/[^\n]/gu, ' '),
+  )
+  const violations: UiI18nViolation[] = []
+  withoutComments.split('\n').forEach((line, index) => {
+    const match = CJK_TEXT.exec(line)
+    if (match === null) return
+    violations.push({
+      column: match.index + 1,
+      file,
+      line: index + 1,
+      reason: 'Chinese text in HTML (copy belongs in locales/*.js)',
+      text: compactText(line),
+    })
+  })
+  return violations
 }
 
 /**
@@ -330,6 +410,9 @@ function sourceFiles(): string[] {
     ...globSync('apps/web/src/**/*.{ts,tsx}', { cwd: root }),
     ...globSync('apps/desktop/src/{main,update-coordinator}.{ts,tsx}', { cwd: root }),
     ...globSync('apps/desktop/renderer/*.js', { cwd: root }),
+    // 带壳前端：只含 app.js / i18n.js / index.html；测试桩（*.cjs）、预览工具
+    // （tools/*.mjs）与字典（locales/*.js，经 localeOwner 排除）不在此列。
+    ...globSync('apps/desktop-launcher/frontend/*.{js,html}', { cwd: root }),
   ])]
     .map(file => file.replaceAll('\\', '/'))
     .filter(file => !file.endsWith('.d.ts'))
