@@ -177,18 +177,26 @@ function bindExternalLinks() {
 
 /* ---------- 加载页启动进度 ---------- */
 
-// 阶段文案：键是 Go 侧 startupView 的阶段名（internal/app/startup_progress.go）。
-// 阶段只由可观测事实触发，前端不做任何按时间推进的猜测。
-const LOADING_PHASE_HINT = {
-  starting: "正在启动服务进程，请稍候",
-  loading: "DeepSeek Harness 正在加载插件和服务，请稍候",
-  // 与 loading 同一句文案：区别在于此时已有真实计数，页面额外显示进度条与 n/m。
-  plugins: "DeepSeek Harness 正在加载插件和服务，请稍候",
-  serving: "插件已就绪，正在启动服务端口",
-};
+/**
+ * 文案入口：字典在 frontend/locales/ 下，缺键回退 zh、再回退键名本身（见 i18n.js）。
+ *
+ * 命名刻意避开 `t`：本文件多处把工具链状态快照命名为 `t`（如 renderTools(t)），
+ * 同名函数会被那些形参遮蔽——调用点看着正常，实际翻译不到。
+ * @param {string} key - 字典键。
+ * @param {?Object<string, *>} params - 占位符取值。
+ * @returns {string} 当前语言下的文案。
+ */
+const tr = (key, params) => window.DSHI18N.t(key, params);
 
-// 缺省文案：浏览器预览、或在途版本（未注入上报插件）时保持改造前的说法。
-const LOADING_HINT_DEFAULT = "DeepSeek Harness 正在加载插件和服务，请稍候";
+// 阶段文案：键是 Go 侧 startupView 的阶段名（internal/app/startup_progress.go），
+// 值是字典键。阶段只由可观测事实触发，前端不做任何按时间推进的猜测。
+const LOADING_PHASE_HINT = {
+  starting: "loading.phase.starting",
+  // loading 与 plugins 同句：区别在于后者已有真实计数，页面额外显示进度条与 n/m。
+  loading: "loading.hint",
+  plugins: "loading.hint",
+  serving: "loading.phase.serving",
+};
 
 // 加载页进度条的单调渲染状态：分母在启动期会随新行插入小幅增长，比率因此可能
 // 回退一两个百分点；进度条按单调不减渲染，避免视觉上的倒退。离开启动态时归零。
@@ -204,7 +212,8 @@ const loadingProgress = { ratio: 0 };
  */
 function renderStartup(v) {
   const phase = v && v.Phase ? v.Phase : "";
-  $("#loading-hint").textContent = LOADING_PHASE_HINT[phase] || LOADING_HINT_DEFAULT;
+  // 缺省键覆盖浏览器预览与在途版本（未注入上报插件）两种没有阶段的情况。
+  $("#loading-hint").textContent = tr(LOADING_PHASE_HINT[phase] || "loading.hint");
 
   const showBar = phase === "plugins" || phase === "serving";
   $("#loading-progress").classList.toggle("hidden", !showBar);
@@ -217,7 +226,7 @@ function renderStartup(v) {
   const ratio = v.Total > 0 ? v.Loaded / v.Total : 0;
   loadingProgress.ratio = Math.max(loadingProgress.ratio, Math.min(1, ratio));
   $("#loading-bar").style.width = (loadingProgress.ratio * 100).toFixed(1) + "%";
-  $("#loading-progress-text").textContent = "已加载 " + v.Loaded + "/" + v.Total + " 个插件";
+  $("#loading-progress-text").textContent = tr("loading.progress", { loaded: v.Loaded, total: v.Total });
 }
 
 /* ---------- 状态渲染 ---------- */
@@ -282,24 +291,30 @@ function applyStatus(s) {
   if (s.Mode === "external") {
     dot.className = "dot ok";
     const host = hostLabel(s.ExternalURL);
-    text.textContent = host ? "外部服务 " + host : "外部服务";
+    text.textContent = host ? tr("status.externalWithHost", { host: host }) : tr("status.external");
   } else if (s.ClientFailure) {
     // 进程在跑但界面起不来：状态栏不能报"运行中"，否则与失败页自相矛盾。
     dot.className = "dot danger";
-    text.textContent = "界面插件加载失败" + (s.SafeMode ? "（安全模式）" : "");
+    text.textContent = tr("status.clientFailed") + (s.SafeMode ? tr("status.suffix.safeMode") : "");
   } else if (s.State === "running") {
     dot.className = "dot ok";
     const host = hostLabel(s.URL);
-    text.textContent = "运行中" + (host ? " " + host : "") + (s.SafeMode ? " 🔒" : "") + (s.FreshHome ? " 🆕" : "");
+    // 锁与新环境是符号而非文案，不进字典（见 docs/i18n.md 6.2）。
+    text.textContent = (host ? tr("status.runningWithHost", { host: host }) : tr("status.running"))
+      + (s.SafeMode ? " 🔒" : "") + (s.FreshHome ? " 🆕" : "");
   } else if (s.State === "starting") {
     dot.className = "dot warn";
-    text.textContent = "启动中" + (s.SafeMode ? "（安全模式）" : "") + (s.FreshHome ? "（全新环境）" : "");
+    text.textContent = tr("status.starting")
+      + (s.SafeMode ? tr("status.suffix.safeMode") : "")
+      + (s.FreshHome ? tr("status.suffix.freshHome") : "");
   } else if (s.State === "failed") {
     dot.className = "dot danger";
-    text.textContent = "启动失败" + (s.LastExit ? " (" + s.LastExit + ")" : "");
+    text.textContent = tr("status.failed")
+      + (s.LastExit ? tr("status.exitCode", { code: s.LastExit }) : "");
   } else {
     dot.className = "dot muted";
-    text.textContent = "已停止" + (s.LastExit ? " (" + s.LastExit + ")" : "");
+    text.textContent = tr("status.stopped")
+      + (s.LastExit ? tr("status.exitCode", { code: s.LastExit }) : "");
   }
 
   // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页（预检占用时 ->
@@ -1609,7 +1624,7 @@ function init() {
 
   if (!window.go || !window.go.app) {
     // 浏览器直接打开 index.html 的开发预览：无 Wails 运行时，仅展示引导页。
-    $("#status-text").textContent = "未检测到 Wails 运行时（浏览器预览模式）";
+    $("#status-text").textContent = tr("preview.noWails");
     return;
   }
 

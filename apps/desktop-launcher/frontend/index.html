@@ -18,33 +18,33 @@
       <span class="brand-name">DeepSeek Harness</span>
     </div>
     <div class="titlebar-actions">
-      <button id="btn-server" class="icon-btn" title="服务器">
+      <button id="btn-server" class="icon-btn" data-i18n-title="titlebar.server">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2" y="2.5" width="12" height="4.5" rx="1"/><rect x="2" y="9" width="12" height="4.5" rx="1"/><circle cx="4.5" cy="4.75" r="0.7" fill="currentColor"/><circle cx="4.5" cy="11.25" r="0.7" fill="currentColor"/></svg>
       </button>
-      <button id="btn-tools" class="icon-btn" title="工具链">
+      <button id="btn-tools" class="icon-btn" data-i18n-title="titlebar.tools">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
         <span id="tools-update-badge" class="icon-badge hidden"></span>
       </button>
-      <button id="btn-terminal" class="icon-btn" title="终端">
+      <button id="btn-terminal" class="icon-btn" data-i18n-title="titlebar.terminal">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
       </button>
-      <button id="btn-doctor" class="icon-btn doctor-icon" title="诊断与修复">
+      <button id="btn-doctor" class="icon-btn doctor-icon" data-i18n-title="titlebar.doctor">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v6"/><path d="M9 11h6"/></svg>
       </button>
-      <button id="btn-about" class="icon-btn" title="关于">
+      <button id="btn-about" class="icon-btn" data-i18n-title="titlebar.about">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v3.4M8 4.8v.2"/></svg>
       </button>
     </div>
     <!-- 动作组与窗口控制组之间的分组线：纯装饰，不进无障碍树 -->
     <div class="titlebar-divider" aria-hidden="true"></div>
     <div class="titlebar-window">
-      <button id="win-min" class="win-btn" title="最小化">
+      <button id="win-min" class="win-btn" data-i18n-title="titlebar.minimize">
         <svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.2"><path d="M2.5 8h11"/></svg>
       </button>
-      <button id="win-max" class="win-btn" title="最大化">
+      <button id="win-max" class="win-btn" data-i18n-title="titlebar.maximize">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
       </button>
-      <button id="win-close" class="win-btn win-close" title="关闭">
+      <button id="win-close" class="win-btn win-close" data-i18n-title="titlebar.close">
         <svg width="14" height="14" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.2"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9"/></svg>
       </button>
     </div>
@@ -58,41 +58,41 @@
       <section id="guidance" class="cards">
       <div class="card-wide">
         <h1>DeepSeek Harness</h1>
-        <p class="intro">当前没有可用的 harness 会话：容器内服务未运行，外部服务未连接。选择一种方式开始使用（服务启动中时请稍候片刻）。</p>
+        <p class="intro" data-i18n="guidance.intro"></p>
       </div>
       <div class="card">
-        <h2>容器内</h2>
+        <h2 data-i18n="guidance.container.title"></h2>
         <ol>
-          <li>点击右上角「服务器」</li>
-          <li>保持「容器内」模式</li>
-          <li>点击「启动」并等待就绪</li>
+          <li data-i18n="guidance.step.openServer"></li>
+          <li data-i18n="guidance.container.keepMode"></li>
+          <li data-i18n="guidance.container.start"></li>
         </ol>
       </div>
       <div class="card">
-        <h2>连接本机/远端服务</h2>
+        <h2 data-i18n="guidance.remote.title"></h2>
         <ol>
-          <li>点击右上角「服务器」</li>
-          <li>切换「本机/远端服务」</li>
-          <li>填入服务地址，点击「连接」</li>
+          <li data-i18n="guidance.step.openServer"></li>
+          <li data-i18n="guidance.remote.switchMode"></li>
+          <li data-i18n="guidance.remote.fillAddress"></li>
         </ol>
-        <p class="hint">目标 harness 需以 <code>dsh web --host &lt;LAN-IP&gt;</code> 启动；非本机地址首次连接需确认。</p>
+        <p class="hint"><span data-i18n="guidance.remote.hint.before"></span> <code>dsh web --host &lt;LAN-IP&gt;</code> <span data-i18n="guidance.remote.hint.after"></span></p>
       </div>
       <div class="card-wide">
-        <h2>本机安装并连接（npx）</h2>
+        <h2 data-i18n="guidance.npx.title"></h2>
         <ol>
-          <li>在终端运行 <code>npx @deepseek-ai/dsh web</code> 启动本机 harness 服务</li>
-          <li>就绪后服务地址与端口会显示在终端（如 <code>http://127.0.0.1:3456</code>）</li>
-          <li>点「服务器」→ 切「本机/远端服务」→ 填入该地址 →「连接」</li>
+          <li><span data-i18n="guidance.npx.step1.before"></span> <code>npx @deepseek-ai/dsh web</code> <span data-i18n="guidance.npx.step1.after"></span></li>
+          <li><span data-i18n="guidance.npx.step2.before"></span> <code>http://127.0.0.1:3456</code><span data-i18n="guidance.npx.step2.after"></span></li>
+          <li data-i18n="guidance.npx.step3"></li>
         </ol>
-        <p class="hint">本机回环地址（127.0.0.1/localhost）无需安全确认；需要局域网访问时加 <code>--host &lt;LAN-IP&gt;</code> 重新启动。</p>
+        <p class="hint"><span data-i18n="guidance.npx.hint.before"></span> <code>--host &lt;LAN-IP&gt;</code> <span data-i18n="guidance.npx.hint.after"></span></p>
       </div>
     </section>
 
       <!-- 启动加载页 -->
       <section id="loading-page" class="loading-page hidden">
         <div class="loading-spinner" aria-hidden="true"></div>
-        <h2>正在启动...</h2>
-        <p id="loading-hint" class="loading-hint">DeepSeek Harness 正在加载插件和服务，请稍候</p>
+        <h2 data-i18n="loading.title"></h2>
+        <p id="loading-hint" class="loading-hint" data-i18n="loading.hint"></p>
         <!-- 真实进度：harness 侧注入的上报插件逐条上报已激活条目数（见
              internal/appenv/startup_progress.mjs）。没有上报时整块隐藏，
              页面退回上面的转圈与静态文案，不出现按时间猜的假进度。 -->
@@ -107,15 +107,15 @@
       <!-- 启动前预检页：预检进行中 / 发现问题等待决策 / 修复穷尽降级建议 -->
       <section id="preflight-page" class="preflight-page hidden">
         <div id="preflight-icon" class="preflight-icon" aria-hidden="true">🩺</div>
-        <h2 id="preflight-title">启动前预检…</h2>
-        <p id="preflight-hint" class="preflight-hint">正在检查运行环境、配置与插件，稍候片刻</p>
+        <h2 id="preflight-title" data-i18n="preflight.title"></h2>
+        <p id="preflight-hint" class="preflight-hint" data-i18n="preflight.checking"></p>
         <div id="preflight-repairs" class="preflight-repairs hidden"></div>
         <div id="preflight-issues" class="preflight-issues hidden"></div>
         <div id="preflight-actions" class="failed-actions hidden">
-          <button id="btn-preflight-deep-repair" class="btn btn-primary">深度修复（含移除问题插件）</button>
-          <button id="btn-preflight-safe-mode" class="btn">安全模式启动</button>
-          <button id="btn-preflight-fresh" class="btn">全新环境启动</button>
-          <button id="btn-preflight-skip" class="btn btn-link">忽略问题，仍然启动</button>
+          <button id="btn-preflight-deep-repair" class="btn btn-primary" data-i18n="preflight.deepRepair"></button>
+          <button id="btn-preflight-safe-mode" class="btn" data-i18n="preflight.safeMode"></button>
+          <button id="btn-preflight-fresh" class="btn" data-i18n="preflight.freshHome"></button>
+          <button id="btn-preflight-skip" class="btn btn-link" data-i18n="preflight.skip"></button>
         </div>
         <p id="preflight-note" class="preflight-note hidden"></p>
       </section>
@@ -123,13 +123,13 @@
       <!-- 启动失败页 -->
       <section id="failed-page" class="failed-page hidden">
         <div class="failed-icon" aria-hidden="true">⚠️</div>
-        <h2>启动失败</h2>
+        <h2 data-i18n="failed.title"></h2>
         <div id="failed-reason" class="failed-reason"></div>
         <div class="failed-actions">
-          <button id="btn-failed-doctor" class="btn btn-primary">诊断问题</button>
-          <button id="btn-failed-safe-mode" class="btn">以安全模式启动</button>
+          <button id="btn-failed-doctor" class="btn btn-primary" data-i18n="failed.diagnose"></button>
+          <button id="btn-failed-safe-mode" class="btn" data-i18n="failed.safeMode"></button>
         </div>
-        <p class="failed-log-hint">完整日志: ~/.cache/dsh-desktop/harness.log</p>
+        <p class="failed-log-hint"><span data-i18n="failed.logHint"></span> ~/.cache/dsh-desktop/harness.log</p>
       </section>
     </div>
   </main>
@@ -137,7 +137,7 @@
   <!-- 底部状态栏 -->
   <footer id="statusbar">
     <span id="status-dot" class="dot muted"></span>
-    <span id="status-text">● 启动中</span>
+    <span id="status-text" data-i18n="status.starting"></span>
   </footer>
 </div>
 

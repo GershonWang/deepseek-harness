@@ -337,17 +337,28 @@ function findBrowser() {
   return undefined
 }
 
+/** 预览页要内联的国际化脚本，顺序与 index.html 一致。 */
+const LOCALE_SCRIPTS = ['locales/zh.js', 'locales/en.js', 'i18n.js']
+
 /**
- * 生成预览页：index.html 逐字复制，只剥掉脚本并改写样式相对路径。
- * 不落一份手工维护的副本，因此它永远不会与真实页面漂移。
+ * 生成预览页：index.html 逐字复制，剥掉脚本、改样式相对路径，再把国际化脚本内联回来。
+ *
+ * 为什么要内联字典：index.html 不留中文兜底文案（单一真源，见 docs/i18n.md 6.3），
+ * 静态文案全靠 data-i18n 钩子在运行期回填。若只剥脚本不回填，量到的是"文案消失后"
+ * 的几何——卡片高度、地址框两行预留这类断言会因文字没了而误报。内联而不是外链
+ * 脚本，是因为预览页以 file:// 打开，跨文件的 <script src> 并不可靠。
  * @param {string} dir - 预览页写入目录。
  * @returns {Promise<string>} 预览页的文件 URL。
  */
 async function buildPreview(dir) {
   const source = await readFile(INDEX, 'utf8')
+  const localeSource = (
+    await Promise.all(LOCALE_SCRIPTS.map((rel) => readFile(join(FRONTEND, rel), 'utf8')))
+  ).join('\n')
   const stripped = source
     .replace(/<script\b[^>]*><\/script>\s*/gu, '')
     .replace('href="styles.css"', `href="file://${join(FRONTEND, 'styles.css')}"`)
+    + `\n<script>\n${localeSource}\nwindow.DSHI18N.applyFromGui('zh-CN')\n</script>\n`
   const target = join(dir, 'preview.html')
   await writeFile(target, stripped)
   return `file://${target}`

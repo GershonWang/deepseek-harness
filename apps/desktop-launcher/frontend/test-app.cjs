@@ -614,7 +614,10 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     requestAnimationFrame: (fn) => setTimeout(() => fn(0), 0),
     window,
     document,
-    navigator: {},
+    // 语言 pin 为 zh：本文件的断言直接比对中文文案，必须让它们跑在键全集真源
+    // （locales/zh.js）上，否则英文文案一到位这些断言就会集体失效。语言解析
+    // 本身的用例在 test-i18n.cjs。
+    navigator: { languages: ["zh-CN"] },
   };
   vm.createContext(sandbox);
   // 先按 index.html 的顺序加载国际化脚本：app.js 的 init 会调 window.DSHI18N.init()，
@@ -855,16 +858,15 @@ test("桥上报 GUI 语言：壳切语言、同步文档语言并把生效语言
   const h = loadApp();
   await flush();
 
-  // 桩的 navigator 是空对象：无语言信息 → 兜底 en。真机上这一步通常是系统语言，
-  // 因为 GUI 还没起来、拿不到它的 <html lang>。
-  assert.equal(h.i18n.current(), "en", "无语言信息时壳应回退 en");
-  assert.equal(h.document.documentElement.lang, "en", "文档语言应同步为当前语言");
-  assert.deepEqual(h.localeCalls, ["en"], "初始化应把兜底语言回推给 Go");
+  // 桩的导航语言 pin 为 zh-CN（见 loadApp 的 sandbox）：GUI 还没起来时壳按它兜底。
+  assert.equal(h.i18n.current(), "zh", "应按 navigator 兜底到中文");
+  assert.equal(h.document.documentElement.lang, "zh-CN", "文档语言应同步为当前语言");
+  assert.deepEqual(h.localeCalls, ["zh"], "初始化应把兜底语言回推给 Go");
 
-  h.message({ dshDesktop: true, type: "locale", id: "zh-CN" });
-  assert.equal(h.i18n.current(), "zh", "GUI 语言应覆盖兜底值");
-  assert.equal(h.document.documentElement.lang, "zh-CN", "文档语言应跟随 GUI");
-  assert.deepEqual(h.localeCalls, ["en", "zh"], "语言变化应回推给 Go");
+  h.message({ dshDesktop: true, type: "locale", id: "en" });
+  assert.equal(h.i18n.current(), "en", "GUI 语言应覆盖兜底值");
+  assert.equal(h.document.documentElement.lang, "en", "文档语言应跟随 GUI");
+  assert.deepEqual(h.localeCalls, ["zh", "en"], "语言变化应回推给 Go");
 });
 
 test("语言消息校验：非法载荷不改语言也不回推", async () => {
@@ -877,8 +879,8 @@ test("语言消息校验：非法载荷不改语言也不回推", async () => {
   h.message({ dshDesktop: true, type: "unknown", id: "zh" }); // 未知类型
   await flush();
 
-  assert.equal(h.i18n.current(), "en", "非法载荷不应改变语言");
-  assert.deepEqual(h.localeCalls, ["en"], "非法载荷不应产生新的回推");
+  assert.equal(h.i18n.current(), "zh", "非法载荷不应改变语言");
+  assert.deepEqual(h.localeCalls, ["zh"], "非法载荷不应产生新的回推");
 });
 
 test("客户端失败优先于 iframe 目标：不给死路页设置地址", async () => {
