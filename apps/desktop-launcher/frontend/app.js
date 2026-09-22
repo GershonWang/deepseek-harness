@@ -369,12 +369,13 @@ function applyStatus(s) {
 
 /* ---------- 启动前预检 ---------- */
 
-// 预检问题 Kind 的徽标文案。
+// 预检问题 Kind 的徽标文案：值是字典键；清单里出现未登记的 Kind 时原样显示该 Kind
+// （它来自 Go 侧枚举名，不是文案）。
 const PREFLIGHT_KIND_LABEL = {
-  auto: "已自动修复",
-  confirm: "需确认修复",
-  none: "无自动方案",
-  warn: "提醒",
+  auto: "preflight.kind.auto",
+  confirm: "preflight.kind.confirm",
+  none: "preflight.kind.none",
+  warn: "preflight.kind.warn",
 };
 
 // renderPreflight 渲染预检页内容：按 Phase 切换标题/图标/按钮组。
@@ -394,15 +395,15 @@ function renderPreflight(p) {
 
   icon.textContent = exhausted ? "🧯" : decided ? "🩺" : "🩺";
   title.textContent = repairing
-    ? (exhausted ? "修复执行中…" : "预检修复执行中…")
-    : exhausted ? "修复后仍存在问题" : decided ? "预检发现问题" : "启动前预检…";
-  hint.textContent = repairing
-    ? "正在应用修复并复查，真实插件加载探测最长可能需要一分钟"
+    ? (exhausted ? tr("preflight.title.repairingExhausted") : tr("preflight.title.repairing"))
     : exhausted
-      ? "自动修复已尽力，仍无法保证启动。推荐先试安全模式（保留全部数据），必要时用全新环境（数据隔离，凭证需重新配置）"
-      : decided
-        ? "低风险修复已自动应用；下列问题需要你确认修复方式，或选择其他启动方式"
-        : "正在检查运行环境、配置与插件，稍候片刻";
+      ? tr("preflight.title.exhausted")
+      : decided ? tr("preflight.title.decided") : tr("preflight.title.checking");
+  hint.textContent = repairing
+    ? tr("preflight.hint.repairing")
+    : exhausted
+      ? tr("preflight.hint.exhausted")
+      : decided ? tr("preflight.hint.decided") : tr("preflight.hint.checking");
 
   // 问题清单
   const list = p.Issues || [];
@@ -413,7 +414,9 @@ function renderPreflight(p) {
       row.className = "preflight-issue";
       const badge = document.createElement("span");
       badge.className = "preflight-kind kind-" + (item.Kind || "warn");
-      badge.textContent = PREFLIGHT_KIND_LABEL[item.Kind] || item.Kind || "";
+      badge.textContent = PREFLIGHT_KIND_LABEL[item.Kind]
+        ? tr(PREFLIGHT_KIND_LABEL[item.Kind])
+        : (item.Kind || "");
       const body = document.createElement("div");
       body.className = "preflight-issue-body";
       const name = document.createElement("div");
@@ -436,7 +439,7 @@ function renderPreflight(p) {
   // 已应用的修复摘要（含备份位置，用户可回滚）
   const applied = p.Repairs || [];
   if (applied.length > 0) {
-    repairs.textContent = "已应用修复: " + applied.join("；");
+    repairs.textContent = tr("preflight.repairsApplied", { list: applied.join(tr("common.appliedSeparator")) });
     repairs.classList.remove("hidden");
   } else {
     repairs.classList.add("hidden");
@@ -452,7 +455,7 @@ function renderPreflight(p) {
   // 备份目录提示
   const backups = p.BackupDirs || [];
   if (backups.length > 0) {
-    note.textContent = "修复前的原文件已备份到: " + backups.join("、");
+    note.textContent = tr("preflight.backupDirs", { list: backups.join(tr("common.listSeparator")) });
     note.classList.remove("hidden");
   } else {
     note.classList.add("hidden");

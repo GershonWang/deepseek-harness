@@ -90,6 +90,24 @@ window.DSH_LOCALES.zh = {
   "preflight.freshHome": "全新环境启动",
   "preflight.skip": "忽略问题，仍然启动",
   // 全新环境的原生确认框：多行提示整句进字典，换行符留在值里。
+  // 预检页动态文案：标题与提示按 Phase 四态给出，徽标按问题 Kind 给出。
+  "common.appliedSeparator": "；",
+  "preflight.kind.auto": "已自动修复",
+  "preflight.kind.confirm": "需确认修复",
+  "preflight.kind.none": "无自动方案",
+  "preflight.kind.warn": "提醒",
+  "preflight.title.checking": "启动前预检…",
+  "preflight.title.decided": "预检发现问题",
+  "preflight.title.exhausted": "修复后仍存在问题",
+  "preflight.title.repairing": "预检修复执行中…",
+  "preflight.title.repairingExhausted": "修复执行中…",
+  "preflight.hint.checking": "正在检查运行环境、配置与插件，稍候片刻",
+  "preflight.hint.decided": "低风险修复已自动应用；下列问题需要你确认修复方式，或选择其他启动方式",
+  "preflight.hint.exhausted": "自动修复已尽力，仍无法保证启动。推荐先试安全模式（保留全部数据），必要时用全新环境（数据隔离，凭证需重新配置）",
+  "preflight.hint.repairing": "正在应用修复并复查，真实插件加载探测最长可能需要一分钟",
+  // 已应用修复与备份目录：清单由代码格式化（分隔符见 common.*），句子整句在字典里。
+  "preflight.repairsApplied": "已应用修复: {list}",
+  "preflight.backupDirs": "修复前的原文件已备份到: {list}",
   "preflight.freshHomeConfirm": "将以全新的运行时环境启动（~/.dsh-fallback）：\n\n· 会话历史、模型设置、第三方插件均不可见\n· API Key 等凭证不迁移，需要重新配置\n· 原始 ~/.dsh 数据原样保留，可随时回到默认环境\n\n确认继续？",
 
 
