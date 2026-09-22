@@ -2,7 +2,8 @@
  *
  * 真源是 iframe 内 harness GUI 的 `<html lang>`：harness 客户端 locale 服务在每次
  * 语言快照变化时同步该属性，由 linglong/dsh-link-bridge.js 经既有 postMessage 桥
- * 上报；GUI 尚未起来时（加载页 / 预检页 / 失败页）按 navigator 兜底，再退回 en。
+ * 上报；GUI 尚未起来时（加载页 / 预检页 / 失败页）按「上次 GUI 上报的缓存 →
+ * navigator → en」兜底。缓存只填这段空档，真源一到就被覆盖。
  * 真源为什么这样选、三条候选路径的取舍，见 docs/i18n.md 第五节。
  *
  * 本文件**不含任何产品文案**：文案只允许出现在 locales/ 目录下，否则闸门会拒绝。
@@ -25,6 +26,9 @@
 
   /** 属性钩子：`data-i18n-<suffix>` 决定把文案回填到哪个属性。 */
   var ATTRIBUTE_HOOKS = ["title", "placeholder", "aria-label", "alt"];
+
+  /** 上次 GUI 上报语言的存储键：与终端字号一样写在 localStorage，跨启动保留。 */
+  var LOCALE_STORAGE_KEY = "dsh-desktop.locale";
 
   var currentId = FALLBACK_ID;
   var changeListeners = [];
@@ -65,6 +69,40 @@
       if (id) return id;
     }
     return FALLBACK_ID;
+  }
+
+  /**
+   * 读取上次 GUI 上报的语言。
+   *
+   * 冷启动时真源还没到（iframe 未建），只按 navigator 兜底会让「系统语言 ≠ GUI
+   * 语言」的用户在加载页看到系统语言——而加载页恰恰是最先看到的一屏。缓存填的
+   * 就是这段空档：它记录真源最近一次的说法，真源一上报就被覆盖，因此不会变成
+   * 第二个真源。
+   * @returns {string} 内置语言 id；无缓存、值不可识别或读不到时为空串。
+   */
+  function fromCache() {
+    try {
+      var raw = window.localStorage ? window.localStorage.getItem(LOCALE_STORAGE_KEY) : null;
+      return normalize(raw);
+    } catch (err) {
+      // 隐私模式或存储被禁用：当作没有缓存，退回 navigator。
+      return "";
+    }
+  }
+
+  /**
+   * 记下 GUI 上报的语言，供下次冷启动使用。
+   *
+   * 只记可识别的内置语言：未注册语言（如三方语言包的 `ja`）本次按 en 生效，把它
+   * 写进缓存等于用一个自己都渲染不了的标签覆盖掉可用值。
+   * @param {string} id - 归一化后的内置语言 id。
+   */
+  function remember(id) {
+    try {
+      if (window.localStorage) window.localStorage.setItem(LOCALE_STORAGE_KEY, id);
+    } catch (err) {
+      // 写不进去只影响"下次冷启动起步用什么语言"，本次照常生效。
+    }
   }
 
   /**
@@ -184,13 +222,18 @@
   }
 
   window.DSHI18N = {
-    /** 按浏览器语言完成首次应用；由 app.js 的 init 在首次渲染前调用。 */
+    /**
+     * 完成首次应用：优先用上次 GUI 上报的语言，其次浏览器语言。
+     * 由 app.js 的 init 在首次渲染前调用，因此加载页第一帧就是正确语言。
+     */
     init: function () {
-      apply(fromNavigator());
+      apply(fromCache() || fromNavigator());
     },
-    /** 应用 GUI 上报的语言；由 app.js 的消息监听器调用。 */
+    /** 应用 GUI 上报的语言，并记下它供下次冷启动使用。由 app.js 的消息监听器调用。 */
     applyFromGui: function (id) {
       apply(id);
+      var known = normalize(id);
+      if (known) remember(known);
     },
     /** 翻译一个键。 */
     t: t,

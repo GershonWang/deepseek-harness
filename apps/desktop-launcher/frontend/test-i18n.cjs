@@ -51,12 +51,24 @@ function makeDocument(elements = []) {
   };
 }
 
+/* 最小 localStorage 桩：i18n.js 只做 getItem/setItem，且必须容忍它抛错。 */
+function makeStorage(initial = {}) {
+  const data = new Map(Object.entries(initial));
+  return {
+    data,
+    getItem: (key) => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => data.set(key, String(value)),
+  };
+}
+
 /* 在独立 vm 上下文加载三份真实脚本，返回句柄。 */
-function loadI18n({ navigator = {}, go, elements = [], dictionaries } = {}) {
+function loadI18n({ navigator = {}, go, elements = [], dictionaries, storage } = {}) {
   const document = makeDocument(elements);
   const localeCalls = [];
   const consoleErrors = [];
   const window = { addEventListener() {} };
+  // 不传 storage 时保持"没有 localStorage"（非浏览器环境），传 null 之外的对象即启用。
+  if (storage !== undefined) window.localStorage = storage;
   if (go !== false) {
     window.go = {
       app: {
@@ -247,6 +259,53 @@ test("没有 Wails 运行时时（浏览器预览）不抛错", () => {
 
 /* 字典完整性单独一例、不依赖桩：它比对的是两份字典文件本身，因此新增键却忘了
  * 写英文时报错点直接落在键名上，而不是等到界面上看到中文才发现。 */
+/* 冷启动时真源（iframe 内 GUI 的 <html lang>）还没到，缓存是这段时间唯一的真源快照；
+ * 下面四例钉住它的四条边界：优先、被覆盖、不可识别时不生效、不污染可用值。 */
+test("冷启动优先用上次 GUI 上报的语言，而不是系统语言", () => {
+  const storage = makeStorage({ "dsh-desktop.locale": "en" });
+  const h = loadI18n({ navigator: { languages: ["zh-CN"] }, storage });
+  h.i18n.init();
+  assert.equal(h.i18n.current(), "en", "缓存应压过 navigator");
+});
+
+test("GUI 上报会写入缓存并覆盖旧值", () => {
+  const storage = makeStorage({ "dsh-desktop.locale": "zh" });
+  const h = loadI18n({ navigator: { languages: ["zh-CN"] }, storage });
+  h.i18n.init();
+  h.i18n.applyFromGui("en-US");
+  assert.equal(storage.data.get("dsh-desktop.locale"), "en", "应记归一化后的 id");
+  assert.equal(h.i18n.current(), "en");
+});
+
+test("缓存值不可识别时退回 navigator", () => {
+  const storage = makeStorage({ "dsh-desktop.locale": "ja" });
+  const h = loadI18n({ navigator: { languages: ["zh-CN"] }, storage });
+  h.i18n.init();
+  assert.equal(h.i18n.current(), "zh", "无法识别的缓存等于没有缓存");
+});
+
+test("未注册语言的上报不写进缓存", () => {
+  const storage = makeStorage({ "dsh-desktop.locale": "zh" });
+  const h = loadI18n({ navigator: { languages: ["zh-CN"] }, storage });
+  h.i18n.init();
+  h.i18n.applyFromGui("ja");
+  assert.equal(storage.data.get("dsh-desktop.locale"), "zh", "缓存应保持可用值不动");
+  assert.equal(h.i18n.current(), "en", "本次仍按约定落到 en");
+});
+
+test("localStorage 抛错时不影响语言解析与回推", () => {
+  const hostile = {
+    getItem() { throw new Error("storage disabled"); },
+    setItem() { throw new Error("storage disabled"); },
+  };
+  const h = loadI18n({ navigator: { languages: ["zh-CN"] }, storage: hostile });
+  h.i18n.init();
+  assert.equal(h.i18n.current(), "zh", "读缓存失败应退回 navigator");
+  h.i18n.applyFromGui("en");
+  assert.equal(h.i18n.current(), "en");
+  assert.deepEqual(h.localeCalls, ["zh", "en"], "回推 Go 不受存储失败影响");
+});
+
 test("字典完整性：en 与 zh 同键集、同占位符，且没有漏翻的值", () => {
   const box = { window: {} };
   vm.createContext(box);
