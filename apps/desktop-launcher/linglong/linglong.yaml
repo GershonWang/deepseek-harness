@@ -75,22 +75,21 @@ build: |
   fi
   mkdir -p ${PREFIX}/bin ${PREFIX}/harness ${PREFIX}/node
   cp -a "$STAGE/harness/." ${PREFIX}/harness/
-  # 容器工具清单注入：overlay 覆盖 dsh-agent-presets 自带的 standard 组合，把
-  # 容器工具链段落追加进 persona，使打包会话的模型可见输入带上可用工具清单。
+  # 容器工具清单注入：把工具链段落追加进 standard 预设的 persona，使打包会话的模型
+  # 可见输入带上可用工具清单。上游已把预设改成 bundle 内的声明式 patch，注册行由随包
+  # dsh-web-app/presets/standard.patch.yml 发出，覆盖目标就是它；cordis 的补丁语义是
+  # 整体替换目标属性（vendor/include/src/index.ts），只补一条 persona 行不生效。
   #
-  # 必须写进 shipped root（包内 presets/），不能另建 ${PREFIX}/harness/config：
-  # dsh-agent-presets 的 shipped root 是包内硬编码路径（lib/index.js 的
-  # new URL('../presets/', import.meta.url)），且 root 解析按 id 先到先得、
-  # shipped 恒排在最前——另建目录不会被扫描。preset.yml 元数据与其余预设保持
-  # 上游原样，只覆盖 standard/agent.cordis.yml。漂移与 persona 可解析性由
-  # verify-preset-overlay.mjs 在 build-linglong.sh 里于容器组装前拦截。
-  PRESETS=${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets
-  if [ ! -d "$PRESETS/standard" ]; then
-    echo "预设包布局变化：$PRESETS/standard 不存在，overlay 无法注入" >&2
+  # 覆盖内容在容器组装前由 gen-preset-overlay.mjs 从该文件原文派生：roster 永远等于
+  # 上游，唯一自研增量是那段容器说明。必须写进包内 shipped 位置，不能另建
+  # ${PREFIX}/harness/config——bundle 的 patch 路径相对包目录解析，另建目录不会被扫描。
+  PRESETS=${PREFIX}/harness/node_modules/@deepseek-ai/dsh-web-app/presets
+  if [ ! -f "$PRESETS/standard.patch.yml" ]; then
+    echo "预设包布局变化：$PRESETS/standard.patch.yml 不存在，overlay 无法注入" >&2
     exit 1
   fi
-  install -Dm644 /project/apps/desktop-launcher/linglong/harness-overlay/agent-presets/standard/agent.cordis.yml \
-    "$PRESETS/standard/agent.cordis.yml"
+  install -Dm644 /project/apps/desktop-launcher/linglong/stage/preset-overlay/standard.patch.yml \
+    "$PRESETS/standard.patch.yml"
   cp -a "$STAGE/node/." ${PREFIX}/node/
   # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
   # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的

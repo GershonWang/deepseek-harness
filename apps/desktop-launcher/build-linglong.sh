@@ -20,11 +20,12 @@ else
   sh apps/desktop-launcher/linglong/prepare-offline.sh
 fi
 
-# 容器工具清单 overlay 是上游 standard 预设的整文件副本,落后就会让打包会话静默
-# 少挂插件。这里在容器组装之前拦截漂移,顺带确认 persona 配置能被随包
-# dsh-persona 解析(否则挂载时才会抛 ValidationError,那已经在用户机器上了)。
-echo "==> 校验预设 overlay 与上游 standard 的一致性"
-node apps/desktop-launcher/linglong/verify-preset-overlay.mjs
+# 容器工具清单 overlay 由上游 standard 预设派生（旧做法维护整文件副本，上游改
+# persona 字段时副本会静默少挂插件）。这里在容器组装之前生成覆盖补丁，顺带确认
+# persona 配置能被随包 dsh-persona 解析（否则挂载时才会抛 ValidationError，那已经
+# 在用户机器上了），以及段落点名的工具仍在 tools.yaml 里。
+echo "==> 由上游 standard 预设派生容器工具清单 overlay"
+node apps/desktop-launcher/linglong/gen-preset-overlay.mjs
 
 # 构建器把「拷不进去」降级成警告：实测 libwebkit2gtk-4.1.so.0 复制失败（无效的参数）
 # 之后仍照常 [Install Files]/[Commit Contents] 并导出 345 MB 产物，而包内沿用基础层

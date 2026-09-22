@@ -688,11 +688,11 @@
 
 原先两个独立故障，现已一并处理：
 
-1. **注入点**。`linglong.yaml` 不再把预设抽到 `${PREFIX}/harness/config/agent-presets`，改为用 `install -Dm644` 直接覆盖 `dsh-agent-presets` 真正读取的 shipped root（`${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`）；预设包布局若变化则构建 fail loud。
+1. **注入点**。`linglong.yaml` 不再把预设抽到 `${PREFIX}/harness/config/agent-presets`，改为用 `install -Dm644` 直接覆盖 `dsh-agent-presets` 真正读取的 shipped root（`${PREFIX}/harness/node_modules/@deepseek-ai/dsh-agent-presets/presets/standard/agent.cordis.yml`）；预设包布局若变化则构建 fail loud。上游合并后该路径再度变更：上游把预设从包内整份组合文件改为 bundle 内的声明式 patch，覆盖目标现为 `${PREFIX}/harness/node_modules/@deepseek-ai/dsh-web-app/presets/standard.patch.yml`，布局变化同样是 fail loud。
 2. **副本**。persona 由已移除的 `text` 改为 `prefix`/`suffix`，并按上游 `packages/preset/agent-presets/presets/standard/agent.cordis.yml` 重新同步 roster（此前静默落后四处：`command-goal` 与 `present` 两行被删、`tool-web.fetch` 由 true 变 false、`modelSelectionSettings` 被删）。
-3. **防线**。新增 `linglong/verify-preset-overlay.mjs`，在 `build-linglong.sh` 组装前拼接失败即中止：persona 之外的 roster 必须与上游逐行一致，persona 增量与 `tools.yaml` 对账，并把 persona 配置喂给随包 `dsh-persona` 的 schema。`test-verify-preset-overlay.sh` 覆盖通过路径与四条失败路径。
+3. **防线**。最初是 `linglong/verify-preset-overlay.mjs` 对整文件副本逐行比对；上游改成声明式 patch 后副本形态不再存在（且 cordis 补丁语义是整体替换目标属性，覆盖 `preset-standard` 必须重述整份 config），改为 `linglong/gen-preset-overlay.mjs` 在 `build-linglong.sh` 组装前**从随包原文派生**覆盖补丁：roster 与 `!!js` 表达式经 YAML 往返断言逐字保留，唯一增量是 persona.prefix 末尾的容器说明；派生出的 persona 配置喂给随包 `dsh-persona` 的 schema，段落点名的工具与 `tools.yaml` 对账，失败即中止。`test-gen-preset-overlay.sh` 覆盖通过路径与七条失败路径。
 
-**验证证据**：用打包闭包自己的 `discoverPresets` 实测——注入前后都是同样的四个预设（`cordis[创造模式] minimal[极简模式] ptc[PTC 模式] standard[标准模式]`），条目数与元数据未变，注入后 `standard` 文件含容器段落。UI 预设列表因此不变。闸门与自测各 5 项全过。
+**验证证据**：用打包闭包自己的 `discoverPresets` 实测——注入前后都是同样的四个预设（`cordis[创造模式] minimal[极简模式] ptc[PTC 模式] standard[标准模式]`），条目数与元数据未变，注入后 `standard` 文件含容器段落。UI 预设列表因此不变。当时闸门与自测各 5 项全过；改为派生式闸门后，派生产物与上游原文逐字比对只差 persona.prefix，自测 8 项全过。
 
 **未做的端到端**：仍未触发一次真实会话观察系统提示（headless profile 不挂 `agent-presets`，只有 web-app bundle 设 `default: standard`）。已验证的链路是「发现 → persona 配置通过随包 schema」，而 `resolveConfig` 正是挂载时的校验点。
 
