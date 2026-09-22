@@ -279,6 +279,8 @@ window.DSH_LOCALES.zh = {
   "doctor.repair.failed": "✗ 修复失败",
   "doctor.repair.failedDetail": "修复失败：{error}",
 
+  // 安全模式下的诊断提示：安全模式跳过第三方插件，诊断结果不完整。
+  "doctor.safeModeNotice": "当前以安全模式运行（已跳过第三方插件），诊断结果不完整。请先退出安全模式再重新诊断。",
   // 自动诊断提示条与失败页的客户端插件失败原因。
   "doctor.autoBanner": "检测到启动失败，已为你自动诊断",
   "doctor.autoHint.done": "诊断完成",
@@ -297,6 +299,28 @@ window.DSH_LOCALES.zh = {
   "plugins.autoDisabled.title": "已自动禁用不兼容的插件",
   "plugins.autoDisabled.hint": "安装与依赖仍然保留：可在「插件」页重新启用，或自行卸载。",
   "plugins.autoDisabled.ack": "知道了",
+  /* ---------- 终端弹框 ---------- */
+  "terminal.title": "终端",
+  "terminal.maximize": "最大化",
+  "terminal.restore": "还原",
+  "terminal.fontDec": "缩小字号",
+  "terminal.fontInc": "放大字号",
+  "terminal.fontSize": "当前字号",
+  "terminal.new": "新建终端",
+  "terminal.loading": "正在启动终端…",
+  // 会话标题的自动编号：只有一个占位符，但"终端 2"与"Terminal 2"的语序不同，仍进字典。
+  "terminal.sessionTitle": "终端 {index}",
+  "terminal.empty": "没有打开的终端",
+  "terminal.emptyHint": "点标签栏的 + 新建一个（Ctrl+Shift+T）",
+  "terminal.error.noContainer": "终端容器不存在",
+  "terminal.error.noXterm": "xterm.js 未加载（vendor/xterm.js）",
+  "terminal.error.startFailed": "启动终端失败：{error}",
+  // 标签页标题的退出后缀：带/不带退出码两种形态；英文形态自带前导空格。
+  "terminal.tab.exited": "（已退出）",
+  "terminal.tab.exitedWithCode": "（已退出，退出码 {code}）",
+  // 进程退出后写进终端缓冲区的灰色标注，方括号也算文案的一部分。
+  "terminal.processExited": "[进程已退出，退出码: {code}]",
+
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
   // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于

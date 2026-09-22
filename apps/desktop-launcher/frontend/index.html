@@ -301,14 +301,14 @@
        CSS 的 .modal-terminal.is-maximized 才匹配得到（遮罩只负责居中与压暗） -->
   <div id="terminal-card" class="modal-card modal-terminal">
     <div id="terminal-head" class="modal-head">
-      <span class="modal-title"><span class="brand-dot"></span>终端</span>
+      <span class="modal-title"><span class="brand-dot"></span><span data-i18n="terminal.title"></span></span>
       <span class="modal-head-actions">
         <!-- 最大化/还原共用一颗按钮，两套图标按 is-maximized 切换，按钮不跳位 -->
-        <button id="terminal-max" class="modal-close" title="最大化" aria-label="最大化">
+        <button id="terminal-max" class="modal-close" data-i18n-title="terminal.maximize" data-i18n-aria-label="terminal.maximize">
           <svg class="terminal-icon-max" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>
           <svg class="terminal-icon-restore" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><rect x="2.5" y="5.5" width="8" height="8" rx="1"/><path d="M5.5 5.5v-2a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-2"/></svg>
         </button>
-        <button class="modal-close" data-close="terminal-modal" aria-label="关闭">×</button>
+        <button class="modal-close" data-close="terminal-modal" data-i18n-aria-label="common.close">×</button>
       </span>
     </div>
     <div class="modal-body terminal-body">
@@ -316,10 +316,10 @@
       <div class="terminal-tabbar">
         <div id="terminal-tabs" class="terminal-tabs"></div>
         <!-- 字号缩放：读数夹在两个按钮中间，到达上下限时按钮由脚本置灰 -->
-        <button id="terminal-font-dec" class="icon-btn-sm terminal-font-btn" title="缩小字号" aria-label="缩小字号">A−</button>
-        <span id="terminal-font-size" class="terminal-font-size" title="当前字号">14</span>
-        <button id="terminal-font-inc" class="icon-btn-sm terminal-font-btn" title="放大字号" aria-label="放大字号">A+</button>
-        <button id="terminal-new" class="icon-btn-sm" title="新建终端">
+        <button id="terminal-font-dec" class="icon-btn-sm terminal-font-btn" data-i18n-title="terminal.fontDec" data-i18n-aria-label="terminal.fontDec">A−</button>
+        <span id="terminal-font-size" class="terminal-font-size" data-i18n-title="terminal.fontSize">14</span>
+        <button id="terminal-font-inc" class="icon-btn-sm terminal-font-btn" data-i18n-title="terminal.fontInc" data-i18n-aria-label="terminal.fontInc">A+</button>
+        <button id="terminal-new" class="icon-btn-sm" data-i18n-title="terminal.new">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>

@@ -1802,7 +1802,7 @@ function init() {
     // 安全模式提示：安全模式下第三方插件被跳过，诊断看到的是不完整的安装
     // 状态（可能误报"无第三方插件"并漏掉插件问题），提示用户先退出安全模式。
     const safeModeNotice = state.status && state.status.SafeMode
-      ? '<div class="doctor-auto-hint">当前以安全模式运行（已跳过第三方插件），诊断结果不完整。请先退出安全模式再重新诊断。</div>'
+      ? '<div class="doctor-auto-hint">' + tr("doctor.safeModeNotice") + "</div>"
       : "";
     // 提示条插在摘要栏上方（不影响"共 N 项 + 重新诊断"行的布局）。
     const hintId = "doctor-safe-hint";
@@ -2121,9 +2121,9 @@ async function terminalPaste() {
  */
 async function createTerminalSession(title) {
   const content = $("#terminal-content");
-  if (!content) throw new Error("终端容器不存在");
+  if (!content) throw new Error(tr("terminal.error.noContainer"));
   if (typeof Terminal === "undefined" || typeof FitAddon === "undefined") {
-    throw new Error("xterm.js 未加载（vendor/xterm.js）");
+    throw new Error(tr("terminal.error.noXterm"));
   }
 
   // 每个会话独立的包装节点：term.open 只允许调用一次，
@@ -2133,7 +2133,7 @@ async function createTerminalSession(title) {
 
   // 字体就绪前先占位：下面最多等 2s，这段内容区若是空的，用户看到的就是一块
   // 没有任何说明的黑屏，分不清是在启动还是卡住了。占位节点在 open 前被替换。
-  content.innerHTML = '<div class="terminal-loading">正在启动终端…</div>';
+  content.innerHTML = '<div class="terminal-loading">' + tr("terminal.loading") + "</div>";
 
   // 等随包字体就绪再创建实例：xterm 在 open 时测量字符单元格，
   // 字体晚到会测出与实际渲染不一致的行列尺寸。加载失败或超时
@@ -2179,7 +2179,7 @@ async function createTerminalSession(title) {
   const sessionId = await api().TerminalStart("", "", term.cols, term.rows);
   terminalState.sessions[sessionId] = {
     id: sessionId,
-    title: title || "终端 " + (Object.keys(terminalState.sessions).length + 1),
+    title: title || tr("terminal.sessionTitle", { index: Object.keys(terminalState.sessions).length + 1 }),
     status: "running",
     exitCode: null,
     term,
@@ -2270,7 +2270,7 @@ function toggleTerminalMaximized() {
   const maximized = card.classList.toggle("is-maximized");
   if (btn) {
     // 按钮语义随状态翻转：tooltip 与读屏标签都要跟着变，图标由 CSS 按状态切换
-    const label = maximized ? "还原" : "最大化";
+    const label = maximized ? tr("terminal.restore") : tr("terminal.maximize");
     btn.setAttribute("title", label);
     btn.setAttribute("aria-label", label);
   }
@@ -2313,14 +2313,17 @@ function renderTerminalTabs() {
       const state = s.status === "running" ? "running"
         : hasCode && s.exitCode !== 0 ? "failed" : "exited";
       const statusDot = state === "running" ? "●" : "○";
+      // 退出后缀有两种形态（带/不带退出码）；后缀整句进字典，英文形态自带前导空格。
       const exitSuffix = state === "running"
         ? ""
-        : "（已退出" + (hasCode ? "，退出码 " + s.exitCode : "") + "）";
+        : (hasCode
+          ? tr("terminal.tab.exitedWithCode", { code: s.exitCode })
+          : tr("terminal.tab.exited"));
       return `
         <div class="terminal-tab terminal-tab-${state} ${isActive ? "active" : ""}" data-id="${s.id}" title="${escapeHtml(s.title + exitSuffix)}">
           <span class="terminal-tab-status">${statusDot}</span>
           <span class="terminal-tab-title">${escapeHtml(s.title)}</span>
-          <button class="terminal-tab-close" data-close="${s.id}" title="关闭">×</button>
+          <button class="terminal-tab-close" data-close="${s.id}" title="${tr("common.close")}">×</button>
         </div>
       `;
     })
@@ -2354,8 +2357,8 @@ function restoreTerminalContent() {
   if (!session) {
     // 空态顺带指路：关掉最后一个标签后，下一步是点标签栏的 +（或 Ctrl+Shift+T）
     content.innerHTML = '<div class="terminal-empty">'
-      + "<span>没有打开的终端</span>"
-      + '<span class="terminal-empty-hint">点标签栏的 + 新建一个（Ctrl+Shift+T）</span>'
+      + "<span>" + tr("terminal.empty") + "</span>"
+      + '<span class="terminal-empty-hint">' + tr("terminal.emptyHint") + "</span>"
       + "</div>";
     return;
   }
@@ -2473,7 +2476,7 @@ async function openTerminalModal() {
       renderTerminalTabs();
     } catch (e) {
       content.innerHTML =
-        '<div class="terminal-error">启动终端失败：' + escapeHtml(e.message) + "</div>";
+        '<div class="terminal-error">' + tr("terminal.error.startFailed", { error: escapeHtml(e.message) }) + "</div>";
       return;
     }
   } else if (terminalState.activeId) {
@@ -2573,8 +2576,9 @@ function initTerminal() {
         session.status = event.status;
         session.exitCode = event.exitCode;
         if (event.status === "closed") {
+          // 灰阶转义序列属于渲染而非文案；句子连同方括号整体进字典，退出码作占位符。
           session.term.write(
-            "\r\n\x1b[90m[进程已退出，退出码: " + event.exitCode + "]\x1b[0m\r\n"
+            "\r\n\x1b[90m" + tr("terminal.processExited", { code: event.exitCode }) + "\x1b[0m\r\n"
           );
         }
         renderTerminalTabs();

@@ -254,6 +254,7 @@ window.DSH_LOCALES.en = {
   "doctor.repair.failed": "✗ Repair failed",
   "doctor.repair.failedDetail": "Repair failed: {error}",
 
+  "doctor.safeModeNotice": "Running in safe mode (third-party plugins are skipped), so this diagnosis is incomplete. Exit safe mode and diagnose again.",
   "doctor.autoBanner": "Startup failed; diagnosing automatically",
   "doctor.autoHint.done": "Diagnosis complete",
   "doctor.autoHint.running": "Diagnosing the problem automatically…",
@@ -269,6 +270,25 @@ window.DSH_LOCALES.en = {
   "plugins.autoDisabled.title": "Incompatible plugins were disabled automatically",
   "plugins.autoDisabled.hint": "The installation and its dependencies are kept: re-enable them on the “Plugins” page, or uninstall them yourself.",
   "plugins.autoDisabled.ack": "Got it",
+  /* ---------- 终端弹框 ---------- */
+  "terminal.title": "Terminal",
+  "terminal.maximize": "Maximize",
+  "terminal.restore": "Restore",
+  "terminal.fontDec": "Decrease font size",
+  "terminal.fontInc": "Increase font size",
+  "terminal.fontSize": "Current font size",
+  "terminal.new": "New terminal",
+  "terminal.loading": "Starting the terminal…",
+  "terminal.sessionTitle": "Terminal {index}",
+  "terminal.empty": "No open terminals",
+  "terminal.emptyHint": "Click + in the tab bar to open one (Ctrl+Shift+T)",
+  "terminal.error.noContainer": "Terminal container not found",
+  "terminal.error.noXterm": "xterm.js is not loaded (vendor/xterm.js)",
+  "terminal.error.startFailed": "Failed to start the terminal: {error}",
+  "terminal.tab.exited": " (exited)",
+  "terminal.tab.exitedWithCode": " (exited, code {code})",
+  "terminal.processExited": "[process exited, code: {code}]",
+
   /* ---------- 关于弹框 ---------- */
   "about.title": "About",
   "about.harnessVersion": "DSH version",
