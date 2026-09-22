@@ -335,7 +335,7 @@
 <div id="about-modal" class="modal hidden">
   <div class="modal-card modal-sm">
     <div class="modal-head">
-      <span class="modal-title"><span class="brand-dot"></span>关于</span>
+      <span class="modal-title"><span class="brand-dot"></span><span data-i18n="about.title"></span></span>
       <button class="modal-close" data-close="about-modal">×</button>
     </div>
     <div class="modal-body about">
@@ -344,11 +344,11 @@
       <!-- 事实全部来自 App.About()，这里只留标签与占位节点；两个仓库地址
            必须同时给出——它们对应不同的责任方，只留一个会让用户报错地方。 -->
       <dl class="about-meta">
-        <dt>DSH版本</dt><dd id="about-harness-version"></dd>
-        <dt>上游DSH仓库</dt><dd><a id="about-upstream" href="#" target="_blank"></a></dd>
-        <dt>玲珑包版本</dt><dd id="about-package-version"></dd>
-        <dt>玲珑封装作者</dt><dd id="about-packager"></dd>
-        <dt>玲珑封装仓库</dt><dd><a id="about-repo" href="#" target="_blank"></a></dd>
+        <dt data-i18n="about.harnessVersion"></dt><dd id="about-harness-version"></dd>
+        <dt data-i18n="about.upstreamRepo"></dt><dd><a id="about-upstream" href="#" target="_blank"></a></dd>
+        <dt data-i18n="about.packageVersion"></dt><dd id="about-package-version"></dd>
+        <dt data-i18n="about.packager"></dt><dd id="about-packager"></dd>
+        <dt data-i18n="about.repo"></dt><dd><a id="about-repo" href="#" target="_blank"></a></dd>
       </dl>
     </div>
   </div>

@@ -92,6 +92,16 @@ window.DSH_LOCALES.zh = {
   // 冒号后是日志路径（数据），由 HTML 提供，见 index.html 的 failed-log-hint。
   "failed.logHint": "完整日志:",
 
+  /* ---------- 关于弹框 ---------- */
+  "about.title": "关于",
+  // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于
+  // 首行），迁移只改文案来源、不改用词。
+  "about.harnessVersion": "DSH版本",
+  "about.upstreamRepo": "上游DSH仓库",
+  "about.packageVersion": "玲珑包版本",
+  "about.packager": "玲珑封装作者",
+  "about.repo": "玲珑封装仓库",
+
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",
 };

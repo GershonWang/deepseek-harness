@@ -77,6 +77,14 @@ window.DSH_LOCALES.en = {
   "failed.safeMode": "以安全模式启动",
   "failed.logHint": "完整日志:",
 
+  /* ---------- 关于弹框 ---------- */
+  "about.title": "关于",
+  "about.harnessVersion": "DSH版本",
+  "about.upstreamRepo": "上游DSH仓库",
+  "about.packageVersion": "玲珑包版本",
+  "about.packager": "玲珑封装作者",
+  "about.repo": "玲珑封装仓库",
+
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",
 };
