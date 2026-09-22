@@ -266,13 +266,13 @@
 <div id="doctor-modal" class="modal hidden">
   <div class="modal-card modal-lg">
     <div class="modal-head">
-      <span class="modal-title"><span class="brand-dot"></span>诊断与修复</span>
+      <span class="modal-title"><span class="brand-dot"></span><span data-i18n="doctor.title"></span></span>
       <button class="modal-close" data-close="doctor-modal">×</button>
     </div>
     <div class="modal-body">
       <div id="doctor-summary" class="doctor-summary">
-        <span id="doctor-summary-text" class="doctor-summary-text">点击"开始诊断"检查环境、配置、插件和会话数据。</span>
-        <button id="doctor-refresh" class="btn hidden">重新诊断</button>
+        <span id="doctor-summary-text" class="doctor-summary-text" data-i18n="doctor.summary.idle"></span>
+        <button id="doctor-refresh" class="btn hidden" data-i18n="doctor.refresh"></button>
       </div>
       <div id="doctor-content" class="doctor-content hidden">
         <div id="doctor-checks" class="doctor-checks"></div>
@@ -280,7 +280,7 @@
         <div id="doctor-repair-output" class="doctor-repair-output hidden">
           <div class="repair-panel">
             <div class="repair-panel-head">
-              <span class="repair-panel-title">修复结果</span>
+              <span class="repair-panel-title" data-i18n="doctor.repairResult"></span>
               <span id="repair-panel-status" class="repair-panel-status"></span>
             </div>
             <div id="repair-panel-body" class="repair-panel-body"></div>
@@ -289,7 +289,7 @@
         </div>
       </div>
       <div class="doctor-actions-start">
-        <button id="doctor-start" class="btn btn-primary">开始诊断</button>
+        <button id="doctor-start" class="btn btn-primary" data-i18n="doctor.start"></button>
       </div>
     </div>
   </div>

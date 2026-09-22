@@ -207,6 +207,50 @@ window.DSH_LOCALES.zh = {
   "tools.scanning": "扫描中…",
 
 
+  /* ---------- 诊断与修复弹框 ---------- */
+  "doctor.title": "诊断与修复",
+  // 值里的双引号与原界面一致，转义而非换成中文引号：改标点等于改文案。
+  "doctor.summary.idle": "点击\"开始诊断\"检查环境、配置、插件和会话数据。",
+  "doctor.refresh": "重新诊断",
+  "doctor.repairResult": "修复结果",
+  "doctor.start": "开始诊断",
+  "doctor.summary.running": "正在诊断…",
+  // 修复后的复检用另一句：与"又出问题了"的诊断区分开（调用方传的是这个键）。
+  "doctor.summary.rechecking": "修复完成，正在复查…",
+  "doctor.summary.error": "诊断失败: {error}",
+  // 摘要栏由 DOM 节点拼出：计数是数据，措辞与分隔标点各语言不同，括号单独成键是
+  // 为了保留"括号默认色、数字按严重级着色"。
+  "doctor.summary.total": "共 {total} 项",
+  "doctor.summary.leadSeparator": "：",
+  "doctor.summary.separator": "，",
+  "doctor.summary.ok": "✓ {ok} 通过",
+  "doctor.summary.failedCount": "✗ {failed} 失败",
+  "doctor.summary.fatalOpen": "（",
+  "doctor.summary.fatal": "{fatal} 严重",
+  "doctor.summary.fatalClose": "）",
+  "doctor.summary.fixable": "{fixable} 项可自动修复",
+  "doctor.check.fixableBadge": "可修复 L{level}",
+  // 修复级别与 doctor 包的 RepairLevel 语义对齐（1=轻度，2=中度，3=深度）。
+  "doctor.plan.mild.title": "轻度修复",
+  "doctor.plan.mild.desc": "执行安全、可逆的调整，不修改用户数据。适合环境或配置层面的小问题。",
+  "doctor.plan.moderate.title": "中度修复",
+  "doctor.plan.moderate.desc": "修改配置或插件列表解决冲突，操作前自动备份、失败自动回滚。适合插件不兼容或配置损坏。",
+  "doctor.plan.deep.title": "深度修复",
+  "doctor.plan.deep.desc": "删除或重建损坏的数据与状态，无法回滚。适合数据文件损坏等严重问题。",
+  "doctor.plan.empty": "本级无待修复项",
+  "doctor.plan.recommended": "★ 建议优先执行（覆盖 {count} 项）",
+  "doctor.plan.run": "执行{title}（L{level}）",
+  "doctor.repair.running": "修复中…",
+  "doctor.repair.runningBody": "正在执行修复，请稍候…",
+  "doctor.repair.success": "✓ 修复成功",
+  "doctor.repair.startingApp": "修复成功，正在启动应用…",
+  "doctor.repair.culprit": "启动失败原因：{culprit} 异常",
+  "doctor.repair.culpritFixed": "启动失败原因已自动修复",
+  "doctor.repair.toastOk": "{reason}，已自动移除/修复并恢复启动。",
+  "doctor.repair.toastWarn": "自动启动失败，请稍后手动点「启动」重试。",
+  "doctor.repair.failed": "✗ 修复失败",
+  "doctor.repair.failedDetail": "修复失败：{error}",
+
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
   // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于

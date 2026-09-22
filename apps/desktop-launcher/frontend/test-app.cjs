@@ -58,6 +58,8 @@ class ClassList {
 class El {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase();
+    // 元素节点：摘要栏的用例要按 nodeType 把插在元素之间的文本节点滤掉。
+    this.nodeType = 1;
     this.id = "";
     this._classList = new ClassList();
     this._text = "";
@@ -87,8 +89,11 @@ class El {
       if (c) this._classList._set.add(c);
     }
   }
+  // 真实 DOM 的 textContent 取值会拼接整棵子树的文本。诊断摘要栏由 app.js 用
+  // 节点拼出（不再走 innerHTML），只读自身 _text 会让用例读到空摘要。
   get textContent() {
-    return this._text;
+    if (this.children.length === 0) return this._text;
+    return this.children.map((c) => c.textContent).join("");
   }
   set textContent(v) {
     this._text = String(v);
@@ -247,6 +252,11 @@ function makeDocument() {
       el.ownerDocument = document;
       registry.push(el);
       return el;
+    },
+    // 文本节点：诊断摘要栏用 document.createTextNode 拼分隔标点与括号
+    // （真实 DOM 同名 API；它不是元素，不进 registry，选择器查不到它）。
+    createTextNode(text) {
+      return { nodeType: 3, textContent: String(text), parentNode: null };
     },
     getElementById(id) {
       return registry.find((el) => el.id === id) || null;
@@ -751,7 +761,7 @@ test("StartupDoctorReady 自动弹窗并运行诊断，同周期只触发一次"
   assert.equal(banner.textContent, "检测到启动失败，已为你自动诊断");
 
   assert.match(
-    h.document.getElementById("doctor-summary-text").innerHTML,
+    h.document.getElementById("doctor-summary-text").textContent,
     /共 3 项/, "摘要应渲染出诊断报告");
   assert.equal(
     h.document.getElementById("doctor-refresh").classList.contains("hidden"),
@@ -1137,7 +1147,7 @@ test("诊断完成后关闭再开弹窗：直接复用结果，不重新诊断",
     false, "弹窗应重新打开");
   // 摘要应展示诊断结果而非"正在诊断…"
   assert.match(
-    h.document.getElementById("doctor-summary-text").innerHTML,
+    h.document.getElementById("doctor-summary-text").textContent,
     /共 3 项/, "应直接展示诊断结果");
 });
 
@@ -1154,7 +1164,7 @@ test("force 诊断穿透缓存与进行中状态（重新诊断/修复复检必�
   await flush();
   assert.equal(h.runCalls.length, 2, "force 诊断应重新调用 RunDoctor（忽略缓存）");
   assert.equal(
-    h.document.getElementById("doctor-summary-text").innerHTML.includes("共 3 项"),
+    h.document.getElementById("doctor-summary-text").textContent.includes("共 3 项"),
     true, "复检结果仍正常渲染");
 });
 
@@ -1166,10 +1176,19 @@ test("诊断报告用语义类着色，不把主题色值写进内联样式", as
   h.status(baseStatus({ State: "failed", LastExit: "exit 1", StartupDiagnosing: true }));
   await flush();
 
-  const summary = h.document.getElementById("doctor-summary-text").innerHTML;
-  assert.equal(/style="[^"]*color\s*:/iu.test(summary), false, "摘要不得内联颜色");
-  assert.match(summary, /class="sev-ok"/u, "通过计数应带 ok 语义类");
-  assert.match(summary, /class="sev-error"/u, "失败计数应带 error 语义类");
+  // 摘要栏改用 DOM 节点渲染后不再有 innerHTML；着色语义仍由子节点的 class 承担。
+  const summaryEl = h.document.getElementById("doctor-summary-text");
+  // 分隔标点与括号是文本节点（nodeType 3），语义类只可能落在元素节点上。
+  const summaryParts = summaryEl.children.filter((c) => c.nodeType === 1);
+  assert.equal(
+    summaryParts.some((c) => Object.keys(c.style).length > 0),
+    false, "摘要不得内联颜色");
+  assert.ok(
+    summaryParts.some((c) => c.classList.contains("sev-ok")),
+    "通过计数应带 ok 语义类");
+  assert.ok(
+    summaryParts.some((c) => c.classList.contains("sev-error")),
+    "失败计数应带 error 语义类");
 
   const checks = h.document.getElementById("doctor-checks").innerHTML;
   assert.equal(/style="[^"]*color\s*:/iu.test(checks), false, "诊断清单不得内联颜色");

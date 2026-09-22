@@ -507,24 +507,56 @@ function hideDoctorAutoBanner() {
 
 // 更新诊断摘要栏：只改写文本 span（保留行内的"重新诊断"按钮不被整体重写冲掉），
 // 并控制按钮显隐 —— 诊断中/失败时隐藏，结果就绪时显示。
-// 两个入口按内容来源分开：计数摘要由本文件拼接、只含固定字面量与转义输出，走
-// setDoctorSummaryHtml；其余文案（诊断错误、占位提示、调用方传入的复查文案）来自
-// 报告或调用方，走 setDoctorSummaryText 由 textContent 承担转义。合成一个入口时
-// 调用方无法从签名看出自己交的是不是 HTML，历史上正是这样把报告错误文案送进了
-// innerHTML。
-function setDoctorSummaryHtml(html, showRefresh) {
-  const text = $("#doctor-summary-text");
-  if (!text) return; // 结构未就绪（预览分支）
-  text.innerHTML = html;
-  setDoctorRefreshVisible(showRefresh);
-}
-
+// 两个入口按内容来源分开：诊断报告摘要由 renderDoctorSummary 用 DOM 节点拼出，
+// 其余文本（诊断错误、占位提示、复查提示）走 setDoctorSummaryText 由 textContent
+// 承担转义。合成一个入口时调用方无法从签名看出自己交的是不是 HTML，历史上正是
+// 这样把报告错误文案当成标记送进了 innerHTML。
 // setDoctorSummaryText 以纯文本更新摘要栏，任意输入都不会被解析为标记。
 function setDoctorSummaryText(textContent, showRefresh) {
   const text = $("#doctor-summary-text");
   if (!text) return; // 结构未就绪（预览分支）
   text.textContent = textContent;
   setDoctorRefreshVisible(showRefresh);
+}
+
+/**
+ * 渲染诊断摘要栏：总量与通过/失败/严重/可修复四项计数。
+ *
+ * 用 DOM 节点而不是拼 HTML 字符串：文案取自字典后，拼串只会多一类风险（字典值被
+ * 当成标记解析），而节点渲染用 textContent，天然不需要 escapeHtml。严重项两侧的
+ * 括号单独成键并各自成节点，是为了保留"括号默认色、数字按严重级着色"的原样。
+ * @param {{Total: number, OK: number, Failed: number, Fatal: number, Fixable: number}} r - 诊断报告的计数汇总。
+ */
+function renderDoctorSummary(r) {
+  const text = $("#doctor-summary-text");
+  if (!text) return; // 结构未就绪（预览分支）
+  const nodes = [];
+  const pushText = (value) => nodes.push(document.createTextNode(value));
+  const pushSpan = (className, value) => {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = value;
+    nodes.push(span);
+  };
+  const strong = document.createElement("strong");
+  strong.textContent = tr("doctor.summary.total", { total: r.Total });
+  nodes.push(strong);
+  pushText(tr("doctor.summary.leadSeparator"));
+  pushSpan("sev-ok", tr("doctor.summary.ok", { ok: r.OK }));
+  pushText(tr("doctor.summary.separator"));
+  pushSpan("sev-error", tr("doctor.summary.failedCount", { failed: r.Failed }));
+  if (r.Fatal > 0) {
+    pushText(tr("doctor.summary.fatalOpen"));
+    pushSpan("sev-error", tr("doctor.summary.fatal", { fatal: r.Fatal }));
+    pushText(tr("doctor.summary.fatalClose"));
+  }
+  if (r.Fixable > 0) {
+    pushText(tr("doctor.summary.separator"));
+    pushSpan("sev-warn", tr("doctor.summary.fixable", { fixable: r.Fixable }));
+  }
+  text.textContent = "";
+  for (const n of nodes) text.appendChild(n);
+  setDoctorRefreshVisible(true);
 }
 
 // setDoctorRefreshVisible 控制"重新诊断"按钮显隐；摘要栏缺失时一并跳过，
@@ -539,7 +571,7 @@ function setDoctorRefreshVisible(showRefresh) {
 function setRepairButtonsBusy(busy) {
   document.querySelectorAll("[data-repair-level]").forEach((btn) => {
     btn.disabled = busy;
-    if (busy) btn.textContent = "修复中…";
+    if (busy) btn.textContent = tr("doctor.repair.running");
   });
 }
 
@@ -1682,7 +1714,7 @@ function init() {
     applyStatus(await api().StartSafeMode());
   });
 
-  runDoctor = async function (summaryText, force) {
+  runDoctor = async function (summaryKey, force) {
     // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
     // 弹框被关闭再打开不应二次触发重复检测），返回相同的结果。
     // 检测已在进行：复用同一次检测（后台自动触发或用户点"诊断问题"后，
@@ -1695,14 +1727,14 @@ function init() {
     // 诊断已完成且有结果：直接展示缓存，不重复检测。只有"重新诊断"按钮
     // （force=true）才强制重跑。
     if (!force && diagnosisState.lastReport) {
-      setDoctorSummaryText(summaryText || "正在诊断…", false);
+      setDoctorSummaryText(tr(summaryKey || "doctor.summary.running"), false);
       renderDoctorReport(diagnosisState.lastReport);
       return diagnosisState.lastReport;
     }
     diagnosisState.running = true;
     // summaryText 可覆盖默认文案：修复后的复检用"修复完成，正在复查…"，
     // 与"又出问题了"的诊断区分开。
-    setDoctorSummaryText(summaryText || "正在诊断…", false);
+    setDoctorSummaryText(tr(summaryKey || "doctor.summary.running"), false);
     $("#doctor-content").classList.add("hidden");
     $("#doctor-start").classList.add("hidden");
     const currentPromise = (async () => {
@@ -1716,7 +1748,7 @@ function init() {
         diagnosisState.lastReport = r;
         return r;
       } catch (e) {
-        setDoctorSummaryText("诊断失败: " + e.message, false);
+        setDoctorSummaryText(tr("doctor.summary.error", { error: e.message }), false);
         $("#doctor-start").classList.remove("hidden");
         return null;
       }
@@ -1736,7 +1768,7 @@ function init() {
 
   function renderDoctorReport(r) {
     if (r.Error) {
-      setDoctorSummaryText("诊断失败: " + r.Error, false);
+      setDoctorSummaryText(tr("doctor.summary.error", { error: r.Error }), false);
       $("#doctor-start").classList.remove("hidden");
       $("#doctor-content").classList.add("hidden");
       return;
@@ -1747,14 +1779,7 @@ function init() {
     const sevClass = { fatal: "sev-error", error: "sev-error", warning: "sev-warn", info: "sev-info" };
     const statusClass = (ok, sev) => ok ? "sev-ok" : (sevClass[sev] || "sev-muted");
 
-    setDoctorSummaryHtml(
-      `<strong>共 ${r.Total} 项</strong>：` +
-      `<span class="sev-ok">✓ ${r.OK} 通过</span>，` +
-      `<span class="sev-error">✗ ${r.Failed} 失败</span>` +
-      (r.Fatal > 0 ? `（<span class="sev-error">${r.Fatal} 严重</span>）` : "") +
-      (r.Fixable > 0 ? `，<span class="sev-warn">${r.Fixable} 项可自动修复</span>` : ""),
-      true,
-    );
+    renderDoctorSummary(r);
 
     // 安全模式提示：安全模式下第三方插件被跳过，诊断看到的是不完整的安装
     // 状态（可能误报"无第三方插件"并漏掉插件问题），提示用户先退出安全模式。
@@ -1783,7 +1808,7 @@ function init() {
       const icon = c.OK ? "✓" : "✗";
       const colorClass = statusClass(c.OK, c.Severity);
       const fixBadge = c.Fixable && !c.OK
-        ? `<span class="pill warn" style="margin-left:auto">可修复 L${c.SuggestedLevel}</span>` : "";
+        ? `<span class="pill warn" style="margin-left:auto">${tr("doctor.check.fixableBadge", { level: c.SuggestedLevel })}</span>` : "";
       const detail = c.Detail && !c.OK
         ? `<div class="doctor-detail">${escapeHtml(c.Detail)}</div>` : "";
       return `
@@ -1809,21 +1834,9 @@ function init() {
   // 修复方案元数据：每个级别的名称、范围描述、适用场景、示例。
   // 文案与 doctor 包的 RepairLevel 语义对齐（1=轻度，2=中度，3=深度）。
   const REPAIR_PLAN_META = {
-    1: {
-      title: "轻度修复",
-      desc: "执行安全、可逆的调整，不修改用户数据。适合环境或配置层面的小问题。",
-      what: "环境变量提示、设置文件补全、缓存类修正",
-    },
-    2: {
-      title: "中度修复",
-      desc: "修改配置或插件列表解决冲突，操作前自动备份、失败自动回滚。适合插件不兼容或配置损坏。",
-      what: "禁用损坏的第三方插件、移除失效的配置引用，全程备份可还原",
-    },
-    3: {
-      title: "深度修复",
-      desc: "删除或重建损坏的数据与状态，无法回滚。适合数据文件损坏等严重问题。",
-      what: "清理损坏的会话记录、重建异常存储",
-    },
+    1: { title: "doctor.plan.mild.title", desc: "doctor.plan.mild.desc" },
+    2: { title: "doctor.plan.moderate.title", desc: "doctor.plan.moderate.desc" },
+    3: { title: "doctor.plan.deep.title", desc: "doctor.plan.deep.desc" },
   };
 
   // 渲染修复方案区：按诊断结果动态列出每级可修项，并标记最高建议级别。
@@ -1843,23 +1856,24 @@ function init() {
 
     const cards = [1, 2, 3].map((level) => {
       const meta = REPAIR_PLAN_META[level];
+      const title = tr(meta.title);
       const items = fixableByLevel(level);
       const recommended = level === maxLevel;
       const itemText = items.length > 0
         ? items.slice(0, 4).map((n) => `<span class="repair-plan-item">${escapeHtml(n)}</span>`).join("")
-        : `<span class="repair-plan-item">本级无待修复项</span>`;
+        : `<span class="repair-plan-item">${tr("doctor.plan.empty")}</span>`;
       const recoBadge = recommended
-        ? `<span class="repair-plan-reco">★ 建议优先执行（覆盖 ${items.length} 项）</span>` : "";
+        ? `<span class="repair-plan-reco">${tr("doctor.plan.recommended", { count: items.length })}</span>` : "";
       return `
         <div class="repair-plan${recommended ? " recommended" : ""}">
           <div class="repair-plan-head">
             <span class="repair-level-badge">L${level}</span>
-            <span class="repair-plan-title">${meta.title}</span>
+            <span class="repair-plan-title">${title}</span>
           </div>
-          <div class="repair-plan-desc">${meta.desc}</div>
+          <div class="repair-plan-desc">${tr(meta.desc)}</div>
           <div class="repair-plan-items">${itemText}${recoBadge}</div>
           <button class="btn ${level === 2 ? "btn-warn" : level === 3 ? "btn-danger" : "btn-primary"} repair-plan-btn"
-                  data-repair-level="${level}" ${recommended ? "" : "disabled"}>执行${meta.title}（L${level}）</button>
+                  data-repair-level="${level}" ${recommended ? "" : "disabled"}>${tr("doctor.plan.run", { title: title, level: level })}</button>
         </div>`;
     }).join("");
 
@@ -1874,6 +1888,8 @@ function init() {
   $("#doctor-start").addEventListener("click", () => runDoctor("", true));
   // "重新诊断"：忽略缓存，强制重新检测。
   $("#doctor-refresh").addEventListener("click", () => runDoctor("", true));
+  // runDoctor 的第二个入参是字典键而不是成品文案：调用点只管"这次复检叫什么"，
+  // 语言由字典决定，避免把已翻译的句子在代码里传来传去。
 
   async function runRepair(level) {
     // 修复进行中：按钮已禁用，重复点击直接忽略。
@@ -1883,21 +1899,27 @@ function init() {
     // 修复面板：显示进行中状态
     const statusEl = $("#repair-panel-status");
     const bodyEl = $("#repair-panel-body");
-    if (statusEl) { statusEl.textContent = "修复中…"; statusEl.className = "repair-panel-status running"; }
-    if (bodyEl) bodyEl.innerHTML = '<div class="rp-row">正在执行修复，请稍候…</div>';
+    if (statusEl) { statusEl.textContent = tr("doctor.repair.running"); statusEl.className = "repair-panel-status running"; }
+    if (bodyEl) {
+      bodyEl.textContent = "";
+      const busy = document.createElement("div");
+      busy.className = "rp-row";
+      busy.textContent = tr("doctor.repair.runningBody");
+      bodyEl.appendChild(busy);
+    }
     $("#doctor-repair-output").classList.remove("hidden");
     try {
       const result = await api().RunDoctorRepair(level);
       renderRepairOutput(result);
       // 修复后重新诊断
-      const report = await runDoctor("修复完成，正在复查…", true);
+      const report = await runDoctor("doctor.summary.rechecking", true);
       // 诊断全绿 → 自动启动应用：安全模式下先退出安全模式再用正常配置重启，
       // 免去用户手动到服务器弹框里点"启动"。
       if (maybeAutoStartAfterRepair(report)) {
-        if (statusEl) { statusEl.textContent = "✓ 修复成功"; statusEl.className = "repair-panel-status ok"; }
+        if (statusEl) { statusEl.textContent = tr("doctor.repair.success"); statusEl.className = "repair-panel-status ok"; }
         const msg = document.createElement("div");
         msg.className = "rp-row ok";
-        msg.textContent = "修复成功，正在启动应用…";
+        msg.textContent = tr("doctor.repair.startingApp");
         bodyEl.appendChild(msg);
         try {
           if (state.status && state.status.SafeMode) {
@@ -1907,20 +1929,20 @@ function init() {
           }
           // 启动应用成功 → 关闭诊断弹框，右下角提示原因与处理方式。
           const reason = diagnosisState.lastCulprit
-            ? `启动失败原因：${diagnosisState.lastCulprit} 异常`
-            : "启动失败原因已自动修复";
+            ? tr("doctor.repair.culprit", { culprit: diagnosisState.lastCulprit })
+            : tr("doctor.repair.culpritFixed");
           setTimeout(() => {
             closeModal("doctor-modal");
-            showRepairToast(`${reason}，已自动移除/修复并恢复启动。`, "ok");
+            showRepairToast(tr("doctor.repair.toastOk", { reason: reason }), "ok");
           }, 1500);
         } catch (e) {
-          showRepairToast("自动启动失败，请稍后手动点「启动」重试。", "warn");
+          showRepairToast(tr("doctor.repair.toastWarn"), "warn");
         }
       }
     } catch (e) {
-      if (statusEl) { statusEl.textContent = "✗ 修复失败"; statusEl.className = "repair-panel-status error"; }
+      if (statusEl) { statusEl.textContent = tr("doctor.repair.failed"); statusEl.className = "repair-panel-status error"; }
       bodyEl.innerHTML = `<div class="rp-row error">${escapeHtml(e.message)}</div>`;
-      showRepairToast("修复失败：" + e.message, "warn");
+      showRepairToast(tr("doctor.repair.failedDetail", { error: e.message }), "warn");
     } finally {
       diagnosisState.repairing = false;
       setRepairButtonsBusy(false);

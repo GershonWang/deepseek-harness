@@ -267,3 +267,16 @@ test("字典完整性：en 与 zh 同键集、同占位符，且没有漏翻的�
     }
   }
 });
+
+/* 字典值会经 tr() 直接插进若干处 innerHTML（检查项徽标、修复方案卡片、宿主导入行），
+ * 值里出现标记就等于把字典当模板使：这里把"值不含 HTML 标记"钉成不变量，新增文案时
+ * 一旦顺手写下 <b> 之类的强调标记，报错点落在键名上。 */
+test("字典值不含 HTML 标记：多处 tr() 结果直接进 innerHTML", () => {
+  const box = { window: {} };
+  vm.createContext(box);
+  vm.runInContext(`${ZH_CODE}\n${EN_CODE}`, box, { filename: "locales" });
+  const values = { ...box.window.DSH_LOCALES.zh, ...box.window.DSH_LOCALES.en };
+  for (const [key, value] of Object.entries(values)) {
+    assert.equal(/<[A-Za-z/!]/u.test(value), false, `${key} 的值含 HTML 标记：${value}`);
+  }
+});
