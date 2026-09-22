@@ -133,6 +133,15 @@ window.DSH_LOCALES.en = {
   "server.ext.connect": "Connect",
   "server.ext.disconnect": "Disconnect",
 
+  "server.state.running": "Running",
+  "server.state.starting": "Starting",
+  "server.state.failed": "Startup failed",
+  "server.state.stopped": "Stopped",
+  "server.startingDetail": "harness is starting…",
+  "server.extConnected": "Connected",
+  "server.extConnectedWithHost": "Connected to {host}",
+  "server.extConnecting": "Connecting…",
+
   /* ---------- 工具链市场弹框 ---------- */
   "tools.title": "Toolchain market",
   "tools.search": "Search toolchains",

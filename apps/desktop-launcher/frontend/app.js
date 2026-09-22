@@ -846,6 +846,15 @@ function copyServerAddress(url) {
     .catch((e) => { console.warn("copy server address failed:", e && e.message); });
 }
 
+// 弹框内的状态词表（值存字典键）。与底部状态栏同一套语义、用词更短：这里一行内要让出
+// 地址与端口的位置。未登记的状态名落到"已停止"。
+const SERVER_STATE_LABEL = {
+  running: "server.state.running",
+  starting: "server.state.starting",
+  failed: "server.state.failed",
+  stopped: "server.state.stopped",
+};
+
 function renderServerDialog(s) {
   const externalMode = radioValue() === "external";
   $("#container-panel").classList.toggle("hidden", externalMode);
@@ -864,7 +873,7 @@ function renderServerDialog(s) {
   // 连接错误在弹框级常显，两种模式都能看到。
   $("#dlg-error").textContent = s.ConnectError || "";
 
-  const stateText = { running: "运行中", starting: "启动中", failed: "启动失败", stopped: "已停止" }[s.State] || "已停止";
+  const stateText = tr(SERVER_STATE_LABEL[s.State] || "server.state.stopped");
   // 状态色沿用底部状态栏的语义：运行=ok、启动中=warn、失败=danger、其余中性。
   // 状态点由 .state-value::before 以 currentColor 画出，不需要额外 DOM 节点。
   const stateClass = { running: "state-ok", starting: "state-warn", failed: "state-danger" }[s.State] || "state-muted";
@@ -878,7 +887,7 @@ function renderServerDialog(s) {
     $("#server-addr-token").textContent = addr.token;
     $("#server-detail2").textContent = s.PID;
   } else if (s.State === "starting") {
-    $("#server-detail1").textContent = "harness 正在启动…";
+    $("#server-detail1").textContent = tr("server.startingDetail");
     $("#server-detail2").textContent = "";
   } else if (s.State === "failed") {
     $("#server-detail1").textContent = s.LastExit || "";
@@ -916,9 +925,11 @@ function renderServerDialog(s) {
     // 只报主机端口：输入框里已经是完整地址，状态栏也已收窄到 host:port，
     // 这里再贴一遍完整 URL 会折成三行把弹框顶高，也让 token 多显示一处。
     const host = hostLabel(s.ExternalURL);
-    $("#ext-state").textContent = host ? "已连接 " + host : "已连接";
+    $("#ext-state").textContent = host
+      ? tr("server.extConnectedWithHost", { host: host })
+      : tr("server.extConnected");
   } else if (s.Busy) {
-    $("#ext-state").textContent = "连接中…";
+    $("#ext-state").textContent = tr("server.extConnecting");
   } else {
     $("#ext-state").textContent = "";
   }

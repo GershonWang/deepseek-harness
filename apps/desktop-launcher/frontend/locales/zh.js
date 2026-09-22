@@ -143,6 +143,16 @@ window.DSH_LOCALES.zh = {
   "server.ext.connect": "连接",
   "server.ext.disconnect": "断开",
 
+  // 服务器弹框的动态部分：状态词表与外部连接态（静态标签见同段 server.* 其余键）。
+  "server.state.running": "运行中",
+  "server.state.starting": "启动中",
+  "server.state.failed": "启动失败",
+  "server.state.stopped": "已停止",
+  "server.startingDetail": "harness 正在启动…",
+  "server.extConnected": "已连接",
+  "server.extConnectedWithHost": "已连接 {host}",
+  "server.extConnecting": "连接中…",
+
   /* ---------- 工具链市场弹框 ---------- */
   "tools.title": "工具链市场",
   "tools.search": "搜索工具",
