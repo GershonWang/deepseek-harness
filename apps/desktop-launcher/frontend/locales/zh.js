@@ -92,6 +92,30 @@ window.DSH_LOCALES.zh = {
   // 冒号后是日志路径（数据），由 HTML 提供，见 index.html 的 failed-log-hint。
   "failed.logHint": "完整日志:",
 
+  /* ---------- 服务器弹框 ---------- */
+  "server.title": "服务器",
+  "server.mode.label": "连接模式",
+  "server.mode.container": "容器内",
+  "server.mode.external": "本机/远端服务",
+  "server.state.label": "状态",
+  "server.address.label": "地址",
+  "server.copyAddress": "复制服务地址",
+  // 复制成功的即时反馈：只换按钮 title，图标由 app.js 换（见 flashCopyButton）。
+  "server.copied": "已复制",
+  "server.start": "启动",
+  "server.restart": "重启",
+  "server.stop": "停止",
+  "server.safeMode.start": "以插件安全模式启动",
+  "server.safeMode.hint": "跳过后装的第三方插件，保留你的会话和设置。升级后启动失败时可以试试。",
+  "server.safeMode.active": "插件安全模式运行中",
+  "server.safeMode.exit": "退出安全模式",
+  // 括号里是数据目录名，与 Go 侧的默认 home 同名；改数据目录要同时改这里。
+  "server.freshHome.active": "全新环境运行中（原 ~/.dsh 数据保留）",
+  "server.freshHome.exit": "回到默认环境",
+  "server.ext.address": "服务地址",
+  "server.ext.connect": "连接",
+  "server.ext.disconnect": "断开",
+
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
   // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于

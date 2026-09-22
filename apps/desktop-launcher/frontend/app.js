@@ -775,12 +775,14 @@ let copyResetTimer = null;
 function flashCopyButton(btn) {
   if (!btn) return;
   btn.innerHTML = COPIED_ICON;
-  btn.title = "已复制";
+  btn.title = tr("server.copied");
   btn.classList.add("copied");
   if (copyResetTimer) clearTimeout(copyResetTimer);
   copyResetTimer = setTimeout(() => {
     btn.innerHTML = COPY_ICON;
-    btn.title = "复制服务地址";
+    // 复位值必须与 index.html 上 data-i18n-title 指向同一键：这个按钮的文案是
+    // title 属性，复位写错键就会留下一句永远不跟随语言的文案。
+    btn.title = tr("server.copyAddress");
     btn.classList.remove("copied");
     copyResetTimer = null;
   }, 1500);

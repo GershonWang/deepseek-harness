@@ -145,39 +145,39 @@
 <div id="server-modal" class="modal hidden">
   <div class="modal-card modal-server">
     <div class="modal-head">
-      <span class="modal-title"><span class="brand-dot"></span>服务器</span>
+      <span class="modal-title"><span class="brand-dot"></span><span data-i18n="server.title"></span></span>
       <button class="modal-close" data-close="server-modal">×</button>
     </div>
     <div class="modal-body modal-body-stack">
       <!-- 连接模式：radio 仍是状态源，label 内的 span 只做分段控件外观 -->
       <div class="mode-row">
-        <span class="key">连接模式</span>
-        <div class="mode-switch" role="radiogroup" aria-label="连接模式">
-          <label class="mode-opt"><input type="radio" name="mode" value="container" checked><span>容器内</span></label>
-          <label class="mode-opt"><input type="radio" name="mode" value="external"><span>本机/远端服务</span></label>
+        <span class="key" data-i18n="server.mode.label"></span>
+        <div class="mode-switch" role="radiogroup" data-i18n-aria-label="server.mode.label">
+          <label class="mode-opt"><input type="radio" name="mode" value="container" checked><span data-i18n="server.mode.container"></span></label>
+          <label class="mode-opt"><input type="radio" name="mode" value="external"><span data-i18n="server.mode.external"></span></label>
         </div>
       </div>
 
       <div id="container-panel" class="section">
-        <div class="row"><span class="key">状态</span><span id="server-state" class="row-value state-value state-muted">…</span></div>
-        <div class="row row-address"><span class="key">地址</span><span class="stack"><span id="server-detail1" class="selectable row-value"></span><span id="server-address" class="selectable row-value mono code addr hidden"><span id="server-addr-origin" class="addr-origin"></span><span id="server-addr-token" class="addr-token"></span></span></span><button id="server-copy" class="icon-btn-sm hidden" title="复制服务地址"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
+        <div class="row"><span class="key" data-i18n="server.state.label"></span><span id="server-state" class="row-value state-value state-muted">…</span></div>
+        <div class="row row-address"><span class="key" data-i18n="server.address.label"></span><span class="stack"><span id="server-detail1" class="selectable row-value"></span><span id="server-address" class="selectable row-value mono code addr hidden"><span id="server-addr-origin" class="addr-origin"></span><span id="server-addr-token" class="addr-token"></span></span></span><button id="server-copy" class="icon-btn-sm hidden" data-i18n-title="server.copyAddress"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div>
         <div class="row"><span class="key">PID</span><span id="server-detail2" class="selectable row-value mono"></span></div>
         <div class="actions actions-bar">
-          <button id="server-start" class="btn btn-primary">启动</button>
-          <button id="server-restart" class="btn">重启</button>
-          <button id="server-stop" class="btn btn-danger">停止</button>
+          <button id="server-start" class="btn btn-primary" data-i18n="server.start"></button>
+          <button id="server-restart" class="btn" data-i18n="server.restart"></button>
+          <button id="server-stop" class="btn btn-danger" data-i18n="server.stop"></button>
         </div>
         <div id="safe-mode-row" class="safe-mode-row hidden">
-          <button id="btn-safe-mode" class="btn">🔒 以插件安全模式启动</button>
-          <p class="hint">跳过后装的第三方插件，保留你的会话和设置。升级后启动失败时可以试试。</p>
+          <button id="btn-safe-mode" class="btn"><span aria-hidden="true">🔒</span> <span data-i18n="server.safeMode.start"></span></button>
+          <p class="hint" data-i18n="server.safeMode.hint"></p>
         </div>
         <div id="safe-mode-active" class="safe-mode-active hidden">
-          <span class="badge-safe">🔒 插件安全模式运行中</span>
-          <button id="btn-exit-safe-mode" class="btn btn-link">退出安全模式</button>
+          <span class="badge-safe"><span aria-hidden="true">🔒</span> <span data-i18n="server.safeMode.active"></span></span>
+          <button id="btn-exit-safe-mode" class="btn btn-link" data-i18n="server.safeMode.exit"></button>
         </div>
         <div id="fresh-home-active" class="safe-mode-active hidden">
-          <span class="badge-safe">🆕 全新环境运行中（原 ~/.dsh 数据保留）</span>
-          <button id="btn-exit-fresh-home" class="btn btn-link">回到默认环境</button>
+          <span class="badge-safe"><span aria-hidden="true">🆕</span> <span data-i18n="server.freshHome.active"></span></span>
+          <button id="btn-exit-fresh-home" class="btn btn-link" data-i18n="server.freshHome.exit"></button>
         </div>
       </div>
 
@@ -185,13 +185,13 @@
         <!-- 多行输入：服务地址带 43 字符令牌，单行框里只能横向滚动；这里整段换行显示，
              并由 .ext-row 撑满面板剩余高度，避免卡片下方留出大片空白。 -->
         <div class="ext-row">
-          <span class="key">服务地址</span>
-          <textarea id="ext-url" rows="3" placeholder="http://127.0.0.1:3456" spellcheck="false" aria-label="服务地址"></textarea>
+          <span class="key" data-i18n="server.ext.address"></span>
+          <textarea id="ext-url" rows="3" placeholder="http://127.0.0.1:3456" spellcheck="false" data-i18n-aria-label="server.ext.address"></textarea>
         </div>
         <div id="ext-state" class="ext-state"></div>
         <div class="actions actions-bar">
-          <button id="ext-connect" class="btn btn-primary">连接</button>
-          <button id="ext-disconnect" class="btn">断开</button>
+          <button id="ext-connect" class="btn btn-primary" data-i18n="server.ext.connect"></button>
+          <button id="ext-disconnect" class="btn" data-i18n="server.ext.disconnect"></button>
         </div>
       </div>
 
