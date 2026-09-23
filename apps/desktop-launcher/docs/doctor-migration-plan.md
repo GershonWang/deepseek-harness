@@ -1060,3 +1060,105 @@ Task 4 只列出了 `apps/cli/*` 与两处 tsconfig，实测**漏了两个上游
 - `verify-subsystem-pages` 门禁重跑 0 污染。
 
 **已采取的防御措施**：`tools/doctor-build.mjs` 从 `tsc -b` 改为 `tsc -p`（§5.5 Step 5.3），doctor 的构建不再遍历引用图，这条路径被彻底移除。**若后续在干净检出上再次出现同类产物，应视为未解决的构建环境问题单独排查。**
+
+## 阶段 1 真机验证清单（本沙箱无法执行）
+
+本沙箱**无 `gcc`、无 `pkg-config`**，wails（webkit2gtk-4.1）构建不可能；`prepare-offline.sh` 第 1 行的 `pnpm install --frozen-lockfile` 还会因默认 pnpm store 只读而报 `ERR_SQLITE_ERROR`。因此下列验证**必须在真机或 CI 上跑**，是阶段 1 唯一尚未闭环的部分。
+
+按顺序执行；任一步失败即停，不要跳到下一步——后面的步骤都以它的结果为前提。
+
+### V1：锁文件与清单一致（最易踩的一步）
+
+```sh
+pnpm install --frozen-lockfile
+```
+
+Expected：exit 0。本次改动从 `apps/cli/package.json` 摘掉了 doctor 依赖，锁文件必须同步摘掉 `apps/cli` 的 importer 声明、`packages/support/doctor` 条目与仅被 doctor devDeps 引用的 vitest 快照。
+
+若报 `ERR_PNPM_OUTDATED_LOCKFILE`，说明锁文件与清单不一致。**不要直接跑 `pnpm install --lockfile-only` 了事**——实测它会在本仓库稳定引入 `glob@7.2.0` / `rimraf@2.6.3` 依赖边 / `glob@7.2.3` deprecated 文案三处非预期漂移（见上文「锁文件」节的取证）。正确做法是只修 doctor 相关条目。
+
+### V2：根构建未被"移出 workspace 成员"破坏
+
+```sh
+pnpm run build
+```
+
+Expected：exit 0。
+
+这是本次提交唯一的**结构性**风险：从 330 个 workspace 项目里移除了一个成员。已取得的廉价证据是 `tsconfig.host.json` 的 267 条 project reference **悬空 0 条**、构建配置里 doctor 引用 **0 处**，但廉价证据不等于跑过构建。
+
+（本沙箱已单独跑过决定性的那一步 `tsc -b tsconfig.host.json`，结果见下文「根构建实测」。`build:native-system` 与 `build:web` 与 doctor 无关，未跑。）
+
+### V3：doctor 单独构建
+
+```sh
+rm -rf apps/desktop-launcher/doctor/lib
+node apps/desktop-launcher/tools/doctor-build.mjs
+ls apps/desktop-launcher/doctor/lib/types/{index,cli,loader-probe}.js
+```
+
+Expected：三个入口均存在；同时 `git status --porcelain` 在 `packages/` 与 `vendor/` 下**不出现任何未跟踪文件**（若有，说明 `tsc -p` 仍在污染上游包，属未解决的构建环境问题）。
+
+### V4：doctor 在源码面跑通
+
+```sh
+node apps/desktop-launcher/doctor/lib/types/cli.js --json --quick | head -c 200
+node apps/desktop-launcher/doctor/lib/types/cli.js --json | head -c 200
+node apps/desktop-launcher/doctor/lib/types/cli.js --repair 9; echo "exit=$?"
+```
+
+Expected：第一条 11 项检查（quick 跳过 `plugin-dynamic-load`）；第二条 12 项检查且 `plugin-dynamic-load` 成功 spawn（**不得出现 `ERR_MODULE_NOT_FOUND`，也不得依赖 tsx**）；第三条打印用法错误并 `exit=2`。
+
+### V5：真实打包
+
+```sh
+bash apps/desktop-launcher/linglong/prepare-offline.sh
+```
+
+Expected：exit 0，且
+
+```sh
+ls apps/desktop-launcher/linglong/stage/harness/doctor/lib/types/{index,cli,loader-probe}.js
+```
+
+三个入口齐全。缺入口时脚本会显式报错退出——这条断言是刻意加的，因为缺入口只在运行期暴露，而预检失败按设计不阻塞启动，用户只会看到"检查被跳过"。
+
+### V6：打包态的依赖解析（本设计的核心假设）
+
+```sh
+cd apps/desktop-launcher/linglong/stage/harness
+DSH_HOME=$(mktemp -d) ./node/bin/node doctor/lib/types/cli.js --json --quick | head -c 200
+```
+
+Expected：合法 JSON，**不得出现 `ERR_MODULE_NOT_FOUND`**。
+
+这一条验证的是本设计的关键假设：doctor 放在 harness 树**内部**，因此它对 `@deepseek-ai/dsh-app-boot` 等包的 import 靠 Node 逐级向上查找即可命中 `harness/node_modules`，无需任何符号链接。本沙箱已用真实依赖闭包做过等价模拟（见「阶段 1 执行记录」），但**没有跑过真实 `pnpm deploy` 产出的闭包**。
+
+### V7：打包态启动 + 预检真跑
+
+装出玲珑包后启动 launcher，确认：
+
+- 预检阶段正常出现并跑出报告（而不是 `PreflightError`）
+- 日志/界面里 doctor 的路径解析到 `<prefix>/harness/doctor/lib/types/cli.js`
+
+### V8：反向验证——doctor 缺失时必须降级而非阻塞启动
+
+```sh
+mv <prefix>/harness/doctor <prefix>/harness/doctor.bak
+# 启动 launcher
+mv <prefix>/harness/doctor.bak <prefix>/harness/doctor
+```
+
+Expected：launcher **正常启动**，预检显示"未找到随包的 doctor，本次跳过启动前检查"（`preflight.doctor.notConfigured`），harness 照常放行。
+
+这是本次新增 `DoctorNotConfigured` 归类的验收路径。它与 `DoctorNoOutput` 分开归类，是因为"根本没跑起来"（安装缺件）与"跑了但没说话"排查方向完全不同；合并会让用户被引向错误方向。**验证要点是"不阻塞启动"**——预检是尽力而为的前置检查，这是既有设计，不是本次新加的兜底。
+
+### V9：`~/.dsh` 可写环境下复核那条失败测试
+
+```sh
+cd apps/desktop-launcher/doctor && ../../node_modules/.bin/vitest run
+```
+
+Expected：76/76 全绿。
+
+本沙箱内恒为 75/76，唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1，根因是沙箱把 `~/.dsh` 设为只读（`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`）。该用例在手工运行下两种运行面都 exit 0，失败只在 vitest 环境里复现。**失败位置与数量同迁移前完全一致**，故判定为环境性而非迁移缺陷——但这需要一次可写环境的复核才能结案。
