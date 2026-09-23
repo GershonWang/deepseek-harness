@@ -50,6 +50,16 @@ if ($TestProgress -or $CompileProgressOnly) {
         & $presentationExecutable
         if ($LASTEXITCODE -ne 0) { throw 'Installer presentation regression failed.' }
     }
+    $reportSource = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../tests/windows-installer-extract-report.cpp'))
+    $reportExecutable = Join-Path $output 'extract-report-test.exe'
+    $reportScript = Join-Path $output 'compile-extract-report-test.cmd'
+    [IO.File]::WriteAllLines($reportScript, @('@echo off', ('call "{0}" >nul' -f $vcvars), 'if errorlevel 1 exit /b %errorlevel%', ('cl /nologo /MT /W4 /WX /EHsc "{0}" /Fo"{1}" /Fe"{2}" /link "{3}" user32.lib shell32.lib' -f $reportSource, (Join-Path $output 'extract-report-test.obj'), $reportExecutable, (Join-Path $output 'window-frame.lib'))), [Text.Encoding]::Default)
+    & $env:ComSpec /d /c $reportScript
+    if ($LASTEXITCODE -ne 0) { throw 'Extraction report test compilation failed.' }
+    if ($TestProgress) {
+        & $reportExecutable
+        if ($LASTEXITCODE -ne 0) { throw 'Extraction report regression failed.' }
+    }
 }
 Add-Type -AssemblyName System.Drawing
 foreach ($asset in @('brand', 'brand-2x', 'brand-dark', 'brand-dark-2x', 'uninstaller-sidebar')) {

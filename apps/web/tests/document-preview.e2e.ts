@@ -14,7 +14,7 @@ import { excelDrawingFixture } from '../../../packages/client/ui-sidebar-documen
 import { xlsFixture } from '../../../packages/client/ui-sidebar-documentpreview/tests/xls-fixture.ts'
 import { pdfFixture, selectionPdfFixture } from '../../../packages/client/ui-sidebar-documentpreview/tests/pdf-fixture.ts'
 import { assertFixtureInventory, compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { openSettings, connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { openSettings, connectFreshWorkspace, newEnglishPage, saveFailureShot, scrollIntoView } from './support.ts'
 
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/lifecycle-chrome/session.v3.jsonl', import.meta.url))
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/document-preview', import.meta.url))
@@ -103,6 +103,58 @@ async function hideDocumentZoom(page: Page, preview: Locator): Promise<void> {
   await page.mouse.move(bounds.x + 8, bounds.y + 8)
   await expect.poll(() => preview.locator('[data-document-zoom-controls]').getAttribute('data-document-zoom-visible')).toBeNull()
 }
+
+it.skipIf(MODE === 'record')('resizes the spreadsheet canvas with its pane while retaining the selected cell', async () => {
+  const scaffold = await launchWebScaffold({ replayFixture: FIXTURE, paceMs: 5, compareReplaySession: false })
+  let browser: Browser | undefined
+  try {
+    browser = await chromium.launch()
+    const page = await newEnglishPage(browser)
+    onTestFailed(async () => { await saveFailureShot(page, `screenshots/0908-document-preview/excel-resize-${process.pid}`) })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    const settled = scaffold.whenTurnSettled()
+    const input = page.locator('[data-composer-input]').first()
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    const sessionId = await settled
+    const cwd = scaffold.ctx.agents.get(sessionId)?.session.header.cwd
+    if (cwd === undefined) throw new Error('settled Session has no workspace cwd')
+    await writeFile(join(cwd, 'budget.xlsx'), await excelFixture())
+    await page.getByText('LIGHTHOUSE', { exact: true }).waitFor()
+    const column = page.locator('[data-rightbar-col]')
+    await page.locator('[data-sidebar-right-expand]').click()
+    await column.locator('[data-sidebar-right-guide-entry="files"]').click()
+    await column.locator('[data-files-state="tree"]').waitFor({ state: 'visible' })
+    await column.locator('[data-files-entry="file"]').getByRole('button', { name: 'budget.xlsx', exact: true }).click()
+    const excel = column.locator('[data-excel-preview]')
+    await excel.locator('.luckysheet-sheets-item-name').getByText('公式与格式', { exact: true }).click()
+    await excel.locator('.fortune-sheet-overlay').click({ position: { x: 140, y: 30 } })
+    const formula = excel.locator('.fortune-fx-input')
+    await expect.poll(() => formula.innerText()).toBe('46281')
+    const canvas = excel.locator('canvas').first()
+    const originalCanvas = await canvas.elementHandle()
+    const original = await canvas.boundingBox()
+    if (original === null || originalCanvas === null) throw new Error('spreadsheet canvas is unavailable')
+    const panel = page.locator('[data-sidebar-right-panel]')
+    const panelBounds = await panel.boundingBox()
+    if (panelBounds === null) throw new Error('sidebar panel is unavailable')
+    const viewport = page.viewportSize()
+    const layout = await page.addStyleTag({ content: `[data-sidebar-right-panel] { width: ${panelBounds.width + 160}px !important; }` })
+    await expect.poll(async () => Math.round((await canvas.boundingBox())!.width - original.width)).toBe(160)
+    await expect.poll(() => formula.innerText()).toBe('46281')
+    expect(await originalCanvas.evaluate(node => node.isConnected)).toBe(true)
+    expect(page.viewportSize()).toEqual(viewport)
+    await successShot(page, 'excel-resize-wide')
+    await layout.evaluate((node) => { node.textContent = '' })
+    await expect.poll(async () => Math.round((await canvas.boundingBox())!.width)).toBe(Math.round(original.width))
+    expect(await formula.innerText()).toBe('46281')
+    await successShot(page, 'excel-resize-restored')
+    await originalCanvas.dispose()
+  } finally {
+    try { await browser?.close() } finally { await scaffold.close() }
+  }
+})
 
 describe.skipIf(MODE === 'record')('web e2e: document preview through Files', () => {
   let scaffold: WebScaffold
@@ -344,13 +396,13 @@ else process.exit(1);
     const markdownImages: string[] = []
     for (const alt of ['relative image', 'absolute image', 'reference image']) {
       const image = preview.getByRole('img', { name: alt, exact: true })
-      await image.scrollIntoViewIfNeeded()
+      await scrollIntoView(image)
       await expect.poll(() => image.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0)).toBe(true)
       const source = new URL(await image.getAttribute('src') ?? '')
       expect(source.pathname).toBe('/api/file')
       markdownImages.push(alt)
     }
-    await preview.getByRole('heading', { name: heading, exact: true }).scrollIntoViewIfNeeded()
+    await scrollIntoView(preview.getByRole('heading', { name: heading, exact: true }))
     await successShot(page, 'markdown')
     const markdownTab = column.locator('[data-dockkit-tab]').filter({ has: page.getByText('smoke.md', { exact: true }) })
     const markdownTabId = await markdownTab.getAttribute('data-dockkit-tab')
@@ -515,7 +567,7 @@ else process.exit(1);
     expect(firstColor).toBe('red')
     const workerNames = await Promise.all(page.workers().map(worker => worker.evaluate(() => self.name)))
     expect(workerNames).toContain('dsh-pdf')
-    await preview.locator('[data-pdf-page="2"]').scrollIntoViewIfNeeded()
+    await scrollIntoView(preview.locator('[data-pdf-page="2"]'))
     const secondPage = preview.getByRole('img', { name: 'PDF page 2', exact: true })
     await secondPage.waitFor({ state: 'visible', timeout: 30_000 })
     await expect.poll(() => canvasColor(secondPage), { timeout: 30_000 }).toBe('blue')
@@ -528,7 +580,7 @@ else process.exit(1);
     await filesTab.click()
     await column.locator('[data-files-state="tree"]').waitFor({ state: 'visible' })
     await pdfTab.click()
-    await preview.locator('[data-pdf-page="2"]').scrollIntoViewIfNeeded()
+    await scrollIntoView(preview.locator('[data-pdf-page="2"]'))
     await secondPage.waitFor({ state: 'visible', timeout: 30_000 })
     await expect.poll(() => canvasColor(secondPage), { timeout: 30_000 }).toBe('blue')
     const restoredColor = await canvasColor(secondPage)
@@ -799,7 +851,12 @@ else process.exit(1);
     })).toEqual({ scrollTop, scrollportBelowBanner: true, firstLineAbove: true })
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(page.url()).origin })
     await page.evaluate(() => navigator.clipboard.writeText(''))
-    await codeBlock.getByRole('button', { name: 'Copy', exact: true }).click()
+    const copyCode = codeBlock.getByRole('button', { name: 'Copy', exact: true })
+    expect(await codeBlock.getByRole('button').count()).toBe(1)
+    expect(await copyCode.textContent()).toBe('')
+    await copyCode.hover()
+    await page.getByRole('tooltip', { name: 'Copy', exact: true }).waitFor()
+    await copyCode.click()
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(codeLines.join('\n'))
     sections.push([
       '## Code paging', '',

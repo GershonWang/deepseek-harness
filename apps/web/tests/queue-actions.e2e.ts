@@ -34,6 +34,10 @@ const MODE = webSnapshotMode()
 const ACTIVE_PROMPT = 'Reply with a one-sentence description of event sourcing, then stop.'
 const REMOVE = 'Queue item to remove'
 const EDIT = 'Queue item to edit'
+// The edited value is deliberately multi-line: the inline editor must keep the
+// line breaks through the queue mutation and into the model-bound user message.
+const EDITED_CONTENT = 'Edited\nqueue item'
+// The dock preview flattens the queued text, so row locators match this form.
 const EDITED = 'Edited queue item'
 const TAIL = 'Queue item preserved after stop'
 const WAKE = 'Wake the preserved queue'
@@ -187,7 +191,7 @@ describe('web e2e: queue row actions', () => {
     const editRow = page.locator('[data-queue-dock] li', { hasText: EDIT })
     await editRow.getByRole('button', { name: 'Edit queued message' }).click()
     const editor = page.getByRole('textbox', { name: 'Edit queued message' })
-    await editor.fill(EDITED)
+    await editor.fill(EDITED_CONTENT)
     const save = page.getByRole('button', { name: 'Save queued message' })
     await save.hover()
     const saveTooltip = page.getByRole('tooltip', { name: 'Save queued message', exact: true })
@@ -308,7 +312,7 @@ describe('web e2e: queue row actions', () => {
       .toEqual(['aborted', 'completed', 'completed', 'completed'])
     expect(sessionEvents.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
       ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
-      : [])).toEqual([ACTIVE_PROMPT, EDITED, TAIL, WAKE])
+      : [])).toEqual([ACTIVE_PROMPT, EDITED_CONTENT, TAIL, WAKE])
     await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])

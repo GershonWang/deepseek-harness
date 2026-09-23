@@ -134,6 +134,7 @@ export function CordisDefineRow({
                 aria-labelledby={`${sourcePanelId}-${activeSource}`}
               >
                 <CodeBlock
+                  toolbarLabels={{ codeLabel: t('codeBlock.title'), wrapLabel: t('codeBlock.wrap'), unwrapLabel: t('codeBlock.unwrap') }}
                   code={activeCode}
                   lang="javascript"
                   copyLabel={t('body.copy')}

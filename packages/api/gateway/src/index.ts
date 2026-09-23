@@ -15,6 +15,7 @@ import {
 import { Deque } from '@deepseek-ai/dsh-deque'
 import type { WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type {} from '@deepseek-ai/dsh-cmdline'
 import z from '@deepseek-ai/schemastery'
 export type { TypertGatewayFaultDetails } from './remote-error-codes.ts'
 import {
@@ -217,6 +218,8 @@ export class TypertGatewayService extends Service implements TypertGateway {
 
   /**
    * Register the Gateway against the active Typert registry.
+   * WebSocket admission waits for launcher-owned application readiness when supplied;
+   * direct invocation and in-process streams remain available independently.
    * @param ctx - owning Host Context with Typert registry access.
    * @param config - validated Gateway transport configuration.
    */
@@ -234,31 +237,42 @@ export class TypertGatewayService extends Service implements TypertGateway {
       )
     })
     ctx.inject(['connection', 'webServer'], (webCtx) => {
-      const mux = new RemoteStreamMuxServer(
-        (endpoint, payload, uplink, peer, control) =>
-          this.openWireStream(endpoint, payload, uplink, peer, control.signal, control),
-        this.wireStream.failure,
-        resolved.websocketHeartbeatIntervalMs,
-        resolved.streamInboxBytes,
-      )
-      webCtx.effect(() => {
-        const route: WebUpgradeRoute = {
-          path: REMOTE_STREAM_MUX_PATH,
-          handler: (req, socket, head) => {
-            const admission = webCtx.connection.admit(req)
-            if ('rejection' in admission) {
-              rejectRemoteStreamUpgrade(socket, admission.rejection)
-              return
-            }
-            mux.handleUpgrade(req, socket, head, admission.peer)
-          },
+      const listen = (): void => {
+        const mux = new RemoteStreamMuxServer(
+          (endpoint, payload, uplink, peer, control) =>
+            this.openWireStream(endpoint, payload, uplink, peer, control.signal, control),
+          this.wireStream.failure,
+          resolved.websocketHeartbeatIntervalMs,
+          resolved.streamInboxBytes,
+        )
+        webCtx.effect(function* () {
+          yield () => mux.close()
+          const route: WebUpgradeRoute = {
+            path: REMOTE_STREAM_MUX_PATH,
+            handler: (req, socket, head) => {
+              const admission = webCtx.connection.admit(req)
+              if ('rejection' in admission) {
+                rejectRemoteStreamUpgrade(socket, admission.rejection)
+                return
+              }
+              mux.handleUpgrade(req, socket, head, admission.peer)
+            },
+          }
+          yield webCtx.webServer.registerUpgrade(route)
+        }, `api-gateway: ${REMOTE_STREAM_MUX_PATH} WebSocket`)
+      }
+      // Existing pages reconnect before the new Host prints its URL. No stream
+      // may enter until the launcher has activated and audited its controllers.
+      const ready = webCtx.get('appReady')
+      if (ready === undefined) listen()
+      else webCtx.effect(() => {
+        let closed = false
+        const cancel = ready.onReady(() => { if (!closed) listen() })
+        return () => {
+          closed = true
+          cancel()
         }
-        const unregister = webCtx.webServer.registerUpgrade(route)
-        return async () => {
-          unregister()
-          await mux.close()
-        }
-      }, `api-gateway: ${REMOTE_STREAM_MUX_PATH} WebSocket`)
+      }, 'api-gateway: application readiness')
     })
   }
 

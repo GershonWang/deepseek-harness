@@ -127,16 +127,16 @@ describe('LinkOpeningRow', () => {
     />)
     expect(screen.queryByText('Open chat links in')).toBeNull()
     act(() => { browserAvailable.set(true) })
-    expect(screen.getByRole('button', { name: 'New browser tab' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Default Browser' })).toBeDefined()
     act(() => { browserAvailable.set(false) })
     expect(screen.queryByText('Open chat links in')).toBeNull()
     expect(source.getSnapshot()).toBe('new-tab')
   })
 
   it.each([
-    [en, 'Open chat links in', 'Built-in browser', 'New browser tab'],
-    [zh, '聊天链接打开方式', '内置浏览器', '浏览器新标签页'],
-  ] as const)('selects either destination using localized labels (%s)', (dictionary, title, sidebar, newTab) => {
+    [en, 'Open chat links in', 'Choose where to open web links', 'In-App Sidebar', 'Default Browser'],
+    [zh, '网页链接默认打开方式', '对话中网页链接的打开位置', '应用内侧边栏', '默认浏览器'],
+  ] as const)('selects either destination using localized labels (%s)', (dictionary, title, description, sidebar, newTab) => {
     const b = mount('compact', dictionary)
     const source = createSnapshotStore<LinkOpening>('sidebar')
     const setLinkOpening = vi.fn((destination: LinkOpening) => { source.set(destination) })
@@ -147,6 +147,7 @@ describe('LinkOpeningRow', () => {
       setLinkOpening={setLinkOpening}
     />)
     expect(screen.getByText(title)).toBeDefined()
+    expect(screen.getByText(description)).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: sidebar }))
     fireEvent.click(screen.getByRole('menuitem', { name: newTab }))
     expect(setLinkOpening).toHaveBeenLastCalledWith('new-tab')

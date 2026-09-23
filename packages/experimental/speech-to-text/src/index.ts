@@ -41,12 +41,12 @@ export default class SpeechToText extends Service {
   private readonly providers = new Map<SpeechProviderId, Registration>()
   private readonly listeners = new Set<() => void>()
   private readonly lifetime = new AbortController()
-  /** Profile entry `configure()` writes to; absent when the plugin was mounted without Loader. */
+  /** Profile-local entry id used by Settings; absent when the plugin was mounted without Loader. */
   private readonly entryId: string | undefined
 
   constructor(ctx: Context, private readonly config: Config) {
     super(ctx, 'speechToText')
-    this.entryId = ctx.fiber.entry?.id
+    this.entryId = ctx.fiber.entry?.options.id
     ctx.on('loader/volatile-update', () => { this.changed() })
     ctx.effect(() => async () => {
       this.lifetime.abort(new Error('Speech service disposed'))

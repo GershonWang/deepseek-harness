@@ -162,6 +162,24 @@ Manage profile files and apply their declared reload lifecycle.
 
 Source: [`packages/boot/plugin-manager/src/index.ts`](../../packages/boot/plugin-manager/src/index.ts)
 
+<a id="ctxpluginregistryprobe--pluginregistryprobe"></a>
+
+### `ctx.pluginRegistryProbe` — `PluginRegistryProbe`
+
+Compares public registry responses on the Host; the Client owns the initial selection.
+
+```ts cordis-catalog
+/**
+ * Race npm and npmmirror HTTPS ping responses through the Host's fetch proxy.
+ * Concurrent readers share a probe; a winner cancels and awaits the other request.
+ * @returns the first registry with a successful response, or null when disabled or neither responds successfully; results are cached.
+ * @throws rejects when the service has been unloaded.
+ */
+@Remote async fastest(): Promise<string | null>
+```
+
+Source: [`packages/client/ui-plugin-manager/src/index.ts`](../../packages/client/ui-plugin-manager/src/index.ts)
+
 <a id="ctxprofilecontext--profilecontext"></a>
 
 ### `ctx.profileContext` — `ProfileContext`

@@ -705,11 +705,13 @@ select.input {
   cursor: pointer;
 }
 
-.candidateId {
+.candidateName {
   flex: 1 1 auto;
-  font-family: var(--ds-font-family-code);
+  min-width: 0;
   font-size: 13px;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .candidateEmpty {

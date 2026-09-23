@@ -14,6 +14,8 @@ interface ReadyEvent {
 interface FatalEvent {
   readonly type: 'fatal'
   readonly message: string
+  /** The Host's complete inspected error: stack, enumerable properties, cause chain. */
+  readonly diagnostic?: string
 }
 
 interface PlatformSessionEvent {
@@ -56,7 +58,7 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
       } catch { return false }
     }
     case 'fatal':
-      return typeof candidate.message === 'string'
+      return typeof candidate.message === 'string' && (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
     case 'update-tasks':
       return Number.isSafeInteger(candidate.requestId) && typeof candidate.active === 'boolean'
         && (candidate.error === undefined || typeof candidate.error === 'string')
@@ -86,6 +88,28 @@ export interface DesktopHostReady {
 
 /** The child has exited, but task teardown did not finish successfully. */
 export class DesktopHostUncleanExitError extends Error {}
+
+/**
+ * A Host failure reported over IPC before the process exited. `message` is what
+ * the Host chose to show; `diagnostic` is its complete inspected error, kept
+ * separately so a crash report can print it verbatim instead of a string escaped
+ * inside another error's properties.
+ */
+export class DesktopHostFatalError extends Error {
+  readonly #diagnostic: string | undefined
+
+  /**
+   * @param message - The Host's failure message.
+   * @param diagnostic - The Host's inspected error, when the Host supplied one.
+   */
+  constructor(message: string, diagnostic: string | undefined) {
+    super(message)
+    this.#diagnostic = diagnostic
+  }
+
+  /** The Host's inspected error; a getter so `util.inspect` of this error does not repeat it as an escaped property. */
+  get diagnostic(): string | undefined { return this.#diagnostic }
+}
 
 /** One Web backend running under the Electron executable in Node mode. */
 export class DesktopHostProcess {
@@ -165,7 +189,7 @@ export class DesktopHostProcess {
         if (this.stopping) this.shutdownCompleted = true
         else this.fail(new Error('dsh desktop host acknowledged an unrequested shutdown'))
       }
-      else if (message.type === 'fatal') this.fail(new Error(message.message))
+      else if (message.type === 'fatal') this.fail(new DesktopHostFatalError(message.message, message.diagnostic))
       else {
         const query = this.taskQueries.get(message.requestId)
         if (message.error === undefined) query?.resolve(message.active)

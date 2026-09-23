@@ -129,6 +129,7 @@
             - list:
               - listitem:
                 - text: json
+                - button "Wrap lines" [pressed]
                 - button "Copy"
                 - code: "{ \"type\": \"object\", \"properties\": { \"service\": { \"type\": \"string\" } } }"
           - group:
@@ -136,6 +137,7 @@
             - list:
               - listitem:
                 - text: json
+                - button "Wrap lines" [pressed]
                 - button "Copy"
                 - code: "{ \"type\": \"object\" }"
   - listitem:
@@ -154,6 +156,7 @@
             - list:
               - listitem:
                 - text: json
+                - button "Wrap lines" [pressed]
                 - button "Copy"
                 - code: "{ \"type\": \"object\", \"properties\": { \"root\": { \"type\": \"string\" } } }"
           - group:
@@ -161,6 +164,7 @@
             - list:
               - listitem:
                 - text: json
+                - button "Wrap lines" [pressed]
                 - button "Copy"
                 - code: "{ \"type\": \"object\" }"
 - button "Inspect"
@@ -224,6 +228,7 @@
       - list:
         - listitem:
           - text: javascript
+          - button "Wrap lines" [pressed]
           - button "Copy"
           - code: "return { reviewed: 12, needsDetails: [\"list_agents\", \"job_list\", \"terminal_list\"] };"
   - listitem:
@@ -440,7 +445,8 @@
 - text: Recorded result
 - list:
   - listitem:
-    - text: job-demo-build Running
+    - text: job-demo-build Running Code block
+    - button "Wrap lines" [pressed]
     - button "Copy"
     - code: Building client assets… ✓ 184 modules transformed. dist/index.js 92.4 kB
 - button "Inspect"
@@ -458,6 +464,8 @@
     - text: preview Started terminal-demo-1
     - term: Type
     - definition: shell
+    - text: Code block
+    - button "Wrap lines" [pressed]
     - button "Copy"
     - code: /workspace/demo %
 - button "Inspect"
@@ -465,7 +473,8 @@
 - text: Recorded result
 - list:
   - listitem:
-    - text: terminal-demo-1 Lines 16–18 of 18
+    - text: terminal-demo-1 Lines 16–18 of 18 Code block
+    - button "Wrap lines" [pressed]
     - button "Copy"
     - code: "VITE v7.0.0 ready in {{duration}} Local: http://localhost:5173/ Watching for file changes…"
 - button "Inspect"
@@ -545,6 +554,7 @@
   - listitem:
     - button "src/tool-details.ts:24:1"
     - text: typescript
+    - button "Wrap lines" [pressed]
     - button "Copy"
     - code: "function renderToolDetails(model: ToolDetailsModel): ReactNode"
     - paragraph: Render compact fields and list rows from a recorded tool result.

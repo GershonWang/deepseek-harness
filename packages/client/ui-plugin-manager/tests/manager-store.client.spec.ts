@@ -85,9 +85,10 @@ function bench(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}
     setPluginEnabled: vi.fn(() => Promise.resolve(ok(APPLIED))),
     ...overrides,
   }
+  const probe = { fastest: overrides.fastest ?? vi.fn(() => Promise.resolve(ok(null))) }
   const ctx = {
     configForms: { describe: () => ({ getSnapshot: () => ({ view: { namespaces: [] } }), subscribe: () => () => {} }), get: vi.fn((id: string) => `form:${id}`) },
-    remote: { pluginManager: plugins, pluginInventory: inventory },
+    remote: { pluginManager: plugins, pluginInventory: inventory, pluginRegistryProbe: probe },
   } as never
   const controller = new PluginManagerController(ctx)
   onTestFinished(() => { controller.dispose() })
@@ -98,7 +99,7 @@ function bench(overrides: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}
     await vi.waitFor(() => { expect(state().install.phase).toBe('starting') })
     return state().install.requestId as PluginInstallRequestId
   }
-  return { plugins, inventory, controller, face, state, started }
+  return { plugins, inventory, probe, controller, face, state, started }
 }
 
 it('hands a custom page the shared configuration form of its entry', () => {
@@ -353,7 +354,7 @@ describe('PluginManagerController', () => {
     // Neither typing nor a second run reaches the Host while it checks.
     face.editInstallSpec('other')
     expect(state().install.spec).toBe('  dsh-new ')
-    expect(plugins.inspect).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => { expect(plugins.inspect).toHaveBeenCalledTimes(1) })
     expect(plugins.inspect).toHaveBeenCalledWith('dsh-new', { registry: null }, expect.any(AbortSignal))
     const requestId = await started()
     expect(state().install.subject).toEqual({ spec: 'dsh-new', ...INSPECTED })
@@ -436,6 +437,7 @@ describe('PluginManagerController', () => {
     face.openInstall()
     face.editInstallSpec('dsh-x')
     face.runInstall()
+    await vi.waitFor(() => { expect(plugins.inspect).toHaveBeenCalledOnce() })
     const checkSignal = (plugins.inspect.mock.calls[0] as unknown[])[2] as AbortSignal
     face.cancelInstall()
     expect(checkSignal.aborted).toBe(true)
@@ -1153,4 +1155,132 @@ describe('PluginManagerController', () => {
     face.changeRegistry()
     expect(state().install).toMatchObject({ phase: 'idle', spec: 'dsh-new', registryOpen: true, runs: [], failure: null })
   })
+})
+
+describe('Host registry response recommendation', () => {
+  it('inspects the remembered registry when the offered choice becomes custom during the initial read', async () => {
+    const key = 'dsh.plugin-manager.install-registry'
+    const registry = 'https://old.example/'
+    const storage = new Map([[key, JSON.stringify({ kind: 'offered', registry })]])
+    const registries = deferred<ReturnType<typeof ok<typeof REGISTRIES>>>()
+    vi.stubGlobal('localStorage', {
+      getItem: (name: string) => storage.get(name) ?? null,
+      setItem: (name: string, value: string) => { storage.set(name, value) },
+      removeItem: (name: string) => { storage.delete(name) },
+    })
+    try {
+      const { face, state, plugins, probe } = bench({
+        registries: vi.fn(() => registries.promise),
+        inspect: vi.fn(async () => ok({ ...INSPECTED, registry })),
+      })
+      face.openInstall()
+      face.editInstallSpec('dsh-new')
+      face.runInstall()
+      expect(state().install.phase).toBe('checking')
+      expect(plugins.inspect).not.toHaveBeenCalled()
+      registries.resolve(ok(REGISTRIES))
+      await vi.waitFor(() => { expect(plugins.inspect).toHaveBeenCalled() })
+      expect(plugins.inspect).toHaveBeenCalledWith('dsh-new', { registry }, expect.any(AbortSignal))
+      expect(state().install.registry).toEqual({ kind: 'custom', url: registry })
+      expect(JSON.parse(storage.get(key)!)).toEqual({ kind: 'custom', url: registry })
+      expect(probe.fastest).not.toHaveBeenCalled()
+      await vi.waitFor(() => { expect(state().install.phase).toBe('done') })
+      expect(plugins.installBundle).toHaveBeenCalledWith('dsh-new', expect.objectContaining({ registry }))
+    } finally {
+      registries.resolve(ok(REGISTRIES))
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('selects the mainland mirror before the first inspection, even when install was clicked during lookup', async () => {
+    const fastest = deferred<ReturnType<typeof ok<string | null>>>()
+    const { face, state, plugins, probe } = bench({ fastest: vi.fn(() => fastest.promise) })
+    face.openInstall()
+    face.editInstallSpec('dsh-new')
+    face.runInstall()
+    await vi.waitFor(() => { expect(probe.fastest).toHaveBeenCalledOnce() })
+    expect(plugins.inspect).not.toHaveBeenCalled()
+    fastest.resolve(ok(MIRROR))
+    await vi.waitFor(() => { expect(plugins.inspect).toHaveBeenCalled() })
+    expect(plugins.inspect).toHaveBeenCalledWith('dsh-new', { registry: MIRROR }, expect.any(AbortSignal))
+    expect(state().install.registry).toEqual({ kind: 'offered', registry: MIRROR })
+  })
+
+  it.each([OFFICIAL, null])('keeps the default for probe result %s', async (winner) => {
+    const { face, state, probe } = bench({ fastest: vi.fn(() => Promise.resolve(ok(winner))) })
+    face.openInstall()
+    await vi.waitFor(() => { expect(probe.fastest).toHaveBeenCalledOnce() })
+    expect(state().install.registry).toEqual({ kind: 'offered', registry: null })
+  })
+
+  it('keeps the default when the Host lookup is unavailable', async () => {
+    const { face, state, probe } = bench({ fastest: vi.fn(() => Promise.resolve(refused('gateway/internal', 'offline'))) })
+    face.openInstall()
+    await vi.waitFor(() => { expect(probe.fastest).toHaveBeenCalledOnce() })
+    expect(state().install.registry).toEqual({ kind: 'offered', registry: null })
+  })
+
+  it.each([
+    { registry: MIRROR, resolved: OFFICIAL, fallbackRegistries: [MIRROR] },
+    { registry: null, resolved: CORP, fallbackRegistries: [MIRROR] },
+    { registry: null, resolved: null, fallbackRegistries: [MIRROR] },
+    { registry: null, resolved: 'invalid', fallbackRegistries: [MIRROR] },
+    { registry: null, resolved: OFFICIAL, fallbackRegistries: [] },
+  ])('does not probe registries for an ineligible registry configuration %j', async (registries) => {
+    const { face, state, probe } = bench({ registries: vi.fn(() => Promise.resolve(ok(registries))) })
+    face.openInstall()
+    await vi.waitFor(() => { expect(state().install.registries).toEqual(registries) })
+    expect(state().install.registry).toEqual({ kind: 'offered', registry: registries.registry })
+    expect(probe.fastest).not.toHaveBeenCalled()
+  })
+
+  it('preserves a manual choice made before the registry list arrives', async () => {
+    const registries = deferred<ReturnType<typeof ok<typeof REGISTRIES>>>()
+    const { face, state, probe } = bench({ registries: vi.fn(() => registries.promise) })
+    face.openInstall()
+    face.chooseRegistry({ kind: 'custom', url: CORP })
+    registries.resolve(ok(REGISTRIES))
+    await vi.waitFor(() => { expect(state().install.registries).toEqual(REGISTRIES) })
+    expect(state().install.registry).toEqual({ kind: 'custom', url: CORP })
+    expect(probe.fastest).not.toHaveBeenCalled()
+  })
+
+  it('does not overwrite a manual choice or wait for registry probing after that choice', async () => {
+    const fastest = deferred<ReturnType<typeof ok<string | null>>>()
+    const { face, state, plugins, probe } = bench({ fastest: vi.fn(() => fastest.promise) })
+    face.openInstall()
+    await vi.waitFor(() => { expect(probe.fastest).toHaveBeenCalledOnce() })
+    face.chooseRegistry({ kind: 'custom', url: CORP })
+    face.editInstallSpec('dsh-new')
+    face.runInstall()
+    await vi.waitFor(() => { expect(plugins.inspect).toHaveBeenCalled() })
+    fastest.resolve(ok(MIRROR))
+    await fastest.promise
+    expect(state().install.registry).toEqual({ kind: 'custom', url: CORP })
+    expect(plugins.inspect).toHaveBeenCalledWith('dsh-new', { registry: CORP }, expect.any(AbortSignal))
+  })
+
+  it.each(['close', 'dispose'] as const)('discards a waiting install after %s', async (action) => {
+    const fastest = deferred<ReturnType<typeof ok<string | null>>>()
+    const { face, controller, plugins, probe } = bench({ fastest: vi.fn(() => fastest.promise) })
+    face.openInstall()
+    face.editInstallSpec('dsh-new')
+    face.runInstall()
+    await vi.waitFor(() => { expect(probe.fastest).toHaveBeenCalledOnce() })
+    if (action === 'close') face.closeInstall()
+    else controller.dispose()
+    fastest.resolve(ok(MIRROR))
+    await fastest.promise
+    await Promise.resolve()
+    expect(plugins.inspect).not.toHaveBeenCalled()
+  })
+})
+
+it('recognizes the official registry without a trailing slash and with uppercase host letters', async () => {
+  const { face, state } = bench({
+    registries: vi.fn(async () => ok({ ...REGISTRIES, resolved: 'https://REGISTRY.NPMJS.ORG' })),
+    fastest: vi.fn(async () => ok(MIRROR)),
+  })
+  face.openInstall()
+  await vi.waitFor(() => { expect(state().install.registry).toEqual({ kind: 'offered', registry: MIRROR }) })
 })

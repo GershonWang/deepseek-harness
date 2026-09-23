@@ -295,18 +295,26 @@ it('reclaims the process range after an unexpected idle exit before replacing th
 it('retains a worker whose idle cleanup cannot observe exit until that range is joined', async () => {
   const { worker, spawn, ctx } = await fixture({ idleTimeoutMs: 100 })
   await prepare(worker)
-  const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
   await worker.transcribe({ audio, language: 'en' }, signal())
   const handle = spawn.mock.results[0]!.value as SubprocessHandle
-  const joined = vi.spyOn(handle, 'waitForExit').mockRejectedValueOnce(new Error('range observation failed'))
-  await vi.waitFor(() => { expect(joined).toHaveBeenCalledOnce() }, { timeout: 10000 })
-  expect(warn).toHaveBeenCalledWith('Speech worker idle cleanup failed', expect.any(Error))
-  await expect(worker.transcribe({ audio, language: 'zh' }, signal())).rejects.toThrow('range observation failed')
-  expect(spawn).toHaveBeenCalledOnce()
-  expect((await worker.transcribe({ audio, language: 'zh' }, signal())).text).toBe('zh')
-  expect(await joined.mock.results.at(-1)!.value).toBe(true)
-  expect(spawn).toHaveBeenCalledTimes(2)
-  warn.mockRestore()
+  const failure = new Error('range observation failed')
+  const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+  const joined = vi.spyOn(handle, 'waitForExit').mockRejectedValueOnce(failure)
+  try {
+    // Subprocess ownership also calls waitForExit after the direct process exits.
+    await handle.done
+    await vi.waitFor(() => {
+      expect(warn).toHaveBeenCalledWith('Speech worker idle cleanup failed', failure)
+    }, { timeout: 10000 })
+    await expect(worker.transcribe({ audio, language: 'zh' }, signal())).rejects.toBe(failure)
+    expect(spawn).toHaveBeenCalledOnce()
+    expect((await worker.transcribe({ audio, language: 'zh' }, signal())).text).toBe('zh')
+    expect(await joined.mock.results.at(-1)!.value).toBe(true)
+    expect(spawn).toHaveBeenCalledTimes(2)
+  } finally {
+    joined.mockRestore()
+    warn.mockRestore()
+  }
 })
 
 it('retains completed preparation steps when cancellation settles the active step', async () => {

@@ -66,6 +66,23 @@ it('resolves missing and small content to 100 percent', () => {
   expect(fitWidthZoom(200, 100, 24)).toBe(1)
 })
 
+it('fits the initial pane and allows fixed zoom without resize observation', () => {
+  vi.stubGlobal('ResizeObserver', undefined)
+  const onPreference = vi.fn()
+  render(<ZoomViewport preference={FIT_WIDTH} intrinsicWidth={1000} horizontalInset={20}
+    labels={{ controls: 'Zoom controls', menu: 'Choose zoom', out: 'Zoom out', into: 'Zoom in',
+      fitWidth: 'Fit width', value: percent => `${String(percent)}%` }} signal={new AbortController().signal}
+    scrollportRef={() => {}} onPreference={onPreference}>
+    <div className={zoomSurfaceClass} />
+  </ZoomViewport>)
+  const menu = screen.getByRole('button', { name: 'Choose zoom' })
+  expect(menu.textContent).toContain('48%')
+  fireEvent.click(menu)
+  fireEvent.click(screen.getByRole('menuitem', { name: '100%' }))
+  expect(onPreference).toHaveBeenCalledExactlyOnceWith({ kind: 'fixed', scale: 1 })
+  expect(menu.textContent).toContain('100%')
+})
+
 it('keeps a centred surface point under the pointer while crossing into overflow', () => {
   const onPreference = vi.fn()
   const view = render(<ZoomViewport preference={{ kind: 'fixed', scale: 0.5 }} intrinsicWidth={400}

@@ -31,8 +31,14 @@ const state = vi.hoisted(() => ({
   windowOptions: undefined as BrowserWindowConstructorOptions | undefined,
   menu: vi.fn(),
   operations: undefined as WelcomeOperations | undefined,
+  nativeTheme: { themeSource: 'system', shouldUseDarkColors: false },
 }))
 
+vi.mock('../src/crash-report.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/crash-report.ts')>(),
+  writeCrashReport: vi.fn(async () => undefined),
+  pruneCrashReports: vi.fn(async () => {}),
+}))
 vi.mock('electron', () => ({
   clipboard: { writeText: state.copy },
   app: {
@@ -45,6 +51,8 @@ vi.mock('electron', () => ({
     getVersion: () => '1.0.0',
     setAboutPanelOptions: vi.fn(),
     getAppPath: () => '/development-app',
+    getPath: (name: string) => `/development-${name}`,
+    setAppLogsPath: vi.fn(),
     getPreferredSystemLanguages: () => ['en-US'],
     on: (name: string, callback: (...args: unknown[]) => void) => { state.appListeners.set(name, callback) },
     quit: state.quit,
@@ -67,7 +75,7 @@ vi.mock('electron', () => ({
     async loadURL(url: string) { state.contents = this.webContents; await state.loadWorkspace(url); this.ready?.() }
   },
   net: { fetch: vi.fn() },
-  nativeTheme: { themeSource: 'system' },
+  nativeTheme: state.nativeTheme,
   session: { defaultSession: {
     setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn(), webRequest: { onBeforeSendHeaders: vi.fn() },
   } },
@@ -177,11 +185,15 @@ it('starts the Host for welcome onboarding and opens the workspace on skip witho
     attempt: { id: attemptId, phase: 'waiting-browser', authorizeUrl: 'https://example.test/login' } }
   state.accountState.mockResolvedValue(account)
   await state.operations!.copySignInLink(attemptId)
-  expect(state.copy).toHaveBeenCalledExactlyOnceWith('https://example.test/login')
+  expect(state.copy).toHaveBeenCalledExactlyOnceWith('https://example.test/login?theme=light')
+  state.nativeTheme.shouldUseDarkColors = true
+  await state.operations!.copySignInLink(attemptId)
+  expect(state.copy).toHaveBeenLastCalledWith('https://example.test/login?theme=dark')
+  state.nativeTheme.shouldUseDarkColors = false
   await expect(state.operations!.copySignInLink('stale' as typeof attemptId)).rejects.toThrow('login link is unavailable')
   state.accountState.mockResolvedValue({ ...account, attempt: { id: attemptId, phase: 'expired' } })
   await expect(state.operations!.copySignInLink(attemptId)).rejects.toThrow('login link is unavailable')
-  expect(state.copy).toHaveBeenCalledOnce()
+  expect(state.copy).toHaveBeenCalledTimes(2)
   await state.operations!.skip()
   expect(state.loadWorkspace).not.toHaveBeenCalled()
   expect(state.showWorkspace).toHaveBeenCalledOnce()

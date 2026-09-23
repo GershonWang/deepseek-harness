@@ -482,6 +482,54 @@ describe('web e2e: a git workspace turn ends with its changed files', () => {
     expect(tripwire.warnings).toEqual([])
   })
 
+  it.skipIf(MODE === 'record')('keeps the file menu aligned while dragging the floating review', async () => {
+    const column = page.locator('[data-rightbar-col]')
+    const tab = column.locator('[data-dockkit-tab]').filter({ hasText: '第 1 轮改动' })
+    const tabBox = await tab.boundingBox()
+    if (tabBox === null) throw new Error('review tab is not rendered')
+    await page.mouse.move(tabBox.x + 6, tabBox.y + tabBox.height / 2)
+    await page.mouse.down()
+    try {
+      await page.mouse.move(360, 140, { steps: 8 })
+    } finally {
+      await page.mouse.up()
+    }
+    const floating = page.locator('[data-dockkit-float]').filter({ has: page.locator('[data-changes-review]') })
+    await floating.waitFor({ state: 'visible' })
+    const selector = floating.getByRole('button', { name: '选择要查看的文件' })
+    await selector.click()
+    const menu = page.getByRole('menu')
+    await menu.waitFor({ state: 'visible' })
+    const grip = floating.locator('[data-dockkit-float-grip]')
+    for (const delta of [{ x: 120, y: 60 }, { x: -60, y: -30 }]) {
+      const handle = await grip.boundingBox()
+      const before = await selector.boundingBox()
+      if (handle === null || before === null) throw new Error('floating review controls are not rendered')
+      const start = { x: handle.x + 12, y: handle.y + handle.height / 2 }
+      await page.mouse.move(start.x, start.y)
+      await page.mouse.down()
+      try {
+        await page.mouse.move(start.x + delta.x, start.y + delta.y, { steps: 8 })
+        await expect.poll(async () => {
+          const anchor = await selector.boundingBox()
+          const list = await menu.boundingBox()
+          if (anchor === null || list === null) throw new Error('review file menu disappeared during drag')
+          return Math.max(
+            Math.abs(anchor.x - before.x - delta.x), Math.abs(anchor.y - before.y - delta.y),
+            Math.abs(list.x - anchor.x), Math.abs(list.y - anchor.y - anchor.height - 4),
+          )
+        }).toBeLessThanOrEqual(1)
+      } finally {
+        await page.mouse.up()
+      }
+    }
+    await page.keyboard.press('Escape')
+    await floating.locator('[data-dockkit-float-dock]').click()
+    await floating.waitFor({ state: 'detached' })
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+
   it('keeps edge gestures inside either diff column and accepts reverse scrolling', async () => {
     const review = page.locator('[data-changes-review]')
     await review.getByRole('button', { name: '自动换行' }).click()

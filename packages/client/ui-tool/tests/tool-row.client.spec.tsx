@@ -301,7 +301,7 @@ describe('ToolRow', () => {
     expect(view.getByText('List files')).toBeTruthy()
   })
 
-  it('excludes shared context from collapsed edit totals and the expanded card', () => {
+  it('shows totals once and shared context once when an edit expands', () => {
     const view = render(<ToolRow {...rowProps} variant="edit" title="Edit" summary="settings.ts" diff={{
       card: { diffs: [{
         path: 'settings.ts',
@@ -312,7 +312,7 @@ describe('ToolRow', () => {
     expect(view.getByText('+1 -1')).toBeTruthy()
     expect(view.container.querySelector('[data-diff]')).toBeNull()
     fireEvent.click(view.getByRole('button'))
-    expect(view.getByText(/└ \+1 -1/)).toBeTruthy()
+    expect(view.getAllByText('+1 -1')).toHaveLength(1)
     expect(view.getAllByText('start')).toHaveLength(1)
     expect(view.getAllByText('end')).toHaveLength(1)
     expect(view.getByText('old', { exact: true })).toBeTruthy()

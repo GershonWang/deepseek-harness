@@ -1,4 +1,5 @@
 !include "LogicLib.nsh"
+!include "FileFunc.nsh"
 !define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
 !define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
@@ -120,16 +121,43 @@ ManifestDPIAware true
   System::Call /NOUNLOAD '$PLUGINSDIR\window-frame.dll::InstallerExtract(p $HWNDPARENT, w "$PLUGINSDIR\dsh-7za.exe", w "${Archive}", w "$INSTDIR", w "$PLUGINSDIR\extract.log") i.s ?c'
   System::Store "L"
   Pop $R0
+  ; The failure report owns 7-Zip's UTF-8 output; the details view only needs the result code.
   StrCpy $R1 "$R0"
-  ${If} $R0 != 0
-    Push $0
-    FileOpen $0 "$PLUGINSDIR\extract.log" r
-    ${IfNot} ${Errors}
-      FileRead $0 $R1
-      FileClose $0
-    ${EndIf}
-    Pop $0
+!macroend
+
+; The report outlives $PLUGINSDIR so a user can send it; silent installs keep only the file. The updater cache
+; directory is never an installation target and leaves with the application on uninstall.
+; The directory smoke fixture predefines DSH_INSTALLER_LOG_DIR to keep reports inside its scratch tree.
+!ifndef DSH_INSTALLER_LOG_DIR
+  !define DSH_INSTALLER_LOG_DIR "$LOCALAPPDATA\${DSH_UPDATER_CACHE_NAME}\installer-logs"
+!endif
+
+!macro customInstallerExtractFailed Archive
+  Push $0
+  Push $1
+  Push $2
+  Push $3
+  Push $4
+  Push $5
+  Push $6
+  ; GetTime yields zero-padded day, month, year, weekday, hour, minute, second.
+  ${GetTime} "" "L" $0 $1 $2 $3 $4 $5 $6
+  StrCpy $0 "${DSH_INSTALLER_LOG_DIR}\extract-failure-$2$1$0-$4$5$6.log"
+  StrCpy $1 1
+  ${If} ${Silent}
+    StrCpy $1 0
   ${EndIf}
+  System::Call '$PLUGINSDIR\window-frame.dll::InstallerReportExtractFailure(p $HWNDPARENT, i R0, w "${Archive}", w "$dshNewDirectory", w "$PLUGINSDIR\extract.log", w r0, i r1, w "$(^SetupCaption)", w "$(INSTALLER_EXTRACT_FAILED)", w "$(INSTALLER_EXTRACT_HINT)", w "$(INSTALLER_EXTRACT_COPY)", w "$(INSTALLER_EXTRACT_EXPAND)", w "$(INSTALLER_EXTRACT_COLLAPSE)", w "$(INSTALLER_EXTRACT_SAVED)", w "$(INSTALLER_EXTRACT_UNSAVED)", w "$(INSTALLER_EXTRACT_COPIED)") i.r2 ?c'
+  ${If} $2 == 1
+    DetailPrint $0
+  ${EndIf}
+  Pop $6
+  Pop $5
+  Pop $4
+  Pop $3
+  Pop $2
+  Pop $1
+  Pop $0
 !macroend
 
 !macro customCheckAppRunning

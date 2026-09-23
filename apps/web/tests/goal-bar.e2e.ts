@@ -67,11 +67,18 @@ describe('web e2e: goal bar clear convergence', () => {
         declaredTop: Number.parseFloat(element.style.top),
         tooltipCenter: tooltip.left + tooltip.width / 2,
         tooltipTop: tooltip.top,
+        left: tooltip.left,
+        right: tooltip.right,
+        viewportWidth: window.innerWidth,
+        visibility: element.style.visibility,
       }
     })
     expect(tooltipGeometry).not.toBeNull()
     expect(Math.abs(tooltipGeometry!.tooltipCenter - tooltipGeometry!.declaredLeft)).toBeLessThan(2)
     expect(Math.abs(tooltipGeometry!.tooltipTop - tooltipGeometry!.declaredTop)).toBeLessThan(2)
+    expect(tooltipGeometry!.visibility).toBe('visible')
+    expect(tooltipGeometry!.left).toBeGreaterThanOrEqual(12)
+    expect(tooltipGeometry!.right).toBeLessThanOrEqual(tooltipGeometry!.viewportWidth - 12)
     await page.mouse.move(0, 0)
     await pauseTooltip.waitFor({ state: 'hidden' })
     const snapshot = await captureStableAria(page, '[data-goal-bar]', scaffold.workspaceCwd)
