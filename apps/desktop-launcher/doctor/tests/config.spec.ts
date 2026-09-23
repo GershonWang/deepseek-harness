@@ -9,7 +9,7 @@ let tempHome: string
 
 beforeEach(async () => {
   _resetRegistry()
-  tempHome = await mkdtemp(join(tmpdir(), 'dsh-doctor-cfg-'))
+  tempHome = await mkdtemp(join(tmpdir(), 'dsh-desktop-doctor-cfg-'))
   for (const c of configChecks) registerCheck(c)
 })
 

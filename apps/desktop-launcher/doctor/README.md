@@ -3,13 +3,13 @@ description: "Diagnose and repair a DeepSeek Harness installation: environment, 
 kind: "package-library"
 ---
 
-# @deepseek-ai/dsh-doctor
+# @dsh-desktop/doctor
 
 English | [中文](README.zh.md)
 
 ## Summary
 
-`@deepseek-ai/dsh-doctor` inspects one harness home and reports what is broken: Node and disk prerequisites, the bootstrap environment, `settings.yaml` and user patch YAML, profile-bundle resolvability, and session or attachment data. `dsh doctor` runs the checks and prints text or JSON; the Desktop launcher runs the same entry point as its pre-start preflight. A package can contribute a check with `registerCheck`. Diagnosis never writes: `runRepair(level)` re-runs the checks and applies only fixes whose suggested level the caller authorizes, after copying the affected state into `~/.dsh/backups/doctor-<timestamp>`.
+`@dsh-desktop/doctor` inspects one harness home and reports what is broken: Node and disk prerequisites, the bootstrap environment, `settings.yaml` and user patch YAML, profile-bundle resolvability, and session or attachment data. The Desktop launcher runs this package's `cli.js` as its pre-start preflight and again from its doctor panel. A package can contribute a check with `registerCheck`. Diagnosis never writes: `runRepair(level)` re-runs the checks and applies only fixes whose suggested level the caller authorizes, after copying the affected state into `~/.dsh/backups/doctor-<timestamp>`.
 
 ## Table of Contents
 
@@ -26,27 +26,27 @@ English | [中文](README.zh.md)
 
 ### When to use it
 
-Reach for this library when a harness installation fails to start, misbehaves after a plugin install, or must be checked before it starts. Three consumers exist today. The `dsh doctor` subcommand in [`apps/cli`](../../../apps/cli/README.md) formats a report for a human or for a supervising process. The Desktop launcher runs it before it starts the harness and strips its own `DSH_SAFE_MODE` from that child, so the preflight reports why the previous start failed instead of inheriting the shell's override. A package reaches for `registerCheck` when it owns a failure mode that the built-in checks cannot see.
+Reach for this library when a harness installation fails to start, misbehaves after a plugin install, or must be checked before it starts. The only consumer in this repository is the Desktop launcher: it runs `cli.js` before it starts the harness and strips its own `DSH_SAFE_MODE` from that child, so the preflight reports why the previous start failed instead of inheriting the shell's override. A package reaches for `registerCheck` when it owns a failure mode that the built-in checks cannot see.
 
 Use a plugin entry point instead when the work is part of an ordinary harness run: this package is a library that a launcher, CLI, or test invokes, and it registers no profile layer.
 
 ### Entry point
 
 ```ts
-import { runDiagnosis, runRepair, registerCheck } from '@deepseek-ai/dsh-doctor'
+import { runDiagnosis, runRepair, registerCheck } from '@dsh-desktop/doctor'
 
 const report = await runDiagnosis()                 // reads an explicit path, else $DSH_HOME, else ~/.dsh
 const failed = report.checks.filter(check => !check.result.ok)
 const repair = await runRepair(1)                   // authorize fixes at level 1 (mild); 2 and 3 escalate
 ```
 
-`runDiagnosis(dshHome?, { quick })` resolves every registered check concurrently and returns the report: one entry per check in registration order plus a `summary` counting `total`, `ok`, `failed`, `fatal`, and `fixable`. A check that throws is contained by its own result instead of failing the run, so one broken plugin cannot hide the other findings. The CLI exposes the same surface:
+`runDiagnosis(dshHome?, { quick })` resolves every registered check concurrently and returns the report: one entry per check in registration order plus a `summary` counting `total`, `ok`, `failed`, `fatal`, and `fixable`. A check that throws is contained by its own result instead of failing the run, so one broken plugin cannot hide the other findings. The CLI exposes the same surface through `cli.js`, which the launcher spawns as `node <doctor>/lib/types/cli.js` (packaged: `<prefix>/harness/doctor`; from source: `apps/desktop-launcher/doctor`):
 
 ```sh
-dsh doctor                    # human-readable report
-dsh doctor --json             # the same report as machine-readable JSON
-dsh doctor --quick            # skip the live loader probe (fast static preflight)
-dsh doctor --repair 2         # diagnose, then apply fixes whose suggestedLevel is at most 2
+node <doctor>/lib/types/cli.js            # human-readable report
+node <doctor>/lib/types/cli.js --json     # the same report as machine-readable JSON
+node <doctor>/lib/types/cli.js --quick    # skip the live loader probe (fast static preflight)
+node <doctor>/lib/types/cli.js --repair 2 # diagnose, then apply fixes whose suggestedLevel is at most 2
 ```
 
 `--repair [level]` takes 1 (mild), 2 (moderate), or 3 (destructive) and defaults to 1 when the level is omitted; any other value is rejected before diagnosis runs. Failure is data, not an exception: a report with `summary.fatal > 0` means the installation cannot start until the named check passes, and `summary.fixable` counts the failures this run could repair.
@@ -66,6 +66,7 @@ The framework keeps one process-wide check registry, runs every entry concurrent
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Check registry, `runDiagnosis`, `runRepair`, backup retention |
+| [`src/cli.ts`](src/cli.ts) | Argument parsing, human-readable rendering, and process exit codes for the launcher's subprocess |
 | [`src/types.ts`](src/types.ts) | Report, check, severity, and repair-level types |
 | [`src/checks/env.ts`](src/checks/env.ts) | Node version, free disk space, bootstrap environment |
 | [`src/checks/config.ts`](src/checks/config.ts) | `settings.yaml` and user patch YAML validity |
@@ -96,9 +97,9 @@ Severity separates a precondition from a defect: a `fatal` check blocks startup,
 
 Read these pages when you need the launch path that consumes a report or the profile model that produces one.
 
-- [CLI](../../../apps/cli/README.md) — the `dsh doctor` subcommand, its text and JSON output, and the process that mounts it.
-- [Boot package](../../boot/app-boot/README.md) — profile resolution, patch composition, and the boot environment rules the env checks assert.
-- [Plugin manager](../../boot/plugin-manager/README.md) — installing and enabling the bundles whose resolvability doctor checks.
+- [Desktop launcher](../README.md) — the pre-start preflight and doctor panel that spawn `cli.js`, and the `DSH_SAFE_MODE` stripping they rely on.
+- [Boot package](../../../packages/boot/app-boot/README.md) — profile resolution, patch composition, and the boot environment rules the env checks assert.
+- [Plugin manager](../../../packages/boot/plugin-manager/README.md) — installing and enabling the bundles whose resolvability doctor checks.
 - [Architecture](../../../docs/architecture.md) — how a profile, its bundles, and its layers compose at launch.
 
 -----
@@ -120,6 +121,6 @@ These limits define what one run can and cannot prove. They are current package 
 <details>
 <summary>Working context for maintainers — click to expand</summary>
 
-None.
+This package is private to the Linglong fork. It lives in `apps/desktop-launcher/doctor` instead of `packages/`, so an upstream merge never touches it, and it is not a pnpm workspace member: `node apps/desktop-launcher/tools/doctor-build.mjs` builds it and `linglong/prepare-offline.sh` stages the result into `<prefix>/harness/doctor`. The launcher spawns `cli.js` directly; no `dsh` subcommand mounts it, so no upstream CLI wiring exists to conflict.
 
 </details>

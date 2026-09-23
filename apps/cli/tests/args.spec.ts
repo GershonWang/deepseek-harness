@@ -214,16 +214,6 @@ describe('parseDshArgs', () => {
     expect(exitCode(['--from-default-profile', 'web', 'plugin', '--profile', 'x', 'add', 'y'])).toBe(1)
   })
 
-  it('routes the doctor diagnostics command with its flags', () => {
-    expect(parse(['doctor'])).toEqual({ mode: 'doctor', json: false, quick: false })
-    expect(parse(['doctor', '--json'])).toEqual({ mode: 'doctor', json: true, quick: false })
-    expect(parse(['doctor', '--quick'])).toEqual({ mode: 'doctor', json: false, quick: true })
-    expect(parse(['doctor', '--json', '--quick'])).toEqual({ mode: 'doctor', json: true, quick: true })
-    expect(parse(['doctor', '--repair'])).toEqual({ mode: 'doctor', json: false, quick: false, repair: 1 })
-    expect(parse(['doctor', '--repair', '2'])).toEqual({ mode: 'doctor', json: false, quick: false, repair: 2 })
-    expect(exitCode(['doctor', '--repair', '9'])).toBe(1)
-  })
-
   it('keeps its own help for an invocation with no app to hand it to', () => {
     const stdout = vi.spyOn(process.stdout, 'write').mockReturnValue(true)
     expect(exitCode(['--help'])).toBe(0)

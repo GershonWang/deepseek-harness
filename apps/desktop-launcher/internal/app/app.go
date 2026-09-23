@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -60,16 +61,16 @@ type FrontendStatus struct {
 	ConnectError       string
 	Target             string // 前端 iframe 应加载的地址；空串表示显示引导页
 	Busy               bool
-	StartupDiagnosing  bool // 是否正在进行启动失败自动诊断
-	StartupDoctorReady bool // 自动诊断结果已就绪（本次失败周期内）
+	StartupDiagnosing  bool   // 是否正在进行启动失败自动诊断
+	StartupDoctorReady bool   // 自动诊断结果已就绪（本次失败周期内）
 	ClientFailure      string // 非空表示 iframe 内客户端插件加载失败：进程可能健康，界面起不来
 	CanStart           bool
 	CanStop            bool
 	CanRestart         bool
 	CanConnect         bool
 	CanDisconnect      bool
-	SafeMode           string // "" | "plugins" | "config" | "full"
-	FreshHome          bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+	SafeMode           string           // "" | "plugins" | "config" | "full"
+	FreshHome          bool             // 是否以全新运行时目录（~/.dsh-fallback）启动
 	Preflight          PreflightSummary // 启动前预检状态
 	Startup            StartupView      // 加载页的启动进度（见 startup_progress.go）
 }
@@ -175,8 +176,6 @@ type App struct {
 	configPath string
 	home       string
 	ctx        context.Context
-	dshCmd     string // dsh executable / node binary
-	dshScript  string // path to dsh bin script (empty when dshCmd is itself the dsh bin)
 	term       *terminal.Manager // 终端会话管理器
 
 	mu            sync.Mutex
@@ -223,15 +222,11 @@ type App struct {
 
 // New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
 // 由预检结果决定放行或等待用户决策。
-func New(cfg supervisor.Config, home, configPath string) *App {
-	// 推导 doctor 命令：Args 形如 ["web", "--port", "N"] 或 ["/path/to/bin.js", "web", "--port", "N"]
-	// 后者表示 Command 是 node，第一个 arg 是 dsh 脚本路径。
-	dshCmd := cfg.Command
-	dshScript := ""
-	if len(cfg.Args) >= 1 && strings.HasSuffix(cfg.Args[0], ".js") {
-		dshScript = cfg.Args[0]
-	}
-
+//
+// doctor 的运行环境（node 与 cli.js）由 appenv 一并解析后传入，本层不再从
+// harness 的 argv 里反推——doctor 已经不经 `dsh` 分发，两者位置无关。
+func New(resolved appenv.Resolved, home, configPath string) *App {
+	cfg := resolved.Config
 	term := terminal.NewManager()
 
 	a := &App{
@@ -239,11 +234,9 @@ func New(cfg supervisor.Config, home, configPath string) *App {
 		conn:            connector.New(),
 		configPath:      configPath,
 		home:            home,
-		dshCmd:          dshCmd,
-		dshScript:       dshScript,
 		term:            term,
 		locale:          i18n.FromEnv(),
-		preflightRunner: preflight.NewRunner(dshCmd, dshScript, preflightHomePath(home)),
+		preflightRunner: preflight.NewRunner(resolved.DoctorNode, resolved.DoctorCLI, preflightHomePath(home)),
 	}
 	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
 	a.sup.SetStartupProgressListener(a.emitStartupProgress)
@@ -822,7 +815,11 @@ func (a *App) runDoctor(ctx context.Context) DoctorReport {
 	// doctor 子进程的环境与 argv 统一来自 preflight.Runner：剥离
 	// DSH_SAFE_MODE（否则安全模式下诊断看不到真实安装的第三方插件）、
 	// 显式指向真实 harness home（而非 $HOME）。
-	cmd := exec.CommandContext(ctx, a.dshCmd, a.preflightRunner.DoctorArgs("--json")...)
+	name, args, ok := a.preflightRunner.Command("--json")
+	if !ok {
+		return DoctorReport{Error: a.t("preflight.doctor.notConfigured")}
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = a.preflightRunner.Env()
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -907,15 +904,15 @@ func exitCodeText(cmd *exec.Cmd) string {
 func (a *App) RunDoctorRepair(level int) string {
 	ctx, cancel, myEpoch, done := a.beginDoctorRun()
 	defer a.endDoctorRun(myEpoch, done, cancel)
-	args := a.preflightRunner.DoctorArgs("--repair", "1")
-	if level >= 2 {
-		args[len(args)-1] = "2"
-	}
-	if level >= 3 {
-		args[len(args)-1] = "3"
+
+	// 收敛到 doctor 支持的 1/2/3：调用方可能传入更大值表示"尽力修复"。
+	effective := min(max(level, 1), 3)
+	name, args, ok := a.preflightRunner.Command("--repair", strconv.Itoa(effective))
+	if !ok {
+		return a.t("preflight.doctor.notConfigured")
 	}
 
-	cmd := exec.CommandContext(ctx, a.dshCmd, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = a.preflightRunner.Env()
 	out, err := cmd.CombinedOutput()
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {

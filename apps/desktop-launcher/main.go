@@ -39,7 +39,7 @@ func main() {
 	packaging.ConfigureFontConfig()
 
 	resolved := appenv.Resolve()
-	controller := app.New(resolved.Config, home, app.ExternalConfigFilePath())
+	controller := app.New(resolved, home, app.ExternalConfigFilePath())
 
 	// 读取上次保存的窗口状态（尺寸、最大化等），读取失败时静默回退默认值。
 	windowState, _ := app.LoadWindowState(home)
@@ -67,7 +67,7 @@ func main() {
 		MinHeight: 600,
 		// 无边框窗口：自绘标题栏（frontend/#titlebar）承载品牌/按钮/窗口控制，
 		// 通过 --wails-draggable 拖拽、边缘自动 resize。
-		Frameless:      true,
+		Frameless:        true,
 		WindowStartState: startState,
 		AssetServer: &assetserver.Options{
 			Assets: assets,

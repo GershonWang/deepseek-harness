@@ -12,7 +12,7 @@
  *  - Exactly one item in the set is the culprit; adding it to any subset
  *    that previously passed will make it fail.
  *
- * @module @deepseek-ai/dsh-doctor/bisect-by
+ * @module @dsh-desktop/doctor/bisect-by
  */
 
 /**

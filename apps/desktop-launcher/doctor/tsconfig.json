@@ -15,16 +15,16 @@
       "path": "../../../vendor/include"
     },
     {
-      "path": "../../boot/app-boot"
+      "path": "../../../packages/boot/app-boot"
     },
     {
-      "path": "../../boot/cmdline"
+      "path": "../../../packages/boot/cmdline"
     },
     {
-      "path": "../../util/home-paths"
+      "path": "../../../packages/util/home-paths"
     },
     {
-      "path": "../../util/atomic-write"
+      "path": "../../../packages/util/atomic-write"
     }
   ]
 }

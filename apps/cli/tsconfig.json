@@ -76,9 +76,6 @@
     },
     {
       "path": "../../packages/util/atomic-write"
-    },
-    {
-      "path": "../../packages/support/doctor"
     }
   ]
 }

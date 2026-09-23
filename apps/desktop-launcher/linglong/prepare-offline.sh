@@ -23,6 +23,12 @@ mkdir -p "$STAGE/bin"
 pnpm install --frozen-lockfile
 pnpm run build
 
+# 1.1 doctor 单独构建。它已迁到 apps/desktop-launcher/doctor，既不是 pnpm
+#     workspace 成员（apps/* 只匹配一级），也不在 tsdown 的 workspace globs 里，
+#     所以上一步不会编译它。构建必须跟在根构建之后：doctor 的 project references
+#     指向 packages/ 与 vendor/ 下的包，那些产物要先就位（doctor 不代建它们）。
+node apps/desktop-launcher/tools/doctor-build.mjs
+
 # 2. deploy dsh 闭包并修复（peer deps、符号链接实体化、legacy hoists）
 #    用 --config.node-linker=hoisted + 默认 auto-install-peers 让 pnpm 尽量
 #    装全 peer deps；legacy 模式下仍会漏掉纯 peer-only 的 workspace 包
@@ -127,6 +133,31 @@ for pkgdir in packages/*/*/; do
 done
 for vendir in vendor/*/; do
   inject_workspace_pkg "${vendir%/}"
+done
+
+# 2.2 stage launcher 私有的 doctor。
+#     doctor 已迁到 apps/desktop-launcher/doctor，不再是 pnpm workspace 成员
+#     （pnpm-workspace.yaml 的 apps/* 只匹配一级），也不在 @deepseek-ai/dsh 的
+#     生产闭包里，因此 deploy 不会带上它，必须显式拷贝。
+#     放在 harness 树**内部**而不是旁边：doctor 对 @deepseek-ai/dsh-app-boot 等
+#     包的 import 靠 Node 逐级向上查找即可命中 $STAGE/harness/node_modules，
+#     无需任何符号链接或额外安装步骤。放到 harness 外面就得自己造一套解析链。
+#     只拷构建产物与包清单：doctor 的运行形态就是 lib/types 下的平铺产物，源码、
+#     测试与 devDependencies 都不进包。
+echo "prepare-offline: stage doctor..."
+DOCTOR_DEST="$STAGE/harness/doctor"
+rm -rf "$DOCTOR_DEST"
+mkdir -p "$DOCTOR_DEST/lib/types"
+cp -a apps/desktop-launcher/doctor/lib/types/. "$DOCTOR_DEST/lib/types/"
+cp apps/desktop-launcher/doctor/package.json "$DOCTOR_DEST/package.json"
+
+# 缺入口是最难排查的失败形态：构建与打包都成功，launcher 起来后才在运行期报错，
+# 而且预检失败按设计不阻塞启动，用户只会看到"检查被跳过"。这里显式断言三个入口。
+for entry in index.js cli.js loader-probe.js; do
+  if [ ! -f "$DOCTOR_DEST/lib/types/$entry" ]; then
+    echo "prepare-offline: doctor 产物缺少 $entry；先运行 node apps/desktop-launcher/tools/doctor-build.mjs" >&2
+    exit 1
+  fi
 done
 
 # 2.5 注入外部链接桥：桌面壳 GUI 里的 target=_blank 外链在 Wails WebKitGTK

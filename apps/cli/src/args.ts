@@ -57,19 +57,8 @@ interface PluginInvocation {
   args: string[]
 }
 
-/** Run the diagnostic doctor: check env/config/plugins and report issues. */
-interface DoctorInvocation {
-  mode: 'doctor'
-  /** When true, run repair at the requested level (default: no repair). */
-  repair?: number
-  /** Output JSON instead of human-readable text. */
-  json: boolean
-  /** Skip the live loader-probe check; callers polling quickly select this. */
-  quick: boolean
-}
-
 /** The resolved `dsh` invocation. Help, version, and errors exit inside {@link parseDshArgs}. */
-export type DshInvocation = ProfileInvocation | DumpConfigInvocation | DumpConfigSchemaInvocation | PluginInvocation | DoctorInvocation
+export type DshInvocation = ProfileInvocation | DumpConfigInvocation | DumpConfigSchemaInvocation | PluginInvocation
 
 /** Launcher flags for profile boot and configuration dumps. */
 interface BootOptions {
@@ -208,51 +197,8 @@ export function parseDshArgs(argv: readonly string[], version: string): DshInvoc
       })
   }
 
-  // doctor 是本地子命令（上游没有这个 mode），尾部的简写展开必须把它排除，
-  // 否则 `dsh doctor` 会被改写成 `--profile doctor`，启动器的启动前预检
-  // （internal/preflight 组装 ["doctor", ...]）会静默失效。
-  const doctor = program.command('doctor')
-    .description('diagnose and repair common harness installation issues (env, config, plugins, data)')
-  doctor
-    .option('--json', 'output machine-readable JSON instead of human-readable text')
-    .option('--quick', 'skip the live loader-probe check (fast static pre-flight)')
-    .option('--repair [level]', 'run auto-repair at the given level (1=mild, 2=moderate, 3=destructive); omit for level 1')
-    .action((_args: string[], opts: { json?: boolean; quick?: boolean; repair?: boolean | string }) => {
-      // Under the root command's passThroughOptions, subcommand boolean and
-      // optional-value flags sometimes don't pick up their values from argv.
-      // Fall back to scanning this invocation's own argv — the same slice the
-      // root parse consumed, so the scan matches the real process argv that
-      // bin.ts passes (and stays reliable under a test-injected argv).
-      const scan = argv
-      const json = opts.json ?? scan.includes('--json')
-      const quick = opts.quick ?? scan.includes('--quick')
-      let repair: number | undefined
-      if (opts.repair === true) repair = 1
-      else if (typeof opts.repair === 'string') {
-        const n = Number(opts.repair)
-        if (!Number.isInteger(n) || n < 1 || n > 3) {
-          program.error('error: --repair level must be 1, 2, or 3')
-        }
-        repair = n
-      } else {
-        const idx = scan.indexOf('--repair')
-        if (idx >= 0) {
-          const next = scan[idx + 1]
-          if (next === undefined || next.startsWith('-')) repair = 1
-          else {
-            const n = Number(next)
-            if (!Number.isInteger(n) || n < 1 || n > 3) {
-              program.error('error: --repair level must be 1, 2, or 3')
-            }
-            repair = n
-          }
-        }
-      }
-      resolved = { mode: 'doctor', json, quick, ...repair !== undefined ? { repair } : {} }
-    })
-
   try {
-    const expanded = first !== undefined && !first.startsWith('-') && first !== 'plugin' && first !== 'doctor'
+    const expanded = first !== undefined && !first.startsWith('-') && first !== 'plugin'
       ? ['--profile', ...argv]
       : argv
     program.parse(expanded, { from: 'user' })

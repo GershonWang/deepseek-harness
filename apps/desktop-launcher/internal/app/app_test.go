@@ -12,8 +12,8 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/connector"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/domain"
-	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
@@ -31,7 +31,6 @@ func zhText(key string, args ...any) string { return i18n.T(i18n.Zh, key, args..
 func testApp() *App {
 	return &App{
 		conn:            connector.New(),
-		dshCmd:          "dsh-doctor-no-such-bin",
 		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", "/tmp/test-dsh-home"),
 	}
 }
@@ -171,11 +170,9 @@ exit 1
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// dshScript 指向 mock；dshCmd 是 sh。dshScript 需要 .js 后缀判断在 New() 里，
-	// 这里直接构造 App 用 exec.Command(dshCmd, dshScript, ...) 路径。
+	// doctor 的运行环境统一由 preflight.Runner 持有：可执行文件是 sh，mock 脚本
+	// 作为 doctor 的 cli.js 传入，exec 出来即 exec.Command(sh, script, ...)。
 	a := &App{
-		dshCmd:          "sh",
-		dshScript:       script,
 		home:            t.TempDir(),
 		preflightRunner: preflight.NewRunner("sh", script, t.TempDir()),
 	}
@@ -272,7 +269,6 @@ func clientFailureTestApp(t *testing.T) *App {
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
-		dshCmd:          "dsh-doctor-no-such-bin",
 		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", t.TempDir()),
 	}
 }
@@ -331,10 +327,8 @@ func TestOnShutdown_CancelsRunningDoctor(t *testing.T) {
 	// Shutdown（sup.Stop + stopDoctor），sup 用不存在的命令构造（spawn 立即
 	// 失败，Stop 安全快速），仅验证 doctor 被取消。
 	a := &App{
-		conn:      connector.New(),
-		sup:       supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
-		dshCmd:          "sh",
-		dshScript:       writeBusyLoop(t),
+		conn:            connector.New(),
+		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
 		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
 	}
@@ -358,8 +352,6 @@ func TestRunDoctorRepair_CancellableViaStopDoctor(t *testing.T) {
 	// 回归：修复进程（dsh doctor --repair）此前用无 context 的 exec.Command，
 	// 关闭窗口时不可取消而残留。现在纳入 doctor 追踪，stopDoctor 必须能取消它。
 	a := &App{
-		dshCmd:          "sh",
-		dshScript:       writeBusyLoop(t),
 		home:            t.TempDir(),
 		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
 	}
@@ -385,10 +377,8 @@ func TestRunDoctorRepair_CancellableViaStopDoctor(t *testing.T) {
 func TestShutdown_CancelsRunningDoctor(t *testing.T) {
 	// Shutdown 与 OnShutdown 共用清理路径，同样取消正在运行的 doctor。
 	a := &App{
-		conn:      connector.New(),
-		sup:       supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
-		dshCmd:          "sh",
-		dshScript:       writeBusyLoop(t),
+		conn:            connector.New(),
+		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
 		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
 	}

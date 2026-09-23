@@ -4,7 +4,7 @@
  * Register checks with {@link registerCheck}, then run {@link runDiagnosis}
  * to produce a report or {@link runRepair} to apply automated fixes.
  *
- * @module @deepseek-ai/dsh-doctor
+ * @module @dsh-desktop/doctor
  */
 
 import { mkdir, readdir, rm } from 'node:fs/promises'

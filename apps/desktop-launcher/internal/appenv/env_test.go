@@ -475,3 +475,97 @@ func TestConfigureHostEscapeEnv_KeepsUserValues(t *testing.T) {
 		}
 	})
 }
+
+// doctor 由 launcher 直连，其位置不再能从 dsh 的入口脚本推导，因此独立解析。
+// 这里逐条固定该解析的契约：显式覆盖优先、开发态按 cwd 探测、找不到时返回空
+// CLI 而不报错（预检是尽力而为，缺失要降级成一条可呈现的诊断失败）。
+func TestResolveDoctor_EnvOverrides(t *testing.T) {
+	t.Setenv(doctorNodeEnv, "/custom/node")
+	t.Setenv(doctorCLIEnv, "/custom/cli.js")
+
+	node, cli := resolveDoctor()
+	if node != "/custom/node" {
+		t.Errorf("node 应取 %s,got %q", doctorNodeEnv, node)
+	}
+	if cli != "/custom/cli.js" {
+		t.Errorf("cli 应取 %s,got %q", doctorCLIEnv, cli)
+	}
+}
+
+// 只覆盖 node 是合法用法（非标准布局下换 node 但仍用探测到的 cli.js）。
+func TestResolveDoctor_NodeOverrideKeepsProbe(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "doctor", "lib", "types", "cli.js")
+	if err := os.MkdirAll(filepath.Dir(cliPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cliPath, []byte("// stub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(doctorNodeEnv, "/custom/node")
+	t.Chdir(dir)
+
+	node, cli := resolveDoctor()
+	if node != "/custom/node" {
+		t.Errorf("node 应为 /custom/node,got %q", node)
+	}
+	if cli != cliPath {
+		t.Errorf("cli 应探测到 %q,got %q", cliPath, cli)
+	}
+}
+
+// 开发态布局：launcher 的 cwd 是 apps/desktop-launcher，doctor 就在其下。
+func TestResolveDoctor_DevLayout(t *testing.T) {
+	dir := t.TempDir()
+	cliPath := filepath.Join(dir, "doctor", "lib", "types", "cli.js")
+	if err := os.MkdirAll(filepath.Dir(cliPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cliPath, []byte("// stub\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	if _, cli := resolveDoctor(); cli != cliPath {
+		t.Errorf("应探测到 %q,got %q", cliPath, cli)
+	}
+}
+
+// 找不到时返回空 CLI：调用方据此归类为 DoctorNotConfigured 并照常放行启动，
+// 而不是让 launcher 起不来。
+func TestResolveDoctor_MissingReturnsEmptyCLI(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	node, cli := resolveDoctor()
+	if cli != "" {
+		t.Errorf("无 doctor 时 cli 应为空,got %q", cli)
+	}
+	if node == "" {
+		t.Error("无 doctor 时仍应给出可用的 node")
+	}
+}
+
+// 对着真实目录树跑一次开发态解析，而不是临时桩：探测路径与实际布局不一致这类
+// 错误只在真机上暴露，桩测不出来。doctor 未构建时跳过——该产物由
+// apps/desktop-launcher/tools/doctor-build.mjs 生成，不是源码树的一部分。
+func TestResolve_DevLayoutFindsBuiltDoctor(t *testing.T) {
+	t.Chdir("../..") // internal/appenv → apps/desktop-launcher
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	t.Setenv(doctorCLIEnv, "")
+	t.Setenv(doctorNodeEnv, "")
+	os.Unsetenv(doctorCLIEnv)
+	os.Unsetenv(doctorNodeEnv)
+
+	want, err := filepath.Abs(filepath.Join("doctor", "lib", "types", "cli.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Stat(want); statErr != nil {
+		t.Skip("doctor 未构建；先运行 node apps/desktop-launcher/tools/doctor-build.mjs")
+	}
+
+	if got := Resolve().DoctorCLI; got != want {
+		t.Errorf("开发态应解析到 %q,got %q", want, got)
+	}
+}

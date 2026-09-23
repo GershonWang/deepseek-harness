@@ -1,6 +1,6 @@
 /**
  * Environment-level diagnostic checks.
- * @module @deepseek-ai/dsh-doctor/checks/env
+ * @module @dsh-desktop/doctor/checks/env
  */
 
 import { statfs } from 'node:fs/promises'

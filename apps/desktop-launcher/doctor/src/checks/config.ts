@@ -1,6 +1,6 @@
 /**
  * Configuration-level diagnostic checks.
- * @module @deepseek-ai/dsh-doctor/checks/config
+ * @module @dsh-desktop/doctor/checks/config
  */
 
 import { readFileSync, existsSync, renameSync } from 'node:fs'

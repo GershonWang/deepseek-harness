@@ -9,7 +9,7 @@ let tempHome: string
 
 beforeEach(async () => {
   _resetRegistry()
-  tempHome = await mkdtemp(join(tmpdir(), 'dsh-doctor-env-'))
+  tempHome = await mkdtemp(join(tmpdir(), 'dsh-desktop-doctor-env-'))
   for (const c of envChecks) registerCheck(c)
 })
 

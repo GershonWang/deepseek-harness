@@ -36,7 +36,6 @@ const NO_MODEL_EXPERIENCE_SECTION: Readonly<Record<string, string>> = {
   'packages/util/launch-environment': 'The package only resolves host environment values; model-facing consumers own any rendered use.',
   'packages/util/workspace-path': 'The package only formats Workspace paths for browser UI; it never constructs model input.',
   'packages/util/values': 'The package only validates, snapshots, compares, freezes, or rejects caller-owned values; consumers own every model-facing use.',
-  'packages/support/doctor': 'The diagnostic framework inspects one installation home and reports to a human or a launcher; it registers no tool, prompt section, or session event.',
 }
 
 /**

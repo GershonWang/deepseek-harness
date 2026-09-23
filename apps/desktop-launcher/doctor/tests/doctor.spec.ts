@@ -14,7 +14,7 @@ let tempHome: string
 
 beforeEach(async () => {
   _resetRegistry()
-  tempHome = await mkdtemp(join(tmpdir(), 'dsh-doctor-test-'))
+  tempHome = await mkdtemp(join(tmpdir(), 'dsh-desktop-doctor-test-'))
 })
 
 afterEach(async () => {

@@ -19,7 +19,7 @@
  * Only the exit code is a contract; runtime logs from the loaded tree go to
  * stdout/stderr unchanged so a caller can surface plugin diagnostics.
  *
- * @module @deepseek-ai/dsh-doctor/loader-probe
+ * @module @dsh-desktop/doctor/loader-probe
  */
 
 import { writeFileSync } from 'node:fs'

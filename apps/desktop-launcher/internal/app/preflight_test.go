@@ -37,8 +37,6 @@ func newGateTestApp(t *testing.T, doctorScript string) *App {
 	return &App{
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-gate-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
-		dshCmd:          "sh",
-		dshScript:       doctorScript,
 		preflightRunner: preflight.NewRunner("sh", doctorScript, t.TempDir()),
 	}
 }

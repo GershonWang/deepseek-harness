@@ -3,13 +3,13 @@ description: "诊断并修复 DeepSeek Harness 安装：覆盖运行环境、配
 kind: "package-library"
 ---
 
-# @deepseek-ai/dsh-doctor
+# @dsh-desktop/doctor
 
 [English](README.md) | 中文
 
 ## 概述
 
-`@deepseek-ai/dsh-doctor` 检查一份 harness 主目录并报告损坏之处：Node 与磁盘前提、启动环境、`settings.yaml` 与用户补丁 YAML、profile 包的可解析性，以及会话与附件数据。`dsh doctor` 运行全部检查并输出文本或 JSON；桌面启动器把同一入口当作启动前预检。包可以用 `registerCheck` 贡献自己的检查。诊断过程不写任何文件：`runRepair(level)` 会重新诊断，只应用调用方授权等级之内的修复，并先把受影响的状态复制到 `~/.dsh/backups/doctor-<时间戳>`。
+`@dsh-desktop/doctor` 检查一份 harness 主目录并报告损坏之处：Node 与磁盘前提、启动环境、`settings.yaml` 与用户补丁 YAML、profile 包的可解析性，以及会话与附件数据。桌面启动器把本包的 `cli.js` 当作启动前预检，doctor 面板也复用它。包可以用 `registerCheck` 贡献自己的检查。诊断过程不写任何文件：`runRepair(level)` 会重新诊断，只应用调用方授权等级之内的修复，并先把受影响的状态复制到 `~/.dsh/backups/doctor-<时间戳>`。
 
 ## 目录
 
@@ -26,27 +26,27 @@ kind: "package-library"
 
 ### 何时使用
 
-当一次安装无法启动、装完插件后行为异常，或需要在启动前先做检查时，用这个库。目前有三类消费者：[`apps/cli`](../../../apps/cli/README.zh.md) 里的 `dsh doctor` 子命令把报告渲染给人或监管进程；桌面启动器在启动 harness 之前运行它，并从该子进程的环境里剥离自己的 `DSH_SAFE_MODE`，让预检报告上一次启动失败的真实原因，而不是继承当前 shell 的覆盖值；当某个包拥有内置检查看不到的失效模式时，它通过 `registerCheck` 追加检查。
+当一次安装无法启动、装完插件后行为异常，或需要在启动前先做检查时，用这个库。本仓库里唯一的消费者是桌面启动器：它在启动 harness 之前运行 `cli.js`，并从该子进程的环境里剥离自己的 `DSH_SAFE_MODE`，让预检报告上一次启动失败的真实原因，而不是继承当前 shell 的覆盖值；当某个包拥有内置检查看不到的失效模式时，它通过 `registerCheck` 追加检查。
 
 当工作属于一次普通 harness 运行的一部分时，应改用插件入口：本包是一个由启动器、CLI 或测试调用的库，不注册任何 profile 层。
 
 ### 入口
 
 ```ts
-import { runDiagnosis, runRepair, registerCheck } from '@deepseek-ai/dsh-doctor'
+import { runDiagnosis, runRepair, registerCheck } from '@dsh-desktop/doctor'
 
 const report = await runDiagnosis()                 // reads an explicit path, else $DSH_HOME, else ~/.dsh
 const failed = report.checks.filter(check => !check.result.ok)
 const repair = await runRepair(1)                   // authorize fixes at level 1 (mild); 2 and 3 escalate
 ```
 
-`runDiagnosis(dshHome?, { quick })` 并发运行所有已注册检查并返回报告：按注册顺序每个检查一条记录，外加统计 `total`、`ok`、`failed`、`fatal`、`fixable` 的 `summary`。单个检查抛出的异常会被收进它自己的结果里，不会中断整轮运行，因此一个坏插件掩盖不了其他结论。CLI 暴露同一套能力：
+`runDiagnosis(dshHome?, { quick })` 并发运行所有已注册检查并返回报告：按注册顺序每个检查一条记录，外加统计 `total`、`ok`、`failed`、`fatal`、`fixable` 的 `summary`。单个检查抛出的异常会被收进它自己的结果里，不会中断整轮运行，因此一个坏插件掩盖不了其他结论。CLI 通过 `cli.js` 暴露同一套能力，启动器以 `node <doctor>/lib/types/cli.js` 拉起它（打包态为 `<prefix>/harness/doctor`，源码态为 `apps/desktop-launcher/doctor`）：
 
 ```sh
-dsh doctor                    # human-readable report
-dsh doctor --json             # the same report as machine-readable JSON
-dsh doctor --quick            # skip the live loader probe (fast static preflight)
-dsh doctor --repair 2         # diagnose, then apply fixes whose suggestedLevel is at most 2
+node <doctor>/lib/types/cli.js            # human-readable report
+node <doctor>/lib/types/cli.js --json     # the same report as machine-readable JSON
+node <doctor>/lib/types/cli.js --quick    # skip the live loader probe (fast static preflight)
+node <doctor>/lib/types/cli.js --repair 2 # diagnose, then apply fixes whose suggestedLevel is at most 2
 ```
 
 `--repair [level]` 取 1（温和）、2（中等）、3（破坏性），省略等级时默认 1，其它取值在诊断开始前就被拒绝。失败是数据而不是异常：`summary.fatal > 0` 表示在对应检查通过之前该安装无法启动，`summary.fixable` 则统计本轮可修复的失败数。
@@ -66,6 +66,7 @@ dsh doctor --repair 2         # diagnose, then apply fixes whose suggestedLevel 
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 检查注册表、`runDiagnosis`、`runRepair`、备份保留 |
+| [`src/cli.ts`](src/cli.ts) | 供启动器子进程使用的参数解析、人类可读渲染与进程退出码 |
 | [`src/types.ts`](src/types.ts) | 报告、检查、严重级别与修复等级类型 |
 | [`src/checks/env.ts`](src/checks/env.ts) | Node 版本、磁盘剩余空间、启动环境 |
 | [`src/checks/config.ts`](src/checks/config.ts) | `settings.yaml` 与用户补丁 YAML 的有效性 |
@@ -96,9 +97,9 @@ dsh doctor --repair 2         # diagnose, then apply fixes whose suggestedLevel 
 
 需要消费报告的启动链路或产生报告的 profile 模型时，读这些页面。
 
-- [CLI](../../../apps/cli/README.zh.md) —— `dsh doctor` 子命令、它的文本与 JSON 输出，以及挂载它的进程。
-- [启动包](../../boot/app-boot/README.zh.md) —— env 检查所断言的 profile 解析、补丁组合与启动环境规则。
-- [插件管理器](../../boot/plugin-manager/README.zh.md) —— 安装与启用 doctor 要检查可解析性的那些包。
+- [桌面启动器](../README.zh.md) —— 拉起 `cli.js` 的启动前预检与 doctor 面板，以及它们依赖的 `DSH_SAFE_MODE` 剥离。
+- [启动包](../../../packages/boot/app-boot/README.zh.md) —— env 检查所断言的 profile 解析、补丁组合与启动环境规则。
+- [插件管理器](../../../packages/boot/plugin-manager/README.zh.md) —— 安装与启用 doctor 要检查可解析性的那些包。
 - [架构](../../../docs/architecture.zh.md) —— profile、它的包与层在启动时如何组合。
 
 -----
@@ -120,6 +121,6 @@ dsh doctor --repair 2         # diagnose, then apply fixes whose suggestedLevel 
 <details>
 <summary>维护者工作上下文 —— 点击展开</summary>
 
-无。
+本包是玲珑分支私有的。它位于 `apps/desktop-launcher/doctor` 而非 `packages/`，因此合并上游永远不会碰到它，也不是 pnpm workspace 成员：由 `node apps/desktop-launcher/tools/doctor-build.mjs` 构建，再由 `linglong/prepare-offline.sh` 把产物 stage 到 `<prefix>/harness/doctor`。启动器直接拉起 `cli.js`，没有任何 `dsh` 子命令挂载它，因此不存在会冲突的上游 CLI 接线。
 
 </details>

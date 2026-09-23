@@ -1,6 +1,6 @@
 /**
- * Type definitions for the dsh-doctor diagnostic and repair framework.
- * @module @deepseek-ai/dsh-doctor
+ * Type definitions for the `@dsh-desktop/doctor` diagnostic and repair framework.
+ * @module @dsh-desktop/doctor
  */
 
 /** Severity level of a diagnostic finding. */

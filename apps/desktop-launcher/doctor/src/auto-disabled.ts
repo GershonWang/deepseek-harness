@@ -9,7 +9,7 @@
  * 留痕只服务于提示，不参与任何判定：读取失败、内容被外部改坏、记录过多，都
  * 不能影响修复本身，也不能阻断 doctor 的其它检查。
  *
- * @module @deepseek-ai/dsh-doctor/auto-disabled
+ * @module @dsh-desktop/doctor/auto-disabled
  */
 
 import { readFileSync } from 'node:fs'

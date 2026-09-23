@@ -83,8 +83,8 @@ type repairJSON struct {
 
 // processRunner 抽象 doctor 子进程的执行，测试注入 fake 记录入参并回放输出。
 type processRunner interface {
-	// run 执行命令：env 为完整子进程环境；stdout/stderr 收集输出。与
-	// dsh doctor 的约定一致，非零退出码不是错误（退出码表达诊断结论）。
+	// run 执行命令：env 为完整子进程环境；stdout/stderr 收集输出。与 doctor 的
+	// 约定一致，非零退出码不是错误（退出码表达诊断结论）。
 	run(ctx context.Context, name string, args []string, env []string, stdout, stderr io.Writer)
 }
 
@@ -102,16 +102,23 @@ func (osProcessRunner) run(ctx context.Context, name string, args []string, env 
 // Runner 执行 doctor 子进程并解析报告。子进程环境固定剥离 DSH_SAFE_MODE
 // （安全模式会让诊断看不到真实安装中的第三方插件问题）并显式注入 DSH_HOME，
 // 保证检测对象是 harness 实际使用的运行时目录。
+//
+// doctor 由 launcher 直连（node + doctor 自己的 cli.js），不再经 `dsh doctor`
+// 子命令：doctor 是 launcher 私有包，不经上游 CLI 分发，上游也就没有承载 fork
+// 接线的必要。代价是这里不再有 `dsh` 那一层兜底，doctor 缺失时只能如实报出。
 type Runner struct {
-	dshCmd    string // node 可执行或 dsh 直接可执行
-	dshScript string // dsh 脚本路径（dshCmd 为 node 时非空）
+	cmd       string // 运行 doctor 的 node 可执行文件
+	doctorCLI string // doctor 的 cli.js 路径；空表示本次安装未提供 doctor
 	env       []string
 	runner    processRunner
 }
 
 // NewRunner 构造 doctor 执行器：env 在 launcher 当前环境基础上剥离
 // DSH_SAFE_MODE、注入 DSH_HOME=dshHome。
-func NewRunner(dshCmd, dshScript, dshHome string) *Runner {
+//
+// doctorCLI 为空不算构造失败：预检是尽力而为的前置检查，由 runDoctor 归类为
+// DoctorNotConfigured 后交调用方决定，不在这里提前中断。
+func NewRunner(cmd, doctorCLI, dshHome string) *Runner {
 	env := make([]string, 0, len(os.Environ())+1)
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "DSH_SAFE_MODE=") {
@@ -120,26 +127,31 @@ func NewRunner(dshCmd, dshScript, dshHome string) *Runner {
 		env = append(env, kv)
 	}
 	return &Runner{
-		dshCmd:    dshCmd,
-		dshScript: dshScript,
+		cmd:       cmd,
+		doctorCLI: doctorCLI,
 		env:       append(env, "DSH_HOME="+dshHome),
 		runner:    osProcessRunner{},
 	}
 }
 
-// args 组装 doctor 子进程 argv；dshScript 非空表示 dshCmd 是 node。
+// args 组装 doctor 子进程 argv：node 之后直接跟 cli.js，没有子命令层。
 func (r *Runner) args(extra ...string) []string {
-	args := []string{}
-	if r.dshScript != "" {
-		args = append(args, r.dshScript)
-	}
-	return append(args, append([]string{"doctor"}, extra...)...)
+	return append([]string{r.doctorCLI}, extra...)
 }
 
-// DoctorArgs 导出 doctor 子命令的 argv 组装，供 app 层需要自行控制输出
-// 处理（如 doctor 面板的人类可读修复输出）的调用点复用同一来源。
-func (r *Runner) DoctorArgs(extra ...string) []string {
-	return r.args(extra...)
+// Command 返回运行 doctor 的可执行文件与完整 argv，并报告本次安装是否提供了
+// doctor。app 层的 doctor 面板子进程与预检共用这一个来源，环境与 argv 不会分叉。
+//
+// doctor 未配置时 ok 为 false，而不是返回一条注定失败的 argv：调用方需要区分
+// "doctor 没找到"与"doctor 跑了但失败"，前者直接给出可呈现的原因更准确。
+//
+// @param extra - 追加在 cli.js 之后的参数（如 `--json`、`--repair`、`2`）。
+// @returns 可执行文件、完整 argv，以及 doctor 是否已配置。
+func (r *Runner) Command(extra ...string) (name string, args []string, ok bool) {
+	if r.doctorCLI == "" {
+		return "", nil, false
+	}
+	return r.cmd, r.args(extra...), true
 }
 
 // Env 导出 doctor 子进程环境（剥离 DSH_SAFE_MODE、注入 DSH_HOME），
@@ -159,6 +171,10 @@ const (
 	DoctorNoOutput DoctorErrorKind = "noOutput"
 	// DoctorOutputUnparsable doctor 有输出但不是合法 JSON。
 	DoctorOutputUnparsable DoctorErrorKind = "outputUnparsable"
+	// DoctorNotConfigured 本次安装未提供 doctor（launcher 未找到 doctor 的 cli.js）。
+	// 与 DoctorNoOutput 分开归类：前者是"根本没跑起来"，后者是"跑了但没说话"，
+	// 排查方向完全不同，合并会让用户被引向错误的方向。
+	DoctorNotConfigured DoctorErrorKind = "notConfigured"
 )
 
 // DoctorError 是归类后的 doctor 调用失败。
@@ -179,8 +195,11 @@ func (e *DoctorError) Error() string {
 
 // runDoctor 执行一次 doctor 子命令并解析 JSON 输出。
 func (r *Runner) runDoctor(ctx context.Context, extra []string, out any) error {
+	if r.doctorCLI == "" {
+		return &DoctorError{Kind: DoctorNotConfigured}
+	}
 	var stdout, stderr bytes.Buffer
-	r.runner.run(ctx, r.dshCmd, r.args(extra...), r.env, &stdout, &stderr)
+	r.runner.run(ctx, r.cmd, r.args(extra...), r.env, &stdout, &stderr)
 	output := bytes.TrimSpace(stdout.Bytes())
 	if len(output) == 0 {
 		detail := strings.TrimSpace(stderr.String())

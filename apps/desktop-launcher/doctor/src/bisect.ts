@@ -12,7 +12,7 @@
  * This is a diagnostic tool, not a fix — it tells the user WHICH plugin is
  * broken so they can remove/update/report it.
  *
- * @module @deepseek-ai/dsh-doctor/bisect
+ * @module @dsh-desktop/doctor/bisect
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs'
@@ -102,7 +102,7 @@ export async function bisectThirdPartyBundles(options: BisectOptions = {}): Prom
     }
   }
 
-  const tmpPatchDir = join(options.dshHome ?? '/tmp/dsh-doctor-bisect', 'profiles', profileName)
+  const tmpPatchDir = join(options.dshHome ?? '/tmp/dsh-desktop-doctor-bisect', 'profiles', profileName)
   mkdirSync(tmpPatchDir, { recursive: true })
   const tmpPatchPath = join(tmpPatchDir, PROFILE_PATCH_FILENAME)
 

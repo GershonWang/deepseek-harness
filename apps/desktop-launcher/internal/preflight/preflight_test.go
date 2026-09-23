@@ -50,10 +50,14 @@ func itoa(n int) string {
 	return digits
 }
 
+// testDoctorCLI 是测试用的 doctor 入口路径。doctor 由 launcher 直连，argv 里没有
+// `doctor` 子命令层——这条常量同时是"子命令层已被移除"的断言基准。
+const testDoctorCLI = "/opt/harness/doctor/lib/types/cli.js"
+
 func newTestRunner(t *testing.T, stdouts ...string) (*Runner, *fakeRunner) {
 	t.Helper()
 	fake := &fakeRunner{stdouts: stdouts}
-	r := NewRunner("/usr/bin/node", "/opt/harness/lib/bin.js", "/home/u/.dsh")
+	r := NewRunner("/usr/bin/node", testDoctorCLI, "/home/u/.dsh")
 	r.runner = fake
 	return r, fake
 }
@@ -71,7 +75,7 @@ func TestRunner_DiagnoseQuickArgvAndParse(t *testing.T) {
 	if call.name != "/usr/bin/node" {
 		t.Errorf("命令应为 node,got %q", call.name)
 	}
-	want := []string{"/opt/harness/lib/bin.js", "doctor", "--json", "--quick"}
+	want := []string{testDoctorCLI, "--json", "--quick"}
 	if strings.Join(call.args, " ") != strings.Join(want, " ") {
 		t.Errorf("argv 不匹配,got %v", call.args)
 	}
@@ -125,6 +129,42 @@ func TestRunner_DiagnoseBadJSONFails(t *testing.T) {
 	r, _ := newTestRunner(t, "not json")
 	if _, err := r.Diagnose(context.Background(), true); err == nil {
 		t.Fatal("坏 JSON 应返回错误")
+	}
+}
+
+// doctor 缺失必须归类为 DoctorNotConfigured 而不是 DoctorNoOutput：两者排查方向
+// 不同（前者是安装缺件，后者是 doctor 跑了但没说话），且必须一次子进程都不启动。
+func TestRunner_NotConfiguredSkipsSpawn(t *testing.T) {
+	fake := &fakeRunner{}
+	r := NewRunner("/usr/bin/node", "", "/home/u/.dsh")
+	r.runner = fake
+
+	_, err := r.Diagnose(context.Background(), true)
+	var doctorErr *DoctorError
+	if !errors.As(err, &doctorErr) || doctorErr.Kind != DoctorNotConfigured {
+		t.Fatalf("doctor 缺失应归类为 %q,got %v", DoctorNotConfigured, err)
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("doctor 缺失时不应启动任何子进程,got %d 次", len(fake.calls))
+	}
+	if _, _, ok := r.Command("--json"); ok {
+		t.Error("doctor 缺失时 Command 应报告 ok=false")
+	}
+}
+
+// Command 是 app 层 doctor 面板与预检共用的唯一 argv 来源，必须与预检一致。
+func TestRunner_CommandMatchesDiagnoseArgv(t *testing.T) {
+	r, fake := newTestRunner(t, diagReportJSON(0, 0))
+	if _, err := r.Diagnose(context.Background(), true); err != nil {
+		t.Fatalf("Diagnose: %v", err)
+	}
+	name, args, ok := r.Command("--json", "--quick")
+	if !ok {
+		t.Fatal("doctor 已配置时 Command 应报告 ok=true")
+	}
+	if name != fake.calls[0].name || strings.Join(args, " ") != strings.Join(fake.calls[0].args, " ") {
+		t.Errorf("Command 与 Diagnose 的 argv 不一致: %v %v vs %v %v",
+			name, args, fake.calls[0].name, fake.calls[0].args)
 	}
 }
 

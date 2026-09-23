@@ -1,7 +1,7 @@
 /**
  * Data-level diagnostic checks: session log integrity, corrupt session
  * archival, and attachment storage sanity.
- * @module @deepseek-ai/dsh-doctor/checks/data
+ * @module @dsh-desktop/doctor/checks/data
  */
 
 import { readdirSync, readFileSync, existsSync, renameSync, mkdirSync } from 'node:fs'

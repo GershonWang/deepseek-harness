@@ -20,6 +20,10 @@ import (
 type Resolved struct {
 	Config supervisor.Config
 	Port   string
+	// DoctorNode 运行 doctor 的 node 可执行文件。
+	DoctorNode string
+	// DoctorCLI doctor 的 cli.js 路径；空表示本次安装未随包提供 doctor。
+	DoctorCLI string
 }
 
 // Resolve 按优先级解析子进程环境：
@@ -29,14 +33,20 @@ type Resolved struct {
 //  4. 回退：node + 当前目录 bin.js
 //
 // 四条分支都经 harnessArgs 组装参数，以保证监护声明 overlay 无一遗漏。
+//
+// doctor 的运行环境独立解析（见 resolveDoctor）：它不再挂在 dsh 的 argv 上，
+// 因此不能从上面的分支里顺带推导。
 func Resolve() Resolved {
 	port := resolvePort()
 	logDir := resolveLogDir()
+	doctorNode, doctorCLI := resolveDoctor()
 
 	if bin := os.Getenv("DSH_DESKTOP_DSH_BIN"); bin != "" {
 		return Resolved{
-			Config: supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
-			Port:   port,
+			Config:     supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
+			Port:       port,
+			DoctorNode: doctorNode,
+			DoctorCLI:  doctorCLI,
 		}
 	}
 
@@ -51,8 +61,10 @@ func Resolve() Resolved {
 			node = resolveNode()
 		}
 		return Resolved{
-			Config: supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
-			Port:   port,
+			Config:     supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
+			Port:       port,
+			DoctorNode: node,
+			DoctorCLI:  doctorCLI,
 		}
 	}
 
@@ -60,15 +72,65 @@ func Resolve() Resolved {
 	devBin := filepath.Join(cwd, "..", "cli", "lib", "bin.js")
 	if _, err := os.Stat(devBin); err == nil {
 		return Resolved{
-			Config: supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
-			Port:   port,
+			Config:     supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
+			Port:       port,
+			DoctorNode: resolveNode(),
+			DoctorCLI:  doctorCLI,
 		}
 	}
 
 	return Resolved{
-		Config: supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
-		Port:   port,
+		Config:     supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
+		Port:       port,
+		DoctorNode: resolveNode(),
+		DoctorCLI:  doctorCLI,
 	}
+}
+
+// doctorNodeEnv / doctorCLIEnv 允许在非标准布局下显式指定 doctor 的运行环境
+// （开发调试、CI 冒烟）。两者独立：只覆盖 node 而不覆盖 cli.js（或反之）是
+// 合法用法，因此不做成对校验。
+const (
+	doctorNodeEnv = "DSH_DESKTOP_DOCTOR_NODE"
+	doctorCLIEnv  = "DSH_DESKTOP_DOCTOR_CLI"
+)
+
+// resolveDoctor 解析 doctor 的运行环境，返回 node 可执行文件与 cli.js 路径。
+//
+// doctor 不再经 `dsh doctor` 子命令分发，因此它的位置与 dsh 的入口脚本位置
+// 无关，必须独立探测。两个布局的 doctor 位置不同：
+//   - 打包态：doctor 由 prepare-offline.sh stage 到 harness 树内
+//     （<prefix>/harness/doctor/...）。放在 harness 树**内部**而不是旁边，是为了
+//     让 doctor 对 @deepseek-ai/dsh-* 的 import 靠 Node 逐级向上查找直接命中
+//     <prefix>/harness/node_modules，无需任何额外符号链接。
+//   - 开发态：launcher 的 cwd 是 apps/desktop-launcher，doctor 就在它下面
+//     （与上面 devBin 分支同一前提）。
+//
+// 找不到时返回空 CLI 而不是报错：预检是尽力而为的前置检查，doctor 缺失应降级为
+// 一条可呈现的诊断失败（preflight.DoctorNotConfigured），而不是让 launcher 起不来。
+func resolveDoctor() (node, cli string) {
+	node = resolveNode()
+	if v := os.Getenv(doctorNodeEnv); v != "" {
+		node = v
+	}
+	if v := os.Getenv(doctorCLIEnv); v != "" {
+		return node, v
+	}
+
+	exe, _ := os.Executable()
+	prefix := filepath.Dir(filepath.Dir(exe))
+	packaged := filepath.Join(prefix, "harness", "doctor", "lib", "types", "cli.js")
+	if _, err := os.Stat(packaged); err == nil {
+		return node, packaged
+	}
+
+	cwd, _ := os.Getwd()
+	dev := filepath.Join(cwd, "doctor", "lib", "types", "cli.js")
+	if _, err := os.Stat(dev); err == nil {
+		return node, dev
+	}
+
+	return node, ""
 }
 
 // supervisorOverlayName 是 launcher 写入运行时目录、并在每次 spawn 时传给

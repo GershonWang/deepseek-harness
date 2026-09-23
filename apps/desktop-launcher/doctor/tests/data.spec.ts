@@ -13,7 +13,7 @@ describe('data checks', () => {
   let home: string
 
   beforeEach(async () => {
-    home = mkdtempSync(join(tmpdir(), 'dsh-doctor-data-'))
+    home = mkdtempSync(join(tmpdir(), 'dsh-desktop-doctor-data-'))
     _resetRegistry()
     // Re-register to pick up new registry state
     const { envChecks } = await import('../src/checks/env.js')

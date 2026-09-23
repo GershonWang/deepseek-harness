@@ -7,7 +7,7 @@
  * whose imports no longer resolve after an upgrade without starting the full
  * supervisor path.
  *
- * @module @deepseek-ai/dsh-doctor/checks/plugins
+ * @module @dsh-desktop/doctor/checks/plugins
  */
 
 import { execFile } from 'node:child_process'
@@ -338,22 +338,25 @@ const DYNAMIC_PROBE_TIMEOUT_MS = 60_000
 const DYNAMIC_PROBE_MAX_BUFFER = 10 * 1024 * 1024
 
 /**
- * Resolve the loader-probe subprocess entry. Prefer the package export
- * `@deepseek-ai/dsh-doctor/loader-probe` (the built `lib/types/loader-probe.js`):
- * it works both from a bundled consumer (CLI bundle resolves it through the
- * installation's node_modules) and from source (workspace link). A relative
- * `../loader-probe.ts` would break once `checks/plugins.ts` is bundled, and
- * spawn with `--import tsx/esm` fails in packaged installs where tsx is a
- * dev-only dependency. Fall back to the source file when the package export
- * is not resolvable (pre-build workspace).
+ * 定位 loader-probe 子进程入口，并说明该入口是否需要 tsx 加载。
+ *
+ * 按同级产物探测，而不是走包导出：doctor 已迁出 pnpm workspace 成为 launcher 私有
+ * 目录包，打包态不经 node_modules 暴露该导出，`require.resolve` 必然失败。
+ *
+ * 两个运行面必须都覆盖，`tsc` 把 src 平铺到 `lib/types`，本文件在两个面里的同级兄弟
+ * 文件不同名：
+ * - 产物面（打包安装、CLI 调用）：`lib/types/checks/plugins.js` 的兄弟是
+ *   `lib/types/loader-probe.js`，直接跑，不需要 tsx——打包态也没有 tsx。
+ * - 源码面（vitest 直接加载 `src/checks/plugins.ts`）：兄弟是 `src/loader-probe.ts`，
+ *   必须用 `--import tsx/esm` 启动。只在源码面回退到 tsx，因此不会把 tsx 依赖带进
+ *   打包运行路径。
+ *
+ * @returns 探针脚本绝对路径，以及是否需要 tsx 加载。
  */
 function loaderProbeEntry(): { path: string; needsTsx: boolean } {
-  try {
-    const resolved = require.resolve('@deepseek-ai/dsh-doctor/loader-probe')
-    return { path: resolved, needsTsx: false }
-  } catch {
-    return { path: fileURLToPath(new URL('../loader-probe.ts', import.meta.url)), needsTsx: true }
-  }
+  const built = new URL('../loader-probe.js', import.meta.url)
+  if (existsSync(built)) return { path: fileURLToPath(built), needsTsx: false }
+  return { path: fileURLToPath(new URL('../loader-probe.ts', import.meta.url)), needsTsx: true }
 }
 
 interface LoaderProbeOutcome {

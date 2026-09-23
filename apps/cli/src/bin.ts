@@ -69,12 +69,6 @@ export async function runCli(): Promise<void> {
       await runDumpConfigSchema(invocation.profile, invocation.patches, invocation.fromDefaultProfile)
       break
     }
-    // 启动前预检：检查环境、配置与插件，并按请求的级别做诊断修复。
-    case 'doctor': {
-      const { runDoctor } = await import('./doctor.ts')
-      process.exit(await runDoctor(invocation))
-      break
-    }
     default:
       invocation satisfies never
       throw new Error(`dsh: unhandled invocation mode ${JSON.stringify(invocation)}`)
