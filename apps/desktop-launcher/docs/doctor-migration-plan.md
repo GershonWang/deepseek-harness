@@ -296,7 +296,7 @@ Expected：harness 正常启动，`/tmp` 下第三方插件的 UI 入口消失�
 - Modify: `apps/desktop-launcher/doctor/src/checks/plugins.ts`
 - Modify: `apps/desktop-launcher/doctor/tsconfig.json`
 
-- [ ] **Step 1.1：用 git mv 保留历史**
+- [x] **Step 1.1：用 git mv 保留历史**
 
 ```sh
 cd /home/Jokul/Documents/GitHub/deepseek-harness
@@ -308,7 +308,7 @@ git status --short | head -40
 ```
 Expected：`R` 重命名记录出现在 `packages/support/doctor/...` → `apps/desktop-launcher/doctor/...`，且 `lib/`、`node_modules/` 未被跟踪（它们本就被 `.gitignore` 覆盖，删掉只是清理工作副本）。
 
-- [ ] **Step 1.2：改写 package.json 为非 workspace 目录包**
+- [x] **Step 1.2：改写 package.json 为非 workspace 目录包**
 
 替换 `apps/desktop-launcher/doctor/package.json` 全文：
 
@@ -354,11 +354,11 @@ Expected：`R` 重命名记录出现在 `packages/support/doctor/...` → `apps/
 - 删掉 `./loader-probe` 导出：见 Step 1.3。
 - 依赖版本改为 `"*"`：非 workspace 成员不能写 `workspace:*`，而该字段在迁移后只作为 `doctor-link-deps.mjs` 的清单来源与人类文档，实际解析由符号链接决定。（若 `pnpm install` 或某门禁对非 workspace `package.json` 报错，说明有额外的全局扫描，需回到 §3.1 重新评估。）
 
-- [ ] **Step 1.3：loader-probe 改为同级解析**
+- [x] **Step 1.3：loader-probe 改为同级解析**
 
 在 `apps/desktop-launcher/doctor/src/checks/plugins.ts` 中，把 `loaderProbeEntry` 改为 §3.2 给出的实现（按同级产物探测、返回 `{ path, needsTsx }`），调用点保持原有的 `probe.needsTsx ? ['--import','tsx/esm', probe.path] : [probe.path]` 分支不变。保留原有的模块级中文注释，并写清"两个运行面各自解析到哪个文件"。
 
-- [ ] **Step 1.4：修正 tsconfig 的 `references` 相对路径**
+- [x] **Step 1.4：修正 tsconfig 的 `references` 相对路径**
 
 **不要照抄"相对路径原样可用"的判断**——见 F12′，`../..` 在旧位置是 `packages/`、在新位置是 `apps/`，指向 `packages/` 下各包的 4 条引用必须补一级：
 
@@ -387,7 +387,7 @@ git commit -m "refactor(launcher): 将 doctor 从 packages 迁入 apps/desktop-l
 - Create: `apps/desktop-launcher/tools/doctor-build.mjs`
 - Create: `apps/desktop-launcher/tools/doctor-verify.mjs`
 
-- [ ] **Step 2.1：写依赖链接工具**
+- [x] **Step 2.1：写依赖链接工具**
 
 创建 `apps/desktop-launcher/tools/doctor-link-deps.mjs`：
 
@@ -476,7 +476,7 @@ for (const name of Object.keys(manifest.dependencies ?? {})) {
 console.log(`doctor-link-deps: 新建 ${linked} 个链接，复用 ${reused} 个`)
 ```
 
-- [ ] **Step 2.2：写构建工具**
+- [x] **Step 2.2：写构建工具**
 
 创建 `apps/desktop-launcher/tools/doctor-build.mjs`：先调用 `doctor-link-deps.mjs`，再执行 `tsc -b apps/desktop-launcher/doctor/tsconfig.json`，最后断言 `lib/types/index.js` 与 `lib/types/loader-probe.js` 都存在。任一断言失败时以非零退出并打印缺失路径——静默产出一个缺入口的构建比构建失败更难排查。
 
@@ -551,7 +551,7 @@ git commit -m "refactor(launcher): Go 壳直连 doctor 入口，不再经 dsh do
 - Modify: `apps/cli/src/args.ts`, `apps/cli/src/bin.ts`, `apps/cli/package.json`, `apps/cli/tests/args.spec.ts`, `apps/cli/tsconfig.json`
 - Modify: `tsconfig.base.json`, `tsconfig.host.json`
 
-- [ ] **Step 4.1：确认回退就是"恢复上游原文"**
+- [x] **Step 4.1：确认回退就是"恢复上游原文"**
 
 ```sh
 cd /home/Jokul/Documents/GitHub/deepseek-harness
@@ -559,7 +559,7 @@ git diff "$BASE" HEAD -- apps/cli/ tsconfig.base.json tsconfig.host.json
 ```
 把这份 diff 通读一遍，确认其中**全部**内容都属于 doctor 接线（此前已核实为是）。若出现任何与 doctor 无关的改动，单独处理，不要一起回退。
 
-- [ ] **Step 4.2：逐个回退**
+- [x] **Step 4.2：逐个回退**
 
 ```sh
 git rm apps/cli/src/doctor.ts
@@ -568,7 +568,7 @@ git status --short
 ```
 Expected：只有这 8 个文件显示为修改/删除，且 `git diff` 里不再出现任何 doctor 字样。
 
-- [ ] **Step 4.3：验证 `dsh` 仍然完好**
+- [x] **Step 4.3：验证 `dsh` 仍然完好**
 
 ```sh
 node apps/cli/lib/bin.js --help | head -30
@@ -576,7 +576,7 @@ node apps/cli/lib/bin.js web --help 2>&1 | head -10
 ```
 Expected：`--help` 正常；`doctor` 子命令不复存在（这是预期的功能移除，见决策点 D3）。
 
-- [ ] **Step 4.4：跑上游侧门禁**
+- [x] **Step 4.4：跑上游侧门禁**
 
 ```sh
 pnpm run hygiene
@@ -967,7 +967,12 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 
 ## 阶段 1 执行记录
 
-**阶段 1 的 Task 1–5 与 §5.5 的 Step 5.1–5.3 已全部执行完毕。** 阶段 1 尚未提交。
+**阶段 1 的 Task 1–5 与 §5.5 的 Step 5.1–5.3 已执行完毕，并已作为单个原子提交落成**（`refactor(doctor): 把 doctor 迁出上游 workspace，改由启动器直连`，54 个文件）。
+
+§5 的复选框反映真实执行状态，有两类例外需说明：
+
+- **5 个提交步骤（1.5／2.5／3.6／4.5／5.3）有意未执行**。§5 开头已规定"不要逐 Task 提交"——doctor 一旦离开 workspace，`apps/cli` 与两处 tsconfig 立即无法构建，逐 Task 提交会在历史里留下坏提交。这 5 步只作为工作进度检查点，实际工作在同一工作树内连续完成，最后一次性提交。
+- **Step 2.3 未完成，Step 2.4 因此只做了前 4 条命令**。见下节，这是一项**真实的保护力损失**，不是笔误。
 
 ### 已完成并验证的部分
 
@@ -983,6 +988,24 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 | doctor 构建 | ✅ | `tools/doctor-build.mjs` exit 0，三个入口齐全；从零重建（删 `lib`）0 污染 |
 | doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0；`--json` → 12 项检查、loader-probe 成功 spawn（无 `ERR_MODULE_NOT_FOUND`、无 tsx）；`--repair 9` → exit 2 |
 | doctor 测试套件 | ⚠️ 75/76 | 见下方环境性失败 |
+
+### Step 2.3 未完成：覆盖率保护力确实下降了
+
+这是阶段 1 **唯一一项计划内但未实施的工作**，且它带来的损失是真实的，不是文档笔误。
+
+方案 Step 2.3 要求创建 `apps/desktop-launcher/tools/doctor-verify.mjs`，以 doctor 为 root 跑 `vitest run --coverage` 并把逐文件 100% 门槛搬过来，理由写得很明确：上游 `pnpm run test:coverage` 的 `include` 是 `packages/*/*/src/**`（F8），doctor 迁出后会自动脱离该门禁，**不补这一层，doctor 现有的 10 个 spec / 77 个用例与 100% 覆盖率纪律会无声消失**。
+
+实测现状（本次复核）：
+
+```sh
+ls apps/desktop-launcher/tools/          # 只有 doctor-build.mjs、doctor-link-deps.mjs，无 doctor-verify.mjs
+grep -n "thresholds" apps/desktop-launcher/doctor/vitest.config.ts   # 无匹配
+grep -n "include:" vitest.config.ts      # 第 209 行仍是 packages/*/*/src/**/*.{ts,tsx}
+```
+
+即：doctor 的**测试仍会被执行**（`apps/desktop-launcher/doctor/vitest.config.ts` 让根配置收集到它，见该文件顶部注释），但**覆盖率门槛不再作用于它**——测试挂了会发现，测试没写全不会发现。这正是 [merge-conflict-convergence.md](./merge-conflict-convergence.md) 第 218 行预告的代价①："per-file 100% 门槛不再覆盖 doctor（**保护力下降**，需显式接受或另建替代门禁）"。
+
+**处置**：要么补上 `doctor-verify.mjs`（Step 2.3 原样实施），要么显式接受该损失并在 [merge-conflict-convergence.md](./merge-conflict-convergence.md) 的代价栏里改为"已接受"。**在两者之一落定前，不应把阶段 1 视为完全闭环。**
 
 ### Task 3：Go 壳直连（已完成）
 
