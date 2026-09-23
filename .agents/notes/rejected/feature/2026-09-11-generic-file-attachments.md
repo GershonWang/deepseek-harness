@@ -6,7 +6,7 @@ English | [中文](2026-09-11-generic-file-attachments.zh.md)
 
 ## Problem
 
-The composer accepts text and raster images only. Copying a non-image file — from the file manager, or from any application that writes `text/uri-list` to the X11 clipboard — and pasting it into the composer does nothing at all: the packaged shell's clipboard bridge reads the selection, rejects a path whose extension is not a raster one, and returns an empty result, so neither an attachment nor a message appears. [The durable attachment decision](../../implemented/feature/2026-07-22-web-multimodal-image-input-and-durable-attachments.md) recorded generic files, file picking, and PDF as explicit follow-ups.
+The composer accepts text and raster images only. Copying a non-image file — from the file manager, or from any application that writes `text/uri-list` to the X11 clipboard — and pasting it into the composer does nothing at all: the packaged shell's clipboard bridge reads the selection, rejects a path whose extension is not a raster one, and returns an empty result, so neither an attachment nor a message appears. [The durable attachment decision](../../archived/feature/2026-07-22-web-multimodal-image-input-and-durable-attachments.md) recorded generic files, file picking, and PDF as explicit follow-ups.
 
 ## Proposal
 

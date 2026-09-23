@@ -32,4 +32,4 @@ The rebuilt `.uab` opens external links — the about dialog's repository link a
 
 ## Related
 
-Same packaging pipeline precedent: [Portability fixes for the Linglong-packaged desktop client](../../implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md). Host-side xdg-open consumers in the harness: [Tool-call file open in OS](../../implemented/feature/2026-07-28-tool-call-file-open-in-os.md) and [Open the ready web UI](../../implemented/feature/2026-08-12-open-ready-web-ui.md).
+Same packaging pipeline precedent: [Portability fixes for the Linglong-packaged desktop client](../../implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md). Host-side xdg-open consumers in the harness: [Tool-call file open in OS](../../archived/feature/2026-07-28-tool-call-file-open-in-os.md) and [Open the ready web UI](../../archived/feature/2026-08-12-open-ready-web-ui.md).

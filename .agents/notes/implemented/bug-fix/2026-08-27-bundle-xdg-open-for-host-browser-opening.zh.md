@@ -32,4 +32,4 @@ Status: implemented
 
 ## Related
 
-同一打包管线先例：[玲珑打包桌面客户端的可移植性修复](../../implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md)。harness 侧 xdg-open 消费方：[工具调用在 OS 中打开文件](../../implemented/feature/2026-07-28-tool-call-file-open-in-os.zh.md) 与 [打开就绪的 Web UI](../../implemented/feature/2026-08-12-open-ready-web-ui.zh.md)。
+同一打包管线先例：[玲珑打包桌面客户端的可移植性修复](../../implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md)。harness 侧 xdg-open 消费方：[工具调用在 OS 中打开文件](../../archived/feature/2026-07-28-tool-call-file-open-in-os.md) 与 [打开就绪的 Web UI](../../archived/feature/2026-08-12-open-ready-web-ui.md)。

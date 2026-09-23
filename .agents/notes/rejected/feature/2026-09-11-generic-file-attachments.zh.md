@@ -6,7 +6,7 @@ Status: rejected — every part of it lands in the harness core, and the format 
 
 ## Problem
 
-输入框只接受文本与位图图片。复制一个非图片文件 —— 从文件管理器，或任何把 `text/uri-list` 写进 X11 剪贴板的应用 —— 再粘贴进输入框，什么都不会发生：打包壳的剪贴板桥读取 selection 后，因路径扩展名不在位图白名单里而拒绝，返回空结果，于是既没有附件也没有任何提示。[durable attachment 决策](../../implemented/feature/2026-07-22-web-multimodal-image-input-and-durable-attachments.zh.md)当时把通用文件、文件选择器与 PDF 明确记为后续项。
+输入框只接受文本与位图图片。复制一个非图片文件 —— 从文件管理器，或任何把 `text/uri-list` 写进 X11 剪贴板的应用 —— 再粘贴进输入框，什么都不会发生：打包壳的剪贴板桥读取 selection 后，因路径扩展名不在位图白名单里而拒绝，返回空结果，于是既没有附件也没有任何提示。[durable attachment 决策](../../archived/feature/2026-07-22-web-multimodal-image-input-and-durable-attachments.md)当时把通用文件、文件选择器与 PDF 明确记为后续项。
 
 ## Proposal
 
