@@ -62,7 +62,7 @@ Not verified: nothing ran inside the Linglong container, and the launcher's own 
 
 ## Related
 
-- [Toolchain market catalog expansion and command exposure](2026-09-12-toolchain-market-catalog-expansion.md) owns the catalog data shape, including `bin_names` and the sha256 provenance rule this entry follows.
+- [Toolchain market catalog expansion and command exposure](2026-09-12-toolchain-market-catalog-expansion.md) owns the catalog data shape, including `bin_names` and the rule that each entry's `sha256` is measured by downloading the archive and matched against the upstream checksum file, which this entry follows.
 - [Container toolchain layers](2026-08-19-linglong-container-toolchain.md) owns the `installable` whitelist and the three-layer defense.
 - [Toolchain market presentation](2026-09-12-desktop-launcher-toolchain-market-presentation.md) owns the dialog's card layout and control styling, including the version dropdown's appearance.
 - [Dropping JDK 17 from the toolchain market catalog](../simplification/2026-09-14-toolchain-market-drop-jdk17.md) removes the `17.0.20.1` entry this change added; the decision above stays in force for `8u504` and `21.0.12.1`.

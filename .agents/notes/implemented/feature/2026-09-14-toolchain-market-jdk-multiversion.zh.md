@@ -62,7 +62,7 @@ ID 改名（`jdk21` → `jdk`）与随之而来的迁移（`jdk21-*` 转 `jdk-*`
 
 ## 关联
 
-- [工具链市场的清单扩容与命令暴露](2026-09-12-toolchain-market-catalog-expansion.zh.md) 拥有清单数据形状，包括 `bin_names` 与本次沿用的 sha256 取证规则。
+- [工具链市场的清单扩容与命令暴露](2026-09-12-toolchain-market-catalog-expansion.zh.md) 拥有清单数据形状，包括 `bin_names` 与本次沿用的"下载归档实测 sha256、并与上游校验文件比对"规则。
 - [容器内工具链的三层防线](2026-08-19-linglong-container-toolchain.zh.md) 拥有 `installable` 白名单与三层防线。
 - [工具链市场的呈现](2026-09-12-desktop-launcher-toolchain-market-presentation.zh.md) 拥有弹框的卡片布局与控件样式，包括版本下拉的外观。
 - [工具链市场下架 JDK 17](../simplification/2026-09-14-toolchain-market-drop-jdk17.zh.md) 移除了本次加入的 `17.0.20.1` 条目；上面的决策对 `8u504` 与 `21.0.12.1` 仍然有效。
