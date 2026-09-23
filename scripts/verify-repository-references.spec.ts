@@ -172,4 +172,14 @@ describe('maintained repository reference policy', () => {
     expect(findRepositoryReferences('.agents/notes/implemented/process/current.md', organizationUrl, new Set()))
       .toEqual([{ file: '.agents/notes/implemented/process/current.md', line: 1, kind: 'organization-url' }])
   })
+
+  it('exempts exactly the listed fork files and keeps their neighbours inspected', () => {
+    expect(findRepositoryReferences('apps/desktop-launcher/internal/toolchain/remote.go', organizationUrl, new Set()))
+      .toEqual([])
+    expect(findRepositoryReferences('apps/desktop-launcher/docs/AUDIT.md', organizationUrl, new Set())).toEqual([])
+    expect(findRepositoryReferences('apps/desktop-launcher/docs/AUDIT.md.bak', organizationUrl, new Set()))
+      .toEqual([{ file: 'apps/desktop-launcher/docs/AUDIT.md.bak', line: 1, kind: 'organization-url' }])
+    expect(findRepositoryReferences('apps/desktop-launcher/internal/toolchain/remote_extra.go', organizationUrl, new Set()))
+      .toEqual([{ file: 'apps/desktop-launcher/internal/toolchain/remote_extra.go', line: 1, kind: 'organization-url' }])
+  })
 })

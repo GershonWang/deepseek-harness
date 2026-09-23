@@ -22,7 +22,7 @@ Status: implemented
 
 ## 索引的重新发布
 
-客户端真正读取的清单不是这个文件：`internal/toolchain/remote.go` 把 `defaultIndexURL` 钉在提交哈希而不是分支上。本次下架重走了 `92d150b3cb` 做过的重钉：`defaultIndexURL` 现指向 `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`，该提交的 `index.json` blob（`599f8341…`，由 `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json` 取得）与工作区一致，实跑其 raw 地址返回 HTTP 200 且 sha256 相同。在该提交之前发布的启动器，要等到带这次重钉的版本发布才不再提供 17。
+客户端真正读取的清单不是这个文件：`internal/toolchain/remote.go` 把 `defaultIndexURL` 钉在不可变提交而不是分支上。本次下架重走了同一条重钉流程：`defaultIndexURL` 现指向承载新 `index.json` 的提交，其主题为 `refactor(toolchain): JDK 清单下架 17，收敛为 8/21 两版本`（2026-09-14）；用 `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json` 取得的索引 blob 与工作区一致，实跑其 raw 地址返回 HTTP 200 且 sha256 相同。在该提交之前发布的启动器，要等到带这次重钉的版本发布才不再提供 17。
 
 ## 后果
 

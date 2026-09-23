@@ -22,7 +22,7 @@ Two versions are kept rather than one so the multi-version code paths still carr
 
 ## Republishing the index
 
-The catalog clients actually read is not this file: `internal/toolchain/remote.go` pins `defaultIndexURL` to a commit hash rather than to a branch. The re-pin that `92d150b3cb` performed was repeated for this removal: `defaultIndexURL` names `ff0b924d11a2ca5cef4a908bec0ec54282ae7dc8`, whose `index.json` blob (`599f8341…`, from `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`) matches the working tree and whose raw URL returned HTTP 200 with the same sha256. A launcher released before that commit keeps offering 17 until one carrying the new pin ships.
+The catalog clients actually read is not this file: `internal/toolchain/remote.go` pins `defaultIndexURL` to an immutable commit rather than to a branch. This removal repeated that re-pin: `defaultIndexURL` now names the commit that carries the new `index.json`, whose subject is `refactor(toolchain): JDK 清单下架 17，收敛为 8/21 两版本` (2026-09-14); its index blob, read with `git rev-parse <commit>:apps/desktop-launcher/internal/toolchain/tools/index.json`, matches the working tree, and its raw URL returned HTTP 200 with the same sha256. A launcher released before that commit keeps offering 17 until one carrying the new pin ships.
 
 ## Consequences
 

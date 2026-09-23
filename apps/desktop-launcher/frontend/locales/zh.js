@@ -323,8 +323,8 @@ window.DSH_LOCALES.zh = {
 
   /* ---------- 关于弹框 ---------- */
   "about.title": "关于",
-  // 「DSH版本」等标签的用词是既有决定（见 84b2734094：版本行改称 DSH版本 并置于
-  // 首行），迁移只改文案来源、不改用词。
+  // 「DSH版本」等标签的用词是既有决定（版本行改称 DSH版本 并置于首行），迁移只改
+  // 文案来源、不改用词。
   "about.harnessVersion": "DSH版本",
   "about.upstreamRepo": "上游DSH仓库",
   "about.packageVersion": "玲珑包版本",
