@@ -1,46 +1,46 @@
-# dsh doctor diagnostics, repair, and safe mode implementation plan
+# dsh doctor 诊断修复与安全模式 实施计划
 
-English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
+[English](2026-08-28-dsh-doctor-and-safe-mode.md) | 中文
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 
-**Goal:** Give the Linglong build of deepseek harness one-click diagnostics and repair, so that a harness process which fails to start after an upgrade because of an incompatible third-party plugin, a corrupted configuration, or abnormal data can be recovered; also provide a three-level safe mode as a fallback.
+**Goal:** 为玲珑版 deepseek harness 提供一键诊断修复能力，解决升级后第三方插件不兼容、配置损坏、数据异常等导致的 harness 进程启动失败问题；同时提供三级安全模式作为兜底。
 
 
-**Architecture:** Three layers: (1) the `@deepseek-ai/dsh-doctor` Node package provides diagnosis and repair, exposed as the `dsh doctor` / `dsh repair` CLI subcommands; (2) `app-boot` gains three-level `DSH_SAFE_MODE` support (plugins/config/full) that skips the corresponding layer of user data at startup; (3) the desktop launcher Go layer gains diagnose/repair/safe-mode bindings and the frontend startup-failure page gains an entry point for these operations. Every repair backs up before it modifies, and never deletes anything directly.
+**Architecture:** 三层架构：(1) `@deepseek-ai/dsh-doctor` Node 包提供诊断和修复能力，以 `dsh doctor` / `dsh repair` CLI 子命令暴露；(2) `app-boot` 新增 `DSH_SAFE_MODE` 三级支持（plugins/config/full），在启动时跳过对应层级的用户数据；(3) 桌面启动器 Go 层新增诊断/修复/安全模式绑定，前端启动失败页增加操作入口。修复操作全程先备份再修改，零直接删除。
 
 
-**Tech Stack:** TypeScript (the Node.js diagnostics package, ESM), Go (the Wails desktop launcher), plain HTML/CSS/JS (the frontend dialog), Cordis Loader (the startup injection point), `@deepseek-ai/dsh-app-boot` (the safe-mode integration point).
+**Tech Stack:** TypeScript（Node.js 诊断包，ESM）、Go（Wails 桌面启动器）、原生 HTML/CSS/JS（前端弹框）、Cordis Loader（启动时注入点）、`@deepseek-ai/dsh-app-boot`（安全模式接入点）。
 
 
 ---
 
 
-## File structure
+## 文件结构
 
-| File | Responsibility | New/Modified |
+| 文件 | 职责 | 新建/修改 |
 |---|---|---|
-| `packages/support/doctor/src/index.ts` | doctor main entry: check registration, diagnosis run, JSON output | New |
-| `packages/support/doctor/src/checks/env.ts` | Environment checks: Node version, disk space, `.env` bootstrap variables | New |
-| `packages/support/doctor/src/checks/config.ts` | Configuration checks: `settings.yaml`, the user `cordis.patch.yml` | New |
-| `packages/support/doctor/src/checks/plugins.ts` | Plugin checks: profile bundles resolvable, activatable, third-party compatibility | New |
-| `packages/support/doctor/src/checks/data.ts` | Data checks: session JSONL integrity, KV storage | New |
-| `packages/support/doctor/src/repair.ts` | Repair execution: leveled repair, backup management | New |
-| `packages/support/doctor/src/safe-mode.ts` | Safe mode: three-level mode definitions, environment-variable protocol | New |
-| `packages/support/doctor/tests/doctor.spec.ts` | Diagnosis/repair unit tests | New |
-| `packages/boot/app-boot/src/profile.ts` | `loadProfile()` gains a `skipThirdPartyBundles` option | Modified |
-| `packages/boot/app-boot/src/index.ts` | `boot()` / `loadLayeredEnv()` respond to the `DSH_SAFE_MODE` environment variable | Modified |
-| `apps/desktop-launcher/internal/app/app.go` | New Diagnose/Repair/StartSafeMode bound methods | Modified |
-| `apps/desktop-launcher/internal/domain/domain.go` | New DoctorResult / RepairResult types | Modified |
-| `apps/desktop-launcher/frontend/index.html` | The startup-failure page gains a diagnostics and repair action area | Modified |
-| `apps/desktop-launcher/frontend/app.js` | Diagnostics/repair interaction logic, safe-mode startup | Modified |
-| `apps/desktop-launcher/frontend/styles.css` | Styles for diagnosis results and repair buttons | Modified |
+| `packages/support/doctor/src/index.ts` | doctor 主入口：检查项注册、诊断执行、JSON 输出 | 新建 |
+| `packages/support/doctor/src/checks/env.ts` | 环境层检查：Node 版本、磁盘空间、`.env` bootstrap 变量 | 新建 |
+| `packages/support/doctor/src/checks/config.ts` | 配置层检查：`settings.yaml`、用户 `cordis.patch.yml` | 新建 |
+| `packages/support/doctor/src/checks/plugins.ts` | 插件层检查：profile bundle 可解析、可激活、第三方兼容性 | 新建 |
+| `packages/support/doctor/src/checks/data.ts` | 数据层检查：会话 JSONL 完整性、KV 存储 | 新建 |
+| `packages/support/doctor/src/repair.ts` | 修复执行：分级修复、备份管理 | 新建 |
+| `packages/support/doctor/src/safe-mode.ts` | 安全模式：三级模式定义、环境变量协议 | 新建 |
+| `packages/support/doctor/tests/doctor.spec.ts` | 诊断/修复单元测试 | 新建 |
+| `packages/boot/app-boot/src/profile.ts` | `loadProfile()` 增加 `skipThirdPartyBundles` 选项 | 修改 |
+| `packages/boot/app-boot/src/index.ts` | `boot()` / `loadLayeredEnv()` 响应 `DSH_SAFE_MODE` 环境变量 | 修改 |
+| `apps/desktop-launcher/internal/app/app.go` | 新增 Diagnose/Repair/StartSafeMode 绑定方法 | 修改 |
+| `apps/desktop-launcher/internal/domain/domain.go` | 新增 DoctorResult / RepairResult 类型 | 修改 |
+| `apps/desktop-launcher/frontend/index.html` | 启动失败页增加诊断修复操作区 | 修改 |
+| `apps/desktop-launcher/frontend/app.js` | 诊断修复交互逻辑、安全模式启动 | 修改 |
+| `apps/desktop-launcher/frontend/styles.css` | 诊断结果、修复按钮样式 | 修改 |
 
 ---
 
 
-### Task 1: doctor package skeleton + check abstraction + tests
+### Task 1: doctor 包骨架 + 检查项抽象 + 测试
 
 **Files:**
 - Create: `packages/support/doctor/package.json`
@@ -48,9 +48,9 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
 - Create: `packages/support/doctor/src/index.ts`
 - Create: `packages/support/doctor/tests/doctor.spec.ts`
 
-**Prerequisites:** Understand the project package layout and `pnpm-workspace.yaml`; doctor lives at `packages/support/doctor/` (the same group as `test-support`; both are supporting tool packages).
+**先决条件:** 了解项目包结构和 `pnpm-workspace.yaml`，doctor 放在 `packages/support/doctor/`（与 `test-support` 同组，都是支撑性工具包）。
 
-- [ ] **Step 1: Create package.json** — create `packages/support/doctor/package.json`:
+- [ ] **Step 1: 创建 package.json** —— 新建 `packages/support/doctor/package.json`：
     ```json
     {
       "name": "@deepseek-ai/dsh-doctor",
@@ -72,7 +72,7 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     }
     ```
 
-- [ ] **Step 2: Define the types** — create `packages/support/doctor/src/types.ts`:
+- [ ] **Step 2: 定义类型** —— 新建 `packages/support/doctor/src/types.ts`：
     ```typescript
     export type Severity = 'info' | 'warning' | 'error' | 'fatal'
     export type RepairLevel = 1 | 2 | 3
@@ -127,7 +127,7 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     }
     ```
 
-- [ ] **Step 3: Implement the main entry** — create `packages/support/doctor/src/index.ts`:
+- [ ] **Step 3: 实现主入口** —— 新建 `packages/support/doctor/src/index.ts`：
     ```typescript
     import { mkdir } from 'node:fs/promises'
     import { join } from 'node:path'
@@ -215,7 +215,7 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     export { type DoctorCheck, type DoctorReport, type RepairReport, type RepairLevel, type CheckResult, type FixResult, type Severity } from './types.js'
     ```
 
-- [ ] **Step 4: Write the failing test** — create `packages/support/doctor/tests/doctor.spec.ts`:
+- [ ] **Step 4: 写失败测试** —— 新建 `packages/support/doctor/tests/doctor.spec.ts`：
     ```typescript
     import { describe, it, expect, beforeEach } from 'vitest'
     import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -306,9 +306,9 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     })
     ```
 
-    Note: because `registerCheck` appends to a module-level array, tests pollute each other. The fix is to export a test-only `_resetRegistry()` function from `index.ts`, or to give each test its own import instance. This plan exports `_resetRegistry()`:
+    注意：由于 `registerCheck` 往模块级数组追加，测试间会互相污染。解决方法是在 `index.ts` 导出一个 `_resetRegistry()` 测试专用函数，或在每个测试用单独的 import 实例。这里采用导出 `_resetRegistry()`：
 
-    Append this to `index.ts`:
+    在 `index.ts` 追加：
     ```typescript
     /** @internal test-only */
     export function _resetRegistry(): void {
@@ -316,16 +316,16 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     }
     ```
 
-- [ ] **Step 5: Run the tests and confirm they pass**
+- [ ] **Step 5: 运行测试确认通过**
 
     Run:
     ```bash
     pnpm --filter @deepseek-ai/dsh-doctor test
     ```
 
-    Expected: 4 tests PASS. If registry isolation between tests is a problem, add a `beforeEach` that calls `_resetRegistry()`.
+    Expected: 4 tests PASS。如果 registry 测试隔离有问题，补充 `beforeEach` 调用 `_resetRegistry()`。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
     ```bash
     git add packages/support/doctor/package.json packages/support/doctor/src/types.ts packages/support/doctor/src/index.ts packages/support/doctor/tests/doctor.spec.ts
@@ -335,14 +335,14 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
 ---
 
 
-### Task 2: Environment checks (Node version, disk space, .env bootstrap variables)
+### Task 2: 环境层检查（Node 版本、磁盘空间、.env bootstrap 变量）
 
 **Files:**
 - Create: `packages/support/doctor/src/checks/env.ts`
-- Modify: `packages/support/doctor/src/index.ts` (register the checks)
+- Modify: `packages/support/doctor/src/index.ts`（注册检查项）
 - Test: `packages/support/doctor/tests/env.spec.ts`
 
-- [ ] **Step 1: Write the environment checks** — create `packages/support/doctor/src/checks/env.ts`:
+- [ ] **Step 1: 写环境检查实现** —— 新建 `packages/support/doctor/src/checks/env.ts`：
     ```typescript
     import { statfs } from 'node:fs/promises'
     import { readFileSync, existsSync } from 'node:fs'
@@ -467,27 +467,27 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     export const envChecks: DoctorCheck[] = [envNodeVersion, envDiskSpace, envBootstrapEnv]
     ```
 
-    Note: `BOOTSTRAP_NAMES` and `BOOTSTRAP_PREFIXES` are currently module-private variables in `app-boot/src/index.ts` (not exported). They must first be exported from `app-boot`.
+    注意：`BOOTSTRAP_NAMES` 和 `BOOTSTRAP_PREFIXES` 在 `app-boot/src/index.ts` 里目前是模块私有变量（没有 export）。需要先把它们从 `app-boot` 导出。
 
-- [ ] **Step 2: Export BOOTSTRAP_NAMES / BOOTSTRAP_PREFIXES** — modify `packages/boot/app-boot/src/index.ts` and append this export at the end of the file:
+- [ ] **Step 2: 导出 BOOTSTRAP_NAMES / BOOTSTRAP_PREFIXES** —— 修改 `packages/boot/app-boot/src/index.ts`，在文件末尾追加导出：
     ```typescript
     export { BOOTSTRAP_NAMES, BOOTSTRAP_PREFIXES, isBootstrapOnly }
     ```
-    Export the `isBootstrapOnly` function too (it was module-internal).
+    同时把 `isBootstrapOnly` 函数也 export（它本来是模块内部的）。
 
-    Since `isBootstrapOnly` is currently declared as `function isBootstrapOnly`, adding the `export` keyword is enough.
+    由于 `isBootstrapOnly` 当前是 `function isBootstrapOnly`，添加 `export` 关键字即可。
 
-- [ ] **Step 3: Register the environment checks** — modify `packages/support/doctor/src/index.ts` and append this in the import area:
+- [ ] **Step 3: 注册环境检查** —— 修改 `packages/support/doctor/src/index.ts`，在 import 区追加：
     ```typescript
     import { envChecks } from './checks/env.js'
     ```
-    Append this at the end of the file (auto-registration, so the CLI can use them directly; tests can call `_resetRegistry`):
+    在文件末尾追加（自动注册，供 CLI 直接使用；测试可 `_resetRegistry`）：
     ```typescript
     // Auto-register built-in checks
     for (const check of envChecks) registerCheck(check)
     ```
 
-- [ ] **Step 4: Write the environment-check tests** — create `packages/support/doctor/tests/env.spec.ts`:
+- [ ] **Step 4: 写环境检查测试** —— 新建 `packages/support/doctor/tests/env.spec.ts`：
     ```typescript
     import { describe, it, expect, beforeEach } from 'vitest'
     import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -540,16 +540,16 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     })
     ```
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 5: 运行测试**
 
     Run:
     ```bash
     pnpm --filter @deepseek-ai/dsh-doctor test
     ```
 
-    Expected: all env tests PASS. Watch the path issue (`./checks/env.js` vs `.ts`) and make sure the tsconfig is configured correctly.
+    Expected: env 测试全 PASS。注意路径问题（`./checks/env.js` vs `.ts`），确保 tsconfig 配置正确。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
     ```bash
     git add packages/support/doctor/src/checks/env.ts packages/support/doctor/tests/env.spec.ts packages/boot/app-boot/src/index.ts
@@ -559,14 +559,14 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
 ---
 
 
-### Task 3: Configuration checks (settings.yaml + the user cordis.patch.yml)
+### Task 3: 配置层检查（settings.yaml + 用户 cordis.patch.yml）
 
 **Files:**
 - Create: `packages/support/doctor/src/checks/config.ts`
-- Modify: `packages/support/doctor/src/index.ts` (register)
+- Modify: `packages/support/doctor/src/index.ts`（注册）
 - Test: `packages/support/doctor/tests/config.spec.ts`
 
-- [ ] **Step 1: Implement the configuration checks** — create `packages/support/doctor/src/checks/config.ts`:
+- [ ] **Step 1: 实现配置检查** —— 新建 `packages/support/doctor/src/checks/config.ts`：
     ```typescript
     import { readFileSync, existsSync, renameSync, mkdirSync } from 'node:fs'
     import { join } from 'node:path'
@@ -657,14 +657,14 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     export const configChecks: DoctorCheck[] = [cfgSettingsYaml, cfgUserPatch]
     ```
 
-- [ ] **Step 2: Register the configuration checks** — append the import and registration in `packages/support/doctor/src/index.ts`:
+- [ ] **Step 2: 注册配置检查** —— 在 `packages/support/doctor/src/index.ts` 追加 import 和注册：
     ```typescript
     import { configChecks } from './checks/config.js'
     // ...
     for (const check of configChecks) registerCheck(check)
     ```
 
-- [ ] **Step 3: Write the configuration-check tests** — create `packages/support/doctor/tests/config.spec.ts`:
+- [ ] **Step 3: 写配置检查测试** —— 新建 `packages/support/doctor/tests/config.spec.ts`：
     ```typescript
     import { describe, it, expect, beforeEach } from 'vitest'
     import { mkdtemp, writeFile, mkdir } from 'node:fs/promises'
@@ -737,16 +737,16 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
     })
     ```
 
-- [ ] **Step 4: Run the tests**
+- [ ] **Step 4: 运行测试**
 
     Run:
     ```bash
     pnpm --filter @deepseek-ai/dsh-doctor test
     ```
 
-    Expected: all PASS.
+    Expected: 全 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
     ```bash
     git add packages/support/doctor/src/checks/config.ts packages/support/doctor/tests/config.spec.ts packages/support/doctor/src/index.ts
@@ -756,16 +756,16 @@ English | [中文](2026-08-28-dsh-doctor-and-safe-mode.zh.md)
 ---
 
 
-### Task 4: Plugin checks — profile bundles resolvable + third-party plugin compatibility (core MVP)
+### Task 4: 插件层检查 —— profile bundle 可解析 + 第三方插件兼容性（核心 MVP）
 
 **Files:**
 - Create: `packages/support/doctor/src/checks/plugins.ts`
-- Modify: `packages/support/doctor/src/index.ts` (register)
+- Modify: `packages/support/doctor/src/index.ts`（注册）
 - Test: `packages/support/doctor/tests/plugins.spec.ts`
 
-This is the core of the MVP — an incompatible third-party plugin after an upgrade is the most frequent cause of startup failure.
+这是 MVP 的核心——升级后第三方插件不兼容是最高频的启动失败原因。
 
-- [ ] **Step 1: Implement the plugin checks** — create `packages/support/doctor/src/checks/plugins.ts`:
+- [ ] **Step 1: 实现插件检查** —— 新建 `packages/support/doctor/src/checks/plugins.ts`：
     ```typescript
     import { readFileSync, existsSync } from 'node:fs'
     import { join, basename } from 'node:path'
@@ -906,34 +906,34 @@ This is the core of the MVP — an incompatible third-party plugin after an upgr
     export const pluginChecks: DoctorCheck[] = [pluginBundlesResolvable, pluginFullActivation, pluginThirdPartyList]
     ```
 
-    Note: `composeEntries` must be imported correctly from `app-boot`; under ESM, `require.resolve` needs `createRequire`. Fix it by using `import.meta.resolve` or `createRequire`.
+    注意：`composeEntries` 需要从 `app-boot` 正确导入；`require.resolve` 在 ESM 下需要用 `createRequire`。修正为用 `import.meta.resolve` 或 `createRequire`。
 
-- [ ] **Step 2: Fix resolution under ESM** — add this at the top of the file:
+- [ ] **Step 2: 修正 ESM 下的 resolve** —— 在文件顶部加：
     ```typescript
     import { createRequire } from 'node:module'
     const require = createRequire(import.meta.url)
     ```
 
-- [ ] **Step 3: Register the plugin checks** — append the import and registration in `index.ts`.
+- [ ] **Step 3: 注册插件检查** —— 在 `index.ts` 追加 import 和注册。
 
-- [ ] **Step 4: Write the plugin-check tests** — create `packages/support/doctor/tests/plugins.spec.ts`, focusing on:
-    1. All pass with only official bundles
-    2. Behavior when the profile does not exist
-    3. Third-party bundle count
-    4. Full-activation dry run (should pass with official bundles)
+- [ ] **Step 4: 写插件检查测试** —— 新建 `packages/support/doctor/tests/plugins.spec.ts`，重点测试：
+    1. 纯官方 bundle 时全通过
+    2. profile 不存在时的行为
+    3. 第三方 bundle 数量统计
+    4. full activation 干跑（用官方 bundle 应该通过）
 
-    The test focus is `pluginBundlesResolvable` and `pluginThirdPartyList`; the `pluginFullActivation` dry-run test is more involved in a real environment, so a basic test that ensures it does not throw is enough to start with.
+    测试重点是 `pluginBundlesResolvable` 和 `pluginThirdPartyList`，`pluginFullActivation` 的干跑测试在真实环境中更复杂，可以先做一个基础测试确保不抛异常。
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 5: 运行测试**
 
     Run:
     ```bash
     pnpm --filter @deepseek-ai/dsh-doctor test
     ```
 
-    Expected: all PASS.
+    Expected: 全 PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
     ```bash
     git add packages/support/doctor/src/checks/plugins.ts packages/support/doctor/tests/plugins.spec.ts
@@ -943,18 +943,18 @@ This is the core of the MVP — an incompatible third-party plugin after an upgr
 ---
 
 
-### Task 5: Third-party plugin safe mode (DSH_SAFE_MODE=plugins in the app-boot layer)
+### Task 5: 第三方插件安全模式（app-boot 层 DSH_SAFE_MODE=plugins）
 
 **Files:**
-- Modify: `packages/boot/app-boot/src/profile.ts` — `loadProfile()` gains a `skipThirdPartyBundles` option
-- Modify: `packages/boot/app-boot/src/index.ts` — the `boot()` / `loadProfile` call sites respond to `DSH_SAFE_MODE`
+- Modify: `packages/boot/app-boot/src/profile.ts` — `loadProfile()` 增加 `skipThirdPartyBundles` 选项
+- Modify: `packages/boot/app-boot/src/index.ts` — `boot()` / `loadProfile` 调用处响应 `DSH_SAFE_MODE`
 - Test: `packages/boot/app-boot/tests/safe-mode.spec.ts`
 
-This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundles while user settings and data are preserved.
+这是 MVP 的核心功能——`DSH_SAFE_MODE=plugins` 跳过第三方 bundle，用户设置和数据保留。
 
-- [ ] **Step 1: Add the skipThirdPartyBundles option to loadProfile** — modify the signature and implementation of `loadProfile` in `packages/boot/app-boot/src/profile.ts`:
+- [ ] **Step 1: 在 loadProfile 增加 skipThirdPartyBundles 选项** —— 修改 `packages/boot/app-boot/src/profile.ts` 的 `loadProfile` 函数签名和实现：
 
-    Add `skipThirdPartyBundles?: boolean` to the options parameter of `loadProfile`:
+    在 `loadProfile` 的 options 参数中增加 `skipThirdPartyBundles?: boolean`：
 
     ```typescript
     export function loadProfile(
@@ -963,7 +963,7 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     ): Profile {
     ```
 
-    After `layers = bundles.map(...)` and before the return, add the filtering logic:
+    在 `layers = bundles.map(...)` 之后、返回之前，加过滤逻辑：
 
     ```typescript
       let layers = bundles.map((packageName): ProfileLayer => {
@@ -975,30 +975,30 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
       // ... 原有返回
     ```
 
-- [ ] **Step 2: Respond to the DSH_SAFE_MODE environment variable at the boot entry** — modify the `boot()` function in `packages/boot/app-boot/src/index.ts`, or handle it in the web-app startup.
+- [ ] **Step 2: 在 boot 入口响应 DSH_SAFE_MODE 环境变量** —— 修改 `packages/boot/app-boot/src/index.ts` 的 `boot()` 函数或者在 web-app 的 startup 里处理。
 
-    The cleaner approach is to read `process.env.DSH_SAFE_MODE` where `loadProfile` is called (each app bin). To integrate quickly at the MVP stage, however, detect the environment variable inside `loadProfile`:
+    更干净的做法是在调用 `loadProfile` 的地方（各个 app bin）读取 `process.env.DSH_SAFE_MODE`。但为了在 MVP 阶段快速接入，在 `loadProfile` 内自动检测环境变量：
 
-    Append this at the start of the `loadProfile` function:
+    在 `loadProfile` 函数开头追加：
     ```typescript
       const safeMode = process.env.DSH_SAFE_MODE
       const skipThirdParty = options.skipThirdPartyBundles ?? safeMode === 'plugins' || safeMode === 'config' || safeMode === 'full'
     ```
 
-    Then use `skipThirdParty` in place of the direct `options.skipThirdPartyBundles`.
+    然后用 `skipThirdParty` 替代直接的 `options.skipThirdPartyBundles`。
 
-    The `userLayer` (the user cordis.patch.yml) is likewise skipped in `config` and `full` mode:
+    同时，`userLayer`（用户 cordis.patch.yml）在 `config` 和 `full` 模式下也跳过：
     ```typescript
       const skipUserLayer = options.userLayer === false
         || safeMode === 'config'
         || safeMode === 'full'
     ```
 
-    Change `const patches = options.userLayer !== false && existsSync(patchPath)` to use `skipUserLayer`.
+    把 `const patches = options.userLayer !== false && existsSync(patchPath)` 改为用 `skipUserLayer`。
 
-- [ ] **Step 3: Safe-mode adaptation for settings** — this involves the `settings-file` plugin switching to an in-memory backend in safe mode. The MVP does not do it yet (settings corruption is less common than plugin problems); it is deferred to Phase 2.
+- [ ] **Step 3: settings 的安全模式适配** —— 这部分涉及 `settings-file` 插件，在安全模式下改用内存后端。但 MVP 阶段先不做这个（settings 损坏的比例低于插件问题），留到 Phase 2。
 
-- [ ] **Step 4: Write the safe-mode tests** — create `packages/boot/app-boot/tests/safe-mode.spec.ts`:
+- [ ] **Step 4: 写安全模式测试** —— 新建 `packages/boot/app-boot/tests/safe-mode.spec.ts`：
     ```typescript
     import { describe, it, expect, beforeEach, afterEach } from 'vitest'
     import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -1062,18 +1062,18 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     })
     ```
 
-    Handle require.resolve with `createRequire(import.meta.url)` here as well.
+    同样用 `createRequire(import.meta.url)` 处理 require.resolve。
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 5: 运行测试**
 
     Run:
     ```bash
     pnpm --filter @deepseek-ai/dsh-app-boot test
     ```
 
-    Expected: all PASS.
+    Expected: 全 PASS。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
     ```bash
     git add packages/boot/app-boot/src/profile.ts packages/boot/app-boot/tests/safe-mode.spec.ts
@@ -1083,14 +1083,14 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
 ---
 
 
-### Task 6: Desktop launcher Go-layer integration (Diagnose + Repair + StartSafeMode)
+### Task 6: 桌面启动器 Go 层集成（Diagnose + Repair + StartSafeMode）
 
 **Files:**
-- Modify: `apps/desktop-launcher/internal/app/app.go` — new bound methods
-- Modify: `apps/desktop-launcher/internal/domain/domain.go` — new types
-- Modify: `apps/desktop-launcher/internal/appenv/env.go` — safe-mode environment-variable injection
+- Modify: `apps/desktop-launcher/internal/app/app.go` — 新增绑定方法
+- Modify: `apps/desktop-launcher/internal/domain/domain.go` — 新增类型
+- Modify: `apps/desktop-launcher/internal/appenv/env.go` — 安全模式环境变量注入
 
-- [ ] **Step 1: Define the domain types** — append this in `apps/desktop-launcher/internal/domain/domain.go`:
+- [ ] **Step 1: 定义 domain 类型** —— 在 `apps/desktop-launcher/internal/domain/domain.go` 追加：
     ```go
     // DoctorCheck 是一项诊断检查的结果。
     type DoctorCheck struct {
@@ -1128,7 +1128,7 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     }
     ```
 
-- [ ] **Step 2: Add the Diagnose method to app.go** — call `dsh doctor --json` inside the container:
+- [ ] **Step 2: 在 app.go 增加 Diagnose 方法** —— 调用容器内的 `dsh doctor --json`：
     ```go
     // Diagnose 运行 dsh doctor --json，返回诊断结果。
     func (a *App) Diagnose() DoctorResult {
@@ -1155,9 +1155,9 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     }
     ```
 
-    **Note:** because the doctor package is not yet wired into the dsh CLI at the MVP stage, this step only scaffolds the Go-layer method and the frontend UI, and the implementation is replaced once the CLI integration lands. The MVP prioritizes a working "safe mode" start button.
+    **说明**：由于 MVP 阶段 doctor 包还没接入到 dsh CLI，这一步先把 Go 层的方法和前端 UI 框架搭好，等 CLI 接入后直接替换实现。MVP 优先保证「安全模式启动」按钮可用。
 
-- [ ] **Step 3: The StartSafeMode method** — inject `DSH_SAFE_MODE=plugins` at startup:
+- [ ] **Step 3: StartSafeMode 方法** —— 启动时注入 `DSH_SAFE_MODE=plugins`：
     ```go
     // StartSafeMode 以第三方插件安全模式启动 harness（跳过后装的第三方插件 bundle）。
     func (a *App) StartSafeMode() FrontendStatus {
@@ -1178,9 +1178,9 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     }
     ```
 
-    Note: `ConfigureChildEnv` is called only once in main.go, and child-process environment variables are inherited from the launcher environment. A direct `os.Setenv` affects later subprocesses started with `exec.Command`.
+    注：`ConfigureChildEnv` 在 main.go 里只调用一次，子进程环境变量从 launcher 的环境继承。直接 `os.Setenv` 可以影响后续 `exec.Command` 启动的子进程。
 
-- [ ] **Step 4: Add the "plugin safe mode" button to the frontend** — modify `apps/desktop-launcher/frontend/index.html` and add this in the startup-failure area of server-modal:
+- [ ] **Step 4: 前端增加「插件安全模式」按钮** —— 修改 `apps/desktop-launcher/frontend/index.html`，在 server-modal 的启动失败区域增加：
     ```html
     <div id="safe-mode-row" class="safe-mode-row hidden">
       <button id="btn-safe-mode" class="btn btn-primary">以插件安全模式启动</button>
@@ -1188,21 +1188,21 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     </div>
     ```
 
-- [ ] **Step 5: Add the frontend JS logic** — modify `app.js`, inside `renderServerDialog`:
-    - Show safe-mode-row when state is `failed`
-    - Call `window.go.app.App.StartSafeMode()` when the button is clicked
-    - While safe mode is running, the status bar shows "🔒 插件安全模式"
+- [ ] **Step 5: 前端 JS 增加逻辑** —— 修改 `app.js`，在 `renderServerDialog` 里：
+    - 当 state 为 `failed` 时显示 safe-mode-row
+    - 点击按钮调用 `window.go.app.App.StartSafeMode()`
+    - 安全模式运行中，状态条显示「🔒 插件安全模式」
 
-- [ ] **Step 6: Build verification**
+- [ ] **Step 6: 编译验证**
 
     Run:
     ```bash
     cd apps/desktop-launcher && go build ./...
     ```
 
-    Expected: build succeeds.
+    Expected: 编译成功。
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: 提交**
 
     ```bash
     git add apps/desktop-launcher/internal/app/app.go apps/desktop-launcher/internal/domain/domain.go apps/desktop-launcher/frontend/index.html apps/desktop-launcher/frontend/app.js apps/desktop-launcher/frontend/styles.css
@@ -1212,27 +1212,27 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
 ---
 
 
-### Task 7: Wire the doctor subcommand into the dsh CLI
+### Task 7: dsh CLI 接入 doctor 子命令
 
 **Files:**
-- (Find the dsh CLI entry file and wire in the `doctor` and `repair` subcommands)
+- （需要找到 dsh CLI 的入口文件位置，接入 `doctor` 和 `repair` 子命令）
 
-- [ ] **Step 1: Find the dsh CLI entry**
+- [ ] **Step 1: 找到 dsh CLI 入口**
 
     Run:
     ```bash
     find packages -name "bin.js" -path "*/cli/*" 2>/dev/null | head -5
     ```
 
-- [ ] **Step 2: Wire in the doctor subcommand** — following the web startup pattern (`packages/bundle/web-app/src/startup.ts`), add a `doctor` subcommand to the CLI commander program.
+- [ ] **Step 2: 接入 doctor 子命令** —— 参考 web startup 的模式（`packages/bundle/web-app/src/startup.ts`），在 CLI 的 commander program 里增加 `doctor` 子命令。
 
-    Or, more simply: doctor as a standalone launch entry (`dsh --profile doctor`), although doctor does not need a full web environment.
+    或者更简单：doctor 作为一个独立的启动入口（`dsh --profile doctor`），但 doctor 不需要完整的 web 环境。
 
-    **Recommended approach:** register the doctor command at the `cmdline` layer on a minimal launch path — import only the doctor package, run the checks, print JSON, and exit, without loading the whole Cordis plugin tree.
+    **推荐方案**：doctor 命令在 `cmdline` 层注册，走一个极简的启动路径——只 import doctor 包、跑检查、输出 JSON、退出，不需要加载整个 Cordis 插件树。
 
-    With limited time at the MVP stage, doctor can first become a `dsh doctor` command as a standalone bin entry of `@deepseek-ai/dsh-app-boot`.
+    由于 MVP 阶段时间有限，可以先把 doctor 做成 `dsh doctor` 命令，作为 `@deepseek-ai/dsh-app-boot` 的一个独立 bin 入口。
 
-- [ ] **Step 3: Implement the CLI entry** — create `src/cli.ts` in the doctor package:
+- [ ] **Step 3: 实现 CLI 入口** —— 在 doctor 包新建 `src/cli.ts`：
     ```typescript
     #!/usr/bin/env node
     import { runDiagnosis, runRepair } from './index.js'
@@ -1284,9 +1284,9 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
     })
     ```
 
-- [ ] **Step 4: Wire in the dsh CLI** — once the dsh CLI entry is found, register the doctor subcommand in commander and call the `cli.ts` logic above.
+- [ ] **Step 4: 接入 dsh CLI** —— 找到 dsh CLI 的入口后，在 commander 里注册 doctor 子命令，调用上述 cli.ts 的逻辑。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
     ```bash
     git add packages/support/doctor/src/cli.ts
@@ -1296,39 +1296,39 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
 ---
 
 
-### Task 8: End-to-end verification
+### Task 8: 端到端验证
 
-- [ ] **Step 1: Run the full doctor package test suite**
+- [ ] **Step 1: 跑 doctor 包全量测试**
     ```bash
     pnpm --filter @deepseek-ai/dsh-doctor test
     ```
-    Expected: all PASS
+    Expected: 全 PASS
 
-- [ ] **Step 2: Run the app-boot tests**
+- [ ] **Step 2: 跑 app-boot 测试**
     ```bash
     pnpm --filter @deepseek-ai/dsh-app-boot test
     ```
-    Expected: all PASS (including the new safe-mode tests)
+    Expected: 全 PASS（含新增的安全模式测试）
 
-- [ ] **Step 3: desktop-launcher build verification**
+- [ ] **Step 3: desktop-launcher 编译验证**
     ```bash
     cd apps/desktop-launcher && go build ./... && go test ./...
     ```
-    Expected: build passes, tests pass
+    Expected: 编译通过，测试通过
 
 - [ ] **Step 4: typecheck**
     ```bash
     pnpm run typecheck
     ```
-    Expected: no type errors
+    Expected: 无类型错误
 
-- [ ] **Step 5: Manually verify safe mode**
+- [ ] **Step 5: 手动验证安全模式**
     ```bash
     DSH_SAFE_MODE=plugins pnpm dsh --profile web --no-open
     ```
-    Expected: starts normally and does not load third-party plugins (if any)
+    Expected: 正常启动，不加载第三方插件（如果有的话）
 
-- [ ] **Step 6: Commit the final test fixes**
+- [ ] **Step 6: 提交最终测试修复**
     ```bash
     git add -u
     git commit -m "test: verify doctor + safe mode end-to-end"
@@ -1337,34 +1337,34 @@ This is the core MVP feature — `DSH_SAFE_MODE=plugins` skips third-party bundl
 ---
 
 
-## Self-review
+## 自检
 
-### Spec coverage
-- ✅ `dsh doctor` diagnostics tool → Tasks 1-4
-- ✅ Third-party plugin upgrade-compatibility detection → Task 4 (plugin checks)
-- ✅ Three-level safe mode (plugins/config/full) → Task 5 (plugins + config; full deferred to Phase 2)
-- ✅ Level 1 / Level 2 repair → Task 2 (.env L1) + Task 3 (settings/patch L2)
-- ✅ Desktop startup-failure page entry → Task 6
-- ✅ CLI commands → Task 7
-- ⚠️ Data-layer checks (session integrity) → Phase 2 (not core to the MVP)
-- ⚠️ Pre-upgrade preflight → Phase 3
+### Spec 覆盖
+- ✅ `dsh doctor` 诊断工具 → Task 1-4
+- ✅ 第三方插件升级兼容检测 → Task 4（plugin checks）
+- ✅ 三级安全模式（plugins/config/full） → Task 5（plugins + config；full 留 Phase 2）
+- ✅ Level 1 / Level 2 修复 → Task 2（.env L1）+ Task 3（settings/patch L2）
+- ✅ 桌面端启动失败页入口 → Task 6
+- ✅ CLI 命令 → Task 7
+- ⚠️ 数据层检查（会话完整性）→ Phase 2（不是 MVP 核心）
+- ⚠️ 升级前预检 → Phase 3
 
-### Placeholder scan
-- Every code step carries real code content
-- Every test step has a concrete command and an expected result
-- No placeholders such as "TBD" / "TODO" / "add appropriate error handling"
+### 占位符扫描
+- 所有代码步骤都有实际代码内容
+- 测试步骤都有具体命令和期望结果
+- 没有 "TBD" / "TODO" / "add appropriate error handling" 等占位符
 
-### Type consistency
-- DoctorCheck / CheckResult / FixResult are all defined in types.ts
-- Every check uses a consistent interface
-- The repair level RepairLevel = 1 | 2 | 3 runs through the whole document
+### 类型一致性
+- DoctorCheck / CheckResult / FixResult 在 types.ts 中统一定义
+- 所有检查项都使用一致的接口
+- 修复级别 RepairLevel = 1 | 2 | 3 贯穿全文
 
 ---
 
 Plan saved to `docs/superpowers/plans/2026-08-28-dsh-doctor-and-safe-mode.md`. Two execution options:
 
-**1. Subagent-Driven (recommended)** - I assign an independent subagent to each task, with review between tasks; fast iteration
+**1. Subagent-Driven (recommended)** - 我为每个任务分配一个独立的子代理，任务间做审查，迭代速度快
 
-**2. Inline Execution** - Execute step by step in the current session, in batches with review checkpoints
+**2. Inline Execution** - 在当前会话中逐步执行，按批次执行并设置审查检查点
 
-Which option do you choose?
+你选择哪种方式？

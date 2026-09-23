@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-03-26-plugin-dynamic-load-doctor-design.md
+2026-03-26-plugin-dynamic-load-doctor-design.md: a6ad7ab66ca6a75d242194ea0cfa3dd98cb9f14f
+2026-03-26-plugin-dynamic-load-doctor-design.zh.md: c7ce28a12f27704ed66463cf187a8797c8a6ae27

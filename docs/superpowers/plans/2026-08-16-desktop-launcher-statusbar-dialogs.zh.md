@@ -1,47 +1,47 @@
-# Desktop launcher: centered window, bottom status bar, server status/about dialogs — implementation plan
+# 桌面启动器:窗口居中、底部状态栏、服务器状态/关于弹框 实现计划
 
-English | [中文](2026-08-16-desktop-launcher-statusbar-dialogs.zh.md)
+[English](2026-08-16-desktop-launcher-statusbar-dialogs.md) | 中文
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add window centering, a bottom status bar (run state on the left, two buttons on the right), a server status dialog (start/restart/stop), and an about dialog (author/repository/version) to `apps/desktop-launcher`.
+**Goal:** 给 `apps/desktop-launcher` 增加窗口居中、底部状态栏(左侧运行状态、右侧两个按钮)、服务器状态弹框(启动/重启/停止)和关于弹框(作者/仓库/版本)。
 
-**Architecture:** Every change lives in `apps/desktop-launcher` (a standalone Go module outside the pnpm workspace). The Supervisor gains a four-state machine and a manual lifecycle API; the GTK layer (cgo) mounts a status bar at the bottom of the window and builds the dialogs with GtkDialog/GtkAboutDialog; the window is centered with `gtk_window_move`. Everything testable (state machine, text formatting, version resolution) is pure Go.
+**Architecture:** 全部改动在 `apps/desktop-launcher`(独立 Go module,不入 pnpm workspace)。Supervisor 增加四态状态机与手动生命周期 API;GTK 层(cgo)在窗口底部挂状态栏、弹框用 GtkDialog/GtkAboutDialog;窗口用 `gtk_window_move` 居中。可测逻辑(状态机、文本格式化、版本解析)全部为纯 Go。
 
-**Tech Stack:** Go + cgo + GTK3 (webkit2gtk-4.1), mock shell scripts for testing.
+**Tech Stack:** Go + cgo + GTK3(webkit2gtk-4.1)、mock shell 脚本测试。
 
 ## Global Constraints
 
-- Do not modify the webview_go dependency or upstream sources; every change stays under `apps/desktop-launcher/`.
-- Keep the system title bar; the status bar is the **bottom** row of the window content area, with two buttons at its right end.
-- Testable logic must be pure Go (state machine, formatting, version resolution); the GTK rendering layer gets no unit tests (headless has no display) and is gated by `go build`/`go vet` plus manual verification.
-- Comments are in Chinese; commit messages follow the repository's English conventional-commits style (`feat(desktop-launcher): ...`).
-- Run the checks with: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1`.
-- Commit once when each task ends.
+- 不修改 webview_go 依赖与上游源码;改动全部在 `apps/desktop-launcher/`。
+- 保留系统标题栏;状态栏在窗口内容区**最底部**一行,右下角两个按钮。
+- 可测逻辑必须纯 Go(状态机、格式化、版本解析);GTK 渲染层不做单测(headless 无显示),以 `go build`/`go vet` + 手动验证为门槛。
+- 注释用中文;提交信息遵循仓库 conventional commits 英文风格(`feat(desktop-launcher): ...`)。
+- 运行检查:`cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1`。
+- 每个任务结束提交一次。
 
 ---
 
-### Task 1: Supervisor state machine and manual lifecycle API
+### Task 1: Supervisor 状态机与手动生命周期 API
 
 **Files:**
 - Modify: `apps/desktop-launcher/supervisor.go`
-- Modify: `apps/desktop-launcher/testdata/mock-dsh-web.sh` (already present, unchanged)
+- Modify: `apps/desktop-launcher/testdata/mock-dsh-web.sh`(已有,不动)
 - Create: `apps/desktop-launcher/testdata/mock-exit-3.sh`
 - Test: `apps/desktop-launcher/supervisor_control_test.go`
 
 **Interfaces:**
-- Produces (the signatures later tasks depend on):
-  - `type HarnessState int`; the constants `StateStarting`/`StateRunning`/`StateStopped`
+- Produces(后续任务依赖的签名):
+  - `type HarnessState int`;常量 `StateStarting`/`StateRunning`/`StateStopped`
   - `type HarnessStatus struct { State HarnessState; URL string; PID int; LastExit string }`
   - `func (s *Supervisor) Status() HarnessStatus`
   - `func (s *Supervisor) Start()`
   - `func (s *Supervisor) Restart()`
   - `func (s *Supervisor) StopHarness()`
-  - New `Supervisor` fields: `state HarnessState`, `url string`, `pid int`, `lastExit string`, `manuallyStopped bool`, `startCh chan struct{}`
+  - Supervisor 新增字段:`state HarnessState`、`url string`、`pid int`、`lastExit string`、`manuallyStopped bool`、`startCh chan struct{}`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: 写失败测试**
 
-Create `apps/desktop-launcher/supervisor_control_test.go`:
+新建 `apps/desktop-launcher/supervisor_control_test.go`:
 
 ```go
 package main
@@ -152,9 +152,9 @@ func TestSupervisor_StartWhileRunningIsNoop(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Create mock-exit-3.sh and run the tests to confirm they fail**
+- [ ] **Step 2: 建 mock-exit-3.sh 并跑测试确认失败**
 
-Create `apps/desktop-launcher/testdata/mock-exit-3.sh` (add the execute bit):
+创建 `apps/desktop-launcher/testdata/mock-exit-3.sh`(加执行位):
 
 ```sh
 #!/bin/sh
@@ -165,11 +165,11 @@ exit 3
 
 Run: `cd apps/desktop-launcher && chmod +x testdata/mock-exit-3.sh && go test -run "TestSupervisor_StatusRunningThenStopped|TestSupervisor_LastExitRecordsExitCode|TestSupervisor_ManualStopPausesAutoRestart|TestSupervisor_RestartRespawns|TestSupervisor_StartWhileRunningIsNoop" -v -count=1 -timeout 60s`
 
-Expected: the compilation fails (`Supervisor has no Status/Start/Restart/StopHarness field or method`).
+Expected: 编译失败(`Supervisor 无 Status/Start/Restart/StopHarness 字段或方法`)。
 
-- [ ] **Step 3: Implement the state machine (modify supervisor.go)**
+- [ ] **Step 3: 实现状态机(修改 supervisor.go)**
 
-Structs and constructors:
+结构体与构造函数:
 
 ```go
 // HarnessState 描述 harness 生命周期状态。
@@ -190,7 +190,7 @@ type HarnessStatus struct {
 }
 ```
 
-New fields on the `Supervisor` struct (after the `exited` field):
+`Supervisor` 结构体新增字段(在 `exited` 字段后):
 
 ```go
 	state          HarnessState
@@ -201,7 +201,7 @@ New fields on the `Supervisor` struct (after the `exited` field):
 	startCh        chan struct{} // 唤醒 run():Start/Restart/Stop 解除阻塞
 ```
 
-`NewSupervisor` initializes `startCh`:
+`NewSupervisor` 初始化 `startCh`:
 
 ```go
 	return &Supervisor{
@@ -212,7 +212,7 @@ New fields on the `Supervisor` struct (after the `exited` field):
 	}
 ```
 
-Three new control methods (placed after `Stop()`):
+新增三个控制方法(放在 `Stop()` 之后):
 
 ```go
 // Start 手动启动:仅停止态生效,恢复崩溃自动重启。
@@ -272,7 +272,7 @@ func (s *Supervisor) Status() HarnessStatus {
 }
 ```
 
-`Stop()` gains a wake-up after setting `stopping = true` and before the SIGTERM (releasing `run()` from its `<-s.startCh` block):
+`Stop()` 在置 `stopping = true` 后、SIGTERM 前,加唤醒(解除 run() 在 `<-s.startCh` 的阻塞):
 
 ```go
 	s.mu.Lock()
@@ -289,7 +289,7 @@ func (s *Supervisor) Status() HarnessStatus {
 	}
 ```
 
-The `run()` loop becomes (replacing the existing function body as a whole):
+`run()` 循环改为(整体替换现有函数体):
 
 ```go
 func (s *Supervisor) run() {
@@ -350,7 +350,7 @@ func (s *Supervisor) run() {
 }
 ```
 
-`spawn()` state reset and PID recording (appended inside the existing `s.exited = exited` lock block):
+`spawn()` 状态重置与 PID 记录(在既有 `s.exited = exited` 的锁块中追加):
 
 ```go
 	s.mu.Lock()
@@ -411,7 +411,7 @@ func exitReason(cmd *exec.Cmd, err error) string {
 }
 ```
 
-`readyScanner.Write` updates the state when it matches the ready line (before `r.sup.ready <- match[1]`):
+`readyScanner.Write` 匹配到就绪行时更新状态(在 `r.sup.ready <- match[1]` 前):
 
 ```go
 		if match := readyPattern.FindStringSubmatch(line); match != nil {
@@ -423,7 +423,7 @@ func exitReason(cmd *exec.Cmd, err error) string {
 		}
 ```
 
-Add `markReady` (placed after `Status()`):
+新增 `markReady`(放在 `Status()` 后):
 
 ```go
 // markReady 记录就绪地址并进入运行态。
@@ -435,19 +435,19 @@ func (s *Supervisor) markReady(url string) {
 }
 ```
 
-- [ ] **Step 4: Run the tests to confirm they pass**
+- [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/desktop-launcher && go test -run "TestSupervisor_StatusRunningThenStopped|TestSupervisor_LastExitRecordsExitCode|TestSupervisor_ManualStopPausesAutoRestart|TestSupervisor_RestartRespawns|TestSupervisor_StartWhileRunningIsNoop" -v -count=1 -timeout 60s`
 
-Expected: all PASS.
+Expected: 全部 PASS。
 
-- [ ] **Step 5: Regress the existing tests**
+- [ ] **Step 5: 回归既有测试**
 
 Run: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`
 
-Expected: all PASS (including the existing supervisor_stop_test.go / supervisor_test.go).
+Expected: 全部 PASS(含既有 supervisor_stop_test.go / supervisor_test.go)。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
 ```bash
 git add apps/desktop-launcher/supervisor.go apps/desktop-launcher/supervisor_control_test.go apps/desktop-launcher/testdata/mock-exit-3.sh
@@ -456,24 +456,24 @@ git commit -m "feat(desktop-launcher): add harness status API and manual lifecyc
 
 ---
 
-### Task 2: Status text formatting and version resolution (pure functions)
+### Task 2: 状态文本格式化与版本解析(纯函数)
 
 **Files:**
 - Create: `apps/desktop-launcher/ui_state.go`
 - Create: `apps/desktop-launcher/version.go`
-- Test: `apps/desktop-launcher/ui_state_test.go`, `apps/desktop-launcher/version_test.go`
+- Test: `apps/desktop-launcher/ui_state_test.go`、`apps/desktop-launcher/version_test.go`
 
 **Interfaces:**
-- Consumes: `HarnessStatus`/`HarnessState`/`StateStarting`/`StateRunning`/`StateStopped` from Task 1
+- Consumes: Task 1 的 `HarnessStatus`/`HarnessState`/`StateStarting`/`StateRunning`/`StateStopped`
 - Produces:
   - `func statusBarText(st HarnessStatus) string`
   - `type ServerDialogState struct { State, Detail string; CanStart, CanRestart, CanStop bool }`
   - `func serverDialogState(st HarnessStatus) ServerDialogState`
-  - `var packageVersion = "dev"` (injected by prepare-offline.sh through `-ldflags "-X main.packageVersion=..."`)
+  - `var packageVersion = "dev"`(由 prepare-offline.sh 用 `-ldflags "-X main.packageVersion=..."` 注入)
   - `func resolveHarnessVersion() string`
   - `func readVersion(path string) string`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: 写失败测试**
 
 `apps/desktop-launcher/ui_state_test.go`:
 
@@ -553,13 +553,13 @@ func TestReadVersion(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests to confirm they fail**
+- [ ] **Step 2: 跑测试确认失败**
 
 Run: `cd apps/desktop-launcher && go test -run "TestStatusBarText|TestServerDialogState|TestReadVersion" -count=1`
 
-Expected: the compilation fails (`undefined: statusBarText`).
+Expected: 编译失败(`undefined: statusBarText`)。
 
-- [ ] **Step 3: Implement the pure functions**
+- [ ] **Step 3: 实现纯函数**
 
 `apps/desktop-launcher/ui_state.go`:
 
@@ -682,13 +682,13 @@ func readVersion(path string) string {
 }
 ```
 
-- [ ] **Step 4: Run the tests to confirm they pass**
+- [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/desktop-launcher && go test -run "TestStatusBarText|TestServerDialogState|TestReadVersion" -v -count=1`
 
-Expected: all PASS.
+Expected: 全部 PASS。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
 ```bash
 git add apps/desktop-launcher/ui_state.go apps/desktop-launcher/version.go apps/desktop-launcher/ui_state_test.go apps/desktop-launcher/version_test.go
@@ -697,23 +697,23 @@ git commit -m "feat(desktop-launcher): add status text formatting and version re
 
 ---
 
-### Task 3: GTK status bar, dialogs, and window centering
+### Task 3: GTK 状态栏、弹框与窗口居中
 
 **Files:**
 - Create: `apps/desktop-launcher/ui.go`
 - Modify: `apps/desktop-launcher/window.go`
 - Modify: `apps/desktop-launcher/linglong/prepare-offline.sh`
-- Test: none (GTK needs a display); gated by `go build`/`go vet` plus a manual run
+- Test: 无单测(GTK 需显示);以 `go build`/`go vet` + 手动运行验证
 
 **Interfaces:**
-- Consumes: `*Supervisor` (`Status`/`Start`/`Restart`/`StopHarness`) from Task 1, and `statusBarText`/`serverDialogState`/`resolveHarnessVersion`/`packageVersion`/`githubRepo` from Task 2
+- Consumes: Task 1 的 `*Supervisor`(`Status`/`Start`/`Restart`/`StopHarness`),Task 2 的 `statusBarText`/`serverDialogState`/`resolveHarnessVersion`/`packageVersion`/`githubRepo`
 - Produces:
-  - `func installDesktopUI(win unsafe.Pointer, sup *Supervisor)` (called from window.go)
-  - Package-level globals: `activeSupervisor *Supervisor`, `mainWindow *C.GtkWindow`, `statusLabel *C.GtkWidget`, `serverDialog *C.GtkWidget`
+  - `func installDesktopUI(win unsafe.Pointer, sup *Supervisor)`(window.go 调用)
+  - 包级全局:`activeSupervisor *Supervisor`、`mainWindow *C.GtkWindow`、`statusLabel *C.GtkWidget`、`serverDialog *C.GtkWidget`
 
-- [ ] **Step 1: Write ui.go (the GTK cgo implementation)**
+- [ ] **Step 1: 写 ui.go(GTK cgo 实现)**
 
-`apps/desktop-launcher/ui.go` (complete file):
+`apps/desktop-launcher/ui.go`(完整文件):
 
 ```go
 package main
@@ -973,18 +973,18 @@ func boolToGboolean(b bool) C.gboolean {
 }
 ```
 
-- [ ] **Step 2: Wire up window.go**
+- [ ] **Step 2: 接线 window.go**
 
-In `openWindow` in `apps/desktop-launcher/window.go`, insert this before `w.Navigate(url)` (it requires importing `"unsafe"`):
+`apps/desktop-launcher/window.go` 的 `openWindow` 中,在 `w.Navigate(url)` 之前插入(需 import `"unsafe"`):
 
 ```go
 	// 底部状态栏、服务器/关于按钮、状态轮询与窗口居中
 	installDesktopUI(w.Window(), sup)
 ```
 
-- [ ] **Step 3: Inject the Linglong package version (prepare-offline.sh)**
+- [ ] **Step 3: 注入玲珑包版本(prepare-offline.sh)**
 
-In `apps/desktop-launcher/linglong/prepare-offline.sh`, add the version extraction before the step-3 go build and give that go build a `-ldflags`:
+`apps/desktop-launcher/linglong/prepare-offline.sh` 第 3 步 go build 前加版本提取,并给 go build 加 `-ldflags`:
 
 ```sh
 # 3. Go 启动器(webkit2gtk-4.0 pkg-config shim 指向 4.1)
@@ -997,26 +997,26 @@ LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' apps/desktop-launcher/linglong/li
   go build -ldflags "-X main.packageVersion=$LL_VERSION" -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 ```
 
-- [ ] **Step 4: Compile and static-check**
+- [ ] **Step 4: 编译与静态检查**
 
 Run: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null .`
 
-Expected: no output, exit code 0. If it reports undefined `g_list_nth_data`/GTK symbols, confirm the `pkg-config gtk+-3.0` environment (see the `PKG_CONFIG_PATH` produced by `prepare-pkgconfig.sh`).
+Expected: 无输出、退出码 0。若报 `g_list_nth_data`/GTK 符号未定义,确认 `pkg-config gtk+-3.0` 环境(参考 `prepare-pkgconfig.sh` 生成的 `PKG_CONFIG_PATH`)。
 
-- [ ] **Step 5: Verify by running manually**
+- [ ] **Step 5: 手动运行验证**
 
 Run: `cd apps/desktop-launcher && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go build -o dsh-desktop-launcher . && DSH_DESKTOP_DSH_BIN="$(pwd)/testdata/mock-dsh-web.sh" ./dsh-desktop-launcher`
 
-Expected (with a display available):
-1. The window appears in the center of the screen.
-2. A status bar appears at the bottom of the window: the left side first shows "● 启动中" (starting), and once the mock is ready it changes to "● 运行中 http://127.0.0.1:18080"。 (running)
-3. Clicking "服务器状态" (server status) shows "运行中" (running) with the address/PID, and restart/stop are clickable; after clicking "停止" (stop) the state becomes "已停止" (stopped) and the harness does not auto-restart, and clicking "启动" (start) resumes it.
-4. Clicking "关于" (about) shows the program name, the author GershonWang, the repository link, the harness version, and "玲珑包 dev" (the Linglong package version).
-5. Close the window and the program exits cleanly (no leftover processes).
+Expected(有显示环境):
+1. 窗口出现在屏幕中央。
+2. 窗口底部出现状态栏:左侧先"● 启动中",mock 就绪后变"● 运行中 http://127.0.0.1:18080"。
+3. 点"服务器状态"弹框显示"运行中"与地址/PID,重启/停止可点;点"停止"后状态变"已停止"且不自动重启,再点"启动"恢复。
+4. 点"关于"弹框显示程序名、作者 GershonWang、仓库链接、harness 版本与"玲珑包 dev"。
+5. 关闭窗口,程序正常退出(不残留进程)。
 
-Afterwards run `kill %1` to clean up the mock process.
+完成后 `kill %1` 清理 mock 进程。
 
-- [ ] **Step 6: Regression tests + commit**
+- [ ] **Step 6: 回归测试 + 提交**
 
 Run: `cd apps/desktop-launcher && go test ./... -count=1 -timeout 60s`
 
@@ -1027,38 +1027,38 @@ git commit -m "feat(desktop-launcher): add status bar, server/about dialogs, cen
 
 ---
 
-### Task 4: Documentation and closing verification
+### Task 4: 文档与收尾验证
 
 **Files:**
 - Modify: `apps/desktop-launcher/README.md`
-- Modify: `apps/desktop-launcher/linglong/linglong.yaml` (bump the version 0.1.0.9 → 0.1.0.10 if a rebuild is needed)
+- Modify: `apps/desktop-launcher/linglong/linglong.yaml`(如需更新版本号 0.1.0.9 → 0.1.0.10 以重新出包)
 
 **Interfaces:**
-- Consumes: the outputs of the first three tasks
-- Produces: the updated README
+- Consumes: 前三个任务的产物
+- Produces: 更新后的 README
 
-- [ ] **Step 1: Update the README**
+- [ ] **Step 1: 更新 README**
 
-Add two rows to the file structure table in `apps/desktop-launcher/README.md`:
+`apps/desktop-launcher/README.md` 的文件结构表加两行:
 
 ```markdown
 | `ui.go` | 底部状态栏、服务器状态/关于弹框、窗口居中(GTK cgo) |
 | `version.go` | harness/玲珑版本解析(`packageVersion` 由 prepare-offline 注入) |
 ```
 
-Add one line to the "玲珑打包" (Linglong packaging) section:
+在"玲珑打包"一节补一行:
 
 ```markdown
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher(`-ldflags -X main.packageVersion=...`),关于弹框展示
 ```
 
-- [ ] **Step 2: Full checks**
+- [ ] **Step 2: 全量检查**
 
 Run: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`
 
-Expected: everything passes.
+Expected: 全部通过。
 
-- [ ] **Step 3: Repackage and verify (optional but recommended)**
+- [ ] **Step 3: 重新打包验证(可选但推荐)**
 
 ```sh
 sh apps/desktop-launcher/linglong/prepare-offline.sh
@@ -1067,9 +1067,9 @@ ll-builder export --ref main:org.deepseek.dsh-desktop/0.1.0.9/x86_64
 ll-cli run org.deepseek.dsh-desktop
 ```
 
-Expected: inside the sandbox the window is centered, the bottom status bar shows "运行中" (running) plus the port, and both dialogs work.
+Expected: 沙箱内窗口居中、底部状态栏显示"运行中"+ 端口,两个弹框正常。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 提交**
 
 ```bash
 git add apps/desktop-launcher/README.md
@@ -1080,10 +1080,10 @@ git commit -m "docs(desktop-launcher): document status bar, dialogs, and version
 
 ## Self-Review
 
-**Spec coverage:** Window centering (Task 3 Step 1 `dsh_center_window`), the bottom status bar + left-side status indicator + two right-side buttons (Task 3), the server status dialog (state/address/exit reason + start/restart/stop, Tasks 1+2+3), the about dialog (author/repository link/harness version/Linglong version, Tasks 2+3), version injection (Task 3 Step 3), and tests (state machine Task 1, pure functions Task 2). Every spec item lands.
+**规格覆盖:** 窗口居中(Task 3 Step 1 `dsh_center_window`)、底部状态栏 + 左侧状态指示 + 右侧两按钮(Task 3)、服务器状态弹框(状态/地址/退出原因 + 启动/重启/停止,Tasks 1+2+3)、关于弹框(作者/仓库链接/harness 版本/玲珑版本,Tasks 2+3)、版本注入(Task 3 Step 3)、测试(状态机 Task 1、纯函数 Task 2)。规格全项落地。
 
-**Placeholder scan:** No TBD/TODO; every step carries complete code and expected output.
+**占位符扫描:** 无 TBD/TODO;每个步骤含完整代码与预期输出。
 
-**Type consistency:** `HarnessStatus` (State/URL/PID/LastExit) is defined in Task 1 and consumed in Task 2; `stateBarText`/`serverDialogState` are defined in Task 2 and consumed in Task 3; `packageVersion`/`resolveHarnessVersion`/`githubRepo` are defined in Task 2 and consumed in Task 3; `installDesktopUI` is defined in Task 3 and called from window.go. The names stay consistent along the whole chain.
+**类型一致性:** `HarnessStatus`(State/URL/PID/LastExit)在 Task 1 定义、Task 2 消费;`stateBarText`/`serverDialogState` 在 Task 2 定义、Task 3 消费;`packageVersion`/`resolveHarnessVersion`/`githubRepo` 在 Task 2 定义、Task 3 消费;`installDesktopUI` 在 Task 3 定义、window.go 调用。名称全链路一致。
 
-**Known trade-offs:** The GTK layer has no unit tests (it needs a display), covered by `go build`/`go vet` plus the Task 3 Step 5 manual verification; `gtk_window_move` may be ignored by the compositor under Wayland (kwin_x11 is unaffected), which the README already notes in the specification, and the implementation can add a note if needed.
+**已知取舍:** GTK 层无单测(需显示环境),以 `go build`/`go vet` + Task 3 Step 5 手动验证兜底;`gtk_window_move` 在 Wayland 下可能被合成器忽略(kwin_x11 不受影响),README 已注明于规格,实现时若需可补充说明。

@@ -1,31 +1,33 @@
-# DeepSeek Harness 桌面启动器:窗口居中、状态栏与两个弹框 设计
+# DeepSeek Harness desktop launcher: window centering, status bar, and two dialogs — design
 
-## 背景与目标
+English | [中文](2026-08-16-desktop-launcher-statusbar-dialogs-design.zh.md)
 
-`apps/desktop-launcher` 是 Go + webkit2gtk 的薄启动器:spawn `dsh web` 子进程,用独立窗口加载其 loopback Web GUI,打成玲珑包分发。本设计为其增加三块交互:
+## Background and goals
 
-1. **窗口居中**:程序启动时窗口位于屏幕中央。
-2. **状态栏**:窗口内容区**最底部**一行,左侧实时显示 harness 运行状态(运行中/已停止 + 端口),右侧两个按钮。底部是 GTK 惯例(`GtkStatusbar` 贴底模式),与浏览器/文件管理器一致。
-3. **两个弹框**:
-   - **服务器状态**:监控 harness 进程状态(状态 + 端口/URL + 上次退出原因),提供启动/重启/停止三个手动控制按钮,作为自动重启之外的协助保障。
-   - **关于**:展示作者、GitHub 仓库地址(可点击打开)、harness 版本号、玲珑包版本号。
+`apps/desktop-launcher` is a thin Go + webkit2gtk launcher: it spawns a `dsh web` subprocess and loads its loopback Web GUI in a separate window, distributed as a Linglong package. This design adds three pieces of interaction to it:
 
-约束:所有改动集中在 `apps/desktop-launcher/`,不碰上游源码(harness Web GUI 等)。
+1. **Window centering**: on startup the window is placed at the center of the screen.
+2. **Status bar**: a single row at the **very bottom** of the window content area, showing the harness running status live on the left (running/stopped + port) and two buttons on the right. The bottom is the GTK convention (`GtkStatusbar` bottom-attach mode), consistent with browsers and file managers.
+3. **Two dialogs**:
+   - **Server status**: monitors the harness process status (state + port/URL + last exit reason) and provides three manual control buttons — start/restart/stop — as assistance beyond automatic restart.
+   - **About**: shows the author, the GitHub repository address (clickable to open), the harness version, and the Linglong package version.
 
-## 需求确认(已与用户对齐)
+Constraints: all changes are confined to `apps/desktop-launcher/`; upstream source (the harness Web GUI and so on) is untouched.
 
-| 决策项 | 结论 |
+## Confirmed requirements (aligned with the user)
+
+| Decision | Conclusion |
 |---|---|
-| 状态栏形态 | 保留系统标题栏(最小化/最大化/关闭不动),状态栏是窗口内容区**最底部**一行(右下角两个按钮) |
-| 状态栏左侧 | 实时状态指示(运行中/已停止 + 端口),1 秒轮询刷新 |
-| 服务器状态弹框 | 启动(仅停止态可用)/ 重启(仅运行态可用)/ 停止(仅运行态可用) |
-| 关于弹框 | GTK 标准关于弹框:作者 GershonWang、仓库地址可点击、harness 版本、玲珑包版本 |
+| Status bar form | Keep the system title bar (minimize/maximize/close unchanged); the status bar is a single row at the **very bottom** of the window content area (two buttons at the bottom right) |
+| Status bar left side | A live status indicator (running/stopped + port), refreshed by a 1-second poll |
+| Server status dialog | Start (enabled only when stopped) / restart (enabled only when running) / stop (enabled only when running) |
+| About dialog | The standard GTK about dialog: author GershonWang, clickable repository address, harness version, Linglong package version |
 
-## 整体架构
+## Overall architecture
 
-**方案 A(选定):原生 GTK UI,全部在 desktop-launcher 内。**
+**Option A (chosen): native GTK UI, all inside desktop-launcher.**
 
-备选方案 B 在 harness Web GUI(React,上游)里加状态栏——样式统一但违反适配边界,且需跨进程暴露 harness 状态给前端,已否决。
+Alternative B adds the status bar inside the harness Web GUI (React, upstream) — the styling would be uniform, but it violates the adaptation boundary and requires exposing harness status to the frontend across processes, so it was rejected.
 
 ```
 dsh-desktop-launcher (Go)
@@ -36,32 +38,32 @@ dsh-desktop-launcher (Go)
 └── prepare-offline.sh  -ldflags 注入玲珑包版本
 ```
 
-GTK 代码沿用 `window.go` 现有的 cgo 模式(C 回调 + `w.Window()` 拿 GtkWindow)。
+The GTK code follows the existing cgo pattern in `window.go` (a C callback plus `w.Window()` to obtain the GtkWindow).
 
-## Supervisor 状态机(核心)
+## Supervisor state machine (core)
 
-现状:run() 循环 spawn → 等退出 → 总是自动退避重启(500ms→10s)。
+Current state: the run() loop spawns → waits for exit → always restarts with automatic backoff (500ms→10s).
 
-改为四态 + 手动控制:
+Change it to four states plus manual control:
 
-| 状态 | 含义 | 进入方式 |
+| State | Meaning | How it is entered |
 |---|---|---|
-| starting | 已 spawn、未就绪 | spawn 后 |
-| running | 存活(记录端口/URL) | 就绪行匹配 |
-| stopped | 未运行(记录上次退出 code/signal) | 退出/手动停止 |
+| starting | spawned but not ready | after spawn |
+| running | alive (records port/URL) | the readiness line matches |
+| stopped | not running (records the last exit code/signal) | exit / manual stop |
 
-- **意外退出(崩溃)** → 保持自动退避重启。
-- **手动停止**(`StopHarness`)→ 杀当前进程,置 `manuallyStopped` 标记,进入"手动停止"态,**暂停自动重启**,直到手动 Start。
-- **手动启动**(`Start`)→ 停止态立即 spawn,清除 `manuallyStopped` 标记,恢复崩溃自动重启。
-- **重启**(`Restart`)→ 运行态或停止态均杀/清状态后立即 spawn,并清除 `manuallyStopped` 标记恢复自动重启(不等退避)。
-- `Status() HarnessStatus` 返回状态、URL、上次退出原因。
-- 现有 `Stop()`(应用关闭,终态)与单一 `cmd.Wait()` goroutine、退出日志机制保持不变。
+- **Unexpected exit (crash)** → keep the automatic backoff restart.
+- **Manual stop** (`StopHarness`) → kill the current process, set the `manuallyStopped` flag, enter the "manually stopped" state, and **pause automatic restart** until a manual Start.
+- **Manual start** (`Start`) → spawn immediately from the stopped state, clear the `manuallyStopped` flag, and restore crash-triggered automatic restart.
+- **Restart** (`Restart`) → from either the running or the stopped state, kill/clear the state and spawn immediately, clearing the `manuallyStopped` flag and restoring automatic restart (without waiting for the backoff).
+- `Status() HarnessStatus` returns the state, URL, and last exit reason.
+- The existing `Stop()` (application shutdown, terminal state) plus the single `cmd.Wait()` goroutine and the exit-log mechanism stay unchanged.
 
-## GTK UI 结构
+## GTK UI structure
 
-**窗口居中**:`gtk_window_move` 按屏幕尺寸(主显示器)与窗口尺寸计算中心。环境为 kwin_x11,`gtk_window_move` 生效。
+**Window centering**: `gtk_window_move` computes the center from the screen size (primary display) and the window size. The environment is kwin_x11, where `gtk_window_move` takes effect.
 
-**状态栏挂载**:webview 是 GtkWindow 的直接子控件(`gtk_bin_get_child`)。用 `gtk_container_remove` 摘下,放入新建的纵向 GtkBox,底部插一行横向 GtkBox:
+**Status bar mounting**: the webview is the GtkWindow's direct child (`gtk_bin_get_child`). Remove it with `gtk_container_remove`, put it into a new vertical GtkBox, and insert one horizontal GtkBox row at the bottom:
 
 ```
 [系统标题栏:最小化/最大化/关闭]
@@ -69,25 +71,25 @@ GTK 代码沿用 `window.go` 现有的 cgo 模式(C 回调 + `w.Window()` 拿 Gt
 [状态栏:● 运行中 :40275 ...... [服务器状态] [关于]]
 ```
 
-状态栏左侧 label 与服务器弹框内容均由 `gtk_timeout_add`(1 秒)轮询 `sup.Status()` 刷新。
+The left-hand status bar label and the server dialog contents are both refreshed by `gtk_timeout_add` (1 second) polling `sup.Status()`.
 
-**服务器状态弹框**(GtkDialog):状态 + 端口/URL + 上次退出原因;三按钮按状态控制 sensitive。
+**Server status dialog** (GtkDialog): state + port/URL + last exit reason; the three buttons' `sensitive` is driven by the state.
 
-**关于弹框**(GtkAboutDialog):program-name、authors(GershonWang)、website(https://github.com/GershonWang/deepseek-harness,可点击)、comments、版本区显示 harness 版本与玲珑包版本。
+**About dialog** (GtkAboutDialog): program-name, authors (GershonWang), website (<https://github.com/GershonWang/deepseek-harness>, clickable), comments, and a version area showing the harness version and the Linglong package version.
 
-## 版本注入
+## Version injection
 
-- **harness 版本**:`resolveHarnessVersion()` 读 `$PREFIX/harness/package.json`(打包态)或 `apps/cli/package.json`(开发态)的 `version` 字段。
-- **玲珑包版本**:`prepare-offline.sh` 从 `linglong.yaml` 提取 `package.version`(当前 0.1.0.9),go build 加 `-ldflags "-X main.packageVersion=..."` 注入;未注入时(本地 go build)显示 "dev"。
+- **harness version**: `resolveHarnessVersion()` reads the `version` field of `$PREFIX/harness/package.json` (packaged) or `apps/cli/package.json` (development).
+- **Linglong package version**: `prepare-offline.sh` extracts `package.version` from `linglong.yaml` (currently 0.1.0.9) and injects it into go build through `-ldflags "-X main.packageVersion=..."`; when it is not injected (a local go build) it shows "dev".
 
-## 测试
+## Tests
 
-- **Supervisor 状态机**(mock 脚本驱动):状态转移、手动停止暂停自动重启、Start 恢复、Restart 强制重启、Status 数据。
-- **版本解析**:纯函数测试。
-- GTK 渲染层不做单测(headless 无显示),逻辑保持薄层,可测逻辑全部在纯 Go 侧。
+- **Supervisor state machine** (driven by a mock script): state transitions, manual stop pausing automatic restart, Start restoring it, Restart forcing a restart, and the Status data.
+- **Version resolution**: pure function tests.
+- The GTK rendering layer has no unit tests (headless has no display); the logic stays a thin layer, and all testable logic lives on the pure Go side.
 
-## 边界与风险
+## Boundaries and risks
 
-- 不修改 webview_go 依赖与上游 harness 源码。
-- GTK 按钮回调全部走 cgo C 回调,回调内只做状态查询与 `sup.*` 调用,避免在 GTK 主线程外触碰 GTK。
-- Wayland 下 `gtk_window_move` 可能被合成器忽略(本机 kwin_x11 不受影响),文档注明。
+- The webview_go dependency and the upstream harness source are not modified.
+- Every GTK button callback goes through a cgo C callback, and inside the callback it only queries state and calls `sup.*`, avoiding touching GTK outside the GTK main thread.
+- Under Wayland `gtk_window_move` may be ignored by the compositor (the local kwin_x11 is unaffected); the documentation notes this.

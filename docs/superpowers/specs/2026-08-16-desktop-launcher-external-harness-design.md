@@ -1,26 +1,28 @@
-# 桌面启动器:外部 harness 连接(本机/远端服务)设计
+# Desktop launcher: external harness connection (local/remote service) design
 
-## 背景与目标
+English | [中文](2026-08-16-desktop-launcher-external-harness-design.zh.md)
 
-`apps/desktop-launcher` 当前固定加载**玲珑容器内**的 harness 服务(Go supervisor spawn `dsh web` 子进程,webview 加载其 loopback URL)。官方仓库通过 `npx @deepseek-ai/dsh web` 在宿主机运行 web 版本并用浏览器访问。
+## Background and goals
 
-本设计为服务器状态弹框新增**外部服务连接模式**:
-1. 用户可在容器内 harness 与外部 harness 服务(本机 `npx dsh web` 或网络可达的其他机器)之间切换。
-2. 切到外部模式时**先停止容器内 harness**(释放端口、暂停自动重启)。
-3. 外部连接通过 webview 直接 `Navigate` 到目标 URL——已实证玲珑沙箱共享宿主网络命名空间,沙箱内可直连宿主 loopback 与任何宿主可达地址。
+`apps/desktop-launcher` currently always loads the harness service **inside the Linglong container** (the Go supervisor spawns a `dsh web` subprocess and the webview loads its loopback URL). The official repository runs the web build on the host machine through `npx @deepseek-ai/dsh web` and accesses it with a browser.
 
-约束:所有改动在 `apps/desktop-launcher/`;不碰上游;supervisor.go 的容器 harness 状态机不动。
+This design adds an **external service connection mode** to the server status dialog:
+1. The user can switch between the container harness and an external harness service (a local `npx dsh web`, or another machine reachable over the network).
+2. Switching to external mode **stops the container harness first** (releasing the port and pausing automatic restart).
+3. The external connection makes the webview `Navigate` straight to the target URL — it is already proven that the Linglong sandbox shares the host network namespace, so from inside the sandbox the host loopback and any host-reachable address can be reached directly.
 
-## 需求确认(已与用户对齐)
+Constraints: every change stays in `apps/desktop-launcher/`; upstream is untouched; the container harness state machine in supervisor.go does not change.
 
-| 决策项 | 结论 |
+## Confirmed requirements (aligned with the user)
+
+| Decision | Conclusion |
 |---|---|
-| 断开外部连接后 | **自动回到容器模式**:重启容器 harness → 等就绪 → 导航回容器 URL |
-| 外部 URL 记忆 | 记忆 + 打开弹框自动填充;**不自动重连** |
-| 非本机地址安全确认 | 弹确认提示(同会话同 host 只弹一次,重启后重弹) |
-| 弹框形态 | 方案 A:弹框内集成模式切换,整体重排布局(视觉交 @designer) |
+| After disconnecting the external connection | **Return to container mode automatically**: restart the container harness → wait until ready → navigate back to the container URL |
+| Remembering the external URL | Remembered and filled in automatically when the dialog opens; **no automatic reconnect** |
+| Safety confirmation for non-local addresses | Show a confirmation prompt (once per host per session, shown again after a restart) |
+| Dialog form | Option A: integrate the mode switch inside the dialog and rearrange the whole layout (visuals to @designer) |
 
-## 整体架构
+## Overall architecture
 
 ```
 容器模式(默认)                外部模式
@@ -31,12 +33,12 @@
   stopped ◄──断开────   Navigate(容器URL) 前先 Start() → 等就绪
 ```
 
-- **导航管理器**(新组件,纯 Go 可测):跟踪 webview 当前指向(容器/外部 URL),提供 `ConnectExternal(url)` / `DisconnectToContainer()` / `Status()`。
-- **导航时机**:所有 `Navigate` 在 GTK 主线程调用(弹框按钮回调所在线程);webview_go 的 `w.Navigate` 以闭包注入 UI 层(`func(string)`),避免跨线程。
-- **状态栏**:外部模式下显示「● 外部服务 http://…」;容器模式不变。
-- **Supervisor 不动**:容器 harness 的 Start/StopHarness/Status 直接复用。
+- **Navigation manager** (new component, pure Go and testable): tracks where the webview currently points (container/external URL) and provides `ConnectExternal(url)` / `DisconnectToContainer()` / `Status()`.
+- **Navigation timing**: every `Navigate` is called on the GTK main thread (the thread the dialog button callbacks run on); the `w.Navigate` of webview_go is injected into the UI layer as a closure (`func(string)`), avoiding cross-thread calls.
+- **Status bar**: in external mode it shows "● external service http://…"; container mode is unchanged.
+- **Supervisor untouched**: the container harness's Start/StopHarness/Status are reused directly.
 
-## 弹框布局(重设计,交 @designer)
+## Dialog layout (redesign, to @designer)
 
 ```
 ┌─ 服务器状态 ──────────────────────────┐
@@ -52,44 +54,44 @@
 └────────────────────────────────────┘
 ```
 
-- 模式切换控件、分区间距、视觉层级由 designer 定稿。
-- 外部模式下隐藏 启动/重启/停止,显示 连接/断开。
-- 连接后输入行只读或按钮变「断开」(designer 定)。
+- The mode switch control, the spacing between sections, and the visual hierarchy are finalized by the designer.
+- In external mode, start/restart/stop are hidden and connect/disconnect are shown.
+- After connecting, the input row is read-only or the button becomes "Disconnect" (the designer decides).
 
-## URL 持久化与安全确认
+## URL persistence and safety confirmation
 
-- **持久化**:`~/.config/dsh-desktop/config.json`,格式 `{"externalUrl": "..."}`;首次成功连接后写入;弹框打开时读取填充;文件缺失/损坏静默当空。
-- **安全确认**:连接非 loopback(`127.0.0.1`/`localhost`/`::1`)地址前弹确认框,文案提示"将连接远端 harness,其命令在远端机器上执行";同会话内已确认的 host 不重复弹(内存集合),重启后重新弹。
+- **Persistence**: `~/.config/dsh-desktop/config.json`, format `{"externalUrl": "..."}`; written after the first successful connection; read and filled in when the dialog opens; a missing or corrupt file is silently treated as empty.
+- **Safety confirmation**: before connecting to a non-loopback address (`127.0.0.1`/`localhost`/`::1`), show a confirmation box whose text warns "this connects to a remote harness and its commands run on the remote machine"; a host already confirmed in this session is not asked again (an in-memory set), and the prompt returns after a restart.
 
-## 错误处理
+## Error handling
 
-- 探测失败(超时/非 2xx/3xx)→ 弹框内红色错误提示,不导航,留在当前模式。
-- 连接成功但页面加载失败 → 状态栏回退提示,可重试。
-- 容器模式启动失败 → 沿用现有已修复路径(StateStopped + "start failed")。
+- Probe failure (timeout / non-2xx / non-3xx) → a red error hint inside the dialog, no navigation, and the current mode is kept.
+- The connection succeeds but the page fails to load → the status bar falls back to a hint and the user can retry.
+- Container-mode startup failure → reuse the existing repaired path (StateStopped + "start failed").
 
-## 测试(全部纯 Go,GTK 薄层)
+## Tests (all pure Go, GTK stays a thin layer)
 
-| 组件 | 测试 |
+| Component | Test |
 |---|---|
-| `probe(url)` HTTP 探测 | httptest:2xx 通过、5xx/超时失败 |
-| `isLoopback(url)` | 127.0.0.1/localhost/::1 → true;局域网 IP → false |
-| URL 持久化读写 | 临时目录读写、损坏 JSON 回退 |
-| 连接状态机 | 容器→外部→断开回容器的状态转移(复用 mock 脚本) |
+| `probe(url)` HTTP probe | httptest: 2xx passes, 5xx/timeout fails |
+| `isLoopback(url)` | 127.0.0.1/localhost/::1 → true; a LAN IP → false |
+| URL persistence read/write | read and write in a temporary directory, corrupt JSON falls back |
+| Connection state machine | the state transition container → external → disconnect back to container (reusing the mock script) |
 
-## 文件变更(全在 `apps/desktop-launcher/`)
+## File changes (all under `apps/desktop-launcher/`)
 
-| 文件 | 变更 |
+| File | Change |
 |---|---|
-| `connection.go`(新) | 探测/URL 校验/持久化/连接状态机(纯 Go) |
-| `ui.go` | 弹框重设计(模式/URL/连接断开)+ 导航闭包 + 安全确认(视觉交 designer) |
-| `window.go` / `main.go` | 注入 webview 的 `Navigate` 闭包 |
-| `ui_state.go` | 外部模式状态文本扩展 |
-| `supervisor.go` | **不动** |
-| README | 更新 |
+| `connection.go` (new) | probe / URL validation / persistence / connection state machine (pure Go) |
+| `ui.go` | dialog redesign (mode/URL/connect-disconnect) + navigation closure + safety confirmation (visuals to the designer) |
+| `window.go` / `main.go` | inject the webview `Navigate` closure |
+| `ui_state.go` | extend the external-mode status text |
+| `supervisor.go` | **unchanged** |
+| README | updated |
 
-## 边界与风险
+## Boundaries and risks
 
-- 沙箱共享宿主网络(已实测 netns 相同、宿主 loopback 可达 HTTP 200),网络层零障碍。
-- 远端 harness 需绑定非 loopback 接口才能被访问(`dsh web --host <LAN-IP>`;`--host 0.0.0.0` 被上游故意拒绝);远端浏览器信任需 `--trusted-host`。此为使用前提,文档注明,非本功能实现范围。
-- 连到远端 harness 时,其命令在远端机器执行、API key 发往远端——由安全确认提示承担告知义务。
-- URL 校验接受任意 http(s) 地址(不限制 loopback),非 loopback 走确认流程。
+- The sandbox shares the host network (measured: the same netns, and the host loopback is reachable with HTTP 200), so the network layer is no obstacle.
+- A remote harness must bind a non-loopback interface to be reachable (`dsh web --host <LAN-IP>`; `--host 0.0.0.0` is deliberately rejected upstream); browser trust on the remote side needs `--trusted-host`. This is a precondition for use, noted in the documentation, not part of this feature's implementation scope.
+- When connected to a remote harness its commands run on the remote machine and the API key goes to the remote one — the safety confirmation prompt carries that disclosure duty.
+- URL validation accepts any http(s) address (loopback is not required); non-loopback goes through the confirmation flow.

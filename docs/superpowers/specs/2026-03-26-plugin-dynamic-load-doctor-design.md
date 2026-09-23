@@ -1,202 +1,204 @@
-# 插件动态加载检查与启动失败自动诊断
+# Plugin dynamic-load check and automatic startup-failure diagnosis
 
-## 背景
+English | [中文](2026-03-26-plugin-dynamic-load-doctor-design.zh.md)
 
-第三方插件可能在运行时导入当前 profile 不存在的依赖（例如玲珑版缺少 `@deepseek-ai/dsh-host-apiproxy`），导致 Cordis Loader 在 import 阶段直接崩溃，harness 完全无法启动。
+## Background
 
-现有 doctor 仅做静态检查（bundle 可解析、patch 可合成），无法发现这类运行时故障。用户遇到问题时只能看到白屏或反复重启，不知道原因也不知道怎么修。
+A third-party plugin may import, at runtime, a dependency the current profile does not have (for example, the Linglong build lacks `@deepseek-ai/dsh-host-apiproxy`), which makes the Cordis Loader crash outright during the import phase and leaves the harness unable to start at all.
 
-## 目标
+Doctor only performs static checks today (bundles resolve, patches compose), so it cannot find this kind of runtime failure. When users hit the problem they see only a blank screen or repeated restarts, with no idea of the cause and no way to fix it.
 
-1. Doctor 能够检测出"第三方插件导致启动崩溃"类故障，并定位到具体 bundle
-2. 启动连续失败时自动触发诊断，无需用户手动操作
-3. 重试期间前端显示一致的加载状态，不跳回引导页
+## Goals
 
-## 一、Doctor 动态加载检查（plugin-dynamic-load）
+1. Doctor can detect "third-party plugin caused a startup crash" faults and pinpoint the specific bundle
+2. When startup keeps failing, the diagnosis triggers automatically, with no manual action from the user
+3. During retries the frontend shows a consistent loading state and does not jump back to the guidance page
 
-### 1.1 检查策略
+## 1. Doctor dynamic-load check (plugin-dynamic-load)
 
-采用「全量加载 + 二分定位」的两步策略：
+### 1.1 Check strategy
 
-1. **全量加载**：用 Cordis Loader 加载完整 profile（base + web-app + 用户 patch + 全部第三方 bundle），成功则检查通过
-2. **二分定位**：全量加载失败时，通过二分法逐个排除第三方 bundle，找到导致崩溃的那个
+A two-step strategy of "load everything + bisect to locate":
 
-选择理由：
-- 大多数用户的插件都是正常的，单次全量检测最快
-- 真出问题时，log₂N 次子进程即可定位，优于逐个加载
-- 已有 `bisectThirdPartyBundles()` 工具可复用
+1. **Load everything**: use the Cordis Loader to load the complete profile (base + web-app + user patch + all third-party bundles); the check passes when that succeeds
+2. **Bisect to locate**: when the full load fails, exclude third-party bundles one by one by bisection until the one causing the crash is found
 
-### 1.2 子进程探测脚本
+Why this choice:
+- Most users' plugins are fine, so a single full check is fastest
+- When something really is broken, log₂N subprocess runs locate it, better than loading bundles one at a time
+- The existing `bisectThirdPartyBundles()` helper can be reused
 
-新增 `packages/support/doctor/src/loader-probe.ts`，作为独立可执行脚本。
+### 1.2 The subprocess probe script
 
-**参数**：
-- `--profile <name>` —— profile 名称（如 `web`）
-- `--dsh-home <path>` —— harness home 路径
-- `--include <bundle>` —— 可多次指定，只加载这些第三方 bundle（用于二分法）
-- `--timeout <ms>` —— 超时时间，默认 10000ms
+Add `packages/support/doctor/src/loader-probe.ts` as a standalone executable script.
 
-**退出码**：
-- `0` —— 加载成功
-- `1` —— 加载失败（stderr 输出错误堆栈）
-- `2` —— 超时
+**Arguments**:
+- `--profile <name>` — profile name (such as `web`)
+- `--dsh-home <path>` — harness home path
+- `--include <bundle>` — may be given multiple times; load only these third-party bundles (used by the bisection)
+- `--timeout <ms>` — timeout, 10000ms by default
 
-**加载深度**：走完整的 Cordis Loader 合成流程（compose + load plugin tree），但不启动任何 HTTP 服务、不监听端口。加载完成（所有 plugin 的 `apply` 执行完毕）后立即 dispose，确保无副作用。
+**Exit codes**:
+- `0` — load succeeded
+- `1` — load failed (the error stack goes to stderr)
+- `2` — timed out
 
-选择走完整 Loader 而非单纯 import 入口文件的原因：
-- 能检测 cordis.yml 配置层面的故障（引用不存在的 service、plugin 导出格式错误等）
-- 与静态检查的覆盖范围互补（静态查 patch 合成，动态查实际加载）
-- 真正验证"这个 bundle 能不能和当前 profile 一起启动"
+**Load depth**: it goes through the complete Cordis Loader composition flow (compose + load the plugin tree) but starts no HTTP service and listens on no port. It disposes immediately once loading finishes (every plugin's `apply` has run), guaranteeing no side effects.
 
-### 1.3 二分法实现
+Why go through the complete Loader rather than merely importing the entry file:
+- It can detect faults at the cordis.yml configuration level (referencing a nonexistent service, a malformed plugin export, and so on)
+- It complements the coverage of the static checks (static checks the patch composition, dynamic checks the actual load)
+- It truly verifies "can this bundle start together with the current profile"
 
-复用现有 `bisectThirdPartyBundles()` 工具框架，每次判定改为：
-1. 构造子进程，传入当前候选 bundle 列表（通过 `--include`）
-2. 等待子进程退出或超时
-3. 退出码 0 → 这组没问题；非 0 → 这组有问题
+### 1.3 Bisection implementation
 
-候选列表来源：从用户的 `cordis.patch.yml` 中解析出的所有第三方 bundle。
+Reuse the existing `bisectThirdPartyBundles()` helper framework, changing each decision to:
+1. Spawn a subprocess, passing the current candidate bundle list (through `--include`)
+2. Wait for the subprocess to exit or time out
+3. Exit code 0 → this set is fine; non-zero → this set is broken
 
-如果多个 bundle 同时损坏，修复第一个后会再次触发检测，循环直到全部通过或耗尽候选。
+The candidate list comes from every third-party bundle parsed out of the user's `cordis.patch.yml`.
 
-### 1.4 检查注册
+If several bundles are broken at once, repairing the first triggers detection again, looping until everything passes or the candidates run out.
 
-| 字段 | 值 |
+### 1.4 Check registration
+
+| Field | Value |
 |---|---|
 | id | `plugin-dynamic-load` |
-| name | 插件运行时兼容性 |
+| name | Plugin runtime compatibility |
 | category | `plugin` |
 | severity | `fatal` |
 | fixable | `true` |
 | suggestedLevel | `2` |
 
-### 1.5 修复逻辑（L2）
+### 1.5 Repair logic (L2)
 
-1. 定位导致崩溃的 bundle（全量探测 + 二分）
-2. 备份 profile 的 `package.json`（字节级，`writeFileAtomic`）到 doctor 本次修复的 backup 目录
-3. 用 `writeProfileManifest` 将 culprit 从 `dsh.profile.bundles` 移除 —— 与 `DSH_SAFE_MODE=plugins` 的排除模型一致（第三方 bundle 是 profile 层，不在用户 patch 文件里）
-4. 重新运行动态加载检查验证
-5. 验证通过 → 修复成功；仍失败 → 还原备份，报告失败原因
+1. Locate the bundle that causes the crash (full probe + bisection)
+2. Back up the profile's `package.json` (byte level, `writeFileAtomic`) into the doctor backup directory for this repair
+3. Use `writeProfileManifest` to remove the culprit from `dsh.profile.bundles` — consistent with the exclusion model of `DSH_SAFE_MODE=plugins` (third-party bundles are a profile layer, not part of the user patch file)
+4. Re-run the dynamic-load check to verify
+5. Verification passes → the repair succeeded; still failing → restore the backup and report the failure reason
 
-## 二、启动失败自动触发诊断
+## 2. Automatic diagnosis on startup failure
 
-### 2.1 触发时机
+### 2.1 Trigger point
 
-`supervisor` 进入 `StateFailed` 状态（30 秒启动超时熔断）时，自动触发一次 doctor 诊断。
+When `supervisor` enters the `StateFailed` state (the 30-second startup timeout circuit breaker), it triggers one doctor diagnosis automatically.
 
-触发条件：
-- 容器模式（非外置模式）
-- 状态从非 failed 变为 failed
-- 非用户手动停止
-- 本次失败周期内尚未自动诊断过（避免重复触发）
+Trigger conditions:
+- Container mode (not external mode)
+- The status goes from not-failed to failed
+- Not a user-initiated stop
+- No automatic diagnosis has run yet in this failure cycle (avoiding repeated triggers)
 
-选择 StateFailed 作为触发点的原因：
-- 已经过指数退避重试，不是偶发故障
-- 用户此时正对着启动失败界面，正好需要诊断结果
-- 不会误触发（正常启动、手动停止均不触发）
+Why StateFailed is the trigger point:
+- Exponential-backoff retries have already happened, so it is not a transient fault
+- The user is looking at the startup failure screen right then and needs the diagnosis result
+- It cannot misfire (a normal start or a manual stop triggers nothing)
 
-### 2.2 现有重试机制
+### 2.2 The existing retry mechanism
 
-当前 supervisor 的重试参数：
+The supervisor's current retry parameters:
 
-| 参数 | 默认值 |
+| Parameter | Default |
 |---|---|
-| 初始重启延迟 | 500ms |
-| 最大重启延迟 | 10000ms |
-| 启动超时（熔断） | 30000ms |
+| Initial restart delay | 500ms |
+| Maximum restart delay | 10000ms |
+| Startup timeout (circuit breaker) | 30000ms |
 
-退避策略：指数退避 `500 × 2^(n-1)` ms，封顶 10s。累计启动失败超过 30s 进入 `StateFailed` 停止重试。
+Backoff policy: exponential backoff `500 × 2^(n-1)` ms, capped at 10s. Once cumulative startup failure exceeds 30s it enters `StateFailed` and stops retrying.
 
-### 2.3 Go 端改动
+### 2.3 Go-side changes
 
-在 `App` 结构体中增加：
-- 启动失败诊断状态跟踪（避免重复触发）
-- 状态事件中携带诊断运行状态或结果
+Add to the `App` struct:
+- Startup-failure diagnosis state tracking (to avoid repeated triggers)
+- Carry the diagnosis running state or result in the status event
 
-状态事件 `FrontendStatus` 新增字段：
-- `StartupDiagnosing bool` —— 是否正在进行启动失败自动诊断
-- `StartupDoctorError string` —— 自动诊断的 doctor 命令错误（非空表示诊断本身失败了）
+New fields on the status event `FrontendStatus`:
+- `StartupDiagnosing bool` — whether the automatic startup-failure diagnosis is running
+- `StartupDoctorError string` — the doctor command error of the automatic diagnosis (non-empty means the diagnosis itself failed)
 
-自动诊断在后台 goroutine 中运行，结果通过状态事件推送。前端可通过状态变化感知。
+The automatic diagnosis runs in a background goroutine and pushes its result through the status event. The frontend can sense it through status changes.
 
-### 2.4 前端改动
+### 2.4 Frontend changes
 
-当检测到 `State === "failed"` 且自动诊断完成时：
-1. 自动弹出 doctor 诊断窗口
-2. 顶部显示提示条："检测到启动失败，已为你自动诊断"
-3. 如果 `plugin-dynamic-load` 检查失败，高亮显示并突出"中度修复（L2）"按钮
+When it detects `State === "failed"` and the automatic diagnosis has finished:
+1. Open the doctor diagnosis window automatically
+2. Show a hint bar at the top: "startup failure detected, diagnosed automatically for you"
+3. If the `plugin-dynamic-load` check failed, highlight it and emphasize the "moderate repair (L2)" button
 
-## 三、启动中 UI 优化
+## 3. Startup UI polish
 
-### 3.1 主舞台状态映射
+### 3.1 Main-stage status mapping
 
-| 状态 | 主舞台显示 |
+| Status | Main stage shows |
 |---|---|
-| 外部已连接 | iframe（外部 URL） |
-| 容器 running | iframe（容器 URL） |
-| 容器 starting | 启动加载页 |
-| 容器 failed | 启动失败页 |
-| 容器 stopped（手动停止） | 引导页 |
+| External connected | iframe (external URL) |
+| Container running | iframe (container URL) |
+| Container starting | Startup loading page |
+| Container failed | Startup failure page |
+| Container stopped (manual stop) | Guidance page |
 
-### 3.2 启动加载页
+### 3.2 Startup loading page
 
-居中布局，内容：
-- 品牌标识
-- "正在启动..." 文案
-- Spinner 动画
-- 底部可选提示："如果长时间无响应，请尝试安全模式"
+Centered layout, containing:
+- Brand mark
+- The "starting..." copy
+- A spinner animation
+- An optional hint at the bottom: "if there is no response for a long time, try safe mode"
 
-### 3.3 启动失败页
+### 3.3 Startup failure page
 
-居中布局，内容：
-- 失败图标
-- "启动失败" 标题
-- 错误信息摘要（LastExit）
-- 两个主操作按钮：
-  - **诊断问题** —— 打开 doctor 弹窗
-  - **以安全模式启动** —— 直接调用 StartSafeMode
-- 底部小字提示：`~/.cache/dsh-desktop/harness.log` 查看完整日志
+Centered layout, containing:
+- A failure icon
+- The "startup failed" title
+- An error message summary (LastExit)
+- Two primary action buttons:
+  - **Diagnose the problem** — opens the doctor modal
+  - **Start in safe mode** — calls StartSafeMode directly
+- A small line of text at the bottom: see the full log at `~/.cache/dsh-desktop/harness.log`
 
-### 3.4 重试期间状态防抖
+### 3.4 Status debounce during retries
 
-当前 supervisor 在重试延迟期间，进程已退出、状态为 `stopped`，延迟结束后才变回 `starting`。这会导致重试期间主舞台在引导页和加载页之间闪烁。
+During the retry delay the supervisor has already let the process exit and the status is `stopped`, flipping back to `starting` only after the delay ends. That makes the main stage flicker between the guidance page and the loading page during retries.
 
-解决方案：**前端 1 秒 debounce**。
+Solution: **a 1-second frontend debounce**.
 
-- 状态从 `starting` 变为 `stopped` 时，不立即渲染引导页
-- 等待 1 秒；如果 1 秒内状态变回 `starting`，则不切换
-- 如果 1 秒后仍为 `stopped`，再渲染 stopped 对应的界面
+- When the status changes from `starting` to `stopped`, do not render the guidance page immediately
+- Wait 1 second; if the status flips back to `starting` within that second, do not switch
+- If it is still `stopped` after 1 second, render the interface for stopped
 
-选择前端防抖的原因：
-- Go 端状态机不用改，保持语义清晰（stopped 就是进程已停止）
-- 实现简单，只改前端一处
-- 不影响其他依赖状态的逻辑
+Why debounce in the frontend:
+- The Go state machine needs no change and keeps clear semantics (stopped simply means the process has stopped)
+- It is simple to implement, changing one place in the frontend
+- It does not affect other logic that depends on the status
 
-## 四、边界情况
+## 4. Edge cases
 
-| 场景 | 处理方式 |
+| Scenario | Handling |
 |---|---|
-| 没有第三方 bundle | 检查直接通过 |
-| 多个 bundle 同时损坏 | 逐个定位并修复，循环直到通过 |
-| 子进程加载超时 | 视为失败，错误信息标记为"加载超时" |
-| 玲珑沙箱环境 | 子进程通过正常 spawn 启动，沙箱内 node 可用 |
-| 用户手动停止 | 不触发自动诊断（manuallyStopped 标记） |
-| 外置模式 | 不触发自动诊断 |
-| doctor 命令本身执行失败 | 前端显示"诊断失败"，不自动弹窗 |
+| No third-party bundles | The check passes directly |
+| Several bundles broken at once | Locate and repair them one at a time, looping until it passes |
+| The subprocess load times out | Treated as a failure, with the error message marked "load timed out" |
+| Linglong sandbox environment | The subprocess starts through a normal spawn; node is available inside the sandbox |
+| User-initiated stop | Does not trigger the automatic diagnosis (the manuallyStopped flag) |
+| External mode | Does not trigger the automatic diagnosis |
+| The doctor command itself fails to run | The frontend shows "diagnosis failed" and does not pop up automatically |
 
-## 五、改动文件清单
+## 5. List of changed files
 
-### doctor 包
-- `packages/support/doctor/src/checks/plugins.ts` —— 新增 plugin-dynamic-load 检查
-- `packages/support/doctor/src/loader-probe.ts` —— 新增子进程探测脚本
-- `packages/support/doctor/src/bisect.ts` —— 适配/扩展二分法（按需）
-- `packages/support/doctor/tests/` —— 新增测试
+### The doctor package
+- `packages/support/doctor/src/checks/plugins.ts` — adds the plugin-dynamic-load check
+- `packages/support/doctor/src/loader-probe.ts` — adds the subprocess probe script
+- `packages/support/doctor/src/bisect.ts` — adapts/extends the bisection (as needed)
+- `packages/support/doctor/tests/` — new tests
 
-### desktop-launcher（Go）
-- `apps/desktop-launcher/internal/app/app.go` —— 启动失败自动触发 doctor，状态字段扩展
-- `apps/desktop-launcher/internal/supervisor/supervisor.go` —— 可能需要状态事件微调
+### desktop-launcher (Go)
+- `apps/desktop-launcher/internal/app/app.go` — trigger doctor automatically on startup failure; extend the status fields
+- `apps/desktop-launcher/internal/supervisor/supervisor.go` — may need minor status-event adjustments
 
-### desktop-launcher（前端）
-- `apps/desktop-launcher/frontend/index.html` —— 新增启动加载页、启动失败页结构
-- `apps/desktop-launcher/frontend/app.js` —— 状态渲染逻辑调整 + 自动弹窗 + debounce
-- `apps/desktop-launcher/frontend/styles.css` —— 新增样式
+### desktop-launcher (frontend)
+- `apps/desktop-launcher/frontend/index.html` — adds the startup loading page and startup failure page structure
+- `apps/desktop-launcher/frontend/app.js` — status rendering adjustments + automatic pop-up + debounce
+- `apps/desktop-launcher/frontend/styles.css` — new styles

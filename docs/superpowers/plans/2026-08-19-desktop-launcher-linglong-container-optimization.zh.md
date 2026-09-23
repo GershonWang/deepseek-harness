@@ -1,55 +1,55 @@
-# Linglong sandbox container usability optimization — implementation plan
+# 玲珑沙箱容器可用性优化实现计划
 
-English | [中文](2026-08-19-desktop-launcher-linglong-container-optimization.zh.md)
+[English](2026-08-19-desktop-launcher-linglong-container-optimization.md) | 中文
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Move the harness toolchain's "runtime dead ends" inside the desktop-launcher Linglong container forward into three lines of defense: build-time tool manifest validation, runtime self-check plus on-demand installation, and credential/mount reachability.
+**Goal:** 把 desktop-launcher 玲珑容器内 harness 工具链的"运行时碰壁"前移为三层防线:构建期工具清单校验、运行时自检与按需安装、凭据/挂载可达。
 
-**Architecture:** All three lines of defense live in `apps/desktop-launcher/`: the first layer uses `tools.yaml` (the single source of truth) to drive `verify-tools.sh`, which validates the merged artifact tree of `ll-builder build` on the host side; the third layer is pure Go that installs static artifacts under `$HOME/.dsh-tools` and injects PATH/LD; the credential layer reads and writes `$HOME/.git-credentials` in pure Go. The GUI is only a thin GTK layer, with all testable logic pushed down into pure Go functions. The harness-side injection of the model-visible manifest is broken out as Phase D (a separate sub-project: investigate first, then decide the implementation; no new `packages/` package).
+**Architecture:** 三层防线全部落在 `apps/desktop-launcher/`:第一层用 `tools.yaml`(单一事实来源)驱动 `verify-tools.sh` 在宿主侧校验 `ll-builder build` 的合并产物树;第三层用纯 Go 实现 `$HOME/.dsh-tools` 静态产物安装与 PATH/LD 注入;凭据层用纯 Go 读写 `$HOME/.git-credentials`。GUI 只做薄 GTK 层,可测逻辑全部下沉到纯 Go 函数。harness 侧模型可见清单注入单列为 Phase D(独立子项目,先调查再定实现,不新增 `packages/` 包)。
 
-**Tech Stack:** POSIX sh (validation scripts), Go 1.22 (launcher, `go test` for pure logic), the Go standard library net/http/archive/tar, a thin GTK3 cgo layer, and a YAML subset parser (no new dependencies).
+**Tech Stack:** POSIX sh(校验脚本)、Go 1.22(launcher,`go test` 纯逻辑)、GO 标准库 net/http/archive/tar、GTK3 cgo 薄层、YAML 子集解析(无新依赖)。
 
-**Prerequisites:** The executing machine must be able to run `go test ./...` (the apps/desktop-launcher module) and `sh`; the `ll-builder` build verification runs on the user's machine (the current sandbox has neither go nor ll-builder).
+**前置环境:** 执行机需可运行 `go test ./...`(apps/desktop-launcher 模块)与 `sh`;`ll-builder` 构建验证在用户机器执行(当前沙箱无 go/ll-builder)。
 
 ---
 
-## File structure
+## 文件结构
 
-| File | Responsibility |
+| 文件 | 职责 |
 |---|---|
-| `linglong/tools.yaml` (new) | The single source of truth for the tool manifest: tools (must be validated) + installable (the on-demand allowlist, with url/sha256) + excluded (deliberately left out) |
-| `linglong/verify-tools.sh` (new) | Host-side validation of `$PREFIX/<binary>` and shims; a miss exits non-zero |
-| `linglong/test-verify-tools.sh` (new) | Failure/pass path tests for verify-tools.sh (a temporary artifact tree) |
-| `linglong/linglong.yaml` (modified) | Added `buildext.apt.depends` entries |
-| `build-linglong.sh` (modified) | Calls verify-tools.sh before export |
-| `toolinstall.go` (new) | On-demand installation: directory layout, download, sha256, atomic extraction, listing, removal |
-| `toolinstall_test.go` (new) | Install/verify/remove tests with httptest and an in-memory tar package |
-| `toolcheck.go` (new) | Runtime probe of `git/python3/node/curl/jq/pnpm --version` |
-| `toolcheck_test.go` (new) | Probe tests against stub executables on PATH |
-| `env.go` (modified) | `configurePackagedEnv()` injects `$HOME/.dsh-tools/bin|lib` |
-| `env_test.go` (modified) | dshToolsEnv and injection tests |
-| `gitcred.go` (new) | Read/write/clear the github.com entry in `$HOME/.git-credentials` |
-| `gitcred_test.go` (new) | Read/write/overwrite/clear tests against a temporary HOME |
-| `ui_state.go` (modified) | The `toolPanelState` / `credentialPanelState` pure functions |
-| `ui_state_test.go` (modified) | Tests for those state functions |
-| `ui.go` (modified) | The "tools/credentials" sections of the settings dialog + thin handlers (thin GTK layer) |
-| `linglong/config.d/20-host-credentials.json` (new) | Optional read-only host credential mount template |
-| `README.md` (modified) | Packaging highlights, credentials, on-demand installation, mounts, and proxy notes |
-| `.agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md` (new) | Decision record (including the verification requirements) |
+| `linglong/tools.yaml`(新) | 工具清单单一事实来源:tools(必须校验)+ installable(按需白名单,含 url/sha256)+ excluded(有意不包含) |
+| `linglong/verify-tools.sh`(新) | 宿主侧校验 `$PREFIX/<binary>` 与 shim,缺失即退出非零 |
+| `linglong/test-verify-tools.sh`(新) | verify-tools.sh 的失败/通过路径测试(临时产物树) |
+| `linglong/linglong.yaml`(改) | `buildext.apt.depends` 增补 |
+| `build-linglong.sh`(改) | export 前调用 verify-tools.sh |
+| `toolinstall.go`(新) | 按需安装:目录布局、下载、sha256、原子解包、列表、删除 |
+| `toolinstall_test.go`(新) | httptest + 内存 tar 包的安装/校验/删除测试 |
+| `toolcheck.go`(新) | 运行时探测 `git/python3/node/curl/jq/pnpm --version` |
+| `toolcheck_test.go`(新) | PATH 桩可执行文件的探测测试 |
+| `env.go`(改) | `configurePackagedEnv()` 注入 `$HOME/.dsh-tools/bin|lib` |
+| `env_test.go`(改) | dshToolsEnv 与注入测试 |
+| `gitcred.go`(新) | `$HOME/.git-credentials` github.com 条目读写清除 |
+| `gitcred_test.go`(新) | 临时 HOME 读写/重写/清除测试 |
+| `ui_state.go`(改) | `toolPanelState` / `credentialPanelState` 纯函数 |
+| `ui_state_test.go`(改) | 上述状态函数测试 |
+| `ui.go`(改) | 设置弹框"工具/凭据"分区 + 薄处理器(GTK 薄层) |
+| `linglong/config.d/20-host-credentials.json`(新) | 可选宿主凭据只读挂载模板 |
+| `README.md`(改) | 打包要点、凭据、按需安装、挂载、代理说明 |
+| `.agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md`(新) | 决策记录(含验证要求) |
 
-**Phase D (a separate sub-project, see below):** harness-side injection of the model-visible tool manifest (a preset overlay plus a login event, or reuse of the existing instruction log path).
+**Phase D(单独子项目,见后):** harness 侧模型可见工具清单注入(preset overlay + 登录事件或复用既有指令日志路径)。
 
 ---
 
-## Phase A: build-time tool manifest and validation
+## Phase A:构建期工具清单与校验
 
-### Task 1: the `linglong/tools.yaml` manifest
+### Task 1:`linglong/tools.yaml` 清单
 
 **Files:**
 - Create: `apps/desktop-launcher/linglong/tools.yaml`
 
-- [ ] **Step 1: Create the manifest file**
+- [ ] **Step 1:创建清单文件**
 
 ```yaml
 # 容器内工具清单:verify-tools.sh 逐项校验;installable 为按需安装白名单
@@ -95,26 +95,26 @@ excluded:
   - rustc
 ```
 
-- [ ] **Step 2: Format sanity (runnable locally)**
+- [ ] **Step 2:格式 sanity(本地可跑)**
 
 Run: `grep -c '^  [a-z0-9_-]*:$' apps/desktop-launcher/linglong/tools.yaml`
 
-Expected: `8` (the 6 tools plus the 2 installable section names do not match that regex — any output ≥6 is fine, and the Task 2 tests are authoritative for the parser)
+Expected: `8`(tools 6 项 + installable 2 项段名不匹配该正则除外——输出 ≥6 即可,解析器以 Task 2 测试为准)
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3:提交**
 
 ```bash
 git add apps/desktop-launcher/linglong/tools.yaml
 git commit -m "chore(desktop-launcher): add linglong tool manifest"
 ```
 
-### Task 2: `verify-tools.sh` and its failure/pass path tests
+### Task 2:`verify-tools.sh` 与失败/通过路径测试
 
 **Files:**
 - Create: `apps/desktop-launcher/linglong/verify-tools.sh`
 - Create: `apps/desktop-launcher/linglong/test-verify-tools.sh`
 
-- [ ] **Step 1: Write the failure path test (test that the script exists and parses first)**
+- [ ] **Step 1:写失败路径测试(先测脚本存在与解析)**
 
 ```sh
 #!/bin/sh
@@ -146,13 +146,13 @@ fi
 echo "PASS: git 缺失时退出非零"
 ```
 
-- [ ] **Step 2: Run it and confirm failure (the script is not implemented)**
+- [ ] **Step 2:运行,确认失败(脚本未实现)**
 
 Run: `sh apps/desktop-launcher/linglong/test-verify-tools.sh`
 
-Expected: FAIL (`verify-tools.sh` missing or exits 127)
+Expected: FAIL(`verify-tools.sh` 不存在或退出 127)
 
-- [ ] **Step 3: Implement verify-tools.sh**
+- [ ] **Step 3:实现 verify-tools.sh**
 
 ```sh
 #!/bin/sh
@@ -225,28 +225,28 @@ done < "$LIST"
 exit $fail
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [ ] **Step 4:运行测试,确认通过**
 
 Run: `sh apps/desktop-launcher/linglong/test-verify-tools.sh`
 
-Expected: two `PASS` lines
+Expected: 两行 `PASS`
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5:提交**
 
 ```bash
 git add apps/desktop-launcher/linglong/verify-tools.sh apps/desktop-launcher/linglong/test-verify-tools.sh
 git commit -m "feat(desktop-launcher): verify linglong tool manifest post-build"
 ```
 
-### Task 3: `linglong.yaml` dependency additions and `build-linglong.sh` integration
+### Task 3:`linglong.yaml` 依赖增补与 `build-linglong.sh` 集成
 
 **Files:**
-- Modify: `apps/desktop-launcher/linglong/linglong.yaml:59-72` (buildext.apt.depends)
+- Modify: `apps/desktop-launcher/linglong/linglong.yaml:59-72`(buildext.apt.depends)
 - Modify: `apps/desktop-launcher/build-linglong.sh:23-24`
 
-- [ ] **Step 1: Add the runtime dependencies to linglong.yaml**
+- [ ] **Step 1:linglong.yaml 增补运行时依赖**
 
-In `apps/desktop-launcher/linglong/linglong.yaml`, append to the `buildext.apt.depends` list (after git):
+在 `apps/desktop-launcher/linglong/linglong.yaml` 的 `buildext.apt.depends` 列表(git 之后)追加:
 
 ```yaml
       # 层1 工具链自包含:随包工具与其运行时依赖
@@ -261,22 +261,22 @@ In `apps/desktop-launcher/linglong/linglong.yaml`, append to the `buildext.apt.d
       - ca-certificates   # git/https/python 校验
 ```
 
-- [ ] **Step 2: Validate in build-linglong.sh before export**
+- [ ] **Step 2:build-linglong.sh 在 export 前校验**
 
-Insert this before line 24 of `apps/desktop-launcher/build-linglong.sh`:
+把 `apps/desktop-launcher/build-linglong.sh` 第 24 行前插入:
 
 ```sh
 echo "==> 校验合并产物树工具清单"
 sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files
 ```
 
-- [ ] **Step 3: Verify (user machine)**
+- [ ] **Step 3:验证(用户机器)**
 
 Run: `sh apps/desktop-launcher/build-linglong.sh`
 
-Expected: `ll-builder build` succeeds → `校验合并产物树工具清单` reports OK for every entry → `ll-builder export` succeeds → the .uab path is printed
+Expected: `ll-builder build` 成功 → `校验合并产物树工具清单` 逐项 OK → `ll-builder export` 成功 → 输出 .uab 路径
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4:提交**
 
 ```bash
 git add apps/desktop-launcher/linglong/linglong.yaml apps/desktop-launcher/build-linglong.sh
@@ -285,15 +285,15 @@ git commit -m "feat(desktop-launcher): bundle core toolchain and verify before e
 
 ---
 
-## Phase B: runtime on-demand installation (layer 3)
+## Phase B:运行时按需安装(层3)
 
-### Task 4: the `toolinstall.go` on-demand installation mechanism
+### Task 4:`toolinstall.go` 按需安装机制
 
 **Files:**
 - Create: `apps/desktop-launcher/toolinstall.go`
 - Create: `apps/desktop-launcher/toolinstall_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1:写失败测试**
 
 ```go
 package main
@@ -389,13 +389,13 @@ func TestRemoveTool(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestInstallTool|TestRemoveTool'`
 
-Expected: FAIL (undefined: InstallTool / ToolInstallDir / ListTools / RemoveTool)
+Expected: FAIL(undefined: InstallTool / ToolInstallDir / ListTools / RemoveTool)
 
-- [ ] **Step 3: Implement toolinstall.go**
+- [ ] **Step 3:实现 toolinstall.go**
 
 ```go
 package main
@@ -547,35 +547,35 @@ func extractTarGz(data []byte, dest string) error {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestInstallTool|TestRemoveTool' -v`
 
 Expected: PASS ×3
 
-- [ ] **Step 5: Fill the url/sha256 values in tools.yaml (data entry)**
+- [ ] **Step 5:更新 tools.yaml 的 url/sha256(数据录入)**
 
-Run (on the user machine, fetching the official checksums):
+Run(用户机器,取官方校验值):
 ```sh
 curl -sL https://go.dev/dl/go1.23.2.linux-amd64.tar.gz.sha256
 curl -sL https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz.sha256  # 或从发布页取
 ```
-Replace `<Task4 填入官方 sha256>` in `tools.yaml` with the two real sha256 values and fold the `installable` section into the commit.
+将两个真实 sha256 替换 `tools.yaml` 中 `<Task4 填入官方 sha256>`,把 `installable` 段整理进 commit。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6:提交**
 
 ```bash
 git add apps/desktop-launcher/toolinstall.go apps/desktop-launcher/toolinstall_test.go apps/desktop-launcher/linglong/tools.yaml
 git commit -m "feat(desktop-launcher): install on-demand tools into dsh-tools dir"
 ```
 
-### Task 5: `env.go` injects the on-demand tools directory
+### Task 5:`env.go` 注入按需工具目录
 
 **Files:**
 - Modify: `apps/desktop-launcher/env.go:105-112`
 - Modify: `apps/desktop-launcher/env_test.go`
 
-- [ ] **Step 1: Write the failing tests (append to env_test.go)**
+- [ ] **Step 1:写失败测试(追加到 env_test.go)**
 
 ```go
 func TestDshToolsEnv(t *testing.T) {
@@ -622,15 +622,15 @@ func TestConfigurePackagedEnv_SkipsWhenAbsent(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestDshToolsEnv|TestConfigurePackagedEnv'`
 
-Expected: FAIL (undefined: dshToolsEnv / configurePackagedEnvForHome)
+Expected: FAIL(undefined: dshToolsEnv / configurePackagedEnvForHome)
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3:实现**
 
-Change `configurePackagedEnv` in `apps/desktop-launcher/env.go` to delegate to the new functions:
+把 `apps/desktop-launcher/env.go` 的 `configurePackagedEnv` 改为委托新函数:
 
 ```go
 // dshToolsEnv 返回按需工具目录的 PATH 与 LD_LIBRARY_PATH 段(home/.dsh-tools)。
@@ -667,26 +667,26 @@ func configurePackagedEnvForHome(home string) {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestDshToolsEnv|TestConfigurePackagedEnv' -v`
 
 Expected: PASS ×3
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5:提交**
 
 ```bash
 git add apps/desktop-launcher/env.go apps/desktop-launcher/env_test.go
 git commit -m "feat(desktop-launcher): put dsh-tools on PATH and LD_LIBRARY_PATH"
 ```
 
-### Task 6: the `toolcheck.go` runtime probe
+### Task 6:`toolcheck.go` 运行时探测
 
 **Files:**
 - Create: `apps/desktop-launcher/toolcheck.go`
 - Create: `apps/desktop-launcher/toolcheck_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1:写失败测试**
 
 ```go
 package main
@@ -743,13 +743,13 @@ func TestCheckTools_Missing(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run TestCheckTools`
 
-Expected: FAIL (undefined: CheckTools / DefaultToolSpecs / ToolCheck)
+Expected: FAIL(undefined: CheckTools / DefaultToolSpecs / ToolCheck)
 
-- [ ] **Step 3: Implement toolcheck.go**
+- [ ] **Step 3:实现 toolcheck.go**
 
 ```go
 package main
@@ -819,13 +819,13 @@ func firstLine(s string) string {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run TestCheckTools -v`
 
 Expected: PASS ×2
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5:提交**
 
 ```bash
 git add apps/desktop-launcher/toolcheck.go apps/desktop-launcher/toolcheck_test.go
@@ -834,15 +834,15 @@ git commit -m "feat(desktop-launcher): probe key container tools at startup"
 
 ---
 
-## Phase C: credentials and the GUI panels
+## Phase C:凭据与 GUI 面板
 
-### Task 7: `gitcred.go` credential reads and writes
+### Task 7:`gitcred.go` 凭据读写
 
 **Files:**
 - Create: `apps/desktop-launcher/gitcred.go`
 - Create: `apps/desktop-launcher/gitcred_test.go`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1:写失败测试**
 
 ```go
 package main
@@ -889,13 +889,13 @@ func TestGitCredentials_OverwriteAndClear(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run TestGitCredentials`
 
-Expected: FAIL (undefined: WriteGitCredentials / ReadGitCredentials / ClearGitCredentials)
+Expected: FAIL(undefined: WriteGitCredentials / ReadGitCredentials / ClearGitCredentials)
 
-- [ ] **Step 3: Implement gitcred.go**
+- [ ] **Step 3:实现 gitcred.go**
 
 ```go
 package main
@@ -991,27 +991,27 @@ func ClearGitCredentials(home string) error {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run TestGitCredentials -v`
 
 Expected: PASS ×2
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5:提交**
 
 ```bash
 git add apps/desktop-launcher/gitcred.go apps/desktop-launcher/gitcred_test.go
 git commit -m "feat(desktop-launcher): manage git credentials store entries"
 ```
 
-### Task 8: the tool/credential panel state (pure functions) and the thin GUI layer
+### Task 8:工具/凭据面板状态(纯函数)与 GUI 薄层
 
 **Files:**
 - Modify: `apps/desktop-launcher/ui_state.go`
 - Modify: `apps/desktop-launcher/ui_state_test.go`
 - Modify: `apps/desktop-launcher/ui.go`
 
-- [ ] **Step 1: Write the failing tests (append to ui_state_test.go)**
+- [ ] **Step 1:写失败测试(追加 ui_state_test.go)**
 
 ```go
 package main
@@ -1046,13 +1046,13 @@ func TestCredentialPanelState_HasToken(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run them and confirm they fail**
+- [ ] **Step 2:运行,确认失败**
 
 Run: `go test ./... -run 'TestToolPanelState|TestCredentialPanelState'`
 
-Expected: FAIL (undefined: toolPanelState / credentialPanelState)
+Expected: FAIL(undefined: toolPanelState / credentialPanelState)
 
-- [ ] **Step 3: Implement the ui_state.go additions**
+- [ ] **Step 3:实现 ui_state.go 追加**
 
 ```go
 // ToolPanelState 是设置弹框"工具"分区的渲染数据。
@@ -1081,15 +1081,15 @@ func credentialPanelState(home, storagePath string) CredentialPanelState {
 }
 ```
 
-- [ ] **Step 4: Run them and confirm they pass**
+- [ ] **Step 4:运行,确认通过**
 
 Run: `go test ./... -run 'TestToolPanelState|TestCredentialPanelState' -v`
 
 Expected: PASS ×2
 
-- [ ] **Step 5: Thin GUI layer (ui.go, following the existing dshOnServerStart pattern)**
+- [ ] **Step 5:GUI 薄层(ui.go,遵循既有 dshOnServerStart 模式)**
 
-In `apps/desktop-launcher/ui.go`, add "tools" and "Git credentials" sections to the settings dialog:
+在 `apps/desktop-launcher/ui.go` 设置弹框加"工具"与"Git 凭据"两个分区:
 
 ```go
 //export dshOnToolCheck
@@ -1121,28 +1121,28 @@ func mustHome() string {
 }
 ```
 
-The GTK layout and callback registration follow the existing server status section (the C-side widgets and exported bridge around `dshOnServerStatusClicked` in `ui.go`); visual details go to the designer; no plaintext token is ever passed through to the status bar (it shows only `已保存(user)`, "saved").
+GTK 布局与回调注册参照现有服务器状态分区(`ui.go` 内 `dshOnServerStatusClicked` 附近的 C 侧控件与导出桥),视觉细节交 designer;不透传任何明文 token 到状态栏(仅显示 `已保存(user)`)。
 
-- [ ] **Step 6: Compile check**
+- [ ] **Step 6:编译检查**
 
 Run: `go build ./...`
 
-Expected: success (no cgo errors)
+Expected: 成功(无 cgo 错误)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7:提交**
 
 ```bash
 git add apps/desktop-launcher/ui_state.go apps/desktop-launcher/ui_state_test.go apps/desktop-launcher/ui.go
 git commit -m "feat(desktop-launcher): tools and git credentials panels"
 ```
 
-### Task 9: the host credential mount template and the README
+### Task 9:宿主凭据挂载模板与 README
 
 **Files:**
 - Create: `apps/desktop-launcher/linglong/config.d/20-host-credentials.json`
 - Modify: `apps/desktop-launcher/README.md`
 
-- [ ] **Step 1: Create the optional mount template**
+- [ ] **Step 1:创建可选挂载模板**
 
 ```json
 {
@@ -1163,9 +1163,9 @@ git commit -m "feat(desktop-launcher): tools and git credentials panels"
 }
 ```
 
-- [ ] **Step 2: Add the README section (a new subsection after the packaging highlights)**
+- [ ] **Step 2:README 增补(打包要点段后新增小节)**
 
-After "玲珑打包" (Linglong packaging) in `apps/desktop-launcher/README.md`, add `## 容器可用性(工具链/凭据/挂载)` (container usability: toolchain/credentials/mounts):
+在 `apps/desktop-launcher/README.md` 的"玲珑打包"后新增 `## 容器可用性(工具链/凭据/挂载)`:
 
 ```markdown
 - 工具链自包含:`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates;清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`(宿主侧在 export 前校验合并产物树)。
@@ -1174,7 +1174,7 @@ After "玲珑打包" (Linglong packaging) in `apps/desktop-launcher/README.md`, 
 - 代理:linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`;公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3:提交**
 
 ```bash
 git add apps/desktop-launcher/linglong/config.d/20-host-credentials.json apps/desktop-launcher/README.md
@@ -1183,15 +1183,15 @@ git commit -m "docs(desktop-launcher): credential mount template and container u
 
 ---
 
-## Phase D: the harness-side model-visible tool manifest (a separate sub-project)
+## Phase D:harness 侧模型可见工具清单(独立子项目)
 
-Prerequisite: run this on its own after Phase A–C lands; this phase touches harness internals, so it follows the repository rules ("model-visible ⟺ logged", REAL-composition tests, keyless snapshots).
+先决条件:Phase A–C 落地后单独执行;本阶段触及 harness 内部机制,遵循仓库规约("model-visible ⟺ logged"、REAL-composition 测试、keyless 快照)。
 
-### Task 10: investigate the instruction text's log path and pick the implementation branch
+### Task 10:调查指令文本的日志路径并定实现分支
 
-**Files:** none (read-only investigation)
+**Files:** 无(只读调查)
 
-- [ ] **Step 1: Confirm the source and logging of the model-visible instructions**
+- [ ] **Step 1:确认模型可见指令的来源与日志**
 
 Run:
 ```sh
@@ -1199,23 +1199,23 @@ grep -rn "log\|SessionEventMap" packages/context/agent-instructions/src --includ
 grep -rn "persona\|instructions" packages/context/agent-instructions/src/index.ts | head -20
 rg -n "agent-instructions" packages/session packages/core --include='*.ts' -l | head
 ```
-Expected: determine whether the instruction text (the agent-instructions content) is already recorded by the session log as an event.
+Expected: 判定指令文本(agent-instructions 内容)是否已被 session 日志以事件形式记录。
 
-- [ ] **Step 2: Pick one of the two branches based on the findings**
+- [ ] **Step 2:按调查结果二选一**
 
-- **Branch A (the instruction text is already logged):** add a preset to the desktop-launcher harness overlay (see Task 11) that only appends a static tool manifest section, with no new event.
-- **Branch B (not logged):** add a new **ignorable** event member to the session event map for manifest injection and fire it together with the injection (following `SessionEventMap` declaration merging and the "required-on-read / ignorable" mechanism), then add the keyless snapshot.
+- **分支 A(指令文本已日志化):** 在 desktop-launcher 的 harness overlay 中新增预设(见 Task 11),仅追加静态工具清单段,不加新事件。
+- **分支 B(未日志化):** 在 session 事件映射为清单注入新增 **ignorable** 事件成员,并随注入同步触发(遵循 `SessionEventMap` 声明合并与 "required-on-read / ignorable" 机制),随后补 keyless 快照。
 
-Record the conclusion and the chosen branch in the Task 12 Agent Note.
+将结论与所选分支记录在 Task 12 的 Agent Note 中。
 
-### Task 11: the desktop-launcher harness overlay preset
+### Task 11:desktop-launcher harness overlay 预设
 
 **Files:**
 - Create: `apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/desktop-tools/agent.cordis.yml`
 - Create: `apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/desktop-tools/preset.yml`
-- Modify: `apps/desktop-launcher/linglong/linglong.yaml` (overlay copy inside build:)
+- Modify: `apps/desktop-launcher/linglong/linglong.yaml`(build: 内 overlay 复制)
 
-- [ ] **Step 1: Create the preset (preset.yml)**
+- [ ] **Step 1:创建预设(preset.yml)**
 
 ```yaml
 name: 桌面工具
@@ -1223,7 +1223,7 @@ description: 容器工具链自检清单注入(desktop-launcher 内置)。
 order: 99
 ```
 
-- [ ] **Step 2: Create the agent.cordis.yml skeleton**
+- [ ] **Step 2:创建 agent.cordis.yml 骨架**
 
 ```yaml
 # 由 Task 10 的分支结论填充:内容 = 将 tools.yaml 的可用工具清单以
@@ -1231,39 +1231,39 @@ order: 99
 # 结构参照 apps/cli/config/agent-presets/standard/agent.cordis.yml 的 realm 规则。
 ```
 
-- [ ] **Step 3: Copy the overlay in the linglong.yaml build**
+- [ ] **Step 3:linglong.yaml build 中 overlay 复制**
 
-In `linglong.yaml`, append after the `build:` step that copies the harness:
+在 `linglong.yaml` 的 `build:` 复制 harness 后追加:
 
 ```sh
 cp -a /project/apps/desktop-launcher/linglong/harness-overlay/config/agent-presets/. \
       ${PREFIX}/harness/config/agent-presets/
 ```
 
-- [ ] **Step 4: Verify and commit**
+- [ ] **Step 4:验证与提交**
 
-Run: `pnpm run test -- -t agent-presets` (the repository's existing preset tests) plus a Linglong build on the user machine.
+Run: `pnpm run test -- -t agent-presets`(仓库既有 preset 测试)与用户机器的玲珑 build。
 ```bash
 git add apps/desktop-launcher/linglong/harness-overlay apps/desktop-launcher/linglong/linglong.yaml
 git commit -m "feat(desktop-launcher): overlay desktop tools preset into harness"
 ```
 
-### Task 12: the Agent Note and wrap-up
+### Task 12:Agent Note 与收尾
 
 **Files:**
 - Create: `.agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md`
 
-- [ ] **Step 1: Write the Agent Note**
+- [ ] **Step 1:写 Agent Note**
 
-Cover: the three-layer design, the buildext merge timing (preCommit → host-side validation), HOME/uninstall semantics, the static-artifact strategy for on-demand installation, credential layering, and the Phase D branch conclusion (recorded in Task 10). Follow the `.agents/notes/README.md` format and the implemented-note rules (state shipped facts in the present tense).
+内容覆盖:三层防线设计、buildext 合并时序(preCommit → 宿主侧校验)、HOME/卸载语义、按需安装的静态产物策略、凭据分层、Phase D 分支结论(Task 10 记录)。遵循 `.agents/notes/README.md` 格式与 implemented-note 规则(现在时陈述已落地事实)。
 
-- [ ] **Step 2: Repository gates**
+- [ ] **Step 2:仓库门禁**
 
-Run: `pnpm run lint && go test ./... -C apps/desktop-launcher` (inside the apps/desktop-launcher module)
+Run: `pnpm run lint && go test ./... -C apps/desktop-launcher`(apps/desktop-launcher 模块内)
 
-Expected: passes
+Expected: 通过
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3:提交**
 
 ```bash
 git add .agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md
@@ -1272,9 +1272,9 @@ git commit -m "docs: add agent note for linglong container toolchain"
 
 ---
 
-## Self-review results (checked against the spec while writing the plan)
+## 自审结果(写计划时已对照 spec)
 
-- **Spec coverage**: layer 1 (Tasks 1-3), layer 3 (Tasks 4-5), the self-check panel (Tasks 6+8), credential layering (Tasks 7-9), mounts/CA/proxy (Task 9 + the template), harness injection (Phase D Tasks 10-11), and the Agent Note/gates (Task 12). The spec's "harness-side manifest at runtime" is explicitly broken out as a separate sub-project (Phase D), which avoids writing a wrong event design before investigating the instruction log path and matches the `不新增 packages/ 包` (no new `packages/` package) constraint.
-- **Timing correction**: the spec originally said "validate inside build:", and after confirming that `buildext.apt.depends` merging happens in preCommit it changed to host-side `verify-tools.sh` validation of the merged artifact tree; the [spec](../specs/2026-08-19-desktop-launcher-linglong-container-optimization-design.md) was updated in sync.
-- **Type consistency**: `ToolCheck`/`ToolSpec`/`DefaultToolSpecs`/`InstallTool(dir,name,version,url,sha256Hex)`/`ListTools(dir)`/`RemoveTool(dir,name)`/`ReadGitCredentials|WriteGitCredentials|ClearGitCredentials(home,...)`/`toolPanelState`/`credentialPanelState` are referenced consistently across the tasks; `configurePackagedEnvForHome(home)` is the test injection point, and `configurePackagedEnv()` keeps its zero-argument call site unchanged (main.go:11).
-- **No placeholders**: the only left-blank data is the sha256 for go/ripgrep in `tools.yaml`, which the Task 4 Step 5 fetch commands fill in explicitly; it is not an implementation gap.
+- **Spec 覆盖**:层1(Task 1-3)、层3(Task 4-5)、自检面板(Task 6+8)、凭据分层(Task 7-9)、挂载/CA/代理(Task 9+模板)、harness 注入(Phase D Task 10-11)、Agent Note/门禁(Task 12)。spec 中"运行时 harness 侧清单"被明确为独立子项目(Phase D),避免在未调查指令日志路径前写死错误事件设计,与 `不新增 packages/ 包` 约束一致。
+- **时序修正**:spec 原写"build: 内校验",核实 `buildext.apt.depends` 合并发生在 preCommit 后改为宿主侧 `verify-tools.sh` 校验合并产物树,[spec](../specs/2026-08-19-desktop-launcher-linglong-container-optimization-design.zh.md) 已同步更新。
+- **类型一致**:`ToolCheck`/`ToolSpec`/`DefaultToolSpecs`/`InstallTool(dir,name,version,url,sha256Hex)`/`ListTools(dir)`/`RemoveTool(dir,name)`/`ReadGitCredentials|WriteGitCredentials|ClearGitCredentials(home,...)`/`toolPanelState`/`credentialPanelState` 在任务间引用一致;`configurePackagedEnvForHome(home)` 为测试注入点,`configurePackagedEnv()` 保持零参调用方不变(main.go:11)。
+- **无占位符**:唯一留空数据是 `tools.yaml` 中 go/ripgrep 的 sha256,由 Task 4 Step 5 的取数命令显式填充,非实现缺口。

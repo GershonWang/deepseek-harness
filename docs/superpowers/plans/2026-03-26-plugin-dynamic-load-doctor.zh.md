@@ -1,61 +1,61 @@
-# Plugin dynamic-load check and automatic startup-failure diagnosis — implementation plan
+# 插件动态加载检查与启动失败自动诊断 实施计划
 
-English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
+[English](2026-03-26-plugin-dynamic-load-doctor.md) | 中文
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Let doctor detect runtime startup crashes caused by third-party plugins (the kind static checks cannot find), pinpoint the specific bundle, and offer one-click repair; pop up the diagnosis automatically when startup keeps failing; and show a consistent loading state in the frontend while it retries.
+**Goal:** 让 doctor 能检测出第三方插件导致的运行时启动崩溃（静态检查查不出来的那种），定位到具体 bundle，并提供一键修复；启动连续失败时自动弹出诊断；重试期间前端显示一致的加载状态。
 
-**Architecture:** Three independently deliverable phases: (1) the doctor package gains a `plugin-dynamic-load` check that runs the Cordis Loader in a subprocess to verify plugin loading and, on failure, bisects to locate the culprit plus an L2 disable repair; (2) the desktop launcher frontend gains a startup loading page and a startup failure page, debounced so retries do not flicker, with the failure page carrying shortcuts to diagnostics and safe mode; (3) when the supervisor enters the failed state it runs doctor in the background automatically, and the frontend pops up the diagnosis result.
+**Architecture:** 三个独立可交付的阶段：(1) doctor 包新增 `plugin-dynamic-load` 检查，通过子进程跑 Cordis Loader 验证插件加载，失败则二分定位 + L2 级禁用修复；(2) 桌面启动器前端新增启动加载页和启动失败页，重试期间防抖不闪烁，失败页带诊断和安全模式快捷入口；(3) supervisor 进入 failed 状态时自动后台跑 doctor，前端自动弹出诊断结果。
 
-**Tech Stack:** TypeScript (the Node.js doctor package, ESM), Go (the Wails desktop launcher), plain HTML/CSS/JS (frontend), Cordis Loader (dynamic-load verification), `@deepseek-ai/dsh-app-boot` (profile loading), `vitest` (tests).
+**Tech Stack:** TypeScript（Node.js doctor 包，ESM）、Go（Wails 桌面启动器）、原生 HTML/CSS/JS（前端）、Cordis Loader（动态加载验证）、`@deepseek-ai/dsh-app-boot`（profile 加载）、`vitest`（测试）。
 
 ---
 
-## File structure overview
+## 文件结构总览
 
-| Phase | File | Responsibility | New/Modified |
+| 阶段 | 文件 | 职责 | 新建/修改 |
 |---|---|---|---|
-| 1 | `packages/support/doctor/src/loader-probe.ts` | Subprocess probe script: loads a profile plus the named bundle, reports the result through its exit code | New |
-| 1 | `packages/support/doctor/src/checks/plugins.ts` | Add the plugin-dynamic-load check | Modified |
-| 1 | `packages/support/doctor/src/bisect.ts` | Bisection helper (already exists; verify it is reusable) | Modified (as needed) |
-| 1 | `packages/support/doctor/tests/loader-probe.spec.ts` | Tests for the dynamic-load check | New |
-| 2 | `apps/desktop-launcher/frontend/index.html` | Add the startup loading page and startup failure page structure | Modified |
-| 2 | `apps/desktop-launcher/frontend/app.js` | Status rendering logic + debounce + failure page interaction | Modified |
-| 2 | `apps/desktop-launcher/frontend/styles.css` | Styles for the startup loading page and failure page | Modified |
-| 3 | `apps/desktop-launcher/internal/app/app.go` | Trigger doctor automatically on startup failure; extend the status fields | Modified |
-| 3 | `apps/desktop-launcher/frontend/app.js` | Sense the automatic diagnosis state + pop up automatically | Modified |
+| 1 | `packages/support/doctor/src/loader-probe.ts` | 子进程探测脚本：加载 profile + 指定 bundle，退出码表示结果 | 新建 |
+| 1 | `packages/support/doctor/src/checks/plugins.ts` | 新增 plugin-dynamic-load 检查项 | 修改 |
+| 1 | `packages/support/doctor/src/bisect.ts` | 二分法工具（已存在，验证复用性） | 修改（按需） |
+| 1 | `packages/support/doctor/tests/loader-probe.spec.ts` | 动态加载检查测试 | 新建 |
+| 2 | `apps/desktop-launcher/frontend/index.html` | 新增启动加载页、启动失败页结构 | 修改 |
+| 2 | `apps/desktop-launcher/frontend/app.js` | 状态渲染逻辑 + 防抖 + 失败页交互 | 修改 |
+| 2 | `apps/desktop-launcher/frontend/styles.css` | 启动加载页、失败页样式 | 修改 |
+| 3 | `apps/desktop-launcher/internal/app/app.go` | 启动失败自动触发 doctor，状态字段扩展 | 修改 |
+| 3 | `apps/desktop-launcher/frontend/app.js` | 自动诊断状态感知 + 自动弹窗 | 修改 |
 
 ---
 
-# Phase 1: Doctor dynamic-load check
+# Phase 1: Doctor 动态加载检查
 
-## Prerequisites
+## 前置知识
 
-- The doctor package already exists at `packages/support/doctor/`; checks register through `registerCheck()` and are split into files by category (env/config/plugin/data)
-- Every check implements the `DoctorCheck` interface: `check(dshHome)` returns `CheckResult`, and the optional `fix(dshHome, backupDir)` returns `FixResult`
-- `loadProfile()` lives in `profile.ts` of `@deepseek-ai/dsh-app-boot` and supports the `skipThirdPartyBundles` and `extraPatchFiles` options
-- A `bisectThirdPartyBundles()` helper already exists in `bisect.ts`, but it is the static-analysis version and must be reworked to accept an injected decision function
+- doctor 包已存在于 `packages/support/doctor/`，检查项通过 `registerCheck()` 注册，按 category 分文件（env/config/plugin/data）
+- 每个检查实现 `DoctorCheck` 接口：`check(dshHome)` 返回 `CheckResult`，可选 `fix(dshHome, backupDir)` 返回 `FixResult`
+- `loadProfile()` 在 `@deepseek-ai/dsh-app-boot` 的 `profile.ts` 中，支持 `skipThirdPartyBundles` 和 `extraPatchFiles` 选项
+- 已有 `bisectThirdPartyBundles()` 工具在 `bisect.ts`，但当前是静态分析版，需要改造为可注入自定义判定函数
 
 ---
 
-### Task 1.1: Turn the bisect helper into a generic bisection framework
+### Task 1.1: 改造 bisect 工具为通用二分框架
 
 **Files:**
 - Modify: `packages/support/doctor/src/bisect.ts`
-- Test: `packages/support/doctor/tests/bisect.spec.ts` (verify the existing one)
+- Test: `packages/support/doctor/tests/bisect.spec.ts`（验证已有）
 
-**Goal:** Let `bisectThirdPartyBundles` accept a custom decision function instead of hardcoding the static-check logic. That way the dynamic-load check can reuse the bisection framework.
+**目标：** 让 `bisectThirdPartyBundles` 接受一个自定义的判定函数，而不是硬编码静态检查逻辑。这样动态加载检查可以复用二分框架。
 
-- [ ] **Step 1: Read bisect.ts and confirm the current signature**
+- [ ] **Step 1: 读 bisect.ts 确认当前签名**
 
-  Read `packages/support/doctor/src/bisect.ts` and confirm the current function signature and parameters.
+  读取 `packages/support/doctor/src/bisect.ts`，确认当前函数签名和参数。
 
-- [ ] **Step 2: Rework it into a generic bisection function**
+- [ ] **Step 2: 改造为通用二分函数**
 
-  Change `bisectThirdPartyBundles()` to accept an `isBad(bundleNames: string[]): Promise<boolean>` decision function as a parameter. Keep the original static-check logic as the default or as a separate wrapper function.
+  将 `bisectThirdPartyBundles()` 改为接受一个 `isBad(bundleNames: string[]): Promise<boolean>` 判定函数作为参数。保留原有静态检查逻辑作为默认或单独的包装函数。
 
-  Target signature:
+  目标签名：
   ```ts
   export async function bisectBy<T>(
     items: T[],
@@ -63,13 +63,13 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   ): Promise<T | null>
   ```
 
-  Then keep `bisectThirdPartyBundles` as a convenience wrapper (it calls `bisectBy` plus the static-check decision).
+  再保留 `bisectThirdPartyBundles` 作为便捷封装（调用 `bisectBy` + 静态检查判定）。
 
-- [ ] **Step 3: Run the existing bisect tests to make sure nothing regressed**
+- [ ] **Step 3: 运行现有 bisect 测试确保不回归**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- bisect` Expected: all pass.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- bisect` 预期：全部通过。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 提交**
 
   ```bash
   git add packages/support/doctor/src/bisect.ts packages/support/doctor/tests/bisect.spec.ts
@@ -78,17 +78,17 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 1.2: The loader-probe subprocess probe script
+### Task 1.2: loader-probe 子进程探测脚本
 
 **Files:**
 - Create: `packages/support/doctor/src/loader-probe.ts`
 - Test: `packages/support/doctor/tests/loader-probe.spec.ts`
 
-**Goal:** A script `node` can run directly; it loads the named profile plus a subset of third-party bundles and reports the result through its exit code.
+**目标：** 一个可被 `node` 直接执行的脚本，加载指定 profile + 第三方 bundle 子集，通过退出码报告结果。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 写失败测试**
 
-  Create `packages/support/doctor/tests/loader-probe.spec.ts`:
+  新建 `packages/support/doctor/tests/loader-probe.spec.ts`：
 
   ```ts
   import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -165,15 +165,15 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   })
   ```
 
-  Note: adjust the test details to how the project actually loads profiles. The point is to verify both the success and the failure scenario.
+  注意：根据项目实际的 profile 加载方式调整测试细节。关键是验证成功和失败两种场景。
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [ ] **Step 2: 运行测试确认失败**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- loader-probe` Expected: FAIL (loader-probe.ts does not exist yet).
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- loader-probe` 预期：FAIL（loader-probe.ts 还不存在）
 
-- [ ] **Step 3: Implement loader-probe.ts**
+- [ ] **Step 3: 实现 loader-probe.ts**
 
-  Create `packages/support/doctor/src/loader-probe.ts`:
+  新建 `packages/support/doctor/src/loader-probe.ts`：
 
   ```ts
   #!/usr/bin/env node
@@ -254,19 +254,19 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   void main()
   ```
 
-  **Note:** the implementation above is a skeleton. The real implementation must first read `packages/boot/app-boot/src/profile.ts` to confirm `loadProfile()`'s actual return structure and parameters, then fill in the correct loading logic.
+  **注意：** 上面的实现是骨架。实际实现时需要先读 `packages/boot/app-boot/src/profile.ts` 确认 `loadProfile()` 的真实返回结构和参数，再填充正确的加载逻辑。
 
-  Key points:
-  - Use `skipThirdPartyBundles: true` to skip the normal third-party bundles
-  - Use `extraPatchFiles` or a similar mechanism to inject the bundle named by `--include`
-  - Really go through the Cordis Loader compose + load flow
-  - Dispose / clean up immediately after loading, without starting any service
+  关键点：
+  - 用 `skipThirdPartyBundles: true` 跳过正常第三方 bundle
+  - 用 `extraPatchFiles` 或类似机制注入 `--include` 指定的 bundle
+  - 真正走 Cordis Loader compose + load 流程
+  - 加载完后立即 dispose / 清理，不启动任何服务
 
-- [ ] **Step 4: Run the test and see the result**
+- [ ] **Step 4: 运行测试看结果**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- loader-probe` Expected: adjust to the actual implementation, ending with everything passing.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- loader-probe` 预期：根据实际实现调整，最终全部通过。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
   ```bash
   git add packages/support/doctor/src/loader-probe.ts packages/support/doctor/tests/loader-probe.spec.ts
@@ -275,17 +275,17 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 1.3: The plugin-dynamic-load check
+### Task 1.3: plugin-dynamic-load 检查项
 
 **Files:**
 - Modify: `packages/support/doctor/src/checks/plugins.ts`
-- Test: `packages/support/doctor/tests/plugins-dynamic-load.spec.ts` (new)
+- Test: `packages/support/doctor/tests/plugins-dynamic-load.spec.ts`（新建）
 
-**Goal:** Register the `plugin-dynamic-load` check: load everything → bisect to locate → return the result.
+**目标：** 注册 `plugin-dynamic-load` 检查项：全量加载 → 二分定位 → 返回结果。
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 写失败测试**
 
-  Create `packages/support/doctor/tests/plugins-dynamic-load.spec.ts`:
+  新建 `packages/support/doctor/tests/plugins-dynamic-load.spec.ts`：
 
   ```ts
   import { describe, it, expect, beforeEach, afterEach } from 'vitest'
@@ -352,15 +352,15 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   })
   ```
 
-  Note: adjust to how the project actually structures patches and pulls bundles in.
+  注意：根据项目实际的 patch 格式和 bundle 引入方式调整。
 
-- [ ] **Step 2: Run the test and confirm it fails**
+- [ ] **Step 2: 运行测试确认失败**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` Expected: FAIL (the check is not implemented yet).
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` 预期：FAIL（检查项还没实现）
 
-- [ ] **Step 3: Implement the check**
+- [ ] **Step 3: 实现检查项**
 
-  Add `pluginDynamicLoadCheck` in `packages/support/doctor/src/checks/plugins.ts`:
+  在 `packages/support/doctor/src/checks/plugins.ts` 中新增 `pluginDynamicLoadCheck`：
 
   ```ts
   // 加到现有 pluginChecks 数组里
@@ -425,19 +425,19 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-  Helper functions:
-  - `probeLoad(dshHome, bundles)` — spawns the loader-probe subprocess and returns `{ ok, error }`
-  - `listThirdPartyBundles(dshHome)` — parses the third-party bundle list from the patch files (reusing existing logic)
+  辅助函数：
+  - `probeLoad(dshHome, bundles)` —— 起子进程跑 loader-probe，返回 `{ ok, error }`
+  - `listThirdPartyBundles(dshHome)` —— 从 patch 文件解析第三方 bundle 列表（复用已有逻辑）
 
-- [ ] **Step 4: Run the tests and verify they pass**
+- [ ] **Step 4: 运行测试验证通过**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` Expected: all pass.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` 预期：全部通过。
 
-- [ ] **Step 5: Run the full doctor test suite to make sure nothing regressed**
+- [ ] **Step 5: 运行全部 doctor 测试确保不回归**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor` Expected: all pass.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor` 预期：全部通过。
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: 提交**
 
   ```bash
   git add packages/support/doctor/src/checks/plugins.ts packages/support/doctor/tests/plugins-dynamic-load.spec.ts
@@ -446,17 +446,17 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 1.4: Implement the repair logic (L2 disables the bad bundle)
+### Task 1.4: 修复逻辑实现（L2 禁用坏 bundle）
 
 **Files:**
 - Modify: `packages/support/doctor/src/checks/plugins.ts`
-- Test: add repair tests to the existing test file
+- Test: 已有测试文件中补充修复测试
 
-**Goal:** Implement the `fix()` method: back up the patch file → comment out the bad bundle → verify the repair.
+**目标：** 实现 `fix()` 方法：备份 patch 文件 → 注释掉坏 bundle → 验证修复。
 
-- [ ] **Step 1: Add the failing repair test**
+- [ ] **Step 1: 补充修复失败测试**
 
-  Add to `plugins-dynamic-load.spec.ts`:
+  在 `plugins-dynamic-load.spec.ts` 中添加：
 
   ```ts
   import { runRepair } from '@deepseek-ai/dsh-doctor'
@@ -490,22 +490,22 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }, 60000)
   ```
 
-- [ ] **Step 2: Implement the fix method**
+- [ ] **Step 2: 实现 fix 方法**
 
-  Repair steps (option A: edit the profile manifest — third-party bundles are a bundle layer of the profile, held in `dsh.profile.bundles` of `package.json`, not in `cordis.patch.yml`):
-  1. Call the shared `locateCulprit()` to locate the culprit bundle
-  2. Back up the original bytes of `profiles/web/package.json` to `backupDir/web-profile.package.json` (`writeFileAtomic`, reversible at byte level)
-  3. Use `writeProfileManifest` to remove the culprit from `dsh.profile.bundles` (spread the remaining fields to keep them)
-  4. Re-run the full probe to verify
-  5. Verification fails → restore the backed-up bytes and return failure; verification passes → return success
+  修复步骤（方案 A：编辑 profile manifest —— 第三方 bundle 是 profile 的 bundle 层，位于 `package.json` 的 `dsh.profile.bundles`，不在 `cordis.patch.yml` 里）：
+  1. 调用共享的 `locateCulprit()` 定位 culprit bundle
+  2. 备份 `profiles/web/package.json` 原始字节到 `backupDir/web-profile.package.json`（`writeFileAtomic`，字节级可逆）
+  3. 用 `writeProfileManifest` 从 `dsh.profile.bundles` 移除 culprit（其余字段 spread 保留）
+  4. 重新跑全量探测验证
+  5. 验证失败 → 还原备份字节，返回失败；验证通过 → 返回成功
 
-  Consistent with the skip model of `DSH_SAFE_MODE=plugins` (it likewise excludes non-official bundles).
+  与 `DSH_SAFE_MODE=plugins` 的跳过模型一致（同样排除非官方 bundle）。
 
-- [ ] **Step 3: Run the tests to verify**
+- [ ] **Step 3: 运行测试验证**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` Expected: all pass.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor -- plugins-dynamic-load` 预期：全部通过。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 提交**
 
   ```bash
   git add packages/support/doctor/src/checks/plugins.ts packages/support/doctor/tests/plugins-dynamic-load.spec.ts
@@ -514,41 +514,41 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 1.5: Typecheck + full test run
+### Task 1.5: Typecheck + 完整测试
 
-- [ ] **Step 1: Run the type check**
+- [ ] **Step 1: 运行类型检查**
 
-  Run: `pnpm typecheck --filter @deepseek-ai/dsh-doctor` Expected: no errors.
+  运行：`pnpm typecheck --filter @deepseek-ai/dsh-doctor` 预期：无错误。
 
-- [ ] **Step 2: Run the full doctor test suite**
+- [ ] **Step 2: 运行完整 doctor 测试**
 
-  Run: `pnpm test --filter @deepseek-ai/dsh-doctor` Expected: all pass.
+  运行：`pnpm test --filter @deepseek-ai/dsh-doctor` 预期：全部通过。
 
-- [ ] **Step 3: Build verification**
+- [ ] **Step 3: 构建验证**
 
-  Run: `pnpm build --filter @deepseek-ai/dsh-doctor` Expected: the build succeeds.
-
----
-
-# Phase 2: Startup UI polish
-
-## Prerequisites
-
-- The desktop launcher frontend is in `apps/desktop-launcher/frontend/`, plain HTML/CSS/JS with no framework
-- Status is pushed through the `harness:status` event and rendered by `applyStatus(s)` in the frontend
-- Current main-stage logic: show the iframe when `s.Target` is set, otherwise show the guidance page
-- Status has four values: `starting` / `running` / `stopped` / `failed`
+  运行：`pnpm build --filter @deepseek-ai/dsh-doctor` 预期：构建成功。
 
 ---
 
-### Task 2.1: Add the startup loading page and startup failure page structure
+# Phase 2: 启动中 UI 优化
+
+## 前置知识
+
+- 桌面启动器前端在 `apps/desktop-launcher/frontend/`，纯原生 HTML/CSS/JS，无框架
+- 状态通过 `harness:status` 事件推送，前端在 `applyStatus(s)` 中渲染
+- 当前主舞台逻辑：有 `s.Target` 显示 iframe，否则显示引导页
+- 状态有 `starting` / `running` / `stopped` / `failed` 四种
+
+---
+
+### Task 2.1: 新增启动加载页和启动失败页结构
 
 **Files:**
 - Modify: `apps/desktop-launcher/frontend/index.html`
 
-- [ ] **Step 1: Add the two new sections inside stage-card**
+- [ ] **Step 1: 在 stage-card 里添加两个新 section**
 
-  Add them after `#guidance` and before `</div>`:
+  在 `#guidance` 之后、`</div>` 之前添加：
 
   ```html
   <section id="loading-page" class="loading-page hidden">
@@ -569,7 +569,7 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   </section>
   ```
 
-- [ ] **Step 2: Commit (the structure part)**
+- [ ] **Step 2: 提交（结构部分）**
 
   ```bash
   git add apps/desktop-launcher/frontend/index.html
@@ -578,14 +578,14 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 2.2: Add the styles
+### Task 2.2: 新增样式
 
 **Files:**
 - Modify: `apps/desktop-launcher/frontend/styles.css`
 
-- [ ] **Step 1: Add the startup loading page styles**
+- [ ] **Step 1: 添加启动加载页样式**
 
-  Append to the end of styles.css:
+  在 styles.css 末尾添加：
 
   ```css
   /* 启动加载页 */
@@ -654,9 +654,9 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-  Note: the color variables must line up with the existing theme; consult the variable definitions already in styles.css when implementing.
+  注意：颜色变量需要和现有主题对齐，实际实现时参考 styles.css 里已有的变量定义。
 
-- [ ] **Step 2: Commit (the styles part)**
+- [ ] **Step 2: 提交（样式部分）**
 
   ```bash
   git add apps/desktop-launcher/frontend/styles.css
@@ -665,20 +665,20 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 2.3: Adjust the frontend status rendering logic + debounce
+### Task 2.3: 前端状态渲染逻辑调整 + 防抖
 
 **Files:**
 - Modify: `apps/desktop-launcher/frontend/app.js`
 
-**Goal:**
-1. The `starting` status shows the startup loading page
-2. The `failed` status shows the startup failure page
-3. Only a `stopped` reached by a manual stop shows the guidance page
-4. A brief stopped status during a retry is filtered out by the debounce, so nothing flickers
+**目标：**
+1. `starting` 状态显示启动加载页
+2. `failed` 状态显示启动失败页
+3. 只有手动停止的 `stopped` 才显示引导页
+4. 重试期间短暂的 stopped 状态用防抖过滤，不闪烁
 
-- [ ] **Step 1: Add the debounce state variable**
+- [ ] **Step 1: 新增防抖状态变量**
 
-  Add to the `state` object:
+  在 `state` 对象中新增：
   ```js
   const state = {
     status: null,
@@ -687,9 +687,9 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   };
   ```
 
-- [ ] **Step 2: Rewrite the main-stage rendering logic in applyStatus**
+- [ ] **Step 2: 重写 applyStatus 中的主舞台渲染逻辑**
 
-  Replace the original:
+  把原来的：
   ```js
   const frame = $("#harness");
   const guide = $("#guidance");
@@ -704,7 +704,7 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-  with:
+  替换为：
   ```js
   const frame = $("#harness");
   const guide = $("#guidance");
@@ -759,9 +759,9 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-- [ ] **Step 3: Bind the failure page button events**
+- [ ] **Step 3: 绑定失败页按钮事件**
 
-  Add inside the `bindUI()` function:
+  在 `bindUI()` 函数中添加：
   ```js
   $("#btn-failed-doctor").addEventListener("click", () => {
     openModal("doctor-modal");
@@ -773,13 +773,13 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   });
   ```
 
-  Note: `runDoctor()` is currently a local function inside init, so its scope needs adjusting or the code needs reorganizing. The simplest route is to bind the failure page buttons inside init.
+  注意：`runDoctor()` 当前是 init 内的局部函数，需要调整作用域或重新组织代码。最简单的方式是把失败页按钮的绑定放在 init 里。
 
-- [ ] **Step 4: Verify (browser preview)**
+- [ ] **Step 4: 验证（浏览器预览）**
 
-  Open `apps/desktop-launcher/frontend/index.html` and confirm the page structure is intact with no JS errors.
+  打开 `apps/desktop-launcher/frontend/index.html` 确认页面结构正常，没有 JS 报错。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
   ```bash
   git add apps/desktop-launcher/frontend/app.js
@@ -788,48 +788,48 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-# Phase 3: Automatic diagnosis of startup failure
+# Phase 3: 启动失败自动诊断
 
-## Prerequisites
+## 前置知识
 
-- `App` lives in `app.go` and pushes the `harness:status` event once a second through `tick()`
-- `RunDoctor()` is already implemented; it runs `dsh doctor --json` through `exec.Command`
-- When the supervisor enters `StateFailed` it stops retrying and the status becomes failed
-- The frontend listens for status changes through `runtime.EventsOn("harness:status", callback)`
+- `App` 在 `app.go` 中，状态通过 `tick()` 每秒推送一次 `harness:status` 事件
+- `RunDoctor()` 已经实现，通过 `exec.Command` 跑 `dsh doctor --json`
+- supervisor 进入 `StateFailed` 时停止重试，状态变为 failed
+- 前端通过 `runtime.EventsOn("harness:status", callback)` 监听状态变化
 
 ---
 
-### Task 3.1: Go side - trigger doctor automatically on startup failure
+### Task 3.1: Go 端 - 启动失败自动触发 doctor
 
 **Files:**
 - Modify: `apps/desktop-launcher/internal/app/app.go`
 
-**Goal:** When the supervisor enters `StateFailed` in container mode, run the doctor diagnosis in the background automatically and push the result through the status event.
+**目标：** 当 supervisor 进入 `StateFailed` 状态且为容器模式时，后台自动运行 doctor 诊断，结果通过状态事件推送。
 
-- [ ] **Step 1: Add fields to the App struct**
+- [ ] **Step 1: App 结构体新增字段**
 
-  Add to the `App` struct:
+  在 `App` 结构体中新增：
   ```go
   startupDoctorResult   *DoctorReport // 自动诊断结果缓存
   startupDoctorRunning  bool          // 是否正在进行自动诊断
   startupDoctorDoneOnce bool          // 本次失败周期是否已触发过诊断
   ```
 
-- [ ] **Step 2: Add fields to the status snapshot**
+- [ ] **Step 2: 状态快照新增字段**
 
-  Add to `FrontendStatus`:
+  在 `FrontendStatus` 中新增：
   ```go
   StartupDiagnosing  bool   // 是否正在进行启动失败自动诊断
   StartupDoctorReady bool   // 自动诊断结果是否已就绪
   ```
 
-  Fill these two fields in `snapshot()`.
+  在 `snapshot()` 中填充这两个字段。
 
-- [ ] **Step 3: Status-change detection + automatic trigger**
+- [ ] **Step 3: 状态变化检测 + 自动触发**
 
-  Detect the status change before `tick()` or `emitStatus()`: when the status goes from not-failed to failed in container mode and no diagnosis has run yet, trigger the background diagnosis.
+  在 `tick()` 或 `emitStatus()` 之前检测状态变化：当状态从非 failed 变为 failed 且容器模式且未诊断过时，触发后台诊断。
 
-  Trigger logic:
+  触发逻辑：
   ```go
   func (a *App) maybeStartStartupDoctor(prevState, newState domain.HarnessState) {
     if newState == domain.StateFailed && prevState != domain.StateFailed {
@@ -854,13 +854,13 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-  Note: the previous status must be kept to do edge detection. Add a `prevState` field to `App`, or compare inside `tick()`.
+  注意：需要保存上一次的状态来做边沿检测。可以在 `App` 里加一个 `prevState` 字段，或者在 `tick()` 中比较。
 
-- [ ] **Step 4: Compile verification**
+- [ ] **Step 4: 编译验证**
 
-  Run: `cd apps/desktop-launcher && go build ./...` Expected: the build succeeds.
+  运行：`cd apps/desktop-launcher && go build ./...` 预期：编译成功。
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 提交**
 
   ```bash
   git add apps/desktop-launcher/internal/app/app.go
@@ -869,16 +869,16 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 3.2: Frontend - sense the automatic diagnosis + pop up automatically
+### Task 3.2: 前端 - 自动诊断感知 + 自动弹窗
 
 **Files:**
 - Modify: `apps/desktop-launcher/frontend/app.js`
 
-**Goal:** When the frontend senses that the automatic diagnosis is ready, it pops up the doctor modal automatically and shows the result.
+**目标：** 前端检测到自动诊断就绪时，自动弹出 doctor 弹窗并显示结果。
 
-- [ ] **Step 1: Detect the automatic diagnosis state in applyStatus**
+- [ ] **Step 1: applyStatus 中检测自动诊断状态**
 
-  Add this logic to `applyStatus()`:
+  在 `applyStatus()` 中添加逻辑：
 
   ```js
   // 启动失败自动诊断：结果就绪时自动弹窗
@@ -905,19 +905,19 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
   }
   ```
 
-  Note: a better route is for the Go side to keep the diagnosis result in the status so the frontend can use it directly. But doctor results are large, so pushing them through the status event may be too heavy. A separate `GetStartupDoctorReport()` method could be added, or `RunDoctor()` reused (the result is already cached, so it is not much slower).
+  注意：更好的方式是 Go 端把诊断结果存在状态里，前端直接用。但因为 doctor 结果数据量大，走状态事件可能太重。可以加一个单独的方法 `GetStartupDoctorReport()`，或者复用 `RunDoctor()`（结果已经缓存了也不会慢多少）。
 
-  Choose the simplest workable option when implementing.
+  实现时选择最简单可行的方案。
 
-- [ ] **Step 2: Add the automatic diagnosis state to the startup failure page**
+- [ ] **Step 2: 启动失败页增加自动诊断状态**
 
-  On the failure page, show a status hint of "diagnosing..." or "diagnosis complete, view the result".
+  在失败页显示"正在诊断..."或"诊断完成，查看结果"的状态提示。
 
-- [ ] **Step 3: Verify (browser preview)**
+- [ ] **Step 3: 验证（浏览器预览）**
 
-  Open index.html and confirm there are no JS errors.
+  打开 index.html 确认无 JS 报错。
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: 提交**
 
   ```bash
   git add apps/desktop-launcher/frontend/app.js
@@ -926,29 +926,29 @@ English | [中文](2026-03-26-plugin-dynamic-load-doctor.zh.md)
 
 ---
 
-### Task 3.3: Linglong build verification
+### Task 3.3: 玲珑构建验证
 
-- [ ] **Step 1: Run the Linglong build script**
+- [ ] **Step 1: 运行玲珑构建脚本**
 
-  Run: `./build-linglong.sh` Expected: the build succeeds (both TS and Go compile).
+  运行：`./build-linglong.sh` 预期：构建成功（TS + Go 都编译通过）。
 
-- [ ] **Step 2: If there are errors, fix them and rebuild**
+- [ ] **Step 2: 如有错误，修复后重新构建**
 
-- [ ] **Step 3: Commit (if there were fixes)**
+- [ ] **Step 3: 提交（如有修复）**
 
 ---
 
-## Wrap-up
+## 收尾
 
-### Task Final: Final checks + commit
+### Task Final: 最终检查 + 提交
 
-- [ ] **Step 1: Run the doctor tests** `pnpm test --filter @deepseek-ai/dsh-doctor`
+- [ ] **Step 1: 运行 doctor 测试** `pnpm test --filter @deepseek-ai/dsh-doctor`
 
-- [ ] **Step 2: Run the type check** `pnpm typecheck --filter @deepseek-ai/dsh-doctor`
+- [ ] **Step 2: 运行类型检查** `pnpm typecheck --filter @deepseek-ai/dsh-doctor`
 
-- [ ] **Step 3: Go build check** `cd apps/desktop-launcher && go build ./...`
+- [ ] **Step 3: Go 编译检查** `cd apps/desktop-launcher && go build ./...`
 
-- [ ] **Step 4: Final commit (if anything is uncommitted)**
+- [ ] **Step 4: 最终提交（如有未提交内容）**
 
   ```bash
   git add -A

@@ -1,46 +1,47 @@
-# 工具链弹框重设计（Toolchain Dialog Redesign）
+# Toolchain dialog redesign
 
-日期：2026-08-26
-状态：已确认（布局方向 B、纯静态改造方案 A、双主题）
+English | [中文](2026-08-26-toolchain-dialog-redesign-design.zh.md)
 
-## 背景
+Date: 2026-08-26 Status: Confirmed (layout direction B, the purely static option A, dual theme)
 
-桌面启动器（apps/desktop-launcher）的「工具链」弹框目前是两张朴素表格 + 两行提示文字堆在 520px 弹框里：
-- 「工具链自检」：随包工具（git/python3/node/curl/jq/pnpm）的 工具/版本/状态 三列表；
-- 「环境命令 / 工具链」：按需安装清单（jdk21/go/ripgrep）的四列表，外加宿主路径挂载输入区。
+## Background
 
-用户以玲珑打包版实测后希望优化弹框外观与信息组织。优先级：**C（品牌一致性）> B（信息组织）> D（交互细节）> A（视觉质感）**。
+The desktop launcher's (apps/desktop-launcher) "Toolchain" dialog is currently two plain tables plus two lines of hint text crammed into a 520px dialog:
+- "Toolchain self-check": a three-column tool/version/status table of the bundled tools (git/python3/node/curl/jq/pnpm);
+- "Environment commands / toolchain": a four-column table of the on-demand install inventory (jdk21/go/ripgrep), plus a host-path mount input area.
 
-## 目标
+After testing the Linglong package build, the user wants the dialog's appearance and information organization improved. Priority: **C (brand consistency) > B (information organization) > D (interaction detail) > A (visual polish)**.
 
-1. **品牌一致性**：把当前 VS Code 蓝（#007acc）对齐到 DeepSeek 品牌蓝 #4D6BFE（全仓 DSH 徽章使用的品牌色），深/浅主题同步。
-2. **信息组织**：改为「摘要条 + 三张分区卡」的纵向分组流布局：
-   - 随包工具（状态列表）
-   - 一键安装（可装项 + 安装按钮）
-   - 宿主挂载（仅沙箱环境显示）
-3. **交互细节**：状态徽章（✓已安装 / 可安装 / 安装中… / ✗缺失 / 重启后生效）、按钮禁用态、焦点环、悬停反馈。
-4. **双主题**：沿用现有 prefers-color-scheme 自动切换，深色与浅色都打磨。
+## Goals
 
-## 非目标（Out of scope）
+1. **Brand consistency**: align the current VS Code blue (#007acc) with the DeepSeek brand blue #4D6BFE (the brand color used by DSH badges across the repository), in both dark and light themes.
+2. **Information organization**: switch to a vertical grouping-flow layout of "summary bar + three section cards":
+   - Bundled tools (status list)
+   - One-click install (installable entries + install button)
+   - Host mounts (shown only in the sandbox environment)
+3. **Interaction detail**: status badges (✓ installed / installable / installing… / ✗ missing / takes effect after restart), button disabled state, focus ring, hover feedback.
+4. **Dual theme**: keep the existing prefers-color-scheme automatic switching and polish both dark and light.
 
-- 展示层零 Go 改动（现有 ToolStatus 字段已覆盖全部展示数据）；唯一的 Go 改动是 `Catalog()` 新增 uv 一键安装项（见下文）。
-- 不引入构建链（Vite/Tailwind）或组件库（FAST/Shoelace）——壳 UI 保持静态 HTML/CSS/JS + go:embed 零构建架构。
-- 不做图标化（每工具图标不在范围内）。
-- 不新增前端测试基建（前端无测试环境，靠 Go 测试 + 手动验证）。
+## Non-goals (Out of scope)
 
-## 文件范围
+- Zero Go changes in the presentation layer (the existing ToolStatus fields already cover all display data); the only Go change is a new uv one-click install entry in `Catalog()` (see below).
+- No build chain (Vite/Tailwind) or component library (FAST/Shoelace) — the shell UI keeps its static HTML/CSS/JS + go:embed build-free architecture.
+- No iconography (a per-tool icon is out of scope).
+- No new frontend test infrastructure (the frontend has no test environment; it relies on Go tests + manual verification).
 
-仅改 apps/desktop-launcher/frontend/ 下三个静态文件：
+## File scope
 
-| 文件 | 改动 |
+Only three static files under apps/desktop-launcher/frontend/ change:
+
+| File | Change |
 |---|---|
-| index.html | 重写 #tools-modal 弹框结构（摘要条 + 三张卡 + 底部操作） |
-| styles.css | 品牌 token（--brand）替换 --accent、新增卡片/徽章/摘要条/焦点环样式、深/浅双主题 |
-| app.js | 重写 renderTools()：按新 DOM 结构生成摘要计数、状态徽章、安装按钮、挂载列表；随包工具详情副文本静态映射表 |
-| internal/toolchain/catalog.go | Catalog() 新增 uv 一键安装项（Label/Version/URL/SHA256/BinRel） |
-| linglong/tools.yaml | installable 段新增 uv（与 catalog.go 同步，verify-tools.sh 校验 sha256 非占位） |
+| index.html | Rewrite the #tools-modal dialog structure (summary bar + three cards + bottom actions) |
+| styles.css | Replace --accent with the brand token (--brand), add card/badge/summary-bar/focus-ring styles, dark/light dual theme |
+| app.js | Rewrite renderTools(): generate the summary counts, status badges, install button, and mount list from the new DOM structure; a static mapping table for the bundled-tool detail subtext |
+| internal/toolchain/catalog.go | Catalog() gains the uv one-click install entry (Label/Version/URL/SHA256/BinRel) |
+| linglong/tools.yaml | The installable section gains uv (in sync with catalog.go; verify-tools.sh checks that sha256 is not a placeholder) |
 
-## 弹框结构（HTML 骨架）
+## Dialog structure (HTML skeleton)
 
 ```text
 工具链（头部：品牌蓝小方标 + 标题 + ✕）
@@ -51,82 +52,82 @@
 └─ 底部：重新检查（次要按钮，右对齐）
 ```
 
-每个分区卡有独立小标题与计数说明位。弹框宽度由 520px 加宽到 ~560px 以容纳三卡纵向布局（不超过 92vw）。
+Each section card has its own small heading and a count description slot. The dialog width grows from 520px to ~560px to fit the three-card vertical layout (no more than 92vw).
 
-## 状态映射（对数据诚实，不发明后端不存在的状态）
+## Status mapping (honest about the data; invent no state the backend does not have)
 
-### 随包工具（ToolStatus.Rows：ToolCheck{Name, OK, Version, Err}）
+### Bundled tools (ToolStatus.Rows: ToolCheck{Name, OK, Version, Err})
 
-| 条件 | 状态点 | 徽章 | 版本列 |
+| Condition | State dot | Badge | Version column |
 |---|---|---|---|
-| OK == true | 绿 | ✓ 已安装（ok） | Version |
-| OK == false | 红 | ✗ 缺失（danger） | — |
+| OK == true | green | ✓ installed (ok) | Version |
+| OK == false | red | ✗ missing (danger) | — |
 
-### 一键安装（ToolStatus.Catalog：CatalogStatus{Name, Label, Version, InstalledVersion, State, Pinned}，配合 ToolStatus.Installing）
+### One-click install (ToolStatus.Catalog: CatalogStatus{Name, Label, Version, InstalledVersion, State, Pinned}, together with ToolStatus.Installing)
 
-| 条件 | 徽章 | 按钮 |
+| Condition | Badge | Button |
 |---|---|---|
-| State == installed | ✓ 已安装（ok） | 无 |
-| 未安装 且 Pinned | 可安装（brand） | 「安装」（可点） |
-| 未安装 且 !Pinned | 待配置（warn，对应现有「待配置 sha256」） | 无 |
-| Installing == Name | 安装中…（warn） | 「安装中…」禁用 |
+| State == installed | ✓ installed (ok) | none |
+| not installed and Pinned | installable (brand) | "Install" (clickable) |
+| not installed and !Pinned | awaiting configuration (warn, matching the existing "sha256 not configured") | none |
+| Installing == Name | installing… (warn) | "installing…" disabled |
 
-版本列显示：已安装时用 InstalledVersion，否则用清单 Version。
+Version column display: use InstalledVersion when installed, otherwise the catalog Version.
 
-### 宿主挂载（ToolStatus.HostTools：HostToolEntry{Name, Source, Target, Mounted}）
+### Host mounts (ToolStatus.HostTools: HostToolEntry{Name, Source, Target, Mounted})
 
-| 条件 | 徽章 | 操作 |
+| Condition | Badge | Action |
 |---|---|---|
-| Mounted == true | ✓ 生效中（ok） | 移除（danger 次按钮） |
-| Mounted == false | 重启后生效（warn） | 移除 |
+| Mounted == true | ✓ active (ok) | Remove (a danger secondary button) |
+| Mounted == false | takes effect after restart (warn) | Remove |
 
-- 非沙箱环境（Sandboxed == false）：整个挂载卡隐藏，保留现有提示「开发态：宿主命令本就在 PATH，宿主挂载仅玲珑打包环境可用。」；若同时有安装结果 Notice，拼接在其后显示（开发态安装按钮同样可用，安装结果不能被静态提示覆盖）。
-- 挂载失败/成功提示沿用现有 host-hint 交互（AddHostTool 返回后插到挂载卡底部）。
+- Non-sandbox environment (Sandboxed == false): the whole mount card is hidden and the existing hint is kept — "development mode: host commands are already on PATH, host mounts work only in the Linglong package environment."; if there is also an install-result Notice, it is appended after that hint (the install button is likewise usable in development mode, and the install result must not be overwritten by the static hint).
+- Mount failure/success hints reuse the existing host-hint interaction (inserted at the bottom of the mount card after AddHostTool returns).
 
-### 摘要条
+### Summary bar
 
-- 随包：`随包 {okCount}/{total} ✓`，全部就绪才用 ok 样式，否则 warn。
-- 可安装：`可安装 {installed}/{total} ✓`，全部就绪才用 ok 样式，否则 brand/ins 样式。
-- 挂载：`挂载 {n} 项`，仅 Sandboxed 且 HostTools 非空时显示。
+- Bundled: `随包 {okCount}/{total} ✓`, the ok style only when everything is ready, otherwise warn.
+- Installable: `可安装 {installed}/{total} ✓`, the ok style only when everything is ready, otherwise the brand/ins style.
+- Mounts: `挂载 {n} 项`, shown only when Sandboxed and HostTools is non-empty.
 
-### 提示与错误
+### Hints and errors
 
-- ToolStatus.Notice（安装结果等一次性提示）显示在卡2底部，中性 hint 样式。
-- 现有 #tools-refresh（重新检查）与 #host-add（挂载）事件绑定保持不变，仅 DOM 结构换新。
+- ToolStatus.Notice (one-off hints such as the install result) shows at the bottom of card 2 in the neutral hint style.
+- The existing #tools-refresh (re-check) and #host-add (mount) event bindings stay unchanged; only the DOM structure is renewed.
 
-## 随包工具详情（行内副文本，方案 A）
+## Bundled-tool details (in-row subtext, option A)
 
-「随包工具」卡中，有附带子命令/能力的工具在名称行下方渲染一行小字副文本；无附带的工具不渲染。数据为前端静态映射表（与玲珑打包内容绑定），探测状态仍以 ToolStatus.Rows 为准：
+In the "Bundled tools" card, a tool with attached subcommands/capabilities renders a line of small subtext below its name row; a tool without them renders nothing. The data is a frontend static mapping table (bound to the Linglong package contents), while the detected state still follows ToolStatus.Rows:
 
-| 工具 | 详情副文本 |
+| Tool | Detail subtext |
 |---|---|
 | node | npm · npx · corepack · pnpm |
 | python3 | pip · pip3 |
 | git | git-lfs |
-| curl / jq / xxd / wget / zip / unzip / tar | 不渲染副文本 |
+| curl / jq / xxd / wget / zip / unzip / tar | renders no subtext |
 
-> 备注：uv 未随包（见下节），不会出现在随包详情中；它以「一键安装」可装项呈现。
+> Note: uv is not bundled (see the next section) and will not appear in the bundled details; it is presented as an installable entry in "One-click install".
 
-## uv 按需安装（方式 1，新增）
+## uv on-demand install (approach 1, new)
 
-实测数据（uv 0.12.6，2026-08）：官方 gnu tarball 19.3 MB，解包后 uv 二进制 48.7 MB + uvx 0.3 MB。若随包进 uab 预计增加 20–25 MB 且版本随包锁定（uv 月更频繁）；故选择并入「一键安装」卡，uab 体积 0 增加，与 jdk21/go/ripgrep 同一机制。
+Measured data (uv 0.12.6, 2026-08): the official gnu tarball is 19.3 MB, and after unpacking the uv binary is 48.7 MB plus uvx 0.3 MB. Bundling it into the uab would add an estimated 20–25 MB and lock the version to the package (uv releases monthly and often); so it joins the "One-click install" card instead, adding 0 to the uab size and using the same mechanism as jdk21/go/ripgrep.
 
-Catalog() 新增项：
+New entry in Catalog():
 
-| 字段 | 值 |
+| Field | Value |
 |---|---|
 | Name | uv |
 | Label | uv |
 | Version | 0.12.6 |
 | URL | https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz |
 | SHA256 | 8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477 |
-| BinRel | .（tarball 单顶层目录由 Install 剥离，uv/uvx 位于解包根，LinkBin 会将两者软链进 .dsh-tools/bin） |
+| BinRel | . (the tarball's single top-level directory is stripped by Install; uv/uvx sit at the unpack root, and LinkBin symlinks both into .dsh-tools/bin) |
 
-linglong/tools.yaml 的 installable 段同步新增同名条目（version/url/sha256），保持与运行时 catalog 一致；verify-tools.sh 的 sha256 非占位校验覆盖它。
+The installable section of linglong/tools.yaml gains an entry of the same name in sync (version/url/sha256), keeping it consistent with the runtime catalog; verify-tools.sh's non-placeholder sha256 check covers it.
 
-## 样式（CSS）
+## Styles (CSS)
 
-### 品牌 token
+### Brand tokens
 
 ```css
 :root {
@@ -146,32 +147,32 @@ linglong/tools.yaml 的 installable 段同步新增同名条目（version/url/sh
 }
 ```
 
-### 组件样式
+### Component styles
 
-- **分区卡**：沿用现有 .section 的边框/背景变量体系，新增 .tool-card（--radius-lg、--bg-panel、边距 10px 12px）。
-- **摘要 chips**：圆角胶囊，浅色底 + 品牌/绿描边；ok 态用 --ok，warn 态用 --warn。
-- **状态徽章 pill**：color-mix(in srgb, var(--ok/warn/danger) 12%, transparent) 底色 + 同色系半透明描边（现有 CSS 已使用 color-mix，见 .btn-danger:hover，WebKit 兼容有先例）。品牌文字（.chip-brand/.pill.brand 的 color）统一用 --brand-text，深色下即 --brand-strong（#6e8bff，对比度 ~4.96:1 达标），浅色下即 --brand（#2547d0）。
-- **状态点**：7px 圆形，绿/红/蓝语义色。
-- **按钮层级**：主要动作「安装」= brand 实心；次要动作「重新检查」= 幽灵按钮；危险「移除」= 现有 btn-danger。
-- **焦点环**：输入框/按钮焦点 outline: 2px solid var(--brand)。
-- **弹框宽度**：.modal-card 520px → 560px（工具链弹框专用类 .modal-tools，不影响其它弹框）。
+- **Section cards**: keep the existing .section border/background variable system and add .tool-card (--radius-lg, --bg-panel, padding 10px 12px).
+- **Summary chips**: rounded pills with a light background plus a brand/green border; the ok state uses --ok and the warn state uses --warn.
+- **Status badge pills**: a color-mix(in srgb, var(--ok/warn/danger) 12%, transparent) background plus a translucent border in the same hue (the existing CSS already uses color-mix, see .btn-danger:hover, so WebKit compatibility has precedent). Brand text (the color of .chip-brand/.pill.brand) uniformly uses --brand-text, which in the dark theme is --brand-strong (#6e8bff, a contrast ratio of ~4.96:1, passing) and in the light theme is --brand (#2547d0).
+- **State dots**: 7px circles in the green/red/blue semantic colors.
+- **Button hierarchy**: the primary action "Install" = a solid brand button; the secondary action "re-check" = a ghost button; the danger "Remove" = the existing btn-danger.
+- **Focus ring**: input/button focus is outline: 2px solid var(--brand).
+- **Dialog width**: .modal-card 520px → 560px (a class dedicated to the toolchain dialog, .modal-tools, so other dialogs are unaffected).
 
-## 验证
+## Verification
 
-1. cd apps/desktop-launcher && go test ./... —— Catalog() 新增 uv 后单元/集成测试零回归。
-2. make build 后开发态运行，人工核对弹框：
-   - 深/浅主题（系统主题切换）；
-   - 全状态：随包 ✓/✗、可安装、安装中（按钮禁用）、挂载 ✓生效中/重启后生效；
-   - 挂载输入/移除、重新检查；
-   - 非沙箱开发态挂载卡隐藏。
-3. 玲珑产物树无需改动（linglong.yaml、buildext 均不涉及弹框）；tools.yaml 仅 installable 段新增 uv（verify-tools.sh 会校验其 sha256 非占位）。
-4. uv 一键安装流：弹框「一键安装」卡里点 uv「安装」→ 下载 19.3 MB → 校验 sha256 → 解包 .dsh-tools/current/uv → 软链 uv/uvx 到 .dsh-tools/bin；安装成功后重启应用，容器内 which uv / uv --version 可用。
+1. cd apps/desktop-launcher && go test ./... — zero unit/integration test regressions after adding uv to Catalog().
+2. After make build, run in development mode and check the dialog by hand:
+   - dark/light themes (switching the system theme);
+   - all states: bundled ✓/✗, installable, installing (button disabled), mounts ✓ active / takes effect after restart;
+   - mounting input/removal and re-check;
+   - the mount card is hidden in non-sandbox development mode.
+3. The Linglong artifact tree needs no change (neither linglong.yaml nor buildext touches the dialog); tools.yaml only adds uv to the installable section (verify-tools.sh checks that its sha256 is not a placeholder).
+4. The uv one-click install flow: click "Install" for uv in the "One-click install" card → download 19.3 MB → verify the sha256 → unpack to .dsh-tools/current/uv → symlink uv/uvx into .dsh-tools/bin; after a successful install and app restart, which uv / uv --version work inside the container.
 
-## 已确认决策记录
+## Confirmed decision record
 
-- 优先级：C（品牌）> B（信息组织）> D（交互细节）> A（视觉质感）。
-- 双主题：A——沿用 prefers-color-scheme 自动切换，两套都调。
-- 布局：方向 B「纵向分组流」（视觉伴侣 mockup 选定）。
-- 实现路径：方案 A「纯静态改造」：前端 3 个静态文件 + Catalog() 增补 uv 一项 + tools.yaml installable 同步。
-- 随包工具详情：方案 A「行内副文本」（node→npm·npx·corepack·pnpm、python3→pip·pip3、git→git-lfs）。
-- uv：并入一键安装（方式 1，按需下载，uab 体积 0 增加）。
+- Priority: C (brand) > B (information organization) > D (interaction detail) > A (visual polish).
+- Dual theme: A — keep the prefers-color-scheme automatic switching and tune both sets.
+- Layout: direction B "vertical grouping flow" (chosen from the visual companion mockup).
+- Implementation path: option A "purely static rework": three static frontend files + adding the uv entry to Catalog() + syncing tools.yaml installable.
+- Bundled-tool details: option A "in-row subtext" (node→npm·npx·corepack·pnpm, python3→pip·pip3, git→git-lfs).
+- uv: joins one-click install (approach 1, downloaded on demand, adding 0 to the uab size).

@@ -1,49 +1,49 @@
-# Desktop launcher: external harness connection implementation plan
+# 桌面启动器:外部 harness 连接 实现计划
 
-English | [中文](2026-08-16-desktop-launcher-external-harness.zh.md)
+[English](2026-08-16-desktop-launcher-external-harness.md) | 中文
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a "local/remote service" connection mode to the server status dialog: the user can switch between the in-container harness and an external harness (a local `npx @deepseek-ai/dsh web`, or another machine reachable over the network). Switching to external stops the container harness first, and disconnecting returns to container mode automatically.
+**Goal:** 服务器状态弹框新增"本机/远端服务"连接模式:用户可在容器内 harness 与外部 harness(本机 `npx @deepseek-ai/dsh web` 或网络可达的其他机器)之间切换,切外部先停容器 harness,断开自动回容器模式。
 
-**Architecture:** All changes live under `apps/desktop-launcher/`. Add a pure-Go `connection.go` (probing / URL validation / persistence / connection state; unit-testable); redesign the `ui.go` dialog (mode switch + URL entry + connect/disconnect, with the visual details left to the designer); inject a webview `Navigate` closure from `window.go`; leave `supervisor.go` untouched (reuse Start/StopHarness/Restart).
+**Architecture:** 全部改动在 `apps/desktop-launcher/`。新增纯 Go 的 `connection.go`(探测/URL 校验/持久化/连接状态,可单测);`ui.go` 弹框重设计(模式切换 + URL 输入 + 连接/断开,视觉交 designer);`window.go` 注入 webview `Navigate` 闭包;`supervisor.go` 不动(复用 Start/StopHarness/Restart)。
 
-**Tech Stack:** Go + cgo + GTK3; httptest for the HTTP probe; a mock shell script for the connection state machine.
+**Tech Stack:** Go + cgo + GTK3;httptest 测 HTTP 探测;mock shell 脚本测连接状态机。
 
 ## Global Constraints
 
-- Do not modify the webview_go dependency or upstream source; all changes live under `apps/desktop-launcher/`.
-- Switching to external mode must stop the container harness first (`StopHarness`, pausing automatic restarts); disconnecting returns to the container automatically (`Restart()` + wait for ready + navigate back).
-- Remember and pre-fill the external URL, but never reconnect automatically; confirm before connecting to a non-loopback address (at most once per host within a session).
-- Every `Navigate` and GTK call happens on the GTK main thread; probing runs in a goroutine and its result returns to the main thread through `g_idle_add`.
-- Testable logic stays pure Go (probing / loopback detection / persistence / connector state); the GTK layer is covered by the build plus manual verification.
-- Comments in Chinese; commit messages in English conventional commits (`feat(desktop-launcher): ...`).
-- Run checks: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`.
-- Commit once at the end of each task.
+- 不修改 webview_go 依赖与上游源码;改动全部在 `apps/desktop-launcher/`。
+- 切外部模式必须先停容器 harness(`StopHarness`,暂停自动重启);断开自动回容器(`Restart()` + 等就绪 + 导航回)。
+- 外部 URL 记忆 + 自动填充,不自动重连;非 loopback 地址连接前弹确认(会话内同 host 只弹一次)。
+- 所有 `Navigate` 与 GTK 调用在 GTK 主线程;探测在 goroutine,结果经 `g_idle_add` 回主线程。
+- 可测逻辑纯 Go(探测/loopback 判断/持久化/连接器状态);GTK 层构建 + 手动验证。
+- 注释用中文;提交信息英文 conventional commits(`feat(desktop-launcher): ...`)。
+- 运行检查:`cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`。
+- 每个任务结束提交一次。
 
 ---
 
-### Task 1: connection.go pure-Go core + tests
+### Task 1: connection.go 纯 Go 核心 + 测试
 
 **Files:**
 - Create: `apps/desktop-launcher/connection.go`
 - Test: `apps/desktop-launcher/connection_test.go`
 
 **Interfaces:**
-- Produces (signatures that later tasks depend on):
-  - `type Mode int`; the constants `ModeContainer`/`ModeExternal`
+- Produces(后续任务依赖的签名):
+  - `type Mode int`;常量 `ModeContainer`/`ModeExternal`
   - `func isLoopbackHost(host string) bool`
   - `func probe(rawURL string, timeout time.Duration) error`
   - `func loadExternalURL(path string) string` / `func saveExternalURL(path string, rawURL string) error`
-  - `type Connector struct` (private fields); `func NewConnector() *Connector`
+  - `type Connector struct`(字段私有);`func NewConnector() *Connector`
   - `(*Connector) Mode() Mode` / `ExternalURL() string` / `LastError() string`
   - `(*Connector) ValidateURL(raw string) (string, error)`
   - `(*Connector) NeedConfirmation(rawURL string) bool` / `ConfirmHost(rawURL string)`
   - `(*Connector) BeginExternal(rawURL string) error` / `EndExternal()`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: 写失败测试**
 
-Create `apps/desktop-launcher/connection_test.go`:
+创建 `apps/desktop-launcher/connection_test.go`:
 
 ```go
 package main
@@ -185,15 +185,15 @@ func TestConnector_BeginExternal(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run the tests and confirm they fail**
+- [ ] **Step 2: 跑测试确认失败**
 
 Run: `cd apps/desktop-launcher && go test -run "TestIsLoopbackHost|TestProbe|TestExternalURLPersistence|TestConnector_" -count=1`
 
-Expected: compilation failure (`undefined: isLoopbackHost`).
+Expected: 编译失败(`undefined: isLoopbackHost`)。
 
-- [ ] **Step 3: Implement connection.go**
+- [ ] **Step 3: 实现 connection.go**
 
-Create `apps/desktop-launcher/connection.go`:
+创建 `apps/desktop-launcher/connection.go`:
 
 ```go
 package main
@@ -384,13 +384,13 @@ func (c *Connector) EndExternal() {
 }
 ```
 
-- [ ] **Step 4: Run the tests and confirm they pass**
+- [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd apps/desktop-launcher && go test -run "TestIsLoopbackHost|TestProbe|TestExternalURLPersistence|TestConnector_" -v -count=1`
 
-Expected: all PASS.
+Expected: 全部 PASS。
 
-- [ ] **Step 5: Full regression + commit**
+- [ ] **Step 5: 全量回归 + 提交**
 
 Run: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`
 
@@ -401,26 +401,26 @@ git commit -m "feat(desktop-launcher): add external connection probe and state c
 
 ---
 
-### Task 2: Dialog redesign + external connection interaction (ui.go/window.go/ui_state.go)
+### Task 2: 弹框重设计 + 外部连接交互(ui.go/window.go/ui_state.go)
 
 **Files:**
-- Modify: `apps/desktop-launcher/window.go` (inject the Navigate closure)
-- Modify: `apps/desktop-launcher/ui.go` (dialog redesign + connection interaction; the designer finalizes the visual details)
-- Modify: `apps/desktop-launcher/ui_state.go` (external-mode status text)
-- Test: none (GTK needs a display); the bar is go build/go vet plus manual verification
+- Modify: `apps/desktop-launcher/window.go`(注入 Navigate 闭包)
+- Modify: `apps/desktop-launcher/ui.go`(弹框重设计 + 连接交互;视觉细节交 designer 定稿)
+- Modify: `apps/desktop-launcher/ui_state.go`(外部模式状态文本)
+- Test: 无单测(GTK 需显示);以 go build/go vet + 手动验证为门槛
 
 **Interfaces:**
-- Consumes: `Connector`/`Mode`/`probe`/`loadExternalURL`/`saveExternalURL` from Task 1; the existing `(*Supervisor).StopHarness/Restart/Status`; `statusBarText`/`serverDialogState`
+- Consumes: Task 1 的 `Connector`/`Mode`/`probe`/`loadExternalURL`/`saveExternalURL`;既有 `(*Supervisor).StopHarness/Restart/Status`;`statusBarText`/`serverDialogState`
 - Produces:
-  - `func installDesktopUI(win unsafe.Pointer, sup *Supervisor, navigate func(string))` (extended signature)
-  - Package-level globals: `connector *Connector`, `navigateFn func(string)`, `configPath string` (the external URL config file path)
-  - New C dialog widgets: `dsh_dlg_mode_container`/`dsh_dlg_mode_external` (mode switch), `dsh_dlg_url_entry` (URL entry), `dsh_dlg_btn_connect`/`dsh_dlg_btn_disconnect`, `dsh_dlg_error_label`, `dsh_dlg_ext_state` (external status area)
+  - `func installDesktopUI(win unsafe.Pointer, sup *Supervisor, navigate func(string))`(签名扩展)
+  - 包级全局:`connector *Connector`、`navigateFn func(string)`、`configPath string`(外部 URL 配置文件路径)
+  - C 弹框新增:`dsh_dlg_mode_container`/`dsh_dlg_mode_external`(模式切换)、`dsh_dlg_url_entry`(URL 输入)、`dsh_dlg_btn_connect`/`dsh_dlg_btn_disconnect`、`dsh_dlg_error_label`、`dsh_dlg_ext_state`(外部状态区)
   - `//export dshOnModeChanged` / `dshOnExternalConnect` / `dshOnExternalDisconnect` / `dshOnProbeResult` / `dshOnNavIdle`
-  - `func externalConfigFilePath() string` (`~/.config/dsh-desktop/config.json`; falls back to LogDir when HOME is unavailable)
+  - `func externalConfigFilePath() string`(`~/.config/dsh-desktop/config.json`;HOME 不可用时回退 LogDir)
 
-- [ ] **Step 1: Extend window.go to inject the Navigate closure**
+- [ ] **Step 1: 扩展 window.go 注入 Navigate 闭包**
 
-In `openWindow` of `apps/desktop-launcher/window.go`, change `installDesktopUI(w.Window(), sup)` to:
+`apps/desktop-launcher/window.go` 的 `openWindow` 中,把 `installDesktopUI(w.Window(), sup)` 改为:
 
 ```go
 	// 底部状态栏、服务器/关于按钮、状态轮询、窗口居中与外部连接导航
@@ -429,11 +429,11 @@ In `openWindow` of `apps/desktop-launcher/window.go`, change `installDesktopUI(w
 	})
 ```
 
-`w.Navigate` is only triggered at call sites on the GTK main thread (dialog callbacks and idle callbacks), so it is thread-safe.
+`w.Navigate` 只在 GTK 主线程的调用点被触发(弹框回调与 idle 回调),线程安全。
 
-- [ ] **Step 2: Add the external-mode text to ui_state.go (pure functions)**
+- [ ] **Step 2: ui_state.go 增加外部模式文本(纯函数)**
 
-Append this to the end of `apps/desktop-launcher/ui_state.go`:
+在 `apps/desktop-launcher/ui_state.go` 末尾追加:
 
 ```go
 // externalStatusBarText 生成外部模式的状态栏文本。
@@ -463,7 +463,7 @@ func externalDialogState(connector *Connector, busy bool) ExternalDialogState {
 }
 ```
 
-Append these tests to the end of `apps/desktop-launcher/ui_state_test.go`:
+在 `apps/desktop-launcher/ui_state_test.go` 末尾追加测试:
 
 ```go
 func TestExternalStatusBarText(t *testing.T) {
@@ -497,11 +497,11 @@ func TestExternalDialogState(t *testing.T) {
 }
 ```
 
-(Add the `"net/http"` and `"net/http/httptest"` imports at the top of the file.)
+(文件顶部需补 `"net/http"`、`"net/http/httptest"` import。)
 
-- [ ] **Step 3: Redesign the ui.go dialog (structure + interaction)**
+- [ ] **Step 3: ui.go 弹框重设计(结构 + 交互)**
 
-Add this to the cgo preamble of `apps/desktop-launcher/ui.go` (next to the existing statics):
+`apps/desktop-launcher/ui.go` 的 cgo 前奏新增(在现有 statics 旁):
 
 ```c
 // ---- 外部连接:模式切换、URL 输入、连接/断开 ----
@@ -527,7 +527,7 @@ static gboolean dsh_probe_idle(gpointer d) { (void)d; dshOnProbeResult(); return
 static gboolean dsh_nav_idle(gpointer d) { (void)d; dshOnNavIdle(); return G_SOURCE_REMOVE; }
 ```
 
-Change `dsh_make_server_dialog` to (insert the mode row and the URL row at the top of the existing content vbox, and group the buttons by mode):
+`dsh_make_server_dialog` 改为(在原内容区 vbox 顶部插模式行、URL 行,并把按钮按模式分组):
 
 ```c
 static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
@@ -643,7 +643,7 @@ static GtkWidget *dsh_make_server_dialog(GtkWindow *parent) {
 }
 ```
 
-Change `dsh_update_server_dialog` to update by mode (container mode shows the status and buttons; external mode shows the external status area):
+`dsh_update_server_dialog` 改为按模式更新(容器模式显示状态+按钮;外部模式显示外部状态区):
 
 ```c
 // ---- 刷新服务器弹框(按模式分支) ----
@@ -664,7 +664,7 @@ static void dsh_update_server_dialog(GtkWidget *dlg, const char *state_text, int
 }
 ```
 
-Append the error-label and external-status CSS (at the end of the `dsh_css` string):
+CSS 追加错误标签与外部状态样式(在 `dsh_css` 字符串末尾):
 
 ```c
     ".dsh-dialog-error {\n"
@@ -677,7 +677,7 @@ Append the error-label and external-status CSS (at the end of the `dsh_css` stri
     "}\n";
 ```
 
-New globals and exported callbacks on the Go side (ui.go):
+Go 侧(ui.go)新增全局与导出回调:
 
 ```go
 // 外部连接状态与导航
@@ -701,7 +701,7 @@ func externalConfigFilePath() string {
 }
 ```
 
-Change the `installDesktopUI` signature and initialization to:
+`installDesktopUI` 签名与初始化改为:
 
 ```go
 func installDesktopUI(win unsafe.Pointer, sup *Supervisor, navigate func(string)) {
@@ -721,7 +721,7 @@ func installDesktopUI(win unsafe.Pointer, sup *Supervisor, navigate func(string)
 }
 ```
 
-`dshOnModeChanged` (mode switch, GTK main thread):
+`dshOnModeChanged`(模式切换,GTK 主线程):
 
 ```go
 //export dshOnModeChanged
@@ -738,7 +738,7 @@ func dshOnModeChanged() {
 }
 ```
 
-`dshOnExternalConnect` (connect button, GTK main thread):
+`dshOnExternalConnect`(连接按钮,GTK 主线程):
 
 ```go
 //export dshOnExternalConnect
@@ -795,7 +795,7 @@ func dshOnProbeResult() {
 }
 ```
 
-`dshOnExternalDisconnect` (disconnect, returns to the container automatically):
+`dshOnExternalDisconnect`(断开,自动回容器):
 
 ```go
 //export dshOnExternalDisconnect
@@ -831,7 +831,7 @@ func dshOnNavIdle() {
 }
 ```
 
-`confirmExternal` (security confirmation dialog, GTK main thread):
+`confirmExternal`(安全确认框,GTK 主线程):
 
 ```go
 // confirmExternal 弹确认框;返回用户是否确认。
@@ -853,7 +853,7 @@ func confirmExternal(u string) bool {
 }
 ```
 
-`setDialogError` / the external-mode branch of `dshRefreshStatus`:
+`setDialogError` / `dshRefreshStatus` 外部模式分支:
 
 ```go
 // setDialogError 设置弹框错误标签文本。
@@ -867,7 +867,7 @@ func setDialogError(text string) {
 }
 ```
 
-In `dshRefreshStatus`, branch the status-bar text by mode:
+`dshRefreshStatus` 中,状态栏文本按模式分支:
 
 ```go
 	st := sup.Status()
@@ -882,7 +882,7 @@ In `dshRefreshStatus`, branch the status-bar text by mode:
 	C.free(unsafe.Pointer(bar))
 ```
 
-`dshOnServerStatusClicked` fills the URL entry when it opens the dialog and then refreshes:
+`dshOnServerStatusClicked` 打开弹框时填充 URL 输入并刷新:
 
 ```go
 	if serverDialog != nil {
@@ -903,37 +903,37 @@ In `dshRefreshStatus`, branch the status-bar text by mode:
 	dshRefreshStatus()
 ```
 
-`dsh_server_dialog_destroyed` must additionally clear the new statics (after the existing clearing):
+`dsh_server_dialog_destroyed` 需追加清空新增 statics(在现有清空后):
 
 ```go
 	dsh_dlg_mode_container = nil; ...
 ```
 
-(In the corresponding C: set the new statics to NULL in the destroy callback.)
+(对应 C:destroy 回调里把新 statics 置 NULL。)
 
-- [ ] **Step 4: Compile and static checks**
+- [ ] **Step 4: 编译与静态检查**
 
 Run: `cd apps/desktop-launcher && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go vet ./... && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go build -o /dev/null .`
 
-Expected: no errors (known GTK deprecation warnings are allowed). If the format string of `C.gtk_message_dialog_new` errors, use `C.gtk_message_dialog_new(mainWindow, flags, type, buttons, nil)` followed by `gtk_message_dialog_format_secondary_text`.
+Expected: 无 error(允许已知 GTK deprecation 警告)。若 `C.gtk_message_dialog_new` 的格式串报错,改用 `C.gtk_message_dialog_new(mainWindow, flags, type, buttons, nil)` 再 `gtk_message_dialog_format_secondary_text`。
 
-- [ ] **Step 5: Manual verification (with a display environment)**
+- [ ] **Step 5: 手动验证(有显示环境)**
 
 Run: `cd apps/desktop-launcher && PKG_CONFIG_PATH=/tmp/dsh-pkgconfig go build -o dsh-desktop-launcher . && DSH_DESKTOP_DSH_BIN="$(pwd)/testdata/mock-dsh-web.sh" ./dsh-desktop-launcher`
 
-Verification checklist:
-1. The dialog shows the two "connection mode" radio buttons, defaults to "in-container", and shows start/restart/stop.
-2. Switch to "local/remote service": start/restart/stop are hidden, and the service-address entry row plus connect/disconnect appear.
-3. Enter an address nobody is listening on → connect → after about 3s a red error message appears and the mode does not change.
-4. Start a real external service (for example `node -e "require('http').createServer((q,s)=>s.end('ok')).listen(3456)"`) → connect to http://127.0.0.1:3456 → the status bar changes to "● 外部服务 `http://127.0.0.1:3456`" and the window loads that page; the container mock has been stopped (the log shows terminated).
-5. Click disconnect → it returns to container mode automatically: the mock restarts, the window goes back to `http://127.0.0.1:18080`, and the status bar returns to "● 运行中".
-6. Enter a LAN address → a confirmation dialog appears; cancelling does not connect, confirming connects successfully.
-7. Close and reopen the dialog: the URL entry is pre-filled with the previous address.
-8. Close the window; the program exits normally with no leftover process.
+验证清单:
+1. 弹框出现"连接模式"两枚单选按钮,默认"容器内",启动/重启/停止可见。
+2. 切"本机/远端服务":启动/重启/停止隐藏,显示服务地址输入行 + 连接/断开。
+3. 填一个未监听的地址 → 连接 → 约 3s 后红色错误提示,模式不变。
+4. 起一个真实外部服务(如 `node -e "require('http').createServer((q,s)=>s.end('ok')).listen(3456)"`)→ 连接 http://127.0.0.1:3456 → 状态栏变"● 外部服务 `http://127.0.0.1:3456`",窗口加载该页面;容器 mock 已被停止(日志出现 terminated)。
+5. 点断开 → 自动回到容器模式:mock 重启,窗口回到 `http://127.0.0.1:18080`,状态栏恢复"● 运行中"。
+6. 填局域网地址 → 弹确认框;取消不连接,确认后连接成功。
+7. 关闭弹框重开:URL 输入框已自动填充上次地址。
+8. 关闭窗口,程序正常退出,无残留进程。
 
-When done, run `kill %1` to clean up the mock.
+完成后 `kill %1` 清理 mock。
 
-- [ ] **Step 6: Regression tests + commit**
+- [ ] **Step 6: 回归测试 + 提交**
 
 Run: `cd apps/desktop-launcher && go test ./... -count=1 -timeout 60s`
 
@@ -944,20 +944,20 @@ git commit -m "feat(desktop-launcher): add external harness connection to server
 
 ---
 
-### Task 3: Documentation and closing verification
+### Task 3: 文档与收尾验证
 
 **Files:**
 - Modify: `apps/desktop-launcher/README.md`
 
-- [ ] **Step 1: Update the README**
+- [ ] **Step 1: 更新 README**
 
-Add a row to the file-structure table of `apps/desktop-launcher/README.md`:
+`apps/desktop-launcher/README.md` 文件结构表加一行:
 
 ```markdown
 | `connection.go` | 外部服务连接:探测、URL 校验、持久化、连接状态(纯 Go) |
 ```
 
-Add a "connecting to an external service" section after the "environment variables" table (brief):
+"环境变量"表后新增一节"连接外部服务"(简述):
 
 ```markdown
 ## 连接外部服务
@@ -970,13 +970,13 @@ Add a "connecting to an external service" section after the "environment variabl
 连接外部服务的前提:目标 harness 需绑定可访问的接口(`dsh web --host <LAN-IP>`;`--host 0.0.0.0` 被上游有意拒绝,原因见其 CLI 提示),局域网可达或经端口转发/隧道。外部地址(非 127.0.0.1/localhost)首次连接会弹安全确认;上次地址记忆在 `~/.config/dsh-desktop/config.json`,打开弹框自动填充、不自动重连。
 ```
 
-- [ ] **Step 2: Full checks**
+- [ ] **Step 2: 全量检查**
 
 Run: `cd apps/desktop-launcher && go vet ./... && go build -o /dev/null . && go test ./... -count=1 -timeout 60s`
 
-Expected: all pass.
+Expected: 全部通过。
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 3: 提交**
 
 ```bash
 git add apps/desktop-launcher/README.md
@@ -987,10 +987,10 @@ git commit -m "docs(desktop-launcher): document external harness connection"
 
 ## Self-Review
 
-**Spec coverage:** switching to external stops the container first (Task 2 Step 3 `StopHarness`), disconnecting returns to the container automatically (Task 2 `dshOnExternalDisconnect` → `Restart` + Ready + navigate), URL memory pre-fills without reconnecting (Task 1 persistence + Task 2 dialog-open fill), non-loopback confirmation (Connector.NeedConfirmation/ConfirmHost + Task 2 confirmExternal), a failed probe keeps the current mode (Task 2 probe failure branch), the dialog layout redesign (Task 2, visuals left to the designer), and the external-mode status-bar text (Task 2 Step 2). Every spec item lands.
+**规格覆盖:** 切外部先停容器(Task 2 Step 3 `StopHarness`)、断开自动回容器(Task 2 `dshOnExternalDisconnect` → `Restart` + Ready + 导航)、URL 记忆自动填充不重连(Task 1 持久化 + Task 2 打开弹框填充)、非 loopback 确认(Connector.NeedConfirmation/ConfirmHost + Task 2 confirmExternal)、探测失败留当前模式(Task 2 probe 失败分支)、弹框布局重设计(Task 2,visual 交 designer)、状态栏外部模式文本(Task 2 Step 2)。规格全项落地。
 
-**Placeholder scan:** no TBD/TODO; every step carries complete code and verification commands.
+**占位符扫描:** 无 TBD/TODO;每个步骤含完整代码与验证命令。
 
-**Type consistency:** `Connector`/`Mode`/`probe`/`loadExternalURL`/`saveExternalURL` (Task 1) → consumed by Task 2; `externalStatusBarText`/`ExternalDialogState` (Task 2 Step 2) → consumed by Task 2 Step 3; `installDesktopUI(win, sup, navigate func(string))` is defined in Task 2 and called from window.go; `externalConfigFilePath`/`configPath` are defined and used in Task 2. Names are consistent across the whole chain.
+**类型一致性:** `Connector`/`Mode`/`probe`/`loadExternalURL`/`saveExternalURL`(Task 1)→ Task 2 消费;`externalStatusBarText`/`ExternalDialogState`(Task 2 Step 2)→ Task 2 Step 3 消费;`installDesktopUI(win, sup, navigate func(string))` 在 Task 2 定义,window.go 调用;`externalConfigFilePath`/`configPath` 在 Task 2 定义并使用。名称全链路一致。
 
-**Known trade-offs:** the GTK layer has no unit tests (it needs a display), so go build/vet plus the Task 2 Step 5 manual verification cover it; `g_idle_add` stages the asynchronous result back on the main thread in package-level globals (single-instance application, no concurrency window); `w.Navigate` is only triggered at main-thread call sites.
+**已知取舍:** GTK 层无单测(需显示环境),以 go build/vet + Task 2 Step 5 手动验证兜底;`g_idle_add` 异步回主线程用包级全局暂存结果(单实例应用,无并发窗口);`w.Navigate` 仅在主线程调用点触发。
