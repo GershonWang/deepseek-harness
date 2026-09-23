@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * 由上游 standard 预设派生玲珑打包用的覆盖补丁。
  *

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Loader probe: a standalone subprocess that truly loads one DSH profile
  * through the Cordis Loader and reports the result via its exit code.
