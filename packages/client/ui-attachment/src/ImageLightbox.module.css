@@ -40,7 +40,7 @@
   color: var(--dsw-alias-label-tertiary);
   font-size: 14px;
   padding: 16px 20px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border: 0.5px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 10px;
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
