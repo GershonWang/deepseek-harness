@@ -78,6 +78,7 @@ const PACKAGE_LIBRARIES: Readonly<Record<string, string>> = {
   'packages/session/session-title-llm': 'Shared LLM title-provider registration and request policy.',
   'packages/subagent/subagent-in-process-driver': 'Shared one-shot child-agent driver used by provider plugins.',
   'packages/subprocess/win32-process': 'Low-level Win32 process and Job Object primitives.',
+  'packages/support/doctor': 'Diagnostic framework the CLI and the Desktop preflight import; plain module exports with no plugin entry.',
   'packages/test-support/session-snapshot': 'Test infrastructure; mounts nothing into a product composition.',
   'packages/test-support/agent-loop-testkit': 'Test helper library; mounts nothing into a product composition.',
   'packages/test-support/client-runtime': 'Browser-side test infrastructure.',
