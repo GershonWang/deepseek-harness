@@ -972,7 +972,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 §5 的复选框反映真实执行状态，有两类例外需说明：
 
 - **5 个提交步骤（1.5／2.5／3.6／4.5／5.3）有意未执行**。§5 开头已规定"不要逐 Task 提交"——doctor 一旦离开 workspace，`apps/cli` 与两处 tsconfig 立即无法构建，逐 Task 提交会在历史里留下坏提交。这 5 步只作为工作进度检查点，实际工作在同一工作树内连续完成，最后一次性提交。
-- **Step 2.3 未完成，Step 2.4 因此只做了前 4 条命令**。见下节，这是一项**真实的保护力损失**，不是笔误。
+- **Step 2.3 未完成，Step 2.4 因此只做了前 4 条命令**。见下节：该步的前提"doctor 有 100% 覆盖率纪律"经实测不成立，实测覆盖率为 66.36%。
 
 ### 已完成并验证的部分
 
@@ -989,23 +989,62 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 | doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0；`--json` → 12 项检查、loader-probe 成功 spawn（无 `ERR_MODULE_NOT_FOUND`、无 tsx）；`--repair 9` → exit 2 |
 | doctor 测试套件 | ⚠️ 75/76 | 见下方环境性失败 |
 
-### Step 2.3 未完成：覆盖率保护力确实下降了
+### Step 2.3 未完成：其前提经实测不成立
 
-这是阶段 1 **唯一一项计划内但未实施的工作**，且它带来的损失是真实的，不是文档笔误。
+这是阶段 1 **唯一一项计划内但未实施的工作**。原方案要求在 `apps/desktop-launcher/tools/doctor-verify.mjs` 里"把逐文件 100% 覆盖率门槛搬过来"，依据是这句话：
 
-方案 Step 2.3 要求创建 `apps/desktop-launcher/tools/doctor-verify.mjs`，以 doctor 为 root 跑 `vitest run --coverage` 并把逐文件 100% 门槛搬过来，理由写得很明确：上游 `pnpm run test:coverage` 的 `include` 是 `packages/*/*/src/**`（F8），doctor 迁出后会自动脱离该门禁，**不补这一层，doctor 现有的 10 个 spec / 77 个用例与 100% 覆盖率纪律会无声消失**。
+> 不补这一层，doctor 现有的 10 个 spec / 77 个用例与 100% 覆盖率纪律会无声消失。
 
-实测现状（本次复核）：
+**实测表明 doctor 从来没有 100% 覆盖率纪律**，因此"把 100% 门槛搬过来"无法实现——它会在 10 个文件里的 8 个上立即失败。
+
+#### 实测覆盖率
+
+测量方式：按根 `vitest.config.ts` 的覆盖率口径忠实复现（同样的 `setupFiles`、`pool: 'forks'`、仓库根相对 `include`），收集范围为 doctor 的 tests。两次独立运行结果逐位一致。
 
 ```sh
-ls apps/desktop-launcher/tools/          # 只有 doctor-build.mjs、doctor-link-deps.mjs，无 doctor-verify.mjs
-grep -n "thresholds" apps/desktop-launcher/doctor/vitest.config.ts   # 无匹配
-grep -n "include:" vitest.config.ts      # 第 209 行仍是 packages/*/*/src/**/*.{ts,tsx}
+# 临时配置等价于根 config 的 coverage 段 + doctor 的 test.include
+vitest run --config <等价配置> --coverage --coverage.reportOnFailure=true
 ```
 
-即：doctor 的**测试仍会被执行**（`apps/desktop-launcher/doctor/vitest.config.ts` 让根配置收集到它，见该文件顶部注释），但**覆盖率门槛不再作用于它**——测试挂了会发现，测试没写全不会发现。这正是 [merge-conflict-convergence.md](./merge-conflict-convergence.md) 第 218 行预告的代价①："per-file 100% 门槛不再覆盖 doctor（**保护力下降**，需显式接受或另建替代门禁）"。
+> `--coverage.reportOnFailure=true` 必须加：vitest 4 里该选项默认 `false`，测试一旦失败就不输出覆盖率表，会让人误以为覆盖率没跑。
 
-**处置**：要么补上 `doctor-verify.mjs`（Step 2.3 原样实施），要么显式接受该损失并在 [merge-conflict-convergence.md](./merge-conflict-convergence.md) 的代价栏里改为"已接受"。**在两者之一落定前，不应把阶段 1 视为完全闭环。**
+| 文件 | % Stmts | % Branch | % Funcs | % Lines |
+|---|---:|---:|---:|---:|
+| `auto-disabled.ts` | **100** | 100 | 100 | 100 |
+| `checks/config.ts` | **100** | 100 | 100 | 100 |
+| `bisect-by.ts` | 94.44 | 87.5 | 100 | 100 |
+| `checks/plugins.ts` | 91.84 | 79.48 | 100 | 92.3 |
+| `index.ts` | 90.54 | 85.71 | 83.33 | 90.62 |
+| `checks/env.ts` | 90.47 | 85.71 | 100 | 90.24 |
+| `checks/data.ts` | 86.81 | 74.41 | 88.88 | 94.87 |
+| `bisect.ts` | **32.69** | 33.33 | 33.33 | 35.41 |
+| `cli.ts` | 0 | 0 | 0 | 0 |
+| `loader-probe.ts` | 0 | 0 | 0 | 0 |
+| **合计** | **66.36** | 52.28 | 68.22 | 67.66 |
+
+`cli.ts` 与 `loader-probe.ts` 是自执行入口，进程内测试看不到它们——仓库对同类文件的处理是**排除**而非覆盖：根 `coverage.exclude` 里有 `packages/*/*/src/bin.ts`、`packages/*/*/src/worker.ts`、`packages/ptc-runtime/ptc-runtime-node/src/process-entry.ts`，注释给出的理由正是"导入自执行入口会在单元进程里启动它，其薄入口由真实子进程测试覆盖"。
+
+#### 迁移前后它到底有没有被门禁约束
+
+**迁移前：名义上在门禁内。** doctor 位于 `packages/support/doctor/`，其 `src/**` 命中根 `coverage.include` 的 `packages/*/*/src/**/*.{ts,tsx}`，tests 命中 `testIncludes` 的 `packages/*/*/tests/**/*.spec.{ts,tsx}`；根 `coverage.exclude` 的 92 条里只有 `packages/*/*/src/types.ts` 匹配到它（排除 types-only 文件），没有任何 doctor 专属豁免。所以按配置它受逐文件 100% 约束。
+
+**但它的实测覆盖率是 66.36%，不可能通过那道门禁。** 由此只能是两种情况之一：要么 fork 的覆盖率 job 从未真正跑过（`ci.yml` 只在 `pull_request` 触发、`ci-master.yml` 只在 `master` 触发，而本仓库工作在 `linglong-dev`，离线无法判定是否开过 PR），要么它一直是红的。无论哪种，**当时都不存在一份"已满足的 100% 纪律"可供失去**。
+
+**迁移后：测试照跑，门禁不再适用。** doctor 的 10 个 spec / 76 个用例仍会被执行——`apps/desktop-launcher/doctor/vitest.config.ts` 让根配置收集到它（该文件顶部注释解释了原因）。失去的只是覆盖率这一层的约束。原方案把它描述为"保护力下降"，方向正确，但**高估了失去的东西**。
+
+#### 顺带查出的真实测试盲区
+
+`bisect-by.ts` 是通用二分框架（9 个用例、94.44% 覆盖）；`bisect.ts` 是把该框架接到真实 bundle 上的编排层，但 `bisect.spec.ts` 的 3 个用例**只走了 3 条提前返回路径**（无第三方 bundle／全部启用也能加载／全禁用仍失败）。真正"找出罪魁 bundle"的路径——第 154 行的全启用基线判断、第 164 行起的 `bisectBy` 委托与结果组装——**没有任何测试**，这正是 `bisect.ts` 只有 32.69% 的原因。
+
+**这与覆盖率门槛无关，是独立的功能盲区**：doctor 的核心能力（定位哪个第三方 bundle 导致 profile 加载失败）没有被端到端断言过。
+
+#### 待决策的处置
+
+1. **补 `doctor-verify.mjs` 并按实测基线设"棘轮"门槛**——锁住现有覆盖不下降，成本低，但要维护 10 个数字，且偏离仓库"逐文件 100%"惯例。
+2. **补齐到逐文件 100% 再设门槛**——先排除 `cli.ts`／`loader-probe.ts`（与根惯例一致），再把其余 6 个文件补到 100%。与仓库惯例一致，且顺带修掉上节盲区，但工作量最大（`bisect.ts` 一项就要新增端到端用例）。
+3. **不设门槛，显式接受**——doctor 的测试继续跑，覆盖率不再约束；[merge-conflict-convergence.md](./merge-conflict-convergence.md) 的代价①改为"已接受"。
+
+**无论选哪一项，上节的 `bisect.ts` 盲区都建议单独补上。**
 
 ### Task 3：Go 壳直连（已完成）
 
