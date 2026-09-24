@@ -1229,4 +1229,10 @@ cd apps/desktop-launcher/doctor && ../../node_modules/.bin/vitest run
 
 Expected：73/73 全绿。
 
-本沙箱内恒为 72/73（删除 `bisect.spec.ts` 前为 75/76），唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1，根因是沙箱把 `~/.dsh` 设为只读（`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`）。该用例在手工运行下两种运行面都 exit 0，失败只在 vitest 环境里复现。**失败位置与数量同迁移前完全一致**，故判定为环境性而非迁移缺陷——但这需要一次可写环境的复核才能结案。
+本沙箱内恒为 72/73（删除 `bisect.spec.ts` 前为 75/76），唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1。**失败位置与数量同迁移前完全一致**，判定为环境性而非迁移缺陷。
+
+**根因（已取到子进程 stderr 证实）**：sandbox 把 `~/.dsh` 设为只读，而 web profile 的**必需**插件 `@deepseek-ai/dsh-client-connection` 会经 `packages/util/atomic-write` 的文件锁写 `~/.dsh/.credentials.yaml`，**不看 `--dsh-home`**；写入撞上 `EROFS: read-only file system`，必需插件激活失败，probe 遂以 exit 1 报 `1 required plugin did not activate`。
+
+**这条用例手工跑为什么反而 exit 0**（照抄它的命令行、同样的 cwd／node／stdin 都复现不出来）：vitest 之外 probe **解析不出**官方 bundle `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`（stderr 报 `cannot resolve profile bundle ... from the dsh installation`），把它们 skip 掉——`client-connection` 根本没被加载，也就不会去碰凭据文件。vitest 内 tsx 经仓库 tsconfig 的 paths 解析到了这两个 bundle，完整 profile 才真正启动，失败才浮现。因此"仅在 vitest 内复现"不是 vitest 的怪癖，而是**需要完整官方 profile 启动**才会触发。
+
+**结论**：在 `~/.dsh` 可写的机器上应全绿；此处不需要代码改动，但仍需一次真机运行结案。以上取证顺带暴露两处设计问题，尚未定去向，就地记录：① probe 宣称在临时 home 上启动，实际却有**必需**插件写用户**真实**的 `~/.dsh` 凭据文件并对其加锁——诊断工具不该有这种副作用；② `~/.dsh` 只读时 `plugin-dynamic-load` 会报 `1 required plugin did not activate` 并点名 `connection`，读起来像"profile 坏了"，实为权限／环境问题，属假故障。
