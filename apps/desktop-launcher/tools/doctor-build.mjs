@@ -12,11 +12,18 @@
  * fork 私有包，它的构建不应该存在任何可能改写上游包构建产物的路径；`-p` 把这条路径
  * 彻底删掉，代价是必须先跑过根构建。
  *
+ * 为什么每次都清空 lib/：`tsc -p` 只为"当前程序里的源文件"写产物，从不删除已被移除
+ * 的源文件留下的产物；配上 incremental 的 tsbuildinfo 后，它连内容未变的产物也不
+ * 重写。于是删掉一个源文件后，对应的 .js/.d.ts/.map 会一直留在 lib/types 里，并被
+ * prepare-offline.sh 原样拷进客户端——死代码静默交付，且构建与打包全程无任何提示。
+ * 只删 lib/types 而不删 tsbuildinfo 更糟：tsc 会认为整棵树都是最新的，一个产物都不写。
+ * doctor 只有十来个源文件，全量重建的代价可以忽略，换来确定性的产物树。
+ *
  * 前置：doctor 依赖的 workspace 包必须已构建。缺失时本脚本直接报错并指出该跑什么，
  * 而不是自己去构建它们——那正是上面要避免的行为。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -50,6 +57,10 @@ if (unbuilt.length > 0) {
   console.error('doctor-build: 先运行 pnpm run build（doctor 不代建上游包）')
   process.exit(1)
 }
+
+// 清空 lib/ 让本次编译产出完整的确定性产物树；理由见文件头"为什么每次都清空 lib/"。
+// 必须在 tsc 之前：跟在后面会把刚编译好的东西删掉。
+rmSync(join(doctorDir, 'lib'), { recursive: true, force: true })
 
 run(process.execPath, [join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc'), '-p', doctorTsconfig])
 
