@@ -34,10 +34,17 @@ func writeDoctorMock(t *testing.T, body string) string {
 // newGateTestApp 构造带门控 supervisor 与指定 doctor mock 的 App（无 Wails ctx）。
 func newGateTestApp(t *testing.T, doctorScript string) *App {
 	t.Helper()
+	return newGateTestAppWithCLI(t, "sh", doctorScript)
+}
+
+// newGateTestAppWithCLI 与 newGateTestApp 同源，额外暴露 doctor 的 cli 入口。
+// doctorCLI 为空串即"本次安装没提供 doctor"，是 resolveDoctor 解析失败时的真实取值。
+func newGateTestAppWithCLI(t *testing.T, cmd, doctorCLI string) *App {
+	t.Helper()
 	return &App{
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-gate-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
-		preflightRunner: preflight.NewRunner("sh", doctorScript, t.TempDir()),
+		preflightRunner: preflight.NewRunner(cmd, doctorCLI, t.TempDir()),
 	}
 }
 
@@ -123,6 +130,24 @@ func TestPreflightGate_DoctorFailureDoesNotBlock(t *testing.T) {
 	a.runPreflightGate()
 
 	waitPreflightPhase(t, a, PreflightError)
+	a.sup.Stop()
+}
+
+func TestPreflightGate_DoctorNotConfiguredDoesNotBlock(t *testing.T) {
+	// 本次安装未提供 doctor（cli 为空）→ 预检同样放行，但归类必须是
+	// notConfigured 而非 noOutput：前者是"根本没跑起来"，后者是"跑了但没说话"，
+	// 排查方向不同，合并会把用户引向错误的方向。
+	a := newGateTestAppWithCLI(t, "", "")
+	a.sup.Gate()
+	a.runPreflightGate()
+
+	waitPreflightPhase(t, a, PreflightError)
+	a.mu.Lock()
+	got := a.preflight.Error
+	a.mu.Unlock()
+	if want := a.t("preflight.doctor.notConfigured"); got != want {
+		t.Fatalf("doctor 缺失时应报 %q, 实得 %q", want, got)
+	}
 	a.sup.Stop()
 }
 
