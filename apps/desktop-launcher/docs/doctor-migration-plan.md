@@ -610,7 +610,7 @@ sh apps/desktop-launcher/linglong/prepare-offline.sh
 apps/desktop-launcher/linglong/stage/node/bin/node \
   apps/desktop-launcher/linglong/stage/harness/doctor/lib/types/index.js --json --quick | head -20
 ```
-Expected：doctor 在 stage 环境下输出 JSON 报告，且 `plugin-dynamic-load` 检查能成功 spawn loader-probe（这是 Step 1.3 改造的端到端验收）。
+Expected：doctor 在 stage 环境下输出合法 JSON 报告，且**不含** `plugin-dynamic-load`——`--quick` 按设计跳过需要真实 boot 的加载探测（实测 11 项）。探针本身的端到端验收见"验收标准"第 5 条：那里必须让 home 里存在第三方 bundle，否则该检查走短路分支、根本跑不到探针。
 
 - [ ] **Step 5.3：提交**
 
@@ -909,7 +909,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 4. **doctor 功能等价**
    `node apps/desktop-launcher/doctor/lib/types/index.js --json --quick` 输出 12 项检查；`--repair 1` 在临时 DSH_HOME 上可完成修复并留下备份。
 5. **loader-probe 端到端可用**
-   在 stage 环境下 `plugin-dynamic-load` 检查返回 ok，且 stderr 无 `ERR_MODULE_NOT_FOUND`。
+   仅在 home 里**至少存在 1 个第三方 bundle** 时，`plugin-dynamic-load` 才会真正 spawn 探针（第三方 bundle 数为 0 时它直接返回 ok，跑不到探针，不构成证据）；此时该检查返回 ok，且 stderr 无 `ERR_MODULE_NOT_FOUND`。
 6. **安全模式等价**
    `plugins` 层：harness 启动后第三方插件消失、官方插件与用户数据完好。
    `config` 层：按 D2 选定方案验收。
@@ -986,7 +986,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 | tsconfig `references` 路径修正 | ✅ | 见 F12′ |
 | `apps/cli` 与两处 tsconfig 回到上游 | ✅ | `git diff "$BASE" -- apps/cli/ tsconfig.base.json tsconfig.host.json` 输出为空，doctor 字样 0 处 |
 | doctor 构建 | ✅ | `tools/doctor-build.mjs` exit 0，三个入口齐全；从零重建（删 `lib`）0 污染 |
-| doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0；`--json` → 12 项检查、loader-probe 成功 spawn（无 `ERR_MODULE_NOT_FOUND`、无 tsx）；`--repair 9` → exit 2 |
+| doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0（quick 按设计跳过加载探测）；`--json` → 12 项检查、exit 0——但该夹具下 `plugin-dynamic-load` 走的是"第三方 bundle 数为 0"的短路分支，**不构成探针跑成功的证据**，探针另以直跑方式验证（见 V7）；`--repair 9` → exit 2 |
 | doctor 测试套件 | ✅ 73/73 | 修复 loader-probe 的 home 隔离后全绿，见下方"测试套件的唯一失败" |
 
 ### Step 2.3 未完成：其前提经实测不成立
@@ -1201,7 +1201,7 @@ DSH_HOME=$(mktemp -d) ./node/bin/node doctor/lib/types/cli.js --json --quick | h
 
 Expected：合法 JSON，**不得出现 `ERR_MODULE_NOT_FOUND`**。
 
-这一条验证的是本设计的关键假设：doctor 放在 harness 树**内部**，因此它对 `@deepseek-ai/dsh-app-boot` 等包的 import 靠 Node 逐级向上查找即可命中 `harness/node_modules`，无需任何符号链接。本沙箱已用真实依赖闭包做过等价模拟（见「阶段 1 执行记录」），但**没有跑过真实 `pnpm deploy` 产出的闭包**。
+这一条验证的是本设计的关键假设：doctor 放在 harness 树**内部**，因此它对 `@deepseek-ai/dsh-app-boot` 等包的 import 靠 Node 逐级向上查找即可命中 `harness/node_modules`，无需任何符号链接。本沙箱已在**真实打包闭包**上验证过：包内 `cli.js --json --quick` 输出合法 JSON（11 项、exit 0），包内 `loader-probe.js` 直跑也能把官方 bundle 全部解析出来（口径见 V7）。
 
 ### V7：打包态启动 + 预检真跑
 
@@ -1209,6 +1209,8 @@ Expected：合法 JSON，**不得出现 `ERR_MODULE_NOT_FOUND`**。
 
 - 预检阶段正常出现并跑出报告（而不是 `PreflightError`）
 - 日志/界面里 doctor 的路径解析到 `<prefix>/harness/doctor/lib/types/cli.js`
+
+**验收口径（曾读错，务必按此读）**：`plugin-dynamic-load` 返回 ok **不等于**探针跑成功——`locateCulprit`（`src/checks/plugins.ts`）在第三方 bundle 数为 0 时直接返回 `fullOk: true`，根本不 spawn 探针。要真正验收"同级解析、打包态不依赖 tsx"，必须满足二者之一：让 home 里至少有 1 个第三方 bundle 再跑该检查；或直跑 `<prefix>/harness/doctor/lib/types/loader-probe.js --dsh-home <临时 home>`，要求 exit 0 且 stderr 无 `ERR_MODULE_NOT_FOUND`。后者已在本沙箱对真实打包闭包执行过：官方 bundle 全部解析成功、完整 web profile 启动、依赖命中 `harness/node_modules/@deepseek-ai/dsh-atomic-write`——**这条结论来自直跑，不来自检查项返回 ok**。
 
 ### V8：反向验证——doctor 缺失时必须降级而非阻塞启动
 
