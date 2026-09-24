@@ -10,9 +10,9 @@
 
 | 项 | 值 |
 |---|---|
-| 上游 | `upstream/master` = 发布 `dsh 0.1.7-alpha.2` 的合并（2026-09-22），已 `git fetch` 核实为远端当前 tip |
-| 本地 | 分支 `linglong-dev`，HEAD = 提交「fix(lock): 还原 pnpm-lock 的两处非预期漂移」 |
-| 合并关系 | 上游 tip 已是 HEAD 的祖先（已全部并入），**当前无待合并内容**；下述冲突面只在上游下次前进后才显现 |
+| 上游 | `upstream/master` = 发布 `dsh 0.1.7-rc.1` 的合并（2026-09-23），已 `git fetch` 核实为远端当前 tip |
+| 本地 | 分支 `linglong-dev`，HEAD = 提交「并入上游 master（156 个提交）」 |
+| 合并关系 | 上游 tip 已是 HEAD 的祖先（本轮 156 个提交已全部并入），**当前无待合并内容**；下述冲突面只在上游下次前进后才显现 |
 | 偏离总量 | 49 个文件落在上游目录树内（另有 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录，不产生冲突）。阶段 1 执行前为 85 个 |
 
 复现命令：
@@ -126,22 +126,24 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 
 ---
 
-## 三、冲突实测：最近两次上游合并
+## 三、冲突实测：最近三次上游合并
 
 用 `git merge-tree --write-tree` 复现两次合并当时的冲突面（不依赖事后回忆）：
 
 | 合并 | 上游提交数 | 冲突文件 | 归因 |
 |---|---:|---|---|
+| 并入 `0.1.7-rc.1` 发布合并（2026-09-24） | 156 | `packages/boot/app-boot/src/profile.ts` | **安全模式 + bundle 兼容性**（同一段 JSDoc）——唯一冲突 |
 | 并入 `0.1.7-alpha.2` 发布合并（2026-09-23） | 162 | `apps/cli/package.json` | **doctor**（依赖行）——唯一冲突 |
 | 并入上游 master（2026-09-22） | 1299 | `apps/cli/src/args.ts`、`apps/cli/src/bin.ts`、`packages/boot/app-boot/src/profile.ts` | **doctor + 安全模式**（3 个） |
 | 同上 | | `packages/client/ui-open-in-app/`（7 个）、`packages/host/open-in-app/src/icons.ts` | **open-in-app**（8 个） |
 | 同上 | | `pnpm-lock.yaml` | 机械（workspace 成员变化） |
 
-三条实测结论：
+四条实测结论：
 
 1. **`apps/desktop-launcher/` 零冲突**——上游没有这个目录，它是纯新增。冲突不可能出现在这里。
-2. **最近一次合并的唯一冲突是 doctor 的依赖行**（`apps/cli/package.json`），你的体感来自这里。
+2. **最近一次合并的唯一文本冲突是安全模式的 JSDoc**（`packages/boot/app-boot/src/profile.ts`），上一轮是 doctor 的依赖行（`apps/cli/package.json`）。
 3. **但最大冲突源不是 doctor**：1299 提交那次合并里，open-in-app 贡献 8 个冲突文件，doctor 只有 3 个。
+4. **文本无冲突不等于合并正确**：上游本轮把 `ImageLightbox` 由 `ui-attachment` 迁至 `ui-primitives`，git 的改名检测把 fork 加在该组件上的加载/失败态**自动带入新位置**（`git merge-tree` 报告零冲突），但 fork 的字段名 `loadFailed` 与上游在共享灯箱边界上既有的 `failed` 词表冲突，只有 `pnpm run typecheck` 才暴露出来。**改名+改内容的文件必须靠类型检查兜底，不能只看 `merge-tree` 的冲突列表。**
 
 ---
 
@@ -158,7 +160,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 | E open-in-app / 宿主逃逸 | 24 | **A 类** | `packages/host/open-in-app/`、`packages/client/ui-open-in-app/`、`packages/util/launch-environment/` |
 | F 壳内剪贴板 | 3 | **A 类 1 + B 类 2** | `ui-conversation/src/client/desktop-clipboard.ts`（新增）、`InputBar.tsx`、对应测试（新增） |
 | G 机械配置 | 3 | **A 类** | `.gitignore`、`lefthook.yml`、`tsdown.config.ts` |
-| H 其它客户端 | 11 | **A 类** | `client/modules`、`ui-attachment`、`ui-theme/base.css`、`host/directory-picker-auto` |
+| H 其它客户端 | 11 | **A 类** | `client/modules`、`ui-attachment`、`ui-primitives`（`ImageLightbox` 已随上游由 `ui-attachment` 迁至此处）、`ui-theme/base.css`、`host/directory-picker-auto` |
 | | **49** | **A 类 45 + B 类 4** | |
 
 **已消除的两组（阶段 1）**：A 组 25 个文件整体迁到 `apps/desktop-launcher/doctor/`（C 类新目录，不产生冲突）；B 组 9 个文件里，`apps/cli/` 6 个、`tsconfig.host.json`、`tsconfig.base.json` 回到上游原文，`pnpm-lock.yaml` 的 doctor 条目同步摘除后也与上游一致。**这四个文件（`pnpm-lock.yaml` 1811 次、`tsconfig.host.json` 346 次、`tsconfig.base.json` 241 次、`apps/cli/package.json` 160 次）是全仓上游热度最高的四个**，其中 `apps/cli/package.json` 正是上一次合并的唯一冲突文件。
@@ -306,7 +308,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 2. **~~是否接受 doctor 失去覆盖率门槛~~——已决议：显式接受，不另建替代门禁**。阶段 1 后实测 doctor 覆盖率为 66.36%，10 个文件仅 2 个达 100%，该门槛本就未被满足，"把 100% 搬过来"无法实现。详见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节。
 3. **本文档是否加入 `verify-repository-references` 豁免清单**——加入后可写裸提交哈希，与同目录另四份文档一致；**该改动需单独批准**。
 4. **open-in-app 的收敛路径未调研**——D1/D2/D3 三选一需要一次独立可行性调研（本文档只给出候选与已证实的机制先例）。
-5. **[fork-divergence.md](./fork-divergence.md) 基准已过期**——其记录为「23 个 A 类文件 / 304 文件偏离」，实测现为「A 类 45 + B 类 4 / 49 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录）。该文档的处置建议需按新基准重校；注意其总偏离计数（含 fork 私有目录）也同步过期：记 304 文件 / +44438 −96，实测 374 文件 / +58868 −113。
+5. **[fork-divergence.md](./fork-divergence.md) 基准已重校**——本轮并入 `0.1.7-rc.1` 时同步刷新为「A 类 45 + B 类 4 / 49 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录），总偏离 372 文件 / +58750 −113。注意该文档的**处置建议**（§七）只更新了基准，逐项收敛本身尚未执行。
 
 ---
 

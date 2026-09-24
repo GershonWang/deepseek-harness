@@ -10,11 +10,11 @@
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `e8fbf5a08fbb24714b41523d5a5dc91cfefa6680` |
+| 本地 HEAD | `14add2e246`（`linglong-dev` 上「并入上游 master（156 个提交）」的合并提交） |
 | 分支 | `linglong-dev` |
-| 上游参照 | `upstream/master` = `ddefc45fbc7f`（2026-09-17 21:19:19 +0800，`release-dsh-0.1.6-alpha.2`） |
+| 上游参照 | `upstream/master` = `46a7f68b09`（2026-09-23 21:03:33 +0800，`Merge pull request #5073 from deepseek-harness/rel/dsh-0.1.7-rc.1`，即 `dsh 0.1.7-rc.1`） |
 | 合并关系 | `git merge-base --is-ancestor upstream/master HEAD` → **真**（上游 master 已全部包含） |
-| fork 领先上游 | 441 个提交 |
+| fork 领先上游 | 516 个提交 |
 
 复现命令：
 
@@ -23,42 +23,44 @@ git diff --shortstat upstream/master...HEAD
 git diff --name-status upstream/master...HEAD
 ```
 
-> **基准有效性**：`git ls-remote upstream refs/heads/master` 返回 `ddefc45fbc7f8e46dd73185e68295696d1297887`，与本地 `upstream/master` **完全一致**，故本地参照不是陈旧引用，下文的改动热度排序与"当前无冲突"结论均成立。
+> **基准有效性**：本地 `upstream/master` 由本轮 `git fetch upstream --prune` 更新至远端 tip（`dsh 0.1.7-rc.1` 的发布合并），故本地参照不是陈旧引用，下文的改动热度排序与「当前无冲突」结论均成立。
 
 ---
 
 ## 二、总量统计
 
-`304 个文件，+44438 行，−96 行`，按区域分布：
+`372 个文件，+58750 行，−113 行`，按区域分布：
 
 | 区域 | 文件数 | 新增 | 删除 | 性质 |
 |---|---:|---:|---:|---|
-| `apps/desktop-launcher` | 136 | +29136 | −0 | C 类·预期归处 |
-| `docs/superpowers` | 11 | +6843 | −0 | C 类·独立新目录 |
-| `.agents` | 105 | +3647 | −0 | C 类·独立新目录 |
-| `packages/support`（doctor） | 24 | +3562 | −0 | C 类·独立新目录 |
-| `packages/client` | 11 | +493 | −14 | **A/B 类·触碰上游** |
-| `apps/cli` | 5 | +207 | −2 | **A/B 类·触碰上游** |
-| `packages/boot` | 3 | +143 | −11 | **A/B 类·触碰上游** |
-| `packages/host` | 3 | +50 | −3 | **A 类·触碰上游** |
-| `scripts/fix-deploy-closure.mjs` | 1 | +152 | −0 | **B 类·触碰上游** |
-| `pnpm-lock.yaml` | 1 | +167 | −65 | **A 类·机械** |
+| `apps/desktop-launcher` | 179 | +38833 | −0 | C 类·预期归处 |
+| `docs/superpowers` | 36 | +14160 | −0 | C 类·独立新目录 |
+| `.agents` | 108 | +3763 | −0 | C 类·独立新目录 |
+| `packages/client` | 20 | +567 | −29 | **A/B 类·触碰上游** |
+| `packages/host` | 13 | +865 | −65 | **A 类·触碰上游** |
+| `packages/util` | 5 | +77 | −3 | **A 类·触碰上游** |
+| `packages/boot` | 3 | +142 | −10 | **A/B 类·触碰上游** |
+| `scripts` | 5 | +306 | −5 | **A/B 类·门禁适配** |
 | `.gitignore` | 1 | +20 | −0 | **A 类·配置** |
 | `lefthook.yml` | 1 | +13 | −1 | **A 类·配置** |
 | `tsdown.config.ts` | 1 | +4 | −0 | **A 类·纯注释** |
-| `tsconfig.host.json` | 1 | +1 | −0 | **A 类·配置** |
 
-按文件状态分：**新增 281 个，修改 23 个，删除 0 个**。
+按文件状态分：**新增 327 个，修改 45 个，删除 0 个**。
 
 账目校验（与 `--shortstat` 完全一致）：
 
 ```
-C 类   276 文件      +43188
-A 类    23 文件      +618  −96
-B 类     5 文件      +632
+C 类   323 文件      +56756
+A 类    45 文件      +1496  −113
+B 类     4 文件      +498
 ────────────────────────────────
-合计   304 文件      +44438 −96   ✓
+合计   372 文件      +58750 −113  ✓
 ```
+
+> **与上一版基准的差异**：`packages/support/doctor`（24 文件 / +3562）、`apps/cli`（5 文件）、
+> `tsconfig.host.json`、`pnpm-lock.yaml` 四项**已从偏离中消失**——阶段 1 把 doctor 迁出
+> `packages/` 后，这些上游文件回到与上游一致的状态。新增的 `packages/util`（5 文件）来自
+> open-in-app 的宿主逃逸契约。
 
 ---
 
@@ -66,55 +68,85 @@ B 类     5 文件      +632
 
 | 类别 | 含义 | 上游同步代价 | 数量 |
 |---|---|---|---|
-| **A** | 修改了上游**已有**文件 | **必然文本冲突**，需人工 merge | 23 |
-| **B** | 新增文件，但落在上游**已有目录**里 | 不冲突，但会被上游重构/门禁扫到，且属"上游目录里的自有代码" | 5 |
-| **C** | 独立新目录 | 不冲突 | 276 |
+| **A** | 修改了上游**已有**文件 | **必然文本冲突**，需人工 merge | 45 |
+| **B** | 新增文件，但落在上游**已有目录**里 | 不冲突，但会被上游重构/门禁扫到，且属"上游目录里的自有代码" | 4 |
+| **C** | 独立新目录 | 不冲突 | 323 |
 
 ---
 
-## 四、A 类：23 个被修改的上游文件
+## 四、A 类：45 个被修改的上游文件
 
-合计 `+618 −96`。**冲突风险**按"上游最近 300 次 master 提交所覆盖窗口（含合并共 3135 个提交）内改动该文件的次数"排序：
+合计 `+1496 −113`。**冲突风险**按「最近 300 个 `upstream/master` 提交、合并展开后（357 条提交记录）内改动该文件的次数」排序。本节写明窗口与方法，可直接复现：
+
+```sh
+BASE=$(git log --format=%H -n 300 upstream/master | tail -1)
+git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort | uniq -c | sort -rn
+```
+
+> 上一版此表未写明窗口，其计数（`pnpm-lock.yaml` 447、`tsconfig.host.json` 195 等）按上述命令无法复现，且这两项本轮已回到与上游一致，故整表按新口径重算。
 
 | 风险 | 上游改动次数 | 文件 | 改动 | 做了什么 |
 |---|---:|---|---|---|
-| 极高 | 447 | `pnpm-lock.yaml` | +167 −65 | 机械变更（新增 workspace 包） |
-| 极高 | 195 | `tsconfig.host.json` | +1 | 引用 `packages/support/doctor` |
-| 高 | 51 | `packages/boot/app-boot/src/index.ts` | +3 −3 | 把 `BOOTSTRAP_NAMES`/`BOOTSTRAP_PREFIXES`/`isBootstrapOnly` 改为导出 |
-| 高 | 45 | `apps/cli/package.json` | +1 | 加 `@deepseek-ai/dsh-doctor` 依赖 |
-| 高 | 28 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | +59 | 壳内剪贴板图片粘贴（window 捕获阶段 paste 监听） |
-| 中 | 14 | `packages/client/modules/src/index.ts` | +23 −4 | `newlineCount` 性能优化 + `resolveSync` 跨 Node 版本兜底 |
-| 中 | 12 | `packages/boot/app-boot/src/profile.ts` | +52 −8 | **安全模式** `DSH_SAFE_MODE` + `skipThirdPartyBundles` + `extraPatchFiles` |
-| 中 | 12 | `apps/cli/src/bin.ts` | +6 | `case 'doctor'` 分发 |
-| 中 | 8 | `packages/client/modules/tests/node-half.client.spec.ts` | +81 | 上述改动的测试 |
-| 中 | 8 | `apps/cli/src/args.ts` | +56 −2 | `doctor` 子命令定义 + 排除首参展开 |
-| 中 | 7 | `packages/client/ui-attachment/tests/message-image.client.spec.tsx` | +1 −1 | 标签补齐 |
-| 中 | 6 | `apps/cli/tests/args.spec.ts` | +10 | doctor 参数测试 |
-| 中 | 5 | `.gitignore` | +20 | 启动器产物 + 测试残留 |
-| 低 | 3 | `packages/host/directory-picker-auto/src/index.ts` | +1 −1 | 导出 `overrideDirectoryPickerBackend` |
-| 低 | 2 | `tsdown.config.ts` | +4 | **纯注释** |
-| 低 | 2 | `lefthook.yml` | +13 −1 | typecheck 改用 npm + 启动器布局门禁 |
-| 低 | 1 | `packages/host/directory-picker-auto/tests/resolve.spec.ts` | +30 −1 | 测试 |
-| 低 | 1 | `packages/host/directory-picker-auto/src/resolve.ts` | +19 −1 | `DSH_DIRECTORY_PICKER` 覆盖 |
-| 低 | 1 | `packages/client/ui-attachment/src/client/labels.ts` | +6 −1 | 新标签 |
+| 极高 | 33 | `packages/boot/app-boot/src/index.ts` | +3 −3 | 把 `BOOTSTRAP_NAMES`/`BOOTSTRAP_PREFIXES`/`isBootstrapOnly` 改为导出 |
+| 高 | 21 | `packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts` | +6 | 客户端插件接线的测试 |
+| 高 | 20 | `packages/client/ui-open-in-app/src/client/index.ts` | +5 | 客户端插件注册 |
+| 高 | 20 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | +59 | 壳内剪贴板图片粘贴（window 捕获阶段 paste 监听） |
+| 高 | 19 | `packages/client/ui-open-in-app/tests/open-in-app-action.client.spec.tsx` | +17 −1 | 菜单动作的测试 |
+| 高 | 19 | `packages/client/ui-open-in-app/README.md` | +4 −4 | 文档配对 |
+| 高 | 19 | `packages/client/ui-open-in-app/README.zh.md` | +4 −4 | 文档配对 |
+| 高 | 18 | `packages/client/ui-open-in-app/src/client/OpenInAppAction.tsx` | +6 −1 | 菜单打开时重解析宿主应用清单 |
+| 高 | 18 | `packages/client/ui-open-in-app/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
+| 高 | 16 | `packages/client/ui-open-in-app/tests/controller.client.spec.ts` | +15 | 宿主清单控制器的测试 |
+| 高 | 15 | `packages/client/ui-open-in-app/src/client/controller.ts` | +15 −3 | 宿主应用清单刷新 |
+| 中 | 12 | `packages/host/open-in-app/src/resolver.ts` | +218 −7 | 沙箱内经宿主通道探测并启动宿主应用 |
+| 中 | 12 | `packages/client/modules/tests/node-half.client.spec.ts` | +81 | `client/modules` 改动的测试 |
+| 中 | 12 | `packages/boot/app-boot/src/profile.ts` | +51 −7 | **安全模式** `DSH_SAFE_MODE` + `skipThirdPartyBundles` + `extraPatchFiles` |
+| 中 | 11 | `packages/client/modules/src/index.ts` | +23 −4 | `newlineCount` 性能优化 + `resolveSync` 跨 Node 版本兜底 |
+| 中 | 9 | `packages/host/open-in-app/tests/resolver.spec.ts` | +239 −4 | 上述解析器的测试 |
+| 中 | 6 | `packages/client/ui-primitives/src/ImageLightbox.tsx` | +30 −3 | 灯箱加载/失败状态（组件已随上游由 `ui-attachment` 迁至此处） |
+| 中 | 5 | `packages/client/ui-primitives/src/ImageLightbox.module.css` | +18 | 上述样式 |
+| 中 | 5 | `packages/client/ui-attachment/src/client/labels.ts` | +6 −1 | 灯箱新标签（`failed` 已对齐上游词表） |
+| 低 | 4 | `packages/host/open-in-app/src/icons.ts` | +33 −9 | 宿主应用图标 |
+| 低 | 4 | `packages/host/open-in-app/README.md` | +7 −5 | 文档配对 |
+| 低 | 4 | `packages/host/open-in-app/README.zh.md` | +7 −5 | 文档配对 |
+| 低 | 4 | `packages/host/open-in-app/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
+| 低 | 4 | `packages/client/ui-primitives/tests/image-lightbox.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
+| 低 | 4 | `packages/client/ui-attachment/tests/message-image.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
+| 低 | 3 | `lefthook.yml` | +13 −1 | typecheck 改用 npm + 启动器布局门禁 |
+| 低 | 3 | `.gitignore` | +20 | 启动器产物 + 测试残留 |
+| 低 | 1 | `scripts/verify-repository-references.ts` | +27 −3 | fork 取证文件精确豁免 |
+| 低 | 1 | `scripts/verify-repository-references.spec.ts` | +10 | 上述豁免的测试 |
+| 低 | 1 | `packages/util/launch-environment/README.zh.md` | +2 | 文档配对 |
+| 低 | 1 | `packages/util/launch-environment/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
+| 低 | 1 | `packages/host/open-in-app/src/index.ts` | +34 −9 | 宿主通道接线 |
+| 低 | 1 | `packages/host/directory-picker-auto/src/index.ts` | +1 −1 | 导出 `overrideDirectoryPickerBackend` |
+| 近零 | 0 | `tsdown.config.ts` | +4 | **纯注释** |
+| 近零 | 0 | `scripts/verify-client-ui-i18n.ts` | +84 −1 | 客户端 UI i18n 门禁覆盖带壳前端 |
+| 近零 | 0 | `scripts/verify-client-ui-i18n.spec.ts` | +33 −1 | 上述门禁的测试 |
+| 近零 | 0 | `packages/util/launch-environment/tests/launch-environment.spec.ts` | +31 −1 | 宿主逃逸事实的测试 |
+| 近零 | 0 | `packages/util/launch-environment/src/index.ts` | +40 | 识别沙箱宿主逃逸事实 |
+| 近零 | 0 | `packages/util/launch-environment/README.md` | +2 | 文档配对 |
+| 近零 | 0 | `packages/host/open-in-app/tests/icons.spec.ts` | +54 | 宿主应用图标的测试 |
+| 近零 | 0 | `packages/host/open-in-app/tests/host-routes.spec.ts` | +149 −1 | 宿主路由的测试 |
+| 近零 | 0 | `packages/host/open-in-app/src/catalog.ts` | +72 −20 | 宿主应用清单 |
+| 近零 | 0 | `packages/host/directory-picker-auto/tests/resolve.spec.ts` | +30 −1 | `DSH_DIRECTORY_PICKER` 覆盖的测试 |
+| 近零 | 0 | `packages/host/directory-picker-auto/src/resolve.ts` | +19 −1 | `DSH_DIRECTORY_PICKER` 覆盖 |
 | 近零 | 0 | `packages/client/ui-theme/src/styles/base.css` | +16 −4 | 字体栈前置 Noto/WQY |
-| 近零 | 0 | `packages/client/ui-attachment/src/ImageLightbox.tsx` | +30 −3 | 灯箱加载/失败状态 |
-| 近零 | 0 | `packages/client/ui-attachment/src/ImageLightbox.module.css` | +18 | 上述样式 |
-| 近零 | 0 | `packages/client/ui-attachment/tests/image-lightbox.client.spec.tsx` | +1 −1 | 标签补齐 |
 
 ---
 
-## 五、B 类：5 个落进上游目录的新增文件
+## 五、B 类：4 个落进上游目录的新增文件
 
-合计 **632 行**。
+合计 **498 行**。
 
 | 行数 | 文件 | 说明 |
 |---:|---|---|
-| 152 | `scripts/fix-deploy-closure.mjs` | `pnpm deploy --legacy` 缺陷绕行脚本；**唯一调用方是 `apps/desktop-launcher/linglong/prepare-offline.sh:38`**，可直接搬进启动器 |
+| 152 | `scripts/fix-deploy-closure.mjs` | `pnpm deploy --legacy` 缺陷绕行脚本；**唯一调用方是 `apps/desktop-launcher/linglong/prepare-offline.sh`**，可直接搬进启动器 |
 | 140 | `packages/client/ui-conversation/tests/desktop-clipboard.client.spec.ts` | 壳内剪贴板桥接测试 |
-| 134 | `apps/cli/src/doctor.ts` | doctor 的 CLI 入口 |
 | 118 | `packages/client/ui-conversation/src/client/desktop-clipboard.ts` | 与宿主壳的剪贴板桥接 |
 | 88 | `packages/boot/app-boot/tests/safe-mode.spec.ts` | 安全模式测试 |
+
+> `apps/cli/src/doctor.ts`（134 行）曾是本类的第 5 项；阶段 1 把 doctor 迁出 `packages/` 后，该文件随之移出上游目录树。
 
 ---
 
@@ -122,12 +154,11 @@ B 类     5 文件      +632
 
 | 文件数 | 目录 | 备注 |
 |---:|---|---|
-| 136 | `apps/desktop-launcher/` | 含 `AUDIT.md`(759 行，审计启动器自身)、`linglong/`、`frontend/` |
-| 105 | `.agents/notes/` | 全部为新增，零修改，**不产生冲突**；仓库共 1007 篇笔记 |
-| 24 | `packages/support/doctor/` | 上游**完全没有** `packages/support/` 这个目录，整目录新增 |
-| 11 | `docs/superpowers/` | 全部为新增，零修改 |
+| 179 | `apps/desktop-launcher/` | 含 `docs/AUDIT.md`（审计启动器自身）、`internal/`(82)、`linglong/`(25)、`doctor/`(25)、`frontend/`(20)、`icons/`(10) |
+| 108 | `.agents/notes/` | 全部为新增，零修改，**不产生冲突**；仓库现有 2432 篇笔记 |
+| 36 | `docs/superpowers/` | 全部为新增，零修改 |
 
-> 上表为**审计基准时**（HEAD `e8fbf5a08f`）的计数。此后为整理文档，`apps/desktop-launcher/` 下新建了 `docs/` 子目录并把 `AUDIT.md` 移入其中，当前文件数与基准相差 `docs/` 的净增。
+> `packages/support/doctor/`（24 文件）曾是本类的第 3 项；阶段 1 已把它迁至 `apps/desktop-launcher/doctor/`，于是它从上游目录树里彻底消失，并计入上表第一行。
 
 ---
 
@@ -576,15 +607,15 @@ IConversation 公开成员（service.ts:40-71）：
 
 ## 十二、结论汇总
 
-1. **当前不存在冲突。** `upstream/master` 已经是 HEAD 的**祖先**，fork 已包含上游最新 master，没有待合并内容。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
-2. **违规面很小但很"热"。** 真正触碰上游的只有 **28 个文件、约 1250 行**，占全部偏离（304 文件 / +44438 −96）的 **约 3%**。其余 97% 已经待在预期位置。
-3. **用户的目标方向被仓库门禁本身证明是对的。** `packages/support/doctor` 触发 **4 个门禁 18 项违规**，其中 3 项（private / publishConfig / repository）**结构上无法就地修复**；而 `apps/desktop-launcher/` 因无 package.json 而零门禁成本。
+1. **当前不存在冲突。** 本轮已并入上游 156 个提交（到 `dsh 0.1.7-rc.1`），`upstream/master` 重新成为 HEAD 的**祖先**。那次合并的代价：唯一文本冲突是 `app-boot/src/profile.ts` 的 JSDoc（安全模式 × bundle 兼容性），另有**一处类型级冲突**——上游把 `ImageLightbox` 迁至 `ui-primitives` 时，git 改名检测把我方加载/失败态自动带进新位置，却与我方 `loadFailed` 字段名和上游 `failed` 词表相撞，只有 `pnpm run typecheck` 暴露。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
+2. **违规面很小但很"热"。** 真正触碰上游的只有 **49 个文件、+1994 −113**，占全部偏离（372 文件 / +58750 −113）的 **约 3.4%**。其余约 97% 已经待在预期位置。
+3. **用户的目标方向被仓库门禁本身证明是对的。** `packages/support/doctor` 曾触发 **4 个门禁 18 项违规**，其中 3 项（private / publishConfig / repository）**结构上无法就地修复**；而 `apps/desktop-launcher/` 因无 package.json 而零门禁成本。阶段 1 已按此结论把 doctor 迁出 `packages/`，本节记录的是当时的判据。
 4. **有一处是纯冗余**：`packages/host/directory-picker-auto/` 的 `DSH_DIRECTORY_PICKER` 改动，与上游**已有的** `apps/web/tests/pin-browse-picker.overlay.yml` 功能完全重复，可直接删除。
 5. **有一处是纯注释**：`tsdown.config.ts` 的 +4 行全是注释，可直接回退。
-6. **有三处本质是上游 bug 修复或通用改进**（`client/modules` 的性能与跨 Node 版本兼容、`ui-attachment` 的灯箱状态、`app-boot/src/index.ts` 的导出），建议上游化而不是长期藏在 fork 里。
+6. **有三处本质是上游 bug 修复或通用改进**（`client/modules` 的性能与跨 Node 版本兼容、灯箱的加载/失败态、`app-boot/src/index.ts` 的导出），建议上游化而不是长期藏在 fork 里。其中灯箱那处**已被上游部分吸收**：上游把 `ImageLightbox` 从 `ui-attachment` 搬到了 `ui-primitives`，本轮的改名收口把该组件的文案词表对齐到了上游既有的 `failed`。
 7. **安全模式（`profile.ts`）是承重偏离**，不可删除，出路是上游化。
 8. **客户端粘贴无法等价外移**，硬约束是缺少 `File → DraftAttachmentId` 的公开接口；最干净的做法需要上游加一个扩展点。
-9. **严格做到"只有 `apps/desktop-launcher/` 不同"不可能**：`pnpm-lock.yaml`、`tsconfig.host.json` 这类 workspace 机械文件只要动过包结构就必然变化，且它们是上游最热的两个文件（447 / 195 次）。
+9. **阶段 1 已把 workspace 机械文件从偏离里清干净**：`pnpm-lock.yaml`、`tsconfig.host.json`、`apps/cli/package.json` 三项本轮实测**已与上游一致**（doctor 迁出 `packages/` 的直接收益），而它们正是上游最热的文件（447 / 195 次改动）。剩余 49 个文件全是有意的功能偏离，不再含"动过包结构就必然变化"的机械项。
 
 ---
 
@@ -609,6 +640,8 @@ doctor 迁移完成后必须同时满足：
 3. `git diff upstream/master...HEAD` 中 `apps/cli/`、`tsconfig.host.json`、`packages/support/` **消失**（O1+路径 B 的目标态）。
 4. doctor 的 73 项测试全绿，且**测试必须跟随源码迁移**（`packages/*/*/src/**` 覆盖率门槛将不再覆盖 doctor——**已显式接受该损失，不另建替代门禁**，理由见迁移方案 Step 2.3 一节）。
 5. 实跑启动器预检链路：故意破坏一个 profile 的 `cordis.patch.yml`，确认 `dsh doctor` 等价路径仍能给出报告。
+
+> **执行结果（阶段 1 已完成）**：第 3 条本轮实测达成——`git diff upstream/master...HEAD` 中 `apps/cli/`、`tsconfig.host.json`、`packages/support/` 三项均已消失。第 4 条实测 doctor **73/73 通过**（本轮并入 `0.1.7-rc.1` 后重跑确认）。
 
 ---
 
