@@ -987,7 +987,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 | `apps/cli` 与两处 tsconfig 回到上游 | ✅ | `git diff "$BASE" -- apps/cli/ tsconfig.base.json tsconfig.host.json` 输出为空，doctor 字样 0 处 |
 | doctor 构建 | ✅ | `tools/doctor-build.mjs` exit 0，三个入口齐全；从零重建（删 `lib`）0 污染 |
 | doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0；`--json` → 12 项检查、loader-probe 成功 spawn（无 `ERR_MODULE_NOT_FOUND`、无 tsx）；`--repair 9` → exit 2 |
-| doctor 测试套件 | ⚠️ 72/73 | 见下方环境性失败 |
+| doctor 测试套件 | ✅ 73/73 | 修复 loader-probe 的 home 隔离后全绿，见下方"测试套件的唯一失败" |
 
 ### Step 2.3 未完成：其前提经实测不成立
 
@@ -1108,14 +1108,15 @@ Task 4 只列出了 `apps/cli/*` 与两处 tsconfig，实测**漏了两个上游
 
 **这条经验对后续阶段通用**：本仓库的 `pnpm install` 在当前镜像下会稳定引入 glob/rimraf 漂移，任何需要动锁文件的操作都要事后逐条核对 diff。
 
-### 测试套件的唯一失败：环境性，非迁移缺陷
+### 测试套件的唯一失败：已定位并修复（迁移前即存在的缺陷）
 
-`tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0、实得 1。
+`tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 曾长期期望 exit 0、实得 1。
 
-- **子进程 stderr 的根因**：`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`。沙箱把 `~/.dsh` 设为只读（`touch ~/.dsh/.__wtest` 直接报 `Read-only file system`），探针 boot 到的插件写凭据锁文件被拒。
-- **与本次迁移无关的决定性证据**：该用例直接 spawn `tests/../src/loader-probe.ts`，而该文件相对 HEAD 的**唯一改动是 `@module` JSDoc 标签**（`diff -u` 逐行确认），无任何行为变化。
-- 该用例在**手工运行下两种运行面都 exit 0**；失败只在 vitest 环境里复现，属测试环境与沙箱策略的交互。
-- **必须在可写 `~/.dsh` 的环境下复核这一条**，本沙箱内无法验证。
+- **根因（已取到子进程 stderr）**：`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`。web profile 的**必需**插件 `@deepseek-ai/dsh-client-connection` 经 `packages/util/atomic-write` 的文件锁写凭据文件，而它**自行解析** harness home（`resolveDshHome()`：显式参数 → `DSH_HOME` → `~/.dsh`），拿不到探针的 `--dsh-home`。`runLoaderProbe` 与测试又都主动 `delete env.DSH_HOME`，于是它落到用户真实的 `~/.dsh`；沙箱把它设为只读，写入被拒，必需插件激活失败，探针以 exit 1 退出。
+- **手工照抄命令行反而 exit 0 的原因**：vitest 之外探针解析不出官方 bundle `@deepseek-ai/dsh-base`／`@deepseek-ai/dsh-web-app`（报 `cannot resolve profile bundle ... from the dsh installation`）而把它们 skip，`client-connection` 从未加载，也就不会去碰凭据文件。vitest 内 tsx 经仓库 tsconfig 的 paths 解析到了它们，完整 profile 才真正启动。
+- **同一根因会让 doctor 误诊**：home 不可写且用户装了第三方 bundle 时，探针失败被解读成"树没起来"，`bisectBy` 再去二分——每个子集都因同一个 EROFS 失败，于是把**完全健康**的第三方 bundle 指为元凶，报告 `fixable: true`、`suggestedLevel: 2`，L2 修复据此停用它。包内 doctor 实测复现：`插件 third-party-healthy 导致启动失败（缺少运行依赖或损坏）`，而只挂它时 stderr 零次提及该 bundle、只有 EROFS。
+- **修复**：探针在 boot 前把 `DSH_HOME` 导出给整棵树（§3.2 同级解析的同一处），让所有组件解析到同一个 home。修复后：探针 exit 0、凭据落进临时 home、用户真实 `~/.dsh/.credentials.yaml` 的 mtime 不变（隔离真正生效）、`plugin-dynamic-load` 对同一夹具由"指认无辜 bundle"变为 `ok: true`、doctor 套件 **73/73 全绿**。
+- **这不是迁移引入的问题**：该用例相对迁移前唯一变化是 `loader-probe.ts` 的 `@module` JSDoc 标签，行为未变。
 
 ### 一条未能归因的观察（如实记录）
 
@@ -1221,7 +1222,7 @@ Expected：launcher **正常启动**，预检显示"未找到随包的 doctor，
 
 这是本次新增 `DoctorNotConfigured` 归类的验收路径。它与 `DoctorNoOutput` 分开归类，是因为"根本没跑起来"（安装缺件）与"跑了但没说话"排查方向完全不同；合并会让用户被引向错误方向。**验证要点是"不阻塞启动"**——预检是尽力而为的前置检查，这是既有设计，不是本次新加的兜底。
 
-### V9：`~/.dsh` 可写环境下复核那条失败测试
+### V9：doctor 测试套件全绿
 
 ```sh
 cd apps/desktop-launcher/doctor && ../../node_modules/.bin/vitest run
@@ -1229,10 +1230,4 @@ cd apps/desktop-launcher/doctor && ../../node_modules/.bin/vitest run
 
 Expected：73/73 全绿。
 
-本沙箱内恒为 72/73（删除 `bisect.spec.ts` 前为 75/76），唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1。**失败位置与数量同迁移前完全一致**，判定为环境性而非迁移缺陷。
-
-**根因（已取到子进程 stderr 证实）**：sandbox 把 `~/.dsh` 设为只读，而 web profile 的**必需**插件 `@deepseek-ai/dsh-client-connection` 会经 `packages/util/atomic-write` 的文件锁写 `~/.dsh/.credentials.yaml`，**不看 `--dsh-home`**；写入撞上 `EROFS: read-only file system`，必需插件激活失败，probe 遂以 exit 1 报 `1 required plugin did not activate`。
-
-**这条用例手工跑为什么反而 exit 0**（照抄它的命令行、同样的 cwd／node／stdin 都复现不出来）：vitest 之外 probe **解析不出**官方 bundle `@deepseek-ai/dsh-base` 与 `@deepseek-ai/dsh-web-app`（stderr 报 `cannot resolve profile bundle ... from the dsh installation`），把它们 skip 掉——`client-connection` 根本没被加载，也就不会去碰凭据文件。vitest 内 tsx 经仓库 tsconfig 的 paths 解析到了这两个 bundle，完整 profile 才真正启动，失败才浮现。因此"仅在 vitest 内复现"不是 vitest 的怪癖，而是**需要完整官方 profile 启动**才会触发。
-
-**结论**：在 `~/.dsh` 可写的机器上应全绿；此处不需要代码改动，但仍需一次真机运行结案。以上取证顺带暴露两处设计问题，尚未定去向，就地记录：① probe 宣称在临时 home 上启动，实际却有**必需**插件写用户**真实**的 `~/.dsh` 凭据文件并对其加锁——诊断工具不该有这种副作用；② `~/.dsh` 只读时 `plugin-dynamic-load` 会报 `1 required plugin did not activate` 并点名 `connection`，读起来像"profile 坏了"，实为权限／环境问题，属假故障。
+**已在沙箱内通过**：修复 loader-probe 的 home 隔离后，9 个 spec／73 个用例全绿。根因、影响与修复见上方"测试套件的唯一失败"。本项因此从"必须找一台 `~/.dsh` 可写的机器复核"降为重新打包后的回归确认——原先那条失败与真实 home 是否可写无关，而是探针把 home 解析到了真实用户目录。

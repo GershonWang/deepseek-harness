@@ -127,6 +127,13 @@ function selectLayers<T extends { packageName: string }>(profileName: string, la
  * is cut short by the caller's timeout.
  */
 async function probeLoad(options: ProbeOptions): Promise<void> {
+  // 把 home 导出给整棵树：profile 组合与运行时解析都拿到了显式的 options.home，
+  // 但插件里自行解析 harness home 的组件只认 DSH_HOME、认不到这个参数
+  // （credentials-local 就按 $DSH_HOME/.credentials.yaml 落盘）。不导出它，探针
+  // 会去写用户真实的凭据文件：既破坏"在临时 home 上启动"的隔离，又会在 home
+  // 不可写时让必需插件激活失败——而检查层读到的只是"树没起来"，会把这次失败
+  // 错误地归咎于某个第三方 bundle，甚至据此把它停用。
+  process.env.DSH_HOME = options.home
   const installAnchor = resolveInstallAnchor()
   const profile = loadProfile(BIN_NAME, options.profile, installAnchor, options.home)
   const selected = selectLayers(options.profile, profile.layers, options.include)

@@ -10,7 +10,7 @@
 | [AUDIT.md](./AUDIT.md) | **启动器自己哪里有问题**——59 条编号发现（`N3`／`N17`／`S1–S7`／`N30` 等），含按状态排序的**条目总览表**与附录 A–H（修复批次、验证边界、起手顺序、复核记录） | 902 行 |
 | [i18n.md](./i18n.md) | **外壳文案怎么国际化**——真源选型（GUI `<html lang>` 上报）、字典与闸门规范、P0–P2 分期实施与验证方案；对应 `AUDIT.md` 第 24 条 | 263 行 |
 | [merge-conflict-convergence.md](./merge-conflict-convergence.md) | **合并上游时冲突出在哪些文件、怎么消除**——实测最近两次合并的冲突面，把 49 个偏离文件按 fork 特性归组并量化上游热度，给出 A–F 六档可独立取舍的收敛方案与分期 | 320 行 |
-| [doctor-migration-plan.md](./doctor-migration-plan.md) | **doctor 怎么搬进启动器、每一步怎么做**——把自研诊断能力（doctor 包、`dsh doctor` 入口、`DSH_SAFE_MODE`）全部收敛进 `apps/desktop-launcher/` 的可执行方案：目标架构、影响面清单、阶段 0 spike、四阶段任务（含 TDD 步骤与确切命令）、验收标准、待决策项与回滚策略 | 1238 行 |
+| [doctor-migration-plan.md](./doctor-migration-plan.md) | **doctor 怎么搬进启动器、每一步怎么做**——把自研诊断能力（doctor 包、`dsh doctor` 入口、`DSH_SAFE_MODE`）全部收敛进 `apps/desktop-launcher/` 的可执行方案：目标架构、影响面清单、阶段 0 spike、四阶段任务（含 TDD 步骤与确切命令）、验收标准、待决策项与回滚策略 | 1233 行 |
 
 五份文档角度互补、互不重复：`AUDIT.md` 审的是**实现质量**，`fork-divergence.md` 审的是**与上游的关系**，`merge-conflict-convergence.md` 审的是**合并成本**，`i18n.md` 是一份**待执行的功能方案**，`doctor-migration-plan.md` 是一份**已部分执行的迁移方案**（阶段 0 与阶段 1 已落地）。
 

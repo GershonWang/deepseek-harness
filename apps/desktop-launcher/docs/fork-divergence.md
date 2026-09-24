@@ -238,7 +238,7 @@ packages/support/doctor/
 │   ├── bisect-by.ts
 │   ├── loader-probe.ts                 带 #! shebang，被 execFile 直接 spawn
 │   └── checks/{config,data,env,plugins}.ts
-└── tests/          9 个 spec（73 项测试；1 例为沙箱环境性失败，见迁移方案 V9）
+└── tests/          9 个 spec（73 项测试，全绿）
 ```
 
 **包内没有任何 `.md`**——没有包 README，也没有 group README。
