@@ -14,11 +14,11 @@ doctor 的 plugin 分类此前只检查静态事实：profile bundle 能否解�
 
 在 `@deepseek-ai/dsh-doctor` 中新增实时加载检查（`plugin-dynamic-load`，category `plugin`，severity `fatal`），通过子进程探测真正启动插件树并报告结果。
 
-**Loader probe**（`packages/support/doctor/src/loader-probe.ts`）：独立脚本，解析 profile、修复模块回退、写入空根 `cordis.yml`、合成 patch 栈、调用 `boot()`（`provideCmdline` 必须提供 `appReady`，否则 `sdk-app` 的 `exitOnStdinEnd` 在激活时抛错）、dispose 树，退出码 0=成功、1=加载失败（原因写 stderr）、2=超时。`--include` 参数只加载指定的第三方 bundle，供二分法测试子集。
+**Loader probe**（`apps/desktop-launcher/doctor/src/loader-probe.ts`）：独立脚本，解析 profile、修复模块回退、写入空根 `cordis.yml`、合成 patch 栈、调用 `boot()`（`provideCmdline` 必须提供 `appReady`，否则 `sdk-app` 的 `exitOnStdinEnd` 在激活时抛错）、dispose 树，退出码 0=成功、1=加载失败（原因写 stderr）、2=超时。`--include` 参数只加载指定的第三方 bundle，供二分法测试子集。
 
-**二分法**（`packages/support/doctor/src/bisect-by.ts`）：从 profile 专属二分中抽出的通用 `bisectBy<T>(items, isBad)`，谓词回答"该子集激活时坏行为是否存在"。现有 `bisectThirdPartyBundles` 改为委托给它。
+**二分法**（`apps/desktop-launcher/doctor/src/bisect-by.ts`）：通用 `bisectBy<T>(items, isBad)`，谓词回答"该子集激活时坏行为是否存在"。原先 profile 专属的 `bisectThirdPartyBundles` 已退役——定位元凶依赖 probe 的真实启动，而非 `loadProfile` 的组合期判定，因此编排由下方检查项自己持有。
 
-**检查与修复**（`packages/support/doctor/src/checks/plugins.ts`）：检查项用 `loadProfile` 列出第三方 bundle，全量启动一次；失败后用 `bisectBy(names, subset => probe(subset).code !== 0)` 二分定位元凶。定位成功时报告点名该 bundle，`fixable: true`、`suggestedLevel: 2`、完整 probe 输出作为 detail。L2 修复从 profile manifest 的 `dsh.profile.bundles` 移除元凶（第三方 bundle 是 profile 层，不是用户 patch 行），先把 `package.json` 字节级备份到修复备份目录，再重新启动验证，失败则还原备份字节。
+**检查与修复**（`apps/desktop-launcher/doctor/src/checks/plugins.ts`）：检查项用 `loadProfile` 列出第三方 bundle，全量启动一次；失败后用 `bisectBy(names, subset => probe(subset).code !== 0)` 二分定位元凶。定位成功时报告点名该 bundle，`fixable: true`、`suggestedLevel: 2`、完整 probe 输出作为 detail。L2 修复从 profile manifest 的 `dsh.profile.bundles` 移除元凶（第三方 bundle 是 profile 层，不是用户 patch 行），先把 `package.json` 字节级备份到修复备份目录，再重新启动验证，失败则还原备份字节。
 
 ## 为什么改 manifest 而不是注释 patch 文件
 
