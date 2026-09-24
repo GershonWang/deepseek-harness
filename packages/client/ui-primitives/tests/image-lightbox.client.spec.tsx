@@ -6,7 +6,7 @@ import { ImageLightbox } from '../src/ImageLightbox.tsx'
 
 afterEach(cleanup)
 
-const labels = { dialog: '原图预览', close: '关闭原图预览', loading: '加载中', loadFailed: '加载失败' }
+const labels = { dialog: '原图预览', close: '关闭原图预览', loading: '加载中', failed: '加载失败' }
 
 describe('ImageLightbox', () => {
   it('focuses its close control, closes by button and Escape, and restores focus', () => {
@@ -19,7 +19,12 @@ describe('ImageLightbox', () => {
     expect(document.activeElement).toBe(close)
     fireEvent.keyDown(window, { key: 'a' })
     expect(onClose).not.toHaveBeenCalled()
-    fireEvent.keyDown(window, { key: 'Escape' })
+    const outerKey = vi.fn()
+    document.body.addEventListener('keydown', outerKey)
+    try {
+      fireEvent.keyDown(close, { key: 'Escape' })
+      expect(outerKey).not.toHaveBeenCalled()
+    } finally { document.body.removeEventListener('keydown', outerKey) }
     fireEvent.click(close)
     expect(onClose).toHaveBeenCalledTimes(2)
     view.unmount()

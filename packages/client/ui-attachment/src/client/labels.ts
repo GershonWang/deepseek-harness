@@ -2,7 +2,7 @@ import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AttachmentRailLabels } from '../AttachmentRail.tsx'
 import type { DropOverlayLabels } from '../DropOverlay.tsx'
 import type { FileCardLabels } from '../FileCard.tsx'
-import type { ImageLightboxLabels } from '../ImageLightbox.tsx'
+import type { ImageLightboxLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MessageImageLabels } from '../MessageImage.tsx'
 
 /**
@@ -15,7 +15,7 @@ export function lightboxLabels(t: TranslateNS<'conversation'>): ImageLightboxLab
     dialog: t('image.preview'),
     close: t('image.closePreview'),
     loading: t('image.loading'),
-    loadFailed: t('image.loadFailed'),
+    failed: t('image.loadFailed'),
   }
 }
 

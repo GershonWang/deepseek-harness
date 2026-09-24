@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { IconCloseOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconCloseOutlineRegular } from './icons/index.tsx'
 import css from './ImageLightbox.module.css'
 
 /** Lightbox strings the owner resolves from its own locale namespace. */
@@ -12,7 +12,7 @@ export interface ImageLightboxLabels {
   /** Short text shown while the image is loading. */
   loading: string
   /** Short text shown when the image fails to load. */
-  loadFailed: string
+  failed: string
 }
 
 /**
@@ -28,7 +28,7 @@ export interface ImageLightboxLabels {
  *
  * @param props.src - the original image URL.
  * @param props.alt - the image's alt text.
- * @param props.labels - dialog, close, loading and load-failed strings.
+ * @param props.labels - dialog, close, loading and failure strings.
  * @param props.onClose - dismiss callback owned by the opener.
  * @returns the modal preview dialog.
  */
@@ -46,11 +46,12 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     closeRef.current?.focus()
     const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') { event.stopPropagation(); onClose() }
+      if (event.key === 'Tab') { event.preventDefault(); closeRef.current?.focus() }
     }
-    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keydown', onKeyDown, true)
     return () => {
-      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keydown', onKeyDown, true)
       restoreRef.current?.focus()
     }
   }, [onClose])
@@ -69,7 +70,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     >
       <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
       {loadState === 'error' ? (
-        <div className={css.error} role="alert">{labels.loadFailed}</div>
+        <div className={css.error} role="alert">{labels.failed}</div>
       ) : (
         <img
           className={css.image}
