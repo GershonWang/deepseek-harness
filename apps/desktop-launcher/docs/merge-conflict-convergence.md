@@ -217,7 +217,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 |---|---|
 | 消除文件 | **10** = 方案 A 的 6 个 + `tsconfig.host.json` + `tsconfig.base.json` + `scripts/verify-package-readme-model-experience.ts` + `scripts/doc-standard.spec.ts`（后两者的改动只是为 doctor 加白名单） |
 | 附带收益 | §2.4 的 `verify-subsystem-pages` 红灯**自然消失**（不再存在 `packages/support` 组）；同时消除「复活已退役组名」这一结构性问题 |
-| 代价 | ① `pnpm run test:coverage` 的 per-file 100% 门槛不再覆盖 doctor（**保护力下降**，需显式接受或另建替代门禁）。**阶段 1 后实测：doctor 覆盖率为 66.36%，10 个文件仅 2 个达 100%——该门槛迁移前虽名义适用，却本就未被满足，故实际失去的是"名义约束"而非"一份已满足的纪律"；逐文件 100% 门槛因此无法直接搬运，须先补测试。详见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节**；② 打包 staging 必须显式放置 `loader-probe` 产物与声明该导出的 `package.json`，否则打包态的动态加载检查会退化为 `needsTsx: true` 而闭包内无 tsx（[fork-divergence.md](./fork-divergence.md) §10.7 Spike-2 已实测） |
+| 代价 | ① `pnpm run test:coverage` 的 per-file 100% 门槛不再覆盖 doctor——**已显式接受，不另建替代门禁**。阶段 1 后实测 doctor 覆盖率为 66.36%，10 个文件仅 2 个达 100%：该门槛迁移前虽名义适用却本就未被满足，故实际失去的是"名义约束"而非"一份已满足的纪律"，逐文件 100% 门槛无法直接搬运。doctor 的测试本身仍会执行。详见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节；② 打包 staging 必须显式放置 `loader-probe` 产物与声明该导出的 `package.json`，否则打包态的动态加载检查会退化为 `needsTsx: true` 而闭包内无 tsx（[fork-divergence.md](./fork-divergence.md) §10.7 Spike-2 已实测） |
 | 风险 | **中**。收益明确但需承接一项确定工作与一项保护力下降 |
 
 ### 方案 C：安全模式上游化
@@ -303,7 +303,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 ## 九、未决事项
 
 1. **`dsh doctor` 是否还需保留为命令行子命令**——方案 A 会删掉它。若你日常手动执行 `dsh doctor`，方案 A 需改设计。
-2. **是否接受 doctor 失去覆盖率门槛**——方案 B 的代价之一，[fork-divergence.md](./fork-divergence.md) §10 列为「保护力下降」，需显式接受或另建替代门禁。**阶段 1 后已实测 doctor 覆盖率为 66.36%，该门槛本就未被满足**，因此"另建替代门禁"不再是"把 100% 搬过来"那么直接；三个可选处置见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节。
+2. **~~是否接受 doctor 失去覆盖率门槛~~——已决议：显式接受，不另建替代门禁**。阶段 1 后实测 doctor 覆盖率为 66.36%，10 个文件仅 2 个达 100%，该门槛本就未被满足，"把 100% 搬过来"无法实现。详见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节。
 3. **本文档是否加入 `verify-repository-references` 豁免清单**——加入后可写裸提交哈希，与同目录另四份文档一致；**该改动需单独批准**。
 4. **open-in-app 的收敛路径未调研**——D1/D2/D3 三选一需要一次独立可行性调研（本文档只给出候选与已证实的机制先例）。
 5. **[fork-divergence.md](./fork-divergence.md) 基准已过期**——其记录为「23 个 A 类文件 / 304 文件偏离」，实测现为「A 类 45 + B 类 4 / 49 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录）。该文档的处置建议需按新基准重校；注意其总偏离计数（含 fork 私有目录）也同步过期：记 304 文件 / +44438 −96，实测 374 文件 / +58868 −113。

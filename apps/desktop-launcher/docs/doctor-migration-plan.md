@@ -972,7 +972,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 §5 的复选框反映真实执行状态，有两类例外需说明：
 
 - **5 个提交步骤（1.5／2.5／3.6／4.5／5.3）有意未执行**。§5 开头已规定"不要逐 Task 提交"——doctor 一旦离开 workspace，`apps/cli` 与两处 tsconfig 立即无法构建，逐 Task 提交会在历史里留下坏提交。这 5 步只作为工作进度检查点，实际工作在同一工作树内连续完成，最后一次性提交。
-- **Step 2.3 未完成，Step 2.4 因此只做了前 4 条命令**。见下节：该步的前提"doctor 有 100% 覆盖率纪律"经实测不成立，实测覆盖率为 66.36%。
+- **Step 2.3 与 Step 2.4 已决策"不做"**。Step 2.3 的前提（doctor 有 100% 覆盖率纪律）经实测不成立——实测 66.36%；它原本要承接的 `bisect.ts` 也已查明是无调用方的死代码并删除。Step 2.4 的最后一条命令依赖 Step 2.3，故一并记为不做。见下节。
 
 ### 已完成并验证的部分
 
@@ -1038,13 +1038,19 @@ vitest run --config <等价配置> --coverage --coverage.reportOnFailure=true
 
 **这与覆盖率门槛无关，是独立的功能盲区**：doctor 的核心能力（定位哪个第三方 bundle 导致 profile 加载失败）没有被端到端断言过。
 
-#### 待决策的处置
+#### 处置：已决策不设门槛，并删除死代码
 
-1. **补 `doctor-verify.mjs` 并按实测基线设"棘轮"门槛**——锁住现有覆盖不下降，成本低，但要维护 10 个数字，且偏离仓库"逐文件 100%"惯例。
-2. **补齐到逐文件 100% 再设门槛**——先排除 `cli.ts`／`loader-probe.ts`（与根惯例一致），再把其余 6 个文件补到 100%。与仓库惯例一致，且顺带修掉上节盲区，但工作量最大（`bisect.ts` 一项就要新增端到端用例）。
-3. **不设门槛，显式接受**——doctor 的测试继续跑，覆盖率不再约束；[merge-conflict-convergence.md](./merge-conflict-convergence.md) 的代价①改为"已接受"。
+**决策：选上面第 3 项。** doctor 的测试继续跑，覆盖率不再约束；[merge-conflict-convergence.md](./merge-conflict-convergence.md) 的代价①记为"已显式接受"。
 
-**无论选哪一项，上节的 `bisect.ts` 盲区都建议单独补上。**
+**关于上节 `bisect.ts` 盲区，其根因不是"测试没写全"，而是该模块已无人调用**——补 happy-path 测试没有意义，改为删除：
+
+- 全仓源码面搜 `bisectThirdPartyBundles` 只命中它自己的定义与自己的 spec。真正定位元凶的是 `checks/plugins.ts` 的 `locateCulprit()`，它直接 import `bisect-by.js` 并自己持有编排。
+- `bisect.ts` 用 `loadProfile(..., '')` 判定失败，而 `loadProfile` 的 `home` 是**默认参数**：传空串不触发默认值，`''` 被按字面使用，于是 profile 目录变成 **cwd 相对**的 `profiles/web`，`initProfile` 还会在 cwd 里把它创建出来。实测：删掉仓库根的 `profiles/` 后单独跑该 spec，目录被重新创建（它在 `.gitignore` 内，所以一直没有暴露）。更关键的是，`loadProfile` 只做组合期判定，看不见插件模块 import 失败——而这正是该 check 存在的理由，`locateCulprit` 因此改用 probe 的真实启动。
+- 该 spec 的 3 个用例是同一个调用的三份近似重复，全部走"无第三方 bundle"这一条提前返回；其中一个用例的名字（"profile fails even with all disabled"）与它实际测的分支不符，`attempts >= 0` 则是恒真断言。
+
+已删除 `src/bisect.ts`（190 行）与 `tests/bisect.spec.ts`（46 行），保留 `bisect-by.ts`（`checks/plugins.ts` 在用），并同步了 [Agent note](../../../.agents/notes/implemented/feature/2026-08-28-doctor-plugin-dynamic-load.md) 里"`bisectThirdPartyBundles` 改为委托给它"这句已不成立的话。
+
+> **Step 2.3 与 Step 2.4 因此记为"不做"**：Step 2.3 原本要承接的那个模块已被删除，逐文件 100% 门槛又因前提不成立而无法实现。§5 里这两个步骤的复选框保持未勾选。
 
 ### Task 3：Go 壳直连（已完成）
 
