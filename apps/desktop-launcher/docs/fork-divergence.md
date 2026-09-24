@@ -235,10 +235,10 @@ packages/support/doctor/
 │   ├── types.ts
 │   ├── invariant.ts                    ← 空实现，门禁要求整个删除
 │   ├── auto-disabled.ts
-│   ├── bisect.ts / bisect-by.ts
+│   ├── bisect-by.ts
 │   ├── loader-probe.ts                 带 #! shebang，被 execFile 直接 spawn
 │   └── checks/{config,data,env,plugins}.ts
-└── tests/          11 个 spec（77 项测试，当前全绿）
+└── tests/          9 个 spec（73 项测试；1 例为沙箱环境性失败，见迁移方案 V9）
 ```
 
 **包内没有任何 `.md`**——没有包 README，也没有 group README。
@@ -607,7 +607,7 @@ doctor 迁移完成后必须同时满足：
 1. `pnpm run constraints` **exit 0**（且不新增其他包的违规）。
 2. `verify-package-readme-limitations`、`verify-package-invariants`、`verify-subsystem-pages` 三项**对 doctor 零输出**。
 3. `git diff upstream/master...HEAD` 中 `apps/cli/`、`tsconfig.host.json`、`packages/support/` **消失**（O1+路径 B 的目标态）。
-4. doctor 的 77 项测试全绿，且**测试必须跟随源码迁移**（`packages/*/*/src/**` 覆盖率门槛将不再覆盖 doctor——这是**保护力下降**，需显式接受或另行建立替代门禁）。
+4. doctor 的 73 项测试全绿，且**测试必须跟随源码迁移**（`packages/*/*/src/**` 覆盖率门槛将不再覆盖 doctor——**已显式接受该损失，不另建替代门禁**，理由见迁移方案 Step 2.3 一节）。
 5. 实跑启动器预检链路：故意破坏一个 profile 的 `cordis.patch.yml`，确认 `dsh doctor` 等价路径仍能给出报告。
 
 ---

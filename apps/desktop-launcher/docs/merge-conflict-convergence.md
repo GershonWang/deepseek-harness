@@ -293,7 +293,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 
 1. `node --import tsx/esm scripts/verify-subsystem-pages.ts` **exit 0**（P0）。
 2. 各阶段声明的文件在 `git diff upstream/master HEAD` 中**消失**，且 `git diff` 中不新增其他上游文件的改动。
-3. doctor 的 **77 项测试全绿**（10 个 spec），且测试跟随源码位置迁移。
+3. doctor 的 **73 项测试全绿**（9 个 spec），且测试跟随源码位置迁移。
 4. 实跑启动器预检链路：故意破坏一个 profile 的 `cordis.patch.yml`，确认诊断仍能给出报告（**方案 A/B 必做**，因为 CLI 入口形态变了）。
 5. 打包态验证：`pnpm run build` 后在玲珑 stage 内实跑一次 `--json` 全量诊断（**方案 B 必做**，验证 `loader-probe` 的 `require.resolve` 路径未断）。
 6. 闸门基线：`verify-repository-references`、`verify-package-readme-limitations`、`verify-package-invariants` 保持 exit 0。

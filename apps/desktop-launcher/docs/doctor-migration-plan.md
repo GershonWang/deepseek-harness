@@ -987,7 +987,7 @@ git commit -m "docs(launcher): 更新 doctor 迁移后的文档与基线"
 | `apps/cli` 与两处 tsconfig 回到上游 | ✅ | `git diff "$BASE" -- apps/cli/ tsconfig.base.json tsconfig.host.json` 输出为空，doctor 字样 0 处 |
 | doctor 构建 | ✅ | `tools/doctor-build.mjs` exit 0，三个入口齐全；从零重建（删 `lib`）0 污染 |
 | doctor CLI 端到端 | ✅ | `--json --quick` → 11 项检查、exit 0；`--json` → 12 项检查、loader-probe 成功 spawn（无 `ERR_MODULE_NOT_FOUND`、无 tsx）；`--repair 9` → exit 2 |
-| doctor 测试套件 | ⚠️ 75/76 | 见下方环境性失败 |
+| doctor 测试套件 | ⚠️ 72/73 | 见下方环境性失败 |
 
 ### Step 2.3 未完成：其前提经实测不成立
 
@@ -1030,7 +1030,7 @@ vitest run --config <等价配置> --coverage --coverage.reportOnFailure=true
 
 **但它的实测覆盖率是 66.36%，不可能通过那道门禁。** 由此只能是两种情况之一：要么 fork 的覆盖率 job 从未真正跑过（`ci.yml` 只在 `pull_request` 触发、`ci-master.yml` 只在 `master` 触发，而本仓库工作在 `linglong-dev`，离线无法判定是否开过 PR），要么它一直是红的。无论哪种，**当时都不存在一份"已满足的 100% 纪律"可供失去**。
 
-**迁移后：测试照跑，门禁不再适用。** doctor 的 10 个 spec / 76 个用例仍会被执行——`apps/desktop-launcher/doctor/vitest.config.ts` 让根配置收集到它（该文件顶部注释解释了原因）。失去的只是覆盖率这一层的约束。原方案把它描述为"保护力下降"，方向正确，但**高估了失去的东西**。
+**迁移后：测试照跑，门禁不再适用。** doctor 的 9 个 spec / 73 个用例仍会被执行——`apps/desktop-launcher/doctor/vitest.config.ts` 让根配置收集到它（该文件顶部注释解释了原因）。失去的只是覆盖率这一层的约束。原方案把它描述为"保护力下降"，方向正确，但**高估了失去的东西**。
 
 #### 顺带查出的真实测试盲区
 
@@ -1227,6 +1227,6 @@ Expected：launcher **正常启动**，预检显示"未找到随包的 doctor，
 cd apps/desktop-launcher/doctor && ../../node_modules/.bin/vitest run
 ```
 
-Expected：76/76 全绿。
+Expected：73/73 全绿。
 
-本沙箱内恒为 75/76，唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1，根因是沙箱把 `~/.dsh` 设为只读（`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`）。该用例在手工运行下两种运行面都 exit 0，失败只在 vitest 环境里复现。**失败位置与数量同迁移前完全一致**，故判定为环境性而非迁移缺陷——但这需要一次可写环境的复核才能结案。
+本沙箱内恒为 72/73（删除 `bisect.spec.ts` 前为 75/76），唯一失败是 `tests/loader-probe.spec.ts > loads a fresh profile with no third-party bundles (exit 0)` 期望 exit 0 实得 1，根因是沙箱把 `~/.dsh` 设为只读（`EROFS: read-only file system, open '/home/Jokul/.dsh/.credentials.yaml.lock'`）。该用例在手工运行下两种运行面都 exit 0，失败只在 vitest 环境里复现。**失败位置与数量同迁移前完全一致**，故判定为环境性而非迁移缺陷——但这需要一次可写环境的复核才能结案。
