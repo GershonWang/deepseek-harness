@@ -20,7 +20,7 @@ it('reports unavailable recording and denied permission', async () => {
   vi.stubGlobal('navigator', {})
   const recording = new Recording(() => {})
   await expect(recording.start()).rejects.toMatchObject({ kind: 'unavailable' })
-  vi.stubGlobal('MediaRecorder', function RecorderStub() {})
+  vi.stubGlobal('AudioWorkletNode', function WorkletStub() {})
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => { throw new DOMException('denied', 'NotAllowedError') } } })
   await expect(recording.start()).rejects.toMatchObject({ kind: 'permission' })
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => { throw new Error('device lost') } } })
@@ -31,26 +31,28 @@ it('reports unavailable recording and denied permission', async () => {
 it('releases a microphone granted after cancellation', async () => {
   const permission = Promise.withResolvers<{ getTracks: () => { stop: () => void }[] }>()
   const stop = vi.fn(), dispose = vi.fn()
-  vi.stubGlobal('MediaRecorder', function RecorderStub() {})
+  vi.stubGlobal('AudioWorkletNode', function WorkletStub() {})
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => permission.promise } })
   const recording = new Recording(dispose)
   const acquiring = recording.start()
   await recording.dispose()
-  permission.resolve({ getTracks: () => [{ stop }] })
+  permission.resolve({ getTracks: () => [{ stop }], getAudioTracks: () => [] })
   await expect(acquiring).rejects.toMatchObject({ kind: 'cancelled' })
   expect(stop).toHaveBeenCalledOnce()
   expect(dispose).toHaveBeenCalledOnce()
 })
 
 
-it('flushes final recording bytes, bounds timer overshoot and closes audio resources', async () => {
+it('encodes accumulated PCM, bounds timer overshoot and closes audio resources', async () => {
   const b = captureFixture()
   expect(b.recording.amplitude()).toBe(0)
   await b.recording.start()
   expect(b.recording.amplitude()).toBe(0.25)
+  // 两个量子：拼接后长度 4 帧 @16000Hz → 上限 1 秒不截断，输出 4 帧 16 kHz WAV。
+  b.emit(new Float32Array([0.5, -0.5]))
+  b.emit(new Float32Array([0.5, -0.5]))
   const result = await b.recording.stop(1)
-  expect(new TextDecoder().decode(b.decoding.mock.calls[0]![0])).toBe('final audio')
-  expect(b.offline).toHaveBeenCalledWith(1, 16000, 16000)
+  expect(b.offline).toHaveBeenCalledWith(1, 4, 16000)
   expect(result).toEqual(encodeWave(new Float32Array([0.5, -0.5])))
   expect(b.trackStop).toHaveBeenCalled()
   expect(b.close).toHaveBeenCalledOnce()
@@ -61,21 +63,21 @@ it('flushes final recording bytes, bounds timer overshoot and closes audio resou
 it.each([{ empty: true }, { recorderError: true }, { constructError: true }])('releases failed capture resources: %j', async (options) => {
   const b = captureFixture(options)
   if (options.constructError) await expect(b.recording.start()).rejects.toThrow('recorder unavailable')
-  else { await b.recording.start(); await expect(b.recording.stop(120)).rejects.toMatchObject({ kind: 'empty' }) }
+  else { await b.recording.start(); b.emit(); await expect(b.recording.stop(120)).rejects.toMatchObject({ kind: 'empty' }) }
   expect(b.trackStop).toHaveBeenCalled()
   expect(b.close).toHaveBeenCalledOnce()
 })
 
-it('discards decoding results that finish after cancellation', async () => {
-  const b = captureFixture(), decoded = Promise.withResolvers<{ duration: number }>()
-  b.decoding.mockReturnValueOnce(decoded.promise)
+it('discards resampling results that finish after cancellation', async () => {
+  const b = captureFixture(), rendered = Promise.withResolvers<{ getChannelData: () => Float32Array }>()
+  b.rendering.mockReturnValueOnce(rendered.promise)
   await b.recording.start()
+  b.emit()
   const stopping = b.recording.stop(120), rejected = expect(stopping).rejects.toMatchObject({ kind: 'cancelled' })
-  await vi.waitFor(() => { expect(b.decoding).toHaveBeenCalledOnce() })
+  await vi.waitFor(() => { expect(b.rendering).toHaveBeenCalledOnce() })
   await b.recording.dispose()
-  decoded.resolve({ duration: 2 })
+  rendered.resolve({ getChannelData: () => new Float32Array([0.5, -0.5]) })
   await rejected
-  expect(b.rendering).not.toHaveBeenCalled()
   await expect(b.recording.stop(120)).rejects.toMatchObject({ kind: 'empty' })
 })
 
