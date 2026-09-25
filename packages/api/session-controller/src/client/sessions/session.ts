@@ -740,6 +740,28 @@ export class Session implements SessionFace {
     }
   }
 
+  /**
+   * 装入持久窗口，并尽力重建 live attempt 的瞬态行。
+   * 基线来自宿主内存里运行中的助手流，只用于补出尚未落盘的瞬态行；它无法重建时
+   * 不能让整个开场失败——持久历史是完好的，退回不带基线的窗口即可，否则一个瞬态
+   * 数据问题会挡住整段会话。原始失败仍报到控制台，避免这类不一致被静默吞掉。
+   * @param entries - 本次窗口的持久条目。
+   * @param baseline - 开场快照携带的助手流基线；缺省表示当前没有 live attempt。
+   * @returns 对外可见的条目（持久条目加上可重建的瞬态行）。
+   */
+  private restoreAssistantWindow(
+    entries: readonly SessionEventLikeEntry[],
+    baseline?: SessionAssistantStreamBaseline,
+  ): readonly SessionEventLikeEntry[] {
+    if (baseline === undefined) return this.assistantStream.replace(entries)
+    try {
+      return this.assistantStream.replace(entries, baseline)
+    } catch (error) {
+      console.error('[session-controller] assistant stream baseline could not be rebuilt; keeping the durable window:', error)
+      return this.assistantStream.replace(entries)
+    }
+  }
+
   /** Replace the complete contiguous window and apply page-owned projection metadata. */
   private installWindow(
     entries: readonly SessionEventLikeEntry[],
@@ -750,7 +772,7 @@ export class Session implements SessionFace {
     // A durable gap-repair page has no assistant baseline. Clearing transient
     // attempts makes a held notification reopen follow once for an atomic
     // page/baseline pair instead of applying it to an unrelated repair cut.
-    const visible = this.assistantStream.replace(entries, assistantStream)
+    const visible = this.restoreAssistantWindow(entries, assistantStream)
     this.baseSeq = SessionLogOffset(entries[0]?.event.seq ?? 0)
     this.hasMore = hasMore
     if (this.pendingHistory !== null) {

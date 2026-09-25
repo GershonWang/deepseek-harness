@@ -121,12 +121,33 @@ describe('Session open', () => {
     expect(session.getSnapshot().openError).toMatchObject({ code: 'gateway/internal', message: 'socket died' })
   })
 
-  it('lands a client-side opening install failure in openState=error, never a permanent loading view', async ({ mock, start }) => {
+  it('lands a plain client-side opening install failure in openState=error, never a permanent loading view', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     const page = plainTurn(SessionSeq(10), 3, '问', '答')
-    // 只有运行中的会话才带助手流基线，而基线记录由客户端在装帧时校验：校验抛出的
-    // 普通 TypeError 不经过 Gateway 的失败包装，此前只被原样抛出，界面便永久停在
-    // 载入提示上；这里要求它落成可展示、可重试的终态。
+    mock.stream(FOLLOW, followScript(history(page, true)))
+    // 装帧除助手流基线外还有别的客户端步骤：它们抛出的普通错误不经过 Gateway 的失败
+    // 包装，此前只被原样抛出，界面便永久停在载入提示上；这里要求它落成可展示、可重试的终态。
+    const install = vi.spyOn(session.eventSource, 'replace').mockImplementationOnce(() => {
+      throw new TypeError('window install exploded')
+    })
+    onTestFinished(() => { install.mockRestore() })
+    await expect(session.open()).rejects.toThrow('window install exploded')
+    const snapshot = session.getSnapshot()
+    expect(snapshot.openState).toBe('error')
+    expect(snapshot.openError).toMatchObject({
+      code: 'gateway/internal',
+      message: 'window install exploded',
+    })
+  })
+
+  it('keeps the durable window when the live assistant baseline cannot be rebuilt', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const page = plainTurn(SessionSeq(10), 3, '问', '答')
+    // 只有运行中的会话才带助手流基线，而基线记录由客户端在装帧时校验。基线只用于补出
+    // 尚未落盘的瞬态行：它无法重建时不能挡住整段持久历史，只能退回不带基线的窗口，
+    // 并把原始失败报到控制台，避免这类不一致被静默吞掉。
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    onTestFinished(() => { reported.mockRestore() })
     mock.stream(FOLLOW, followScript(history(page, true), {
       assistantStream: {
         revision: 1,
@@ -140,13 +161,10 @@ describe('Session open', () => {
         },
       },
     }))
-    await expect(session.open()).rejects.toThrow('tool-call-chunks args must be non-empty')
-    const snapshot = session.getSnapshot()
-    expect(snapshot.openState).toBe('error')
-    expect(snapshot.openError).toMatchObject({
-      code: 'gateway/internal',
-      message: 'tool-call-chunks args must be non-empty',
-    })
+    await session.open()
+    expect(session.getSnapshot().openState).toBe('open')
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+    expect(String(reported.mock.calls[0]?.[1])).toContain('tool-call-chunks args must be non-empty')
   })
 
   it('retries a silent opening once and opens with the retry answer', async ({ mock, start }) => {
