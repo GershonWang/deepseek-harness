@@ -53,7 +53,12 @@
   <!-- 主舞台：圆角卡片包住 harness iframe / 引导页 -->
   <main id="stage">
     <div id="stage-card">
-      <iframe id="harness" class="hidden" allowfullscreen></iframe>
+      <!-- allow 里显式写上 fullscreen 与 microphone 并保留 allowfullscreen：harness UI
+           与壳跨源，microphone 的 permissions policy 默认白名单是 self，不显式授权则
+           getUserMedia 在发出权限信号之前就被拒绝（见 internal/webviewperm）。
+           fullscreen 两处都写，是为了不依赖各引擎对 allow 与 allowfullscreen 谁覆盖谁
+           的细节；只授权 microphone，不放开 camera。 -->
+      <iframe id="harness" class="hidden" allowfullscreen allow="fullscreen; microphone"></iframe>
 
       <section id="guidance" class="cards">
       <div class="card-wide">
