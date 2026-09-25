@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"log"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/webviewperm"
 )
 
 // 前端资源。逐项列出随包文件，不用 `all:frontend` 整体嵌入：
@@ -85,7 +87,12 @@ func main() {
 		},
 		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 255},
 		OnStartup:        controller.OnStartup,
-		OnShutdown:       controller.OnShutdown,
+		// 内嵌 WebView 的麦克风权限只能在页面就绪后挂：此时 WebKit 已创建视图并把它
+		// 放进窗口，GTK 侧才遍历得到（见 internal/webviewperm）；挂早了找不到视图。
+		OnDomReady: func(context.Context) {
+			webviewperm.Install()
+		},
+		OnShutdown: controller.OnShutdown,
 		// 窗口关闭前保存尺寸/最大化状态：此时窗口仍存活，能读到真实值
 		// （OnShutdown 时窗口已销毁，只能读到 0）。
 		OnBeforeClose: controller.OnBeforeClose,
