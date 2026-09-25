@@ -61,6 +61,42 @@ const JUMP_PAGE_OPTIONS = {
   turnWindow: { ...HISTORY_PAGE_OPTIONS.turnWindow, minMessages: JUMP_PAGE_MESSAGES },
 }
 
+/**
+ * 单次开场握手的时限。开场帧被静默丢弃、被新一代顶替，或装帧阶段抛错而
+ * 无法完成时，`open()` 会永远挂起，界面就会一直停在载入提示上；这个上界
+ * 远高于实测的开场耗时（多兆字节窗口实测 60–250ms），正常慢机器不会误判。
+ */
+const OPEN_HANDSHAKE_TIMEOUT_MS = 15_000
+
+/** 开场超时后的重试次数（不含首次）：一次重试即可覆盖偶发的丢帧。 */
+const OPEN_HANDSHAKE_RETRIES = 1
+
+/** 开场握手超时：本代事件流的首帧始终没有到达。 */
+class OpeningDeadlineError extends Error {
+  constructor() {
+    super(`opening handshake timed out after ${String(OPEN_HANDSHAKE_TIMEOUT_MS)} ms`)
+    this.name = 'OpeningDeadlineError'
+  }
+}
+
+/**
+ * 把开场阶段的任何失败归一化为快照契约里的远程失败。
+ * 装帧时由客户端自身抛出的异常不会经过 Gateway 的流失败包装，若不归一化，
+ * 它既无法写入 `openError`，也无法被界面展示；此处按传输层对终止性流失败的
+ * 既有做法记为 `gateway/internal`，并把原始错误保留在 `cause` 上以便定位。
+ * @param error - 结束本次开场尝试的失败。
+ * @returns 记录到会话快照上的失败。
+ */
+function asOpeningFailure(error: unknown): RemoteFailure {
+  if (isRemoteFailure(error)) return error
+  return new RemoteError(
+    'gateway/internal',
+    error instanceof Error ? error.message : String(error),
+    {},
+    { cause: error },
+  )
+}
+
 interface PendingHistory {
   beforeSeq: SessionLogOffset
   hasMore: boolean
@@ -617,6 +653,40 @@ export class Session implements SessionFace {
     this.openState = 'loading'
     this.openError = null
     this.notifier.markDirty()
+    try {
+      for (let attempt = 0; ; attempt += 1) {
+        const events = this.eventStream(generation)
+        this.events = events
+        try {
+          await this.openWithDeadline(events)
+          if (generation !== this.openGeneration || this.events !== events) return
+          this.openState = 'open'
+          return
+        } catch (error) {
+          if (generation !== this.openGeneration || this.events !== events) return
+          void events.dispose()
+          if (attempt < OPEN_HANDSHAKE_RETRIES && error instanceof OpeningDeadlineError) continue
+          // 每种结束方式都必须落到终态。此前非远程失败被原样抛出，既不记错误也不重试，
+          // 界面就永久停在载入提示上；现在先落 `error`，再决定是否继续向上抛。
+          this.events = undefined
+          this.openState = 'error'
+          this.openError = asOpeningFailure(error)
+          if (!isRemoteFailure(error) && !(error instanceof OpeningDeadlineError)) throw error
+          return
+        }
+      }
+    } finally {
+      if (generation === this.openGeneration) this.notifier.markDirty()
+    }
+  }
+
+  /**
+   * 建立一代开场使用的事件流。重试会替换它，所以发布回调按"当前持有的实例"做身份
+   * 校验，被替换掉的旧流不再写入窗口。
+   * @param generation - 建立该流时的 openGeneration。
+   * @returns 已绑定发布与失败回调的事件流。
+   */
+  private eventStream(generation: number): SessionEventStream {
     const events = new SessionEventStream(this.remote, this.sessionAddress(), {
       publish: (change) => {
         if (generation !== this.openGeneration || this.events !== events) return
@@ -626,19 +696,25 @@ export class Session implements SessionFace {
         this.failEventStream(events, generation, error)
       },
     })
-    this.events = events
+    return events
+  }
+
+  /**
+   * 在时限内等待本代的开场帧。开场帧被静默丢弃、被新一代顶替或装帧失败时，底层流不会
+   * 再产生任何结果，等待会永久挂起；超时把它变成一次可重试的失败。
+   * @param events - 本代建立的事件流。
+   */
+  private async openWithDeadline(events: SessionEventStream): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await events.open(HISTORY_PAGE_OPTIONS)
-      if (generation !== this.openGeneration || this.events !== events) return
-      this.openState = 'open'
-    } catch (error) {
-      if (generation !== this.openGeneration || this.events !== events) return
-      if (!isRemoteFailure(error)) throw error
-      this.events = undefined
-      this.openState = 'error'
-      this.openError = error
+      await Promise.race([
+        events.open(HISTORY_PAGE_OPTIONS),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => { reject(new OpeningDeadlineError()) }, OPEN_HANDSHAKE_TIMEOUT_MS)
+        }),
+      ])
     } finally {
-      if (generation === this.openGeneration) this.notifier.markDirty()
+      if (timer !== undefined) clearTimeout(timer)
     }
   }
 

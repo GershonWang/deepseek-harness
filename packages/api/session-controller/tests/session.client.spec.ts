@@ -7,6 +7,7 @@
 
 import { describe, expect, onTestFinished, vi } from 'vitest'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { LlmAttemptId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
@@ -118,6 +119,72 @@ describe('Session open', () => {
     await session.open()
     expect(session.getSnapshot().openState).toBe('error')
     expect(session.getSnapshot().openError).toMatchObject({ code: 'gateway/internal', message: 'socket died' })
+  })
+
+  it('lands a client-side opening install failure in openState=error, never a permanent loading view', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    const page = plainTurn(SessionSeq(10), 3, '问', '答')
+    // 只有运行中的会话才带助手流基线，而基线记录由客户端在装帧时校验：校验抛出的
+    // 普通 TypeError 不经过 Gateway 的失败包装，此前只被原样抛出，界面便永久停在
+    // 载入提示上；这里要求它落成可展示、可重试的终态。
+    mock.stream(FOLLOW, followScript(history(page, true), {
+      assistantStream: {
+        revision: 1,
+        activeAttempt: {
+          attemptId: LlmAttemptId('fk-attempt'),
+          startedAfterSeq: -1,
+          turn: 1,
+          step: 1,
+          nextIndex: 1,
+          stream: [{ type: 'tool-call-chunks', time0: 20, index: 0, dt: [], id: 'call-1', args: [] }],
+        },
+      },
+    }))
+    await expect(session.open()).rejects.toThrow('tool-call-chunks args must be non-empty')
+    const snapshot = session.getSnapshot()
+    expect(snapshot.openState).toBe('error')
+    expect(snapshot.openError).toMatchObject({
+      code: 'gateway/internal',
+      message: 'tool-call-chunks args must be non-empty',
+    })
+  })
+
+  it('retries a silent opening once and opens with the retry answer', async ({ mock, start }) => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const session = await sessionBench(mock, start, SID)
+    const page = plainTurn(SessionSeq(10), 3, '问', '答')
+    let openings = 0
+    mock.stream(FOLLOW, async (args, stream) => {
+      openings += 1
+      // 首帧被静默丢弃：流一直打开却不再产生任何帧，等待只能靠时限结束。
+      if (openings === 1) return new Promise(() => {})
+      await followScript(history(page, true))(args, stream)
+    })
+    const opening = session.open()
+    expect(session.getSnapshot().openState).toBe('loading')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await opening
+    expect(mock.log.requests(FOLLOW)).toHaveLength(2)
+    const snapshot = session.getSnapshot()
+    expect(snapshot.openState).toBe('open')
+    expect(eventSeqs(session)).toEqual([10, 11, 12, 13, 14, 15])
+  })
+
+  it('lands an opening that never answers in openState=error after one retry', async ({ mock, start }) => {
+    vi.useFakeTimers()
+    onTestFinished(() => { vi.useRealTimers() })
+    const session = await sessionBench(mock, start, SID)
+    mock.stream(FOLLOW, () => new Promise(() => {}))
+    const opening = session.open()
+    expect(session.getSnapshot().openState).toBe('loading')
+    await vi.advanceTimersByTimeAsync(20_000)
+    await vi.advanceTimersByTimeAsync(20_000)
+    await opening
+    expect(mock.log.requests(FOLLOW)).toHaveLength(2)
+    const snapshot = session.getSnapshot()
+    expect(snapshot.openState).toBe('error')
+    expect(snapshot.openError?.message).toContain('opening handshake timed out')
   })
 
   it('stitches live frames landing right behind the opening snapshot, dropping the page overlap', async ({ mock, start }) => {
