@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-25-desktop-webview-media-permission.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-desktop-webview-media-permission.md
+/agent-note-desktop-webview-media-capture-permissions:
+  en: 5a7f86c21dcce82f
+  zh: e73c1453ac47b6c6
+/agent-note-desktop-webview-media-capture-permissions/problem:
+  en: 36712e20a2730f2f
+  zh: 6f4f90eab9942fe6
+/agent-note-desktop-webview-media-capture-permissions/decision:
+  en: a739b0219abd53c5
+  zh: 22e0eb75c508cdc5
+/agent-note-desktop-webview-media-capture-permissions/alternatives-considered:
+  en: d2b5b9cebafebec8
+  zh: 76d3dd876292838f
+/agent-note-desktop-webview-media-capture-permissions/consequences:
+  en: 3b0bca339c047548
+  zh: 26d472a7effa2d1e

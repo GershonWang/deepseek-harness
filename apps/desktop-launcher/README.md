@@ -28,11 +28,19 @@ English | [中文](README.zh.md)
 └───────────────────────────────────────────────────────────┘
 ```
 
-Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolchain`/`appenv`/`packaging` are pure Go (stdlib only) and unit-testable; `app` orchestrates them and talks to the frontend; `main` only assembles.
+Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolchain`/`appenv`/`packaging` are pure Go (stdlib only) and unit-testable; `webviewperm` is the one CGO package (GTK/WebKit, Linux only), but keeps its decision logic in pure Go so `policy.go` still tests without a display; `app` orchestrates them and talks to the frontend; `main` only assembles.
 
 The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
 Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row and inserting the startup-progress reporter (next section). Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
+
+## Embedded WebView media permissions
+
+The launcher grants the embedded WebView permission to capture **audio only**, so voice input in the desktop build behaves exactly as it does when the same Web GUI is opened in a browser. Three independent defects sat on that path: fixing any one of them alone leaves voice input broken with a symptom that looks just like the other two, and none of the three is something the user can resolve from a setting.
+
+- **The cross-origin iframe was not allowed to use the microphone.** The shell embeds the harness UI from `http://127.0.0.1:<port>`, a different origin from the Wails asset server, and `microphone`'s permissions policy allowlist defaults to `self`. Without `allow="microphone"` the request is rejected *before* WebKit ever emits a permission signal, so this defect hid the other two. `frontend/index.html` now carries `allow="fullscreen; microphone"`.
+- **Wails v2 never connects `WebKitWebView::permission-request`**, and WebKitGTK's default for that signal is *deny*. Wails keeps the `WebKitWebView*` inside an `internal/` package, so `internal/webviewperm` walks the process's top-level windows with `gtk_window_list_toplevels()` from `OnDomReady` (which Wails enters on the GTK main thread, so no thread hop is needed), finds the view, and connects the signal itself. `internal/webviewperm/policy.go` owns the decision and is unit-tested without GTK: a request is granted only when it is a user-media request for audio and asks for neither video nor display. Camera, screen sharing, and every non-media permission request stay denied, because the embedded UI has no feature that needs them. When no view is found the launcher logs one line and continues: a missing microphone permission must never block startup.
+- **WebKit's WebProcess could not find the packaged GStreamer plugins.** Device enumeration runs in the WebProcess, not in the launcher. The container's `/usr/lib/x86_64-linux-gnu/gstreamer-1.0` holds only `coreelements` and `coretracers`, while the bundle ships 259 plugins under `<PREFIX>/lib/x86_64-linux-gnu/gstreamer-1.0`. With no plugin search path `appsink` fails to load, enumeration reports zero audio inputs, and `getUserMedia` rejects with `OverconstrainedError` instead. `packaging.ConfigureGStreamerPlugins()` sets `GST_PLUGIN_PATH` before `wails.Run`, because the WebProcess inherits this process's environment and setting it later has no effect. It uses the additive `GST_PLUGIN_PATH` rather than `GST_PLUGIN_SYSTEM_PATH` so that the system default and any inherited value keep working, and it does nothing in dev mode, where the plugins are already on the standard path.
 
 ## Startup phases and loading-page progress
 
@@ -68,6 +76,7 @@ internal/appenv/        环境解析（bin/端口/日志目录/子进程环境�
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
+internal/webviewperm/   内嵌 WebView 采集权限（GTK 遍历 + permission-request 策略）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)

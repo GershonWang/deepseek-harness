@@ -28,11 +28,19 @@
 └───────────────────────────────────────────────────────────┘
 ```
 
-分层规则：`domain` 零依赖；`supervisor`/`connector`/`toolchain`/`appenv`/`packaging` 为纯 Go（仅标准库）、可单测；`app` 编排它们并面向前端；`main` 只做组装。
+分层规则：`domain` 零依赖；`supervisor`/`connector`/`toolchain`/`appenv`/`packaging` 为纯 Go（仅标准库）、可单测；`webviewperm` 是唯一的 CGO 包（GTK/WebKit，仅 Linux），但把判定逻辑留在纯 Go 的 `policy.go` 里，无显示环境也能单测；`app` 编排它们并面向前端；`main` 只做组装。
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
 harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报插件（见下一节）。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+
+## 内嵌 WebView 的媒体采集权限
+
+启动器只放行内嵌 WebView 的**音频**采集，使桌面版的语音输入与在浏览器里打开同一 Web GUI 时表现一致。这条路径上叠着三个彼此独立的缺陷：只修其中任何一个，语音输入都依然是坏的，而症状与另外两个看起来一模一样；三个都不是用户能从某个设置里解决的。
+
+- **跨源 iframe 未获麦克风授权。** 壳从 `http://127.0.0.1:<port>` 嵌入 harness UI，与 Wails 资源服务器不同源，而 `microphone` 的 permissions policy 默认白名单是 `self`。缺少 `allow="microphone"` 时，请求在 WebKit 发出权限信号**之前**就被拒绝，因此这一个缺陷把另外两个完全遮住了。`frontend/index.html` 现在带 `allow="fullscreen; microphone"`。
+- **Wails v2 从不连接 `WebKitWebView::permission-request`**，而 WebKitGTK 对该信号的默认处理是拒绝。Wails 把 `WebKitWebView*` 关在 `internal/` 包里，于是 `internal/webviewperm` 在 `OnDomReady`（该回调由 Wails 从 GTK 主线程进入，无需切换线程）时用 `gtk_window_list_toplevels()` 遍历进程的顶层窗口，找到视图并自行连接信号。判定逻辑归 `internal/webviewperm/policy.go`，脱离 GTK 也能单测：只有「请求媒体采集、要音频、且不要视频与屏幕」才放行。摄像头、屏幕共享及其余所有权限请求一律拒绝，因为内嵌界面没有需要它们的功能。找不到视图时只记一行日志并继续：缺麦克风权限绝不该拦住启动。
+- **WebKit 的 WebProcess 找不到包内的 GStreamer 插件。** 设备枚举发生在 WebProcess 里而不是启动器里。容器内 `/usr/lib/x86_64-linux-gnu/gstreamer-1.0` 只有 `coreelements` 与 `coretracers`，而包内 `<PREFIX>/lib/x86_64-linux-gnu/gstreamer-1.0` 有 259 个插件。没有插件搜索路径时 `appsink` 加载失败、枚举到 0 个音频输入，`getUserMedia` 转而以 `OverconstrainedError` 拒绝。`packaging.ConfigureGStreamerPlugins()` 在 `wails.Run` 之前设置 `GST_PLUGIN_PATH`，因为 WebProcess 继承本进程环境、之后再设无效。它用附加语义的 `GST_PLUGIN_PATH` 而非 `GST_PLUGIN_SYSTEM_PATH`，让系统默认路径与环境里已有的取值照旧生效；开发态插件本就在标准路径上时则不做任何事。
 
 ## 启动阶段与加载页进度
 
@@ -68,6 +76,7 @@ internal/appenv/        环境解析（bin/端口/日志目录/子进程环境�
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
+internal/webviewperm/   内嵌 WebView 采集权限（GTK 遍历 + permission-request 策略）
 linglong/               Linglong 构建清单 + 宿主预备脚本
 icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
 icons/dsh-desktop.png   dev-mode fallback (256×256)

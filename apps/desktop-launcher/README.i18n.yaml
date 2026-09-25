@@ -6,8 +6,11 @@
   en: 6e85920ff9488099
   zh: d40675daf4484ce9
 /deepseek-harness-linux-desktop-launcher/architecture:
-  en: 5dcfdbd0eb955989
-  zh: c19d6e26dce3585e
+  en: 42982d1e747eb7f6
+  zh: 45a42965acd7f8a1
+/deepseek-harness-linux-desktop-launcher/embedded-webview-media-permissions:
+  en: 32b07eabe302c895
+  zh: 929d4bda0480c7c3
 /deepseek-harness-linux-desktop-launcher/startup-phases-and-loading-page-progress:
   en: d9e000ed7e0e9728
   zh: 8c0ac8b716c37e9e
