@@ -10,11 +10,11 @@
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `14add2e246`（`linglong-dev` 上「并入上游 master（156 个提交）」的合并提交） |
+| 本地 HEAD | `4f6bd7605b`（`linglong-dev` 上「并入上游 master（477b4f4205，346 个提交）」的合并提交） |
 | 分支 | `linglong-dev` |
-| 上游参照 | `upstream/master` = `46a7f68b09`（2026-09-23 21:03:33 +0800，`Merge pull request #5073 from deepseek-harness/rel/dsh-0.1.7-rc.1`，即 `dsh 0.1.7-rc.1`） |
+| 上游参照 | `upstream/master` = `477b4f4205`（2026-09-24 21:39:59 +0800，`Merge pull request #5180 from deepseek-harness/rel/dsh-0.1.7-rc.2`，即 `dsh 0.1.7-rc.2`） |
 | 合并关系 | `git merge-base --is-ancestor upstream/master HEAD` → **真**（上游 master 已全部包含） |
-| fork 领先上游 | 516 个提交 |
+| fork 领先上游 | 519 个提交 |
 
 复现命令：
 
@@ -23,38 +23,38 @@ git diff --shortstat upstream/master...HEAD
 git diff --name-status upstream/master...HEAD
 ```
 
-> **基准有效性**：本地 `upstream/master` 由本轮 `git fetch upstream --prune` 更新至远端 tip（`dsh 0.1.7-rc.1` 的发布合并），故本地参照不是陈旧引用，下文的改动热度排序与「当前无冲突」结论均成立。
+> **基准有效性**：本地 `upstream/master` 由本轮 `git fetch upstream --prune` 更新至远端 tip（`dsh 0.1.7-rc.2` 的发布合并），故本地参照不是陈旧引用，下文的改动热度排序与「当前无冲突」结论均成立。
 
 ---
 
 ## 二、总量统计
 
-`372 个文件，+58750 行，−113 行`，按区域分布：
+`374 个文件，+60101 行，−128 行`，按区域分布：
 
 | 区域 | 文件数 | 新增 | 删除 | 性质 |
 |---|---:|---:|---:|---|
-| `apps/desktop-launcher` | 179 | +38833 | −0 | C 类·预期归处 |
-| `docs/superpowers` | 36 | +14160 | −0 | C 类·独立新目录 |
-| `.agents` | 108 | +3763 | −0 | C 类·独立新目录 |
-| `packages/client` | 20 | +567 | −29 | **A/B 类·触碰上游** |
-| `packages/host` | 13 | +865 | −65 | **A 类·触碰上游** |
+| `apps/desktop-launcher` | 179 | +39028 | −0 | C 类·预期归处 |
+| `docs/superpowers` | 36 | +14652 | −0 | C 类·独立新目录 |
+| `.agents` | 108 | +4396 | −0 | C 类·独立新目录 |
+| `packages/client` | 20 | +573 | −35 | **A/B 类·触碰上游** |
+| `packages/host` | 13 | +873 | −73 | **A 类·触碰上游** |
 | `packages/util` | 5 | +77 | −3 | **A 类·触碰上游** |
 | `packages/boot` | 3 | +142 | −10 | **A/B 类·触碰上游** |
-| `scripts` | 5 | +306 | −5 | **A/B 类·门禁适配** |
+| `scripts` | 7 | +323 | −6 | **A/B 类·门禁适配** |
 | `.gitignore` | 1 | +20 | −0 | **A 类·配置** |
 | `lefthook.yml` | 1 | +13 | −1 | **A 类·配置** |
 | `tsdown.config.ts` | 1 | +4 | −0 | **A 类·纯注释** |
 
-按文件状态分：**新增 327 个，修改 45 个，删除 0 个**。
+按文件状态分：**新增 327 个，修改 47 个，删除 0 个**。
 
 账目校验（与 `--shortstat` 完全一致）：
 
 ```
-C 类   323 文件      +56756
-A 类    45 文件      +1496  −113
+C 类   323 文件      +58076
+A 类    47 文件      +1527  −128
 B 类     4 文件      +498
 ────────────────────────────────
-合计   372 文件      +58750 −113  ✓
+合计   374 文件      +60101 −128  ✓
 ```
 
 > **与上一版基准的差异**：`packages/support/doctor`（24 文件 / +3562）、`apps/cli`（5 文件）、
@@ -68,15 +68,15 @@ B 类     4 文件      +498
 
 | 类别 | 含义 | 上游同步代价 | 数量 |
 |---|---|---|---|
-| **A** | 修改了上游**已有**文件 | **必然文本冲突**，需人工 merge | 45 |
+| **A** | 修改了上游**已有**文件 | **必然文本冲突**，需人工 merge | 47 |
 | **B** | 新增文件，但落在上游**已有目录**里 | 不冲突，但会被上游重构/门禁扫到，且属"上游目录里的自有代码" | 4 |
 | **C** | 独立新目录 | 不冲突 | 323 |
 
 ---
 
-## 四、A 类：45 个被修改的上游文件
+## 四、A 类：47 个被修改的上游文件
 
-合计 `+1496 −113`。**冲突风险**按「最近 300 个 `upstream/master` 提交、合并展开后（357 条提交记录）内改动该文件的次数」排序。本节写明窗口与方法，可直接复现：
+合计 `+1527 −128`。**冲突风险**按「最近 300 个 `upstream/master` 提交、经 `-m` 展开后该文件被改动的次数」排序（本窗口覆盖 6571 个不同路径）。本节写明窗口与方法，可直接复现：
 
 ```sh
 BASE=$(git log --format=%H -n 300 upstream/master | tail -1)
@@ -87,51 +87,53 @@ git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort
 
 | 风险 | 上游改动次数 | 文件 | 改动 | 做了什么 |
 |---|---:|---|---|---|
-| 极高 | 33 | `packages/boot/app-boot/src/index.ts` | +3 −3 | 把 `BOOTSTRAP_NAMES`/`BOOTSTRAP_PREFIXES`/`isBootstrapOnly` 改为导出 |
-| 高 | 21 | `packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts` | +6 | 客户端插件接线的测试 |
-| 高 | 20 | `packages/client/ui-open-in-app/src/client/index.ts` | +5 | 客户端插件注册 |
-| 高 | 20 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | +59 | 壳内剪贴板图片粘贴（window 捕获阶段 paste 监听） |
-| 高 | 19 | `packages/client/ui-open-in-app/tests/open-in-app-action.client.spec.tsx` | +17 −1 | 菜单动作的测试 |
-| 高 | 19 | `packages/client/ui-open-in-app/README.md` | +4 −4 | 文档配对 |
-| 高 | 19 | `packages/client/ui-open-in-app/README.zh.md` | +4 −4 | 文档配对 |
-| 高 | 18 | `packages/client/ui-open-in-app/src/client/OpenInAppAction.tsx` | +6 −1 | 菜单打开时重解析宿主应用清单 |
-| 高 | 18 | `packages/client/ui-open-in-app/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
-| 高 | 16 | `packages/client/ui-open-in-app/tests/controller.client.spec.ts` | +15 | 宿主清单控制器的测试 |
-| 高 | 15 | `packages/client/ui-open-in-app/src/client/controller.ts` | +15 −3 | 宿主应用清单刷新 |
-| 中 | 12 | `packages/host/open-in-app/src/resolver.ts` | +218 −7 | 沙箱内经宿主通道探测并启动宿主应用 |
-| 中 | 12 | `packages/client/modules/tests/node-half.client.spec.ts` | +81 | `client/modules` 改动的测试 |
-| 中 | 12 | `packages/boot/app-boot/src/profile.ts` | +51 −7 | **安全模式** `DSH_SAFE_MODE` + `skipThirdPartyBundles` + `extraPatchFiles` |
-| 中 | 11 | `packages/client/modules/src/index.ts` | +23 −4 | `newlineCount` 性能优化 + `resolveSync` 跨 Node 版本兜底 |
-| 中 | 9 | `packages/host/open-in-app/tests/resolver.spec.ts` | +239 −4 | 上述解析器的测试 |
-| 中 | 6 | `packages/client/ui-primitives/src/ImageLightbox.tsx` | +30 −3 | 灯箱加载/失败状态（组件已随上游由 `ui-attachment` 迁至此处） |
-| 中 | 5 | `packages/client/ui-primitives/src/ImageLightbox.module.css` | +18 | 上述样式 |
-| 中 | 5 | `packages/client/ui-attachment/src/client/labels.ts` | +6 −1 | 灯箱新标签（`failed` 已对齐上游词表） |
-| 低 | 4 | `packages/host/open-in-app/src/icons.ts` | +33 −9 | 宿主应用图标 |
-| 低 | 4 | `packages/host/open-in-app/README.md` | +7 −5 | 文档配对 |
-| 低 | 4 | `packages/host/open-in-app/README.zh.md` | +7 −5 | 文档配对 |
-| 低 | 4 | `packages/host/open-in-app/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
-| 低 | 4 | `packages/client/ui-primitives/tests/image-lightbox.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
-| 低 | 4 | `packages/client/ui-attachment/tests/message-image.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
-| 低 | 3 | `lefthook.yml` | +13 −1 | typecheck 改用 npm + 启动器布局门禁 |
-| 低 | 3 | `.gitignore` | +20 | 启动器产物 + 测试残留 |
-| 低 | 1 | `scripts/verify-repository-references.ts` | +27 −3 | fork 取证文件精确豁免 |
-| 低 | 1 | `scripts/verify-repository-references.spec.ts` | +10 | 上述豁免的测试 |
-| 低 | 1 | `packages/util/launch-environment/README.zh.md` | +2 | 文档配对 |
-| 低 | 1 | `packages/util/launch-environment/README.i18n.yaml` | +2 −2 | 上述配对的登记 |
+| 极高 | 47 | `packages/boot/app-boot/src/index.ts` | +3 −3 | 把 `BOOTSTRAP_NAMES`/`BOOTSTRAP_PREFIXES`/`isBootstrapOnly` 改为导出 |
+| 极高 | 43 | `packages/client/ui-open-in-app/README.i18n.yaml` | +6 −6 | 上述配对的登记（上游新分节格式） |
+| 极高 | 43 | `packages/boot/app-boot/src/profile.ts` | +51 −7 | **安全模式** `DSH_SAFE_MODE` + `skipThirdPartyBundles` + `extraPatchFiles` |
+| 极高 | 40 | `packages/client/ui-primitives/src/ImageLightbox.module.css` | +18 | 上述样式的加载/失败态 |
+| 极高 | 38 | `packages/client/ui-open-in-app/README.zh.md` | +4 −4 | 文档配对 |
+| 极高 | 38 | `packages/client/ui-open-in-app/README.md` | +4 −4 | 文档配对 |
+| 极高 | 36 | `packages/client/ui-theme/src/styles/base.css` | +16 −4 | 字体栈前置 Noto/WQY |
+| 极高 | 35 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | +59 | 壳内剪贴板图片粘贴（window 捕获阶段 paste 监听） |
+| 高 | 27 | `packages/client/ui-open-in-app/tests/open-in-app-action.client.spec.tsx` | +17 −1 | 菜单动作的测试 |
+| 高 | 26 | `packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts` | +8 −1 | 客户端插件接线的测试 |
+| 高 | 26 | `packages/client/ui-open-in-app/src/client/index.ts` | +5 | 客户端插件注册与 `refresh` 接线 |
+| 高 | 25 | `packages/client/ui-open-in-app/src/client/OpenInAppAction.tsx` | +6 −2 | 菜单打开时重解析宿主应用清单 |
+| 高 | 22 | `packages/client/ui-open-in-app/tests/controller.client.spec.ts` | +15 | 宿主清单控制器的测试 |
+| 高 | 22 | `packages/client/ui-open-in-app/src/client/controller.ts` | +15 −3 | 宿主应用清单刷新 |
+| 高 | 20 | `packages/client/ui-primitives/src/ImageLightbox.tsx` | +30 −3 | 灯箱加载/失败状态（组件已随上游由 `ui-attachment` 迁至此处） |
+| 高 | 19 | `scripts/translation-pairing.ts` | +12 −1 | 配对门禁排除玲珑构建树（构建产物不属文档语料） |
+| 高 | 19 | `scripts/translation-pairing.spec.ts` | +5 | 上述排除的边界用例 |
+| 高 | 19 | `packages/host/open-in-app/README.i18n.yaml` | +10 −10 | 上述配对的登记（上游新分节格式） |
+| 高 | 19 | `packages/client/ui-attachment/src/client/labels.ts` | +6 −1 | 灯箱新标签（`failed` 已对齐上游词表） |
+| 高 | 18 | `packages/host/open-in-app/src/resolver.ts` | +218 −7 | 沙箱内经宿主通道探测并启动宿主应用 |
+| 高 | 18 | `packages/client/ui-primitives/tests/image-lightbox.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
+| 高 | 15 | `packages/util/launch-environment/README.i18n.yaml` | +2 −2 | 上述配对的登记（上游新分节格式） |
+| 中 | 14 | `tsdown.config.ts` | +4 | **纯注释** |
+| 中 | 14 | `packages/host/open-in-app/tests/resolver.spec.ts` | +239 −4 | 上述解析器的测试 |
+| 中 | 10 | `packages/client/modules/tests/node-half.client.spec.ts` | +81 | `client/modules` 改动的测试 |
+| 中 | 10 | `packages/client/modules/src/index.ts` | +23 −4 | `newlineCount` 性能优化 + `resolveSync` 跨 Node 版本兜底 |
+| 中 | 5 | `packages/host/open-in-app/src/icons.ts` | +33 −9 | 宿主应用图标 |
+| 中 | 5 | `packages/host/open-in-app/README.zh.md` | +7 −5 | 文档配对 |
+| 中 | 5 | `packages/host/open-in-app/README.md` | +7 −5 | 文档配对 |
+| 中 | 5 | `packages/client/ui-attachment/tests/message-image.client.spec.tsx` | +1 −1 | 灯箱标签补齐 |
+| 低 | 4 | `lefthook.yml` | +13 −1 | typecheck 改用 npm + 启动器布局门禁 |
+| 低 | 4 | `.gitignore` | +20 | 启动器产物 + 测试残留 |
 | 低 | 1 | `packages/host/open-in-app/src/index.ts` | +34 −9 | 宿主通道接线 |
-| 低 | 1 | `packages/host/directory-picker-auto/src/index.ts` | +1 −1 | 导出 `overrideDirectoryPickerBackend` |
-| 近零 | 0 | `tsdown.config.ts` | +4 | **纯注释** |
 | 近零 | 0 | `scripts/verify-client-ui-i18n.ts` | +84 −1 | 客户端 UI i18n 门禁覆盖带壳前端 |
 | 近零 | 0 | `scripts/verify-client-ui-i18n.spec.ts` | +33 −1 | 上述门禁的测试 |
+| 近零 | 0 | `scripts/verify-repository-references.ts` | +27 −3 | fork 取证文件精确豁免 |
+| 近零 | 0 | `scripts/verify-repository-references.spec.ts` | +10 | 上述豁免的测试 |
 | 近零 | 0 | `packages/util/launch-environment/tests/launch-environment.spec.ts` | +31 −1 | 宿主逃逸事实的测试 |
 | 近零 | 0 | `packages/util/launch-environment/src/index.ts` | +40 | 识别沙箱宿主逃逸事实 |
+| 近零 | 0 | `packages/util/launch-environment/README.zh.md` | +2 | 文档配对 |
 | 近零 | 0 | `packages/util/launch-environment/README.md` | +2 | 文档配对 |
 | 近零 | 0 | `packages/host/open-in-app/tests/icons.spec.ts` | +54 | 宿主应用图标的测试 |
 | 近零 | 0 | `packages/host/open-in-app/tests/host-routes.spec.ts` | +149 −1 | 宿主路由的测试 |
 | 近零 | 0 | `packages/host/open-in-app/src/catalog.ts` | +72 −20 | 宿主应用清单 |
 | 近零 | 0 | `packages/host/directory-picker-auto/tests/resolve.spec.ts` | +30 −1 | `DSH_DIRECTORY_PICKER` 覆盖的测试 |
 | 近零 | 0 | `packages/host/directory-picker-auto/src/resolve.ts` | +19 −1 | `DSH_DIRECTORY_PICKER` 覆盖 |
-| 近零 | 0 | `packages/client/ui-theme/src/styles/base.css` | +16 −4 | 字体栈前置 Noto/WQY |
+| 近零 | 0 | `packages/host/directory-picker-auto/src/index.ts` | +1 −1 | 导出 `overrideDirectoryPickerBackend` |
 
 ---
 
@@ -607,15 +609,15 @@ IConversation 公开成员（service.ts:40-71）：
 
 ## 十二、结论汇总
 
-1. **当前不存在冲突。** 本轮已并入上游 156 个提交（到 `dsh 0.1.7-rc.1`），`upstream/master` 重新成为 HEAD 的**祖先**。那次合并的代价：唯一文本冲突是 `app-boot/src/profile.ts` 的 JSDoc（安全模式 × bundle 兼容性），另有**一处类型级冲突**——上游把 `ImageLightbox` 迁至 `ui-primitives` 时，git 改名检测把我方加载/失败态自动带进新位置，却与我方 `loadFailed` 字段名和上游 `failed` 词表相撞，只有 `pnpm run typecheck` 暴露。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
-2. **违规面很小但很"热"。** 真正触碰上游的只有 **49 个文件、+1994 −113**，占全部偏离（372 文件 / +58750 −113）的 **约 3.4%**。其余约 97% 已经待在预期位置。
+1. **当前不存在冲突。** 本轮已并入上游 346 个提交（到 `dsh 0.1.7-rc.2`，`477b4f4205`），`upstream/master` 重新成为 HEAD 的**祖先**。那次合并的代价：9 个文件出现冲突。其中两处是相邻行可直接并取——`tsdown.config.ts` 的 host glob（采纳上游去掉 `apps/desktop`）与 `ui-theme/src/styles/base.css` 的字体栈（保留我方 Noto/WQY，采纳上游 `--dsw-font-family-brand`）；一处是 JSDoc 措辞（`app-boot/src/profile.ts`）。真正需要判断的是 `profile.ts` 的语义（上游把「跳过的 bundle」改为 `Profile.skippedBundles`，与我方安全模式的 `skipThirdPartyBundles` 正交，故两者并存）、`OpenInAppAction.tsx`（上游重构该文件并抽出 `applications.ts`，与我方 `refresh` 取并集）、两份 `ui-open-in-app` README（可用性读取时机取我方、busy/error 派生取上游）与 3 份 `README.i18n.yaml`（上游改写了记录格式，按新格式重录）。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
+2. **违规面很小但很"热"。** 真正触碰上游的只有 **51 个文件、+2025 −128**，占全部偏离（374 文件 / +60101 −128）的 **约 3.4%**。其余约 97% 已经待在预期位置。
 3. **用户的目标方向被仓库门禁本身证明是对的。** `packages/support/doctor` 曾触发 **4 个门禁 18 项违规**，其中 3 项（private / publishConfig / repository）**结构上无法就地修复**；而 `apps/desktop-launcher/` 因无 package.json 而零门禁成本。阶段 1 已按此结论把 doctor 迁出 `packages/`，本节记录的是当时的判据。
 4. **有一处是纯冗余**：`packages/host/directory-picker-auto/` 的 `DSH_DIRECTORY_PICKER` 改动，与上游**已有的** `apps/web/tests/pin-browse-picker.overlay.yml` 功能完全重复，可直接删除。
 5. **有一处是纯注释**：`tsdown.config.ts` 的 +4 行全是注释，可直接回退。
 6. **有三处本质是上游 bug 修复或通用改进**（`client/modules` 的性能与跨 Node 版本兼容、灯箱的加载/失败态、`app-boot/src/index.ts` 的导出），建议上游化而不是长期藏在 fork 里。其中灯箱那处**已被上游部分吸收**：上游把 `ImageLightbox` 从 `ui-attachment` 搬到了 `ui-primitives`，本轮的改名收口把该组件的文案词表对齐到了上游既有的 `failed`。
 7. **安全模式（`profile.ts`）是承重偏离**，不可删除，出路是上游化。
 8. **客户端粘贴无法等价外移**，硬约束是缺少 `File → DraftAttachmentId` 的公开接口；最干净的做法需要上游加一个扩展点。
-9. **阶段 1 已把 workspace 机械文件从偏离里清干净**：`pnpm-lock.yaml`、`tsconfig.host.json`、`apps/cli/package.json` 三项本轮实测**已与上游一致**（doctor 迁出 `packages/` 的直接收益），而它们正是上游最热的文件（447 / 195 次改动）。剩余 49 个文件全是有意的功能偏离，不再含"动过包结构就必然变化"的机械项。
+9. **阶段 1 已把 workspace 机械文件从偏离里清干净**：`pnpm-lock.yaml`、`tsconfig.host.json`、`apps/cli/package.json` 三项本轮实测**已与上游一致**（doctor 迁出 `packages/` 的直接收益），而它们正是上游最热的文件（447 / 195 次改动）。剩余 51 个文件全是有意的功能偏离，不再含"动过包结构就必然变化"的机械项。本轮新增的 2 个 A 类文件（`scripts/translation-pairing.ts` 及其规格）源于上游退役自动配对合并机制后，玲珑构建树需要显式排除出文档语料。
 
 ---
 
@@ -641,7 +643,7 @@ doctor 迁移完成后必须同时满足：
 4. doctor 的 73 项测试全绿，且**测试必须跟随源码迁移**（`packages/*/*/src/**` 覆盖率门槛将不再覆盖 doctor——**已显式接受该损失，不另建替代门禁**，理由见迁移方案 Step 2.3 一节）。
 5. 实跑启动器预检链路：故意破坏一个 profile 的 `cordis.patch.yml`，确认 `dsh doctor` 等价路径仍能给出报告。
 
-> **执行结果（阶段 1 已完成）**：第 3 条本轮实测达成——`git diff upstream/master...HEAD` 中 `apps/cli/`、`tsconfig.host.json`、`packages/support/` 三项均已消失。第 4 条实测 doctor **73/73 通过**（本轮并入 `0.1.7-rc.1` 后重跑确认）。
+> **执行结果（阶段 1 已完成）**：第 3 条本轮实测达成——`git diff upstream/master...HEAD` 中 `apps/cli/`、`tsconfig.host.json`、`packages/support/` 三项均已消失。第 4 条实测 doctor **73/73 通过**（本轮并入 `0.1.7-rc.2` 后重跑确认）。
 
 ---
 

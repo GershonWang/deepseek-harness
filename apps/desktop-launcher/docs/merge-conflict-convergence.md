@@ -10,10 +10,10 @@
 
 | 项 | 值 |
 |---|---|
-| 上游 | `upstream/master` = 发布 `dsh 0.1.7-rc.1` 的合并（2026-09-23），已 `git fetch` 核实为远端当前 tip |
-| 本地 | 分支 `linglong-dev`，HEAD = 提交「并入上游 master（156 个提交）」 |
-| 合并关系 | 上游 tip 已是 HEAD 的祖先（本轮 156 个提交已全部并入），**当前无待合并内容**；下述冲突面只在上游下次前进后才显现 |
-| 偏离总量 | 49 个文件落在上游目录树内（另有 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录，不产生冲突）。阶段 1 执行前为 85 个 |
+| 上游 | `upstream/master` = 发布 `dsh 0.1.7-rc.2` 的合并（2026-09-24），已 `git fetch` 核实为远端当前 tip |
+| 本地 | 分支 `linglong-dev`，HEAD = 提交「并入上游 master（346 个提交）」 |
+| 合并关系 | 上游 tip 已是 HEAD 的祖先（本轮 346 个提交已全部并入），**当前无待合并内容**；下述冲突面只在上游下次前进后才显现 |
+| 偏离总量 | 51 个文件落在上游目录树内（另有 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录，不产生冲突）。阶段 1 执行前为 85 个 |
 
 复现命令：
 
@@ -132,6 +132,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 
 | 合并 | 上游提交数 | 冲突文件 | 归因 |
 |---|---:|---|---|
+| 并入 `0.1.7-rc.2` 发布合并（2026-09-25） | 346 | **9 个**：`packages/boot/app-boot/src/profile.ts`、`packages/client/ui-open-in-app/{README.md,README.zh.md,README.i18n.yaml,src/client/OpenInAppAction.tsx}`、`packages/host/open-in-app/README.i18n.yaml`、`packages/util/launch-environment/README.i18n.yaml`、`packages/client/ui-theme/src/styles/base.css`、`tsdown.config.ts` | **安全模式（上游新增 `skippedBundles`）+ open-in-app（我方 `refresh`）**，另有 2 处相邻行与 3 处配对登记 |
 | 并入 `0.1.7-rc.1` 发布合并（2026-09-24） | 156 | `packages/boot/app-boot/src/profile.ts` | **安全模式 + bundle 兼容性**（同一段 JSDoc）——唯一冲突 |
 | 并入 `0.1.7-alpha.2` 发布合并（2026-09-23） | 162 | `apps/cli/package.json` | **doctor**（依赖行）——唯一冲突 |
 | 并入上游 master（2026-09-22） | 1299 | `apps/cli/src/args.ts`、`apps/cli/src/bin.ts`、`packages/boot/app-boot/src/profile.ts` | **doctor + 安全模式**（3 个） |
@@ -141,27 +142,27 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 四条实测结论：
 
 1. **`apps/desktop-launcher/` 零冲突**——上游没有这个目录，它是纯新增。冲突不可能出现在这里。
-2. **最近一次合并的唯一文本冲突是安全模式的 JSDoc**（`packages/boot/app-boot/src/profile.ts`），上一轮是 doctor 的依赖行（`apps/cli/package.json`）。
+2. **最近一次合并（rc.2）的冲突高度集中在承重偏离上**：9 个冲突文件里 6 个属 open-in-app 家族（`OpenInAppAction.tsx`、两份 README 与三份 `.i18n.yaml` 登记）、1 个是安全模式（`profile.ts`），剩下 2 个只是相邻行（`tsdown.config.ts`、`ui-theme/base.css`）。再上一轮（rc.1）的唯一冲突同样落在安全模式的 JSDoc。
 3. **但最大冲突源不是 doctor**：1299 提交那次合并里，open-in-app 贡献 8 个冲突文件，doctor 只有 3 个。
-4. **文本无冲突不等于合并正确**：上游本轮把 `ImageLightbox` 由 `ui-attachment` 迁至 `ui-primitives`，git 的改名检测把 fork 加在该组件上的加载/失败态**自动带入新位置**（`git merge-tree` 报告零冲突），但 fork 的字段名 `loadFailed` 与上游在共享灯箱边界上既有的 `failed` 词表冲突，只有 `pnpm run typecheck` 才暴露出来。**改名+改内容的文件必须靠类型检查兜底，不能只看 `merge-tree` 的冲突列表。**
+4. **文本无冲突不等于合并正确**：两次实例都靠类型检查兜底。rc.1 时，上游把 `ImageLightbox` 由 `ui-attachment` 迁至 `ui-primitives`，git 的改名检测把 fork 加在该组件上的加载/失败态**自动带入新位置**（`git merge-tree` 报告零冲突），但 fork 的字段名 `loadFailed` 与上游在共享灯箱边界上既有的 `failed` 词表冲突；rc.2 时，上游给 `browser-plugin.client.spec.ts` 的注入对象加了可选字段守卫，我方 `refresh` 的调用点未随之更新，`git merge-tree` 同样报告零冲突，只有 `pnpm run typecheck` 以 TS2722 暴露。**改名+改内容、或上游改写共享测试断言面的文件，必须靠类型检查兜底，不能只看 `merge-tree` 的冲突列表。**
 
 ---
 
-## 四、当前冲突面全量清单（49 文件）
+## 四、当前冲突面全量清单（51 文件）
 
-> **本节已按阶段 1（doctor 迁出 `packages/`）的执行结果重校。** 原 85 文件清单中的 A 组（doctor 框架本体，25 文件）与 B 组（doctor 的 CLI 与 TS 接线，9 文件）已消除；D 组由 7 降到 5（两处 gate 脚本的 doctor 白名单已删除，脚本回到上游）。实测命令见 §一。
+> **本节已按阶段 1（doctor 迁出 `packages/`）的执行结果重校。** 原 85 文件清单中的 A 组（doctor 框架本体，25 文件）与 B 组（doctor 的 CLI 与 TS 接线，9 文件）已消除；D 组由 7 降到 5（两处 gate 脚本的 doctor 白名单已删除，脚本回到上游），本轮因上游退役自动配对合并机制、玲珑构建树需显式排除而回到 7。实测命令见 §一。
 
 按 fork 特性归组。**「冲突属性」**列决定该组在上游下次前进时的代价。
 
 | 组 | 文件数 | 冲突属性 | 内容 |
 |---|---:|---|---|
 | C 安全模式 | 3 | **A 类 2 + B 类 1** | `packages/boot/app-boot/src/profile.ts`、`src/index.ts`、`tests/safe-mode.spec.ts`（新增） |
-| D 门禁适配 | 5 | **A 类 4 + B 类 1** | `scripts/verify-repository-references.{ts,spec.ts}`、`verify-client-ui-i18n.{ts,spec.ts}`、`fix-deploy-closure.mjs`（新增） |
+| D 门禁适配 | 7 | **A 类 6 + B 类 1** | `scripts/verify-repository-references.{ts,spec.ts}`、`verify-client-ui-i18n.{ts,spec.ts}`、`translation-pairing.{ts,spec.ts}`（本轮新增，排除玲珑构建树）、`fix-deploy-closure.mjs`（新增） |
 | E open-in-app / 宿主逃逸 | 24 | **A 类** | `packages/host/open-in-app/`、`packages/client/ui-open-in-app/`、`packages/util/launch-environment/` |
 | F 壳内剪贴板 | 3 | **A 类 1 + B 类 2** | `ui-conversation/src/client/desktop-clipboard.ts`（新增）、`InputBar.tsx`、对应测试（新增） |
 | G 机械配置 | 3 | **A 类** | `.gitignore`、`lefthook.yml`、`tsdown.config.ts` |
 | H 其它客户端 | 11 | **A 类** | `client/modules`、`ui-attachment`、`ui-primitives`（`ImageLightbox` 已随上游由 `ui-attachment` 迁至此处）、`ui-theme/base.css`、`host/directory-picker-auto` |
-| | **49** | **A 类 45 + B 类 4** | |
+| | **51** | **A 类 47 + B 类 4** | |
 
 **已消除的两组（阶段 1）**：A 组 25 个文件整体迁到 `apps/desktop-launcher/doctor/`（C 类新目录，不产生冲突）；B 组 9 个文件里，`apps/cli/` 6 个、`tsconfig.host.json`、`tsconfig.base.json` 回到上游原文，`pnpm-lock.yaml` 的 doctor 条目同步摘除后也与上游一致。**这四个文件（`pnpm-lock.yaml` 1811 次、`tsconfig.host.json` 346 次、`tsconfig.base.json` 241 次、`apps/cli/package.json` 160 次）是全仓上游热度最高的四个**，其中 `apps/cli/package.json` 正是上一次合并的唯一冲突文件。
 
@@ -170,6 +171,8 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 ---
 
 ## 五、归因：冲突 = 上游热文件 ∩ fork 改动
+
+> **本节口径待重校（已知遗留，先于本次合并）。** 下表写于阶段 1 之前，其中 `pnpm-lock.yaml`、`tsconfig.host.json`、`tsconfig.base.json`、`apps/cli/package.json`、`apps/cli/src/args.ts`、`apps/cli/src/bin.ts`、`apps/cli/tests/args.spec.ts` 七项**已不在当前偏离面内**（见 §四）；且表中数字按其自述窗口（`--since=2026-03-01`）**无法复现**——实测无 `-m` 得 911、带 `-m` 得 5790，均非表中的 1811。当前**权威且可复现**的热度表是 [fork-divergence.md](./fork-divergence.md) §四（窗口：最近 300 个 `upstream/master` 提交、经 `-m` 展开）。本节暂留作历史记录，重算口径见 §9 第 6 条。
 
 冲突概率与「上游改动该文件的频次」正相关。以下是当前 A 类文件的上游热度（统计窗口：2026-03-01 起至上游 tip）：
 
@@ -308,7 +311,8 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 2. **~~是否接受 doctor 失去覆盖率门槛~~——已决议：显式接受，不另建替代门禁**。阶段 1 后实测 doctor 覆盖率为 66.36%，10 个文件仅 2 个达 100%，该门槛本就未被满足，"把 100% 搬过来"无法实现。详见 [doctor-migration-plan.md](./doctor-migration-plan.md) 的 Step 2.3 一节。
 3. **本文档是否加入 `verify-repository-references` 豁免清单**——加入后可写裸提交哈希，与同目录另四份文档一致；**该改动需单独批准**。
 4. **open-in-app 的收敛路径未调研**——D1/D2/D3 三选一需要一次独立可行性调研（本文档只给出候选与已证实的机制先例）。
-5. **[fork-divergence.md](./fork-divergence.md) 基准已重校**——本轮并入 `0.1.7-rc.1` 时同步刷新为「A 类 45 + B 类 4 / 49 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录），总偏离 372 文件 / +58750 −113。注意该文档的**处置建议**（§七）只更新了基准，逐项收敛本身尚未执行。
+5. **[fork-divergence.md](./fork-divergence.md) 基准已重校**——本轮并入 `0.1.7-rc.2` 时同步刷新为「A 类 47 + B 类 4 / 51 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录），总偏离 374 文件 / +60101 −128。注意该文档的**处置建议**（§七）只更新了基准，逐项收敛本身尚未执行。
+6. **本文档 §五 的上游热度表口径待重校**——该表写于阶段 1 之前，既含已消除的文件，又无法按其自述命令复现（详见该节提示）。倾向按 [fork-divergence.md](./fork-divergence.md) §四 的窗口（最近 300 个上游提交 + `-m` 展开）统一重算并删除重复，**但改变本文档统计口径需单独确认**。
 
 ---
 
@@ -316,7 +320,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 
 | 文档 | 内容 |
 |---|---|
-| [fork-divergence.md](./fork-divergence.md) | fork 与上游的偏离全貌、doctor 与客户端粘贴两个专项的收敛方案（基准待更新） |
+| [fork-divergence.md](./fork-divergence.md) | fork 与上游的偏离全貌、doctor 与客户端粘贴两个专项的收敛方案 |
 | [AUDIT.md](./AUDIT.md) | 启动器**自身**缺陷清单 |
 | [i18n.md](./i18n.md) | 外壳国际化方案 |
 | [index.md](./index.md) | 本目录索引 |
