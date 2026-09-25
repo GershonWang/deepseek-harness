@@ -38,4 +38,4 @@ Status: implemented
 
 `node frontend/tools/preview.mjs verify` 在当前提交的前端上通过，并打印两套主题下全部七个状态的几何：常规状态卡片 307/308，失败态带安全模式块 398，地址框 41，服务地址输入框 66，叠放异常高时 116。
 
-这条门禁被证明会拒绝无效情形：拿掉 `.ext-state` 的预留行后，服务地址输入框在两个状态之间变化 18 px，命令以退出码 1 结束并点名该测量值。`node --test frontend/test-app.cjs`（37 例）不受影响，因为工具读的是 `index.html` 而不是那个桩。
+这条门禁被证明会拒绝无效情形：拿掉 `.ext-state` 的预留行后，服务地址输入框在两个状态之间变化 18 px，命令以退出码 1 结束并点名该测量值。`node --test frontend/test-app.cjs`（65 例）不受影响，因为工具读的是 `index.html` 而不是那个桩。

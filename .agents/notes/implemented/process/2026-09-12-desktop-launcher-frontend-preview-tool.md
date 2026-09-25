@@ -38,4 +38,4 @@ The tool only measures the states in its fixture table. A new dialog, or a new s
 
 `node frontend/tools/preview.mjs verify` passes on the committed frontend and prints the geometry of all seven states in both themes: card 307/308 for every routine state, 398 for the failure state with the safe-mode block, address box 41, service-address field 66, and 116 when the stack is unusually tall.
 
-The gate was shown to reject an invalid case: removing the reserved line from `.ext-state` makes the service-address field vary by 18 px between states, and the command exits 1 naming that measurement. `node --test frontend/test-app.cjs` (37 cases) is unaffected, since the tool reads `index.html` rather than the stub.
+The gate was shown to reject an invalid case: removing the reserved line from `.ext-state` makes the service-address field vary by 18 px between states, and the command exits 1 naming that measurement. `node --test frontend/test-app.cjs` (65 cases) is unaffected, since the tool reads `index.html` rather than the stub.
