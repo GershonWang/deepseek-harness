@@ -178,6 +178,34 @@ else
   expect_fail "未认领依赖非零退出并指名" "$TMP/out-unclaimed" "FAIL libnewdep-9.9" "规则表里认领"
 fi
 
+# --- 场景 8：库搜索路径上有断链 → 失败 ---
+# alternatives 顶层链接指向 /etc/alternatives（基础层提供、不进 $PREFIX），链接即断；
+# 依赖该库的动态库会被 dynamic linker 静默跳过，插件整块失效（实测 avenc_aac 未注册）。
+new_case dangling
+cp "$REAL_YAML" "$CASE/linglong.yaml"
+healthy_prefix "$PREFIX"
+ln -s /etc/alternatives/libblas.so.3-x86_64-linux-gnu "$PREFIX/lib/x86_64-linux-gnu/libblas.so.3"
+if run_case "$TMP/out-dangling"; then
+  bad "库搜索路径上的断链应失败"
+else
+  expect_fail "库搜索路径断链非零退出并指名" "$TMP/out-dangling" "断链" "libblas.so.3"
+fi
+
+# --- 场景 9：按设计就断的链接不得误报（aspell/.rws 指向宿主挂载的 /var/lib，bin/ 下的
+# alternatives 链接无消费者）→ 必须通过，否则门禁会被真实产物里的正常链接逼出误报 ---
+new_case designed_dangling
+cp "$REAL_YAML" "$CASE/linglong.yaml"
+healthy_prefix "$PREFIX"
+mkdir -p "$PREFIX/lib/aspell" "$PREFIX/bin"
+ln -s /var/lib/aspell/en-common.rws "$PREFIX/lib/aspell/en-common.rws"
+ln -s /etc/alternatives/open "$PREFIX/bin/open"
+if run_case "$TMP/out-designed"; then
+  ok "按设计就断的链接不误报"
+else
+  bad "按设计就断的链接不应导致失败"
+  cat "$TMP/out-designed" >&2
+fi
+
 echo
 if [ "$fail" -ne 0 ]; then
   echo "test-verify-merged-deps: $fail 项失败（通过 $pass 项）" >&2

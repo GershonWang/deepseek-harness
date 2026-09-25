@@ -102,6 +102,25 @@ if [ -n "$residue" ]; then
   fail=1
 fi
 
+# --- 1b. 断链符号链接 ---
+# 与第 1 项同类：都是「装得上但某功能静默失效」的结构性损坏。depends 合并会原样保留
+# 符号链接，而 Debian 的 alternatives 顶层链接指向 /etc/alternatives 这个绝对路径，
+# 该目录由基础层提供、不进 $PREFIX，链接即断。后果不是链接报错，而是依赖它的动态库
+# （libgstlibav.so 依赖 libblas/liblapack）加载失败，插件被整块跳过（实测 avenc_aac
+# 因此未注册）。repair-alternatives-links.sh 负责修复；这里断言修复确实生效，避免
+# 修复脚本被移除或改坏之后、缺陷重新以静默方式回到产物里。
+# 检查范围有意限定在 lib/x86_64-linux-gnu：只有这里的断链会被动态链接器遇到，从而
+# 静默跳过整个依赖它的库。不扫全树的理由是产物里存在「按设计就断」的链接，全扫必然
+# 误报——实测两类：lib/aspell/*.rws 指向 /var/lib/aspell（运行期由宿主挂载该目录），
+# 以及 bin/open、bin/x-terminal-emulator 这类 alternatives 链接（本项目用的是
+# xdg-open，这两个没有消费者）。把它们一并判为缺陷会让门禁失去可信度。
+dangling=$(find "$PREFIX/lib/x86_64-linux-gnu" -maxdepth 1 -type l ! -exec test -e {} \; -print 2>/dev/null | head -5 || true)
+if [ -n "$dangling" ]; then
+  echo "FAIL 库搜索路径上存在断链符号链接（dynamic linker 会静默跳过其依赖方）：" >&2
+  printf '%s\n' "$dangling" | sed 's/^/       /' >&2
+  fail=1
+fi
+
 # --- 2. 逐个 depends 包套用认领规则 ---
 while IFS= read -r pkg; do
   rule=$(awk -F'|' -v p="$pkg" '$1 == p { print $2; exit }' "$RULES")
