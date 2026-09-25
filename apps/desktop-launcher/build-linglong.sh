@@ -57,6 +57,11 @@ fi
 sh apps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
 echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
 sh apps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files
+# depends 的合并发生在 build: 段之后，alternatives 断链那时才出现，所以修复必须在这里做，
+# 不能放进 build: 段（放进去会因为链接尚不存在而空转，且没有任何报错）。
+# 修复必须排在下面的校验之前：校验断言的正是修复后的状态。
+echo "==> 修复 depends 合并带进来的 alternatives 断链"
+sh apps/desktop-launcher/linglong/repair-alternatives-links.sh linglong/output/binary/files
 echo "==> 校验 depends 实体是否真的进了合并产物树（容器内看不到它们）"
 if sh apps/desktop-launcher/linglong/verify-merged-deps.sh linglong/output/binary/files; then
   echo "==> depends 实体校验通过"

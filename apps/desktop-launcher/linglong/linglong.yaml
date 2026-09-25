@@ -182,15 +182,6 @@ build: |
     /project/apps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
     /project/apps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono
 
-  # depends 里的 BLAS/LAPACK 走 Debian alternatives 机制，顶层链接是指向
-  # /etc/alternatives 的绝对路径；该目录由基础层提供，不随「新装差异」合并进
-  # $PREFIX，于是包内这两个链接的目标不存在。安静失效的后果比「链接报错」严重得多：
-  # libgstlibav.so（GStreamer 的 FFmpeg 后端）动态依赖它们，链接断掉时插件扫描器
-  # 只打印一行 warning 就跳过整个插件——构建、安装、启动全都正常，只是依赖它的
-  # 功能不工作（实测 avenc_aac 因此未注册）。实体其实已随包进来，改成指向包内实体的
-  # 相对链接即可。脚本对修不了的断链硬失败，理由见其头部注释。
-  sh /project/apps/desktop-launcher/linglong/repair-alternatives-links.sh "$PREFIX"
-
 buildext:
   apt:
     build_depends:
