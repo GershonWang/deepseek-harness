@@ -37,6 +37,19 @@ describe('OpenInAppController availability', () => {
     expect(malformed.apps.getSnapshot()).toEqual([])
   })
 
+  it('reports an icon source only for the apps the host did not mark iconless', async () => {
+    const controller = new OpenInAppController(async () => jsonResponse({ apps: ['finder', 'filemanager', 7], iconless: ['filemanager', 8] }))
+    await controller.load()
+    expect(controller.apps.getSnapshot()).toEqual(['finder', 'filemanager'])
+    expect(controller.hasIconSource('finder')).toBe(true)
+    expect(controller.hasIconSource('filemanager')).toBe(false)
+
+    // 旧宿主不带该字段：按"可能有图标"处理，退回改动前的请求行为。
+    const legacy = new OpenInAppController(async () => jsonResponse({ apps: ['filemanager'] }))
+    await legacy.load()
+    expect(legacy.hasIconSource('filemanager')).toBe(true)
+  })
+
   it('re-reads availability on refresh and publishes the fresh list', async () => {
     const answers = [['finder'], ['finder', 'cursor']]
     const fetcher = vi.fn(async () => jsonResponse({ apps: answers.shift() ?? [] }))

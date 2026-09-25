@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 import { OPEN_IN_APP_CATALOG, type OpenInAppApp } from '../src/catalog.ts'
-import { extractAppIcon } from '../src/icons.ts'
+import { extractAppIcon, hasIconSource } from '../src/icons.ts'
 import type { OpenInAppInternals, OpenInAppResolvedLaunch } from '../src/resolver.ts'
 
 const TIMEOUT_MS = 5_000
@@ -51,6 +51,26 @@ function linuxEnv(home: string): Readonly<Record<string, string>> {
 function withIcon(kind: 'app-bundle' | 'executable', path: string): OpenInAppResolvedLaunch {
   return { launch: { kind: 'argv', command: 'unused', args: [] }, icon: { kind, path } }
 }
+
+/** 一份没有图标来源的解析结果：只有启动命令，既不带图标也不指名宿主桌面条目。 */
+const NO_SOURCE: OpenInAppResolvedLaunch = { launch: { kind: 'argv', command: 'xdg-open', args: [] } }
+
+describe('icon source availability', () => {
+  it('reports no source for a Linux application whose spec declares no desktop entry', () => {
+    // filemanager 只有 xdg-open 启动命令：图标路由对它只能回 404，apps 路由据此报 iconless。
+    expect(hasIconSource(byId('filemanager'), NO_SOURCE, bare({ platform: 'linux' }))).toBe(false)
+  })
+
+  it('reports the desktop entry named by the spec or by the host launch', () => {
+    expect(hasIconSource(byId('vscode'), NO_SOURCE, bare({ platform: 'linux' }))).toBe(true)
+    expect(hasIconSource(byId('filemanager'), { ...NO_SOURCE, hostDesktopId: 'org.gnome.Nautilus' }, bare({ platform: 'linux' }))).toBe(true)
+  })
+
+  it('reads the resolution artwork on platforms that carry it', () => {
+    expect(hasIconSource(byId('finder'), withIcon('app-bundle', '/missing/Finder.app'), bare({ platform: 'darwin' }))).toBe(true)
+    expect(hasIconSource(byId('finder'), NO_SOURCE, bare({ platform: 'darwin' }))).toBe(false)
+  })
+})
 
 describe('macOS bundle icons', () => {
   async function bundleWith(icns: string | null, plist?: string): Promise<string> {

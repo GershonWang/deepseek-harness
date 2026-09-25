@@ -96,7 +96,8 @@ export function apply(ctx: ClientContext): void {
       launch: (appId, path) => controller.launch(appId, path),
       choose: (appId) => { controller.choose(appId) },
       refresh: () => { void controller.refresh() },
-      iconUrl: appId => `${OPEN_IN_APP_ICON_PREFIX_ROUTE}/${appId}`,
+      // 宿主已报出没有图标来源的应用直接给 null：图标路由只会回 404，省掉这次请求。
+      iconFor: appId => controller.hasIconSource(appId) ? `${OPEN_IN_APP_ICON_PREFIX_ROUTE}/${appId}` : null,
     }),
   }, OpenInAppAction))
   const applications: OpenPathInjected['applications'] = (path, signal) => paths.applications(path, signal)

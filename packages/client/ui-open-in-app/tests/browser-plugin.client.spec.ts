@@ -208,7 +208,7 @@ describe('open-in-app browser half', () => {
       void init
       const url = String(input)
       if (url === 'open-in-app/apps') {
-        return new Response(JSON.stringify({ apps: ['finder', 'cursor', 7] }), { status: 200 })
+        return new Response(JSON.stringify({ apps: ['finder', 'cursor', 7], iconless: ['cursor', 8] }), { status: 200 })
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 })
     })
@@ -216,7 +216,7 @@ describe('open-in-app browser half', () => {
     const { ctx, fiber } = await bench()
     const entry = ctx.slots.entries('conversation.session.header.utilities')[0]
     const injected: Partial<OpenInAppActionInjected> | undefined = entry?.inject?.()
-    if (injected?.hooks === undefined || injected.iconUrl === undefined
+    if (injected?.hooks === undefined || injected.iconFor === undefined
       || injected.choose === undefined || injected.launch === undefined
       || injected.refresh === undefined) {
       throw new Error('expected the injected open-in-app actions')
@@ -226,7 +226,9 @@ describe('open-in-app browser half', () => {
     await vi.waitFor(() => {
       expect(hooks.openInAppApps.getSnapshot()).toEqual(['finder', 'cursor'])
     })
-    expect(injected.iconUrl('cursor')).toBe('open-in-app/icon/cursor')
+    expect(injected.iconFor('finder')).toBe('open-in-app/icon/finder')
+    // 宿主报出没有图标来源的应用不再拼地址：控件直接用通用图标，不发请求。
+    expect(injected.iconFor('cursor')).toBeNull()
 
     injected.choose('cursor')
     expect(hooks.openInAppChoice.getSnapshot()).toBe('cursor')

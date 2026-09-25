@@ -148,12 +148,49 @@ async function extractLinuxIcon(
 }
 
 /**
- * Extract one resolved application's icon on this host.
- * @param app - catalog entry (its Linux spec names the desktop entry).
- * @param resolved - the entry's verified launch (its icon source on macOS/Windows).
- * @param timeoutMs - per-command deadline for extraction host commands.
- * @param internals - platform and runner hooks for deterministic tests.
- * @returns the icon bytes and media type, or null when this host serves none.
+ * 该解析结果是否存在可读取的图标来源：Linux 看宿主条目或 spec 声明的桌面条目，
+ * 其余平台看解析结果自带的图标来源。判断只读解析结果、不触发提取，所以 apps
+ * 路由可以据此提前告诉客户端"这个应用没有图标"，省掉必然 404 的图标请求。
+ * @param app - 目录中的应用条目。
+ * @param resolved - 该应用当前的解析结果。
+ * @param internals - 平台与沙箱内部信息，与提取时传入的保持一致。
+ * @returns 有来源时为 true；false 表示图标路由只能回 404。
+ */
+export function hasIconSource(
+  app: OpenInAppApp,
+  resolved: OpenInAppResolvedLaunch,
+  internals: OpenInAppInternals = {},
+): boolean {
+  return iconSourceOf(app, resolved, resolveInternals(internals).platform) !== undefined
+}
+
+/**
+ * 提取时要读的图标来源：Linux 是桌面条目 id，其余平台是解析结果里的图标路径。
+ * 与 {@link extractAppIcon} 共用这一处判断，避免"有没有来源"与"能不能提取"两套口径。
+ * @param app - 目录中的应用条目。
+ * @param resolved - 该应用当前的解析结果。
+ * @param platform - 已补默认值的平台。
+ * @returns 来源描述；undefined 表示没有任何来源可读。
+ */
+function iconSourceOf(
+  app: OpenInAppApp,
+  resolved: OpenInAppResolvedLaunch,
+  platform: NodeJS.Platform,
+): { readonly desktopId: string } | { readonly icon: NonNullable<OpenInAppResolvedLaunch['icon']> } | undefined {
+  if (platform === 'linux') {
+    const desktopId = resolved.hostDesktopId ?? specFor(app, platform)?.desktopId
+    return desktopId === undefined ? undefined : { desktopId }
+  }
+  return resolved.icon === undefined ? undefined : { icon: resolved.icon }
+}
+
+/**
+ * 提取一个应用在宿主上的图标，供图标路由使用。
+ * @param app - 已解析的目录条目（Linux 由它的规格指名桌面条目）。
+ * @param resolved - 该条目已验证的启动（macOS/Windows 上同时给出图标来源）。
+ * @param timeoutMs - 提取宿主命令的单次截止时间。
+ * @param internals - 平台与运行器钩子，供测试固定结果。
+ * @returns 图标字节与媒体类型；本宿主没有来源或提取失败时为 null。
  */
 export async function extractAppIcon(
   app: OpenInAppApp,
@@ -162,24 +199,22 @@ export async function extractAppIcon(
   internals: OpenInAppInternals = {},
 ): Promise<OpenInAppIcon | null> {
   const completed = resolveInternals(internals)
-  if (completed.platform === 'linux') {
+  const source = iconSourceOf(app, resolved, completed.platform)
+  if (source === undefined) return null
+  if ('desktopId' in source) {
     // A host launch carries the entry it came from: its `Icon=` key lives in
     // the host's data directories, while a sandbox-local launch uses the
     // spec's own desktop id in the container's directories.
-    const hostDesktopId = resolved.hostDesktopId
     const hostRootfs = completed.hostEscape?.hostRootfs
-    const desktopId = hostDesktopId ?? specFor(app, completed.platform)?.desktopId
-    if (desktopId === undefined) return null
-    const dataDirs = hostDesktopId !== undefined && hostRootfs !== undefined
+    const dataDirs = resolved.hostDesktopId !== undefined && hostRootfs !== undefined
       ? hostDataDirectories(hostRootfs, completed)
       : xdgDataDirectories(completed)
-    return extractLinuxIcon(desktopId, dataDirs, completed)
+    return extractLinuxIcon(source.desktopId, dataDirs, completed)
   }
-  if (resolved.icon === undefined) return null
-  if (resolved.icon.kind === 'app-bundle') {
-    const bytes = await extractBundleIconPng(resolved.icon.path, timeoutMs, completed)
+  if (source.icon.kind === 'app-bundle') {
+    const bytes = await extractBundleIconPng(source.icon.path, timeoutMs, completed)
     return bytes === null ? null : { bytes, contentType: 'image/png' }
   }
-  const bytes = await extractExecutableIconPng(resolved.icon.path, timeoutMs, completed)
+  const bytes = await extractExecutableIconPng(source.icon.path, timeoutMs, completed)
   return bytes === null ? null : { bytes, contentType: 'image/png' }
 }

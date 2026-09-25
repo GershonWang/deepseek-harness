@@ -29,6 +29,8 @@ interface Bench {
 
 function bench(over: {
   apps?: readonly string[] | null
+  /** 宿主报出"没有图标来源"的应用 id，控件据此不拼图标地址。 */
+  iconless?: readonly string[]
   choice?: string
   cwd?: string
   shortcuts?: readonly ShortcutCatalogEntry[]
@@ -66,7 +68,7 @@ function bench(over: {
     launch,
     choose,
     refresh,
-    iconUrl: (appId: string) => `open-in-app/icon/${appId}`,
+    iconFor: (appId: string) => over.iconless?.includes(appId) === true ? null : `open-in-app/icon/${appId}`,
     t,
   } as OpenInAppActionProps
   return { props, launch, choose, refresh }
@@ -163,6 +165,23 @@ describe('OpenInAppAction launching', () => {
     expect(b.launch).not.toHaveBeenCalled()
     const image = view.container.querySelector('img')!
     fireEvent.error(image)
+    expect(view.container.querySelector('img')).toBeNull()
+    expect(view.container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('does not re-request an icon that already failed in this page', () => {
+    const first = render(<OpenInAppAction {...bench({ apps: ['terminal'], cwd: '/w' }).props} />)
+    fireEvent.error(first.container.querySelector('img')!)
+    expect(first.container.querySelector('img')).toBeNull()
+    // 重新挂载：该地址本页已取失败过一次，不重新请求，直接画通用图标。
+    cleanup()
+    const second = render(<OpenInAppAction {...bench({ apps: ['terminal'], cwd: '/w' }).props} />)
+    expect(second.container.querySelector('img')).toBeNull()
+    expect(second.container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('renders only the generic glyph for an application the host served without an icon source', () => {
+    const view = render(<OpenInAppAction {...bench({ apps: ['filemanager'], cwd: '/w', iconless: ['filemanager'] }).props} />)
     expect(view.container.querySelector('img')).toBeNull()
     expect(view.container.querySelector('svg')).not.toBeNull()
   })

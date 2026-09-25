@@ -25,9 +25,14 @@ export const OPEN_IN_APP_OPEN_PATH = '/open-in-app/open'
 /** Browser-relative form of {@link OPEN_IN_APP_OPEN_PATH}. */
 export const OPEN_IN_APP_OPEN_ROUTE = OPEN_IN_APP_OPEN_PATH.slice(1)
 
-/** Apps-route response: catalog ids probed as installed, in menu order. */
+/** Apps-route response: catalog ids probed as installed, in menu order, with the ones lacking an icon source. */
 export interface OpenInAppAppsPayload {
   readonly apps: readonly string[]
+  /**
+   * `apps` 中没有图标来源的 id：图标路由对这些 id 只能回 404，客户端因此不必发起请求。
+   * 只覆盖"宿主本来就没有图标来源"的应用；提取阶段才失败的 404 仍由客户端兜底。
+   */
+  readonly iconless: readonly string[]
 }
 
 /** Open-route request body. */

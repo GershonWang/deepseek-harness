@@ -32,6 +32,20 @@ export class OpenInAppController {
   /** Current launch, shared by pointer and keyboard gestures. */
   readonly operation = createSnapshotStore<OpenInAppLaunchState>({ phase: 'idle', path: null })
 
+  /** 没有图标来源的应用 id；与 {@link apps} 同一次读取一起换成新值。 */
+  private iconless: readonly string[] = []
+
+  /**
+   * 宿主是否可能为这个应用提供图标。宿主报告没有图标来源时为 false：图标路由对这类应用
+   * （只有启动命令、没有桌面条目的）只能回 404，调用方据此跳过请求、直接画通用图标。
+   * 只在 {@link apps} 发布后读取，因此应用清单变化一定会把新结论带到渲染。
+   * @param appId - 目录中的应用 id。
+   * @returns 有可能提供图标时为 true。
+   */
+  hasIconSource(appId: string): boolean {
+    return !this.iconless.includes(appId)
+  }
+
   /**
    * Resolve the remembered nameable installed application, with the button's first-app fallback.
    * @returns the installed app id, or undefined while unavailable.
@@ -106,6 +120,7 @@ export class OpenInAppController {
 
   private async run(): Promise<void> {
     let apps: readonly string[] = []
+    let iconless: readonly string[] = []
     try {
       const response = await this.fetcher(OPEN_IN_APP_APPS_ROUTE, {
         headers: { accept: 'application/json' },
@@ -113,11 +128,14 @@ export class OpenInAppController {
       if (response.ok) {
         const payload = await response.json() as OpenInAppAppsPayload
         if (Array.isArray(payload.apps)) apps = payload.apps.filter(id => typeof id === 'string')
+        // 字段缺失（旧宿主或缓存的旧 bundle）时按"可能有图标"处理，退回改动前的行为。
+        if (Array.isArray(payload.iconless)) iconless = payload.iconless.filter(id => typeof id === 'string')
       }
     } catch {
       // Swallows network failures: an unreachable host reads as no apps, and
       // the header simply shows no button rather than a broken one.
     }
+    this.iconless = iconless
     this.apps.set(apps)
   }
 }

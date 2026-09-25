@@ -37,10 +37,11 @@ import {
   launchResolved, refreshHostEntries, resolveLaunch, resolveOpenInAppApps,
   type OpenInAppInternals, type OpenInAppResolvedLaunch,
 } from './resolver.ts'
-import { extractAppIcon, type OpenInAppIcon } from './icons.ts'
+import { extractAppIcon, hasIconSource, type OpenInAppIcon } from './icons.ts'
 import { internals } from './internals.ts'
 import {
   OPEN_IN_APP_APPS_PATH, OPEN_IN_APP_ICON_PREFIX_PATH, OPEN_IN_APP_OPEN_PATH,
+  type OpenInAppAppsPayload,
 } from './shared.ts'
 
 export type * from './shared.ts'
@@ -224,7 +225,16 @@ export function apply(ctx: Context, config: Config): void {
         sendMethodNotAllowed(res, 'GET')
         return
       }
-      sendJson(res, 200, { apps: [...(await availabilityForMenu()).keys()] })
+      const available = await availabilityForMenu()
+      const apps = [...available.keys()]
+      // 图标路由对没有图标来源的应用只能回 404：这里一并报出这些 id，客户端就不必
+      // 发起必然失败的请求（`filemanager`、`explorer` 这类只有启动命令、没有桌面条目的应用）。
+      const iconless = apps.filter((id) => {
+        const app = OPEN_IN_APP_CATALOG.find(entry => entry.id === id)
+        const resolved = available.get(id)
+        return app === undefined || resolved === undefined || !hasIconSource(app, resolved, catalogInternals())
+      })
+      sendJson(res, 200, { apps, iconless } satisfies OpenInAppAppsPayload)
     },
   }), `open-in-app: GET ${OPEN_IN_APP_APPS_PATH}`)
 

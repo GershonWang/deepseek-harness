@@ -64,12 +64,24 @@ export function useOpenTargetGesture(execute: OpenTargetButtonProps['execute'], 
   }
 }
 
-/** One application image with a per-image fallback, shared by main and menu buttons. */
+/**
+ * 本页取图标失败过的地址。宿主没有图标来源的应用已经不再请求图标，剩下的失败发生在提取阶段，
+ * 而图标控件每次挂载都会重新请求同一个地址：这里把失败记到本页，同一个地址只请求一次，
+ * 之后直接画通用图标（刷新页面即重新尝试）。
+ */
+const failedIcons = new Set<string>()
+
+/**
+ * 一个应用图标：有地址就渲染图片，没有地址或本页已取失败时退回通用图标。
+ * @param props - 图标地址（宿主不提供时为 null）与像素尺寸。
+ * @returns 图标元素；没有地址或本页已取失败时为通用图标。
+ */
 function ApplicationIcon({ source, size = 14 }: { source: string | null; size?: number }): ReactNode {
-  const [failed, setFailed] = useState(false)
-  return source === null || failed
+  const [failed, setFailed] = useState(() => source !== null && failedIcons.has(source))
+  const shown = source !== null && !failed ? source : null
+  return shown === null
     ? <IconRightUpOutlineRegular size={size} />
-    : <img src={source} width={size} height={size} className={css.appIcon} alt="" draggable={false} onError={() => { setFailed(true) }} />
+    : <img src={shown} width={size} height={size} className={css.appIcon} alt="" draggable={false} onError={() => { failedIcons.add(shown); setFailed(true) }} />
 }
 
 /**

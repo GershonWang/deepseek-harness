@@ -140,7 +140,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
     }
     const base = await boot([{ source, values: { SSH_CONNECTION: 'stale-connection', SSH_TTY: '/dev/pts/stale' } }])
 
-    expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: ['finder', 'terminal'] })
+    expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: ['finder', 'terminal'], iconless: [] })
   })
 
   it.each([
@@ -155,7 +155,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
 
     const apps = await fetch(`${base}/open-in-app/apps`)
     expect(apps.status).toBe(200)
-    expect(await apps.json()).toEqual({ apps: [] })
+    expect(await apps.json()).toEqual({ apps: [], iconless: [] })
     expect((await fetch(`${base}/open-in-app/icon/finder`)).status).toBe(404)
     const open = await fetch(`${base}/open-in-app/open`, {
       method: 'POST',
@@ -200,7 +200,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       const apps = await fetch(`${base}/open-in-app/apps`)
       expect(apps.status).toBe(200)
       expect(apps.headers.get('cache-control')).toBe('no-store')
-      expect(await apps.json()).toEqual({ apps: ['finder', 'cursor', 'terminal'] })
+      expect(await apps.json()).toEqual({ apps: ['finder', 'cursor', 'terminal'], iconless: [] })
 
       const icon = await fetch(`${base}/open-in-app/icon/cursor`)
       expect(icon.status).toBe(200)
@@ -295,7 +295,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       launchOutcomes = [enoent]
       expect((await openCursor()).status).toBe(502)
       expect(await (await fetch(`${base}/open-in-app/apps`)).json())
-        .toEqual({ apps: ['finder', 'terminal'] })
+        .toEqual({ apps: ['finder', 'terminal'], iconless: [] })
       // The unresolved entry also stops serving an icon.
       expect((await fetch(`${base}/open-in-app/icon/cursor`)).status).toBe(404)
       expect((await openCursor()).status).toBe(400)
@@ -387,7 +387,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
     context = undefined
     internals.catalog = { platform: 'aix', resolveExecutable: pathTable() }
     const emptyBase = await boot()
-    expect(await (await fetch(`${emptyBase}/open-in-app/apps`)).json()).toEqual({ apps: [] })
+    expect(await (await fetch(`${emptyBase}/open-in-app/apps`)).json()).toEqual({ apps: [], iconless: [] })
   })
 
   it('serves a Linux catalog resolved in-process and its desktop-entry SVG icon', async () => {
@@ -416,12 +416,12 @@ describe('open-in-app host routes (real Loader composition)', () => {
     const base = await boot()
     try {
       expect(await (await fetch(`${base}/open-in-app/apps`)).json())
-        .toEqual({ apps: ['filemanager', 'vscode'] })
+        .toEqual({ apps: ['filemanager', 'vscode'], iconless: ['filemanager'] })
       // Without a declared host channel a second menu read serves the pass it
       // already has: no detection runs again (the PATH resolver is the witness).
       const detections = resolveExecutable.mock.calls.length
       expect(await (await fetch(`${base}/open-in-app/apps`)).json())
-        .toEqual({ apps: ['filemanager', 'vscode'] })
+        .toEqual({ apps: ['filemanager', 'vscode'], iconless: ['filemanager'] })
       expect(resolveExecutable.mock.calls.length).toBe(detections)
       // The icon follows the desktop entry; xdg-open declares none.
       const icon = await fetch(`${base}/open-in-app/icon/vscode`)
@@ -477,7 +477,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       values: { DSH_HOST_ROOTFS: hostRootfs, DSH_HOST_LAUNCH: 'systemd-run' },
     }])
     try {
-      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: ['vscode'] })
+      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: ['vscode'], iconless: [] })
       const open = await fetch(`${base}/open-in-app/open`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -518,7 +518,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       values: { DSH_HOST_ROOTFS: hostRootfs, DSH_HOST_LAUNCH: 'systemd-run' },
     }])
     try {
-      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [] })
+      expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [], iconless: [] })
     } finally {
       await rm(home, { recursive: true, force: true })
       await rm(hostRootfs, { recursive: true, force: true })
@@ -556,7 +556,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       const apps = (): Promise<{ apps: string[] }> =>
         fetch(`${base}/open-in-app/apps`).then(response => response.json() as Promise<{ apps: string[] }>)
       // The first read resolves the whole catalog: one pass, one probe.
-      expect(await apps()).toEqual({ apps: ['vscode'] })
+      expect(await apps()).toEqual({ apps: ['vscode'], iconless: [] })
       expect(probes).toHaveBeenCalledTimes(1)
 
       // The user installs Sublime Text on the host while the sandbox lives; the
@@ -564,7 +564,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       await writeFile(join(applications, 'sublime_text.desktop'), '[Desktop Entry]\nExec=/opt/sublime_text/sublime_text %F\n')
       await mkdir(join(hostRootfs, 'opt', 'sublime_text'), { recursive: true })
       await writeFile(join(hostRootfs, 'opt', 'sublime_text', 'sublime_text'), 'binary')
-      expect(await apps()).toEqual({ apps: ['vscode', 'sublimetext'] })
+      expect(await apps()).toEqual({ apps: ['vscode', 'sublimetext'], iconless: [] })
       expect(probes).toHaveBeenCalledTimes(2)
 
       // An icon read attaches to the list it already has: it is not a menu read.
@@ -574,7 +574,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
       // Uninstalling it on the host drops it from the next menu read, and the
       // entry itself leaves the map the icon route reads.
       await rm(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true, force: true })
-      expect(await apps()).toEqual({ apps: ['sublimetext'] })
+      expect(await apps()).toEqual({ apps: ['sublimetext'], iconless: [] })
       expect(probes).toHaveBeenCalledTimes(3)
       expect((await fetch(`${base}/open-in-app/icon/vscode`)).status).toBe(404)
     } finally {
@@ -622,7 +622,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
     const base = await boot()
     // The spec host's subprocess stub rejects every lookup, which the plugin
     // reads as not-on-PATH: the catalog resolves empty instead of failing.
-    expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [] })
+    expect(await (await fetch(`${base}/open-in-app/apps`)).json()).toEqual({ apps: [], iconless: [] })
   })
 
   it('removes all three routes when the plugin row is disposed (HMR safety)', async () => {

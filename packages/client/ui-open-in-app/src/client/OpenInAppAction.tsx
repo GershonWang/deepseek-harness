@@ -19,7 +19,11 @@ export interface OpenInAppActionInjected {
   choose: (appId: string) => void
   /** Ask the host to re-read availability; the fresh list replaces the menu's when it lands. */
   refresh: () => void
-  iconUrl: (appId: string) => string
+  /**
+   * 应用图标的地址；宿主没有图标来源时返回 null，控件直接画通用图标，
+   * 从而省掉必然 404 的图标请求。
+   */
+  iconFor: (appId: string) => string | null
 }
 
 /** Full props for the Session-header open-in-app split button. */
@@ -44,7 +48,7 @@ export function OpenInAppAction(props: OpenInAppActionProps): React.JSX.Element 
   const shortcut = props.useShortcuts(rows => rows.find(row => row.id === 'workspace.openLocal'))
   const apps = (available ?? []).flatMap((id) => {
     const key = APP_LABEL_KEY[id]
-    return key === undefined ? [] : [{ id, name: t(key), icon: props.iconUrl(id) }]
+    return key === undefined ? [] : [{ id, name: t(key), icon: props.iconFor(id) }]
   })
   const preferred = apps.find(app => app.id === choice) ?? apps[0]
   if (preferred === undefined || cwd === undefined || cwd === '') return null
