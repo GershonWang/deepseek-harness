@@ -32,6 +32,11 @@ const MANIFEST_BIN_ALLOWLIST = new Map<string, ManifestBin>([
 /** Every JavaScript executable in an application or packaging workspace has one explicit role. */
 const EXECUTABLE_SOURCE_ALLOWLIST = new Map<string, string>([
   ['apps/cli/src/bin.ts', 'supported dsh application launcher'],
+  // apps/desktop-launcher 是 fork 自有的启动器应用：doctor 是壳私有的诊断框架（唯一消费者是
+  // Go 壳的启动前预检与 doctor 面板），另外两个是它的构建工具，三者都不作为 dsh 应用入口。
+  ['apps/desktop-launcher/doctor/src/cli.ts', 'packaged doctor diagnostic CLI, not a dsh application launcher'],
+  ['apps/desktop-launcher/tools/doctor-build.mjs', 'build-only doctor bundler'],
+  ['apps/desktop-launcher/tools/doctor-link-deps.mjs', 'build-only doctor dependency linker'],
   ['apps/desktop/scripts/logged-notarytool.mjs', 'build-only notarization logging wrapper'],
   ['packages/context/time-context/tests/fixtures/driver.ts', 'test-only subprocess driver'],
   ['packages/experimental/webworker-packer/bin.js', 'build-only wrapper'],
