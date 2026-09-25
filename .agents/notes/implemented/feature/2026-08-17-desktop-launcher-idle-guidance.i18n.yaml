@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-17-desktop-launcher-idle-guidance.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-17-desktop-launcher-idle-guidance.md
-2026-08-17-desktop-launcher-idle-guidance.md: 8a75c8969d6b3de651801b9b1fdc331da4399b2f
-2026-08-17-desktop-launcher-idle-guidance.zh.md: 4640bb8d6dbf0f05a8616588a2409ae02d4376e6
+/agent-note-idle-guidance-page-in-the-desktop-launcher:
+  en: a4d5647ec626ae84
+  zh: df292537edca0e8b
+/agent-note-idle-guidance-page-in-the-desktop-launcher/problem:
+  en: aab5266938543e4e
+  zh: 87ac697b539603e3
+/agent-note-idle-guidance-page-in-the-desktop-launcher/decision:
+  en: ecd15bbc45751d35
+  zh: 93ddc712072f3aeb
+/agent-note-idle-guidance-page-in-the-desktop-launcher/alternatives-considered:
+  en: a3e736e259708145
+  zh: 7fa55242f70c47dd
+/agent-note-idle-guidance-page-in-the-desktop-launcher/consequences:
+  en: 03620e199728d7fc
+  zh: 418062900a3edc28

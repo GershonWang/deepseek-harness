@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-launcher-theme-tokens.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-desktop-launcher-theme-tokens.md
-2026-09-11-desktop-launcher-theme-tokens.md: b41d4924ee98245682281fb3c6c557e7b1326b31
-2026-09-11-desktop-launcher-theme-tokens.zh.md: fc3bae79e4255aa642d7fde9a145ee2059c8f2bb
+/agent-note-theme-tokens-in-the-desktop-launcher-shell:
+  en: b4ee425295fce833
+  zh: 82db3a9cde4e68c6
+/agent-note-theme-tokens-in-the-desktop-launcher-shell/problem:
+  en: 156ee7fcabdfeb9d
+  zh: 4210add547545b6d
+/agent-note-theme-tokens-in-the-desktop-launcher-shell/decision:
+  en: e6d857cde6ecf269
+  zh: 15f4a90d5a5e7d68
+/agent-note-theme-tokens-in-the-desktop-launcher-shell/alternatives-considered:
+  en: b4ff775a3d70ee34
+  zh: 4109ee69566ce77c
+/agent-note-theme-tokens-in-the-desktop-launcher-shell/consequences:
+  en: d5cc6fd7fadd5b3f
+  zh: 348bcb8cad8cfa26
+/agent-note-theme-tokens-in-the-desktop-launcher-shell/testing:
+  en: d563bc7d3dedfe5f
+  zh: abe6e1801c85b45c

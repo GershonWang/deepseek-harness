@@ -1,6 +1,31 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-desktop-launcher-statusbar-dialogs-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-08-16-desktop-launcher-statusbar-dialogs-design.md
-2026-08-16-desktop-launcher-statusbar-dialogs-design.md: ed75d46849415d5ba2c4761db3b8b378d4a3323d
-2026-08-16-desktop-launcher-statusbar-dialogs-design.zh.md: 4fb1364349027b01da1392ed1c9e580fef08034b
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design:
+  en: f733d106ab8f962a
+  zh: f1cf5591679123a2
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/background-and-goals:
+  en: c39494a4bd55da72
+  zh: 773ead87fd2702ec
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/confirmed-requirements-aligned-with-the-user:
+  en: 5435b40d85c89c85
+  zh: e3cb1e30073d9ecb
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/overall-architecture:
+  en: 8a0437e431ad3e77
+  zh: 2f79de57001b3307
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/supervisor-state-machine-core:
+  en: 341449cc584bd0ac
+  zh: a30ff2ebd9cf9d80
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/gtk-ui-structure:
+  en: f9ddc4906b23db76
+  zh: 7196d0d465875a95
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/version-injection:
+  en: 556d10d8431762d9
+  zh: 92303cea6453f667
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/tests:
+  en: 8f2ce85f7678cc69
+  zh: 659eab2c314b55c3
+/deepseek-harness-desktop-launcher-window-centering-status-bar-and-two-dialogs-design/boundaries-and-risks:
+  en: 2865b2b931681dd5
+  zh: 36826db34be17b90

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md
-2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md: 1b3cf7467438281c1c329d8744c812acc232097d
-2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md: 7b3f188de2b15bef2223d1273bfd57a0a124d673
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines:
+  en: 2bf142644f361b9a
+  zh: d0cf090b67a92d4c
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/problem:
+  en: 2fc85f4558af95d7
+  zh: 0e462638869ededd
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/decision:
+  en: f0973402ce9e592c
+  zh: 0999ed8605bef04a
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/alternatives-considered:
+  en: fa1216cf707154d1
+  zh: 5c55eafa9228d142
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/consequences:
+  en: 7b55d87633ad7c52
+  zh: 97ab5f5a83839fb5
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/testing:
+  en: c4535de21fc08d4b
+  zh: f3bc8308dc90579f
+/agent-note-webkitgtk-dmabuf-compositing-flicker-on-nvidia-machines/related:
+  en: 9e6f83d9596d45ce
+  zh: a9a6d19fb3d019c4

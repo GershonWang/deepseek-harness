@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md
-2026-08-24-linglong-git-exec-path-and-pnpm-bundling.md: c41302b631ba7475f7bd80ee2c0ab9b93964ea1b
-2026-08-24-linglong-git-exec-path-and-pnpm-bundling.zh.md: 2b60054efea796ec577830ec8aeaf4e246f12fc0
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client:
+  en: f022097a93117e3a
+  zh: fbf12c3669dc14b3
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/problem:
+  en: bf4a9f46b3c0ff3f
+  zh: 3095473f106dd7df
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/decision:
+  en: b6de43114b921fae
+  zh: 4dc74daa266462f4
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/alternatives-considered:
+  en: 8ff25ce48861a0c7
+  zh: adadb3ce09a15b90
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/consequences:
+  en: 6f7444cd0086d1dd
+  zh: e663038651b67467
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/testing:
+  en: edd5a9fbdbe5e456
+  zh: f84196ca6bcaf495
+/agent-note-portability-fixes-for-the-linglong-packaged-desktop-client/related:
+  en: 527110fc86a97d84
+  zh: 34bc010828f99702

@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-dsh-doctor-and-safe-mode.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-28-dsh-doctor-and-safe-mode.md
-2026-08-28-dsh-doctor-and-safe-mode.md: 717fa5a77298ddc0a469cda7d48cd32cdc54ec3f
-2026-08-28-dsh-doctor-and-safe-mode.zh.md: 93a045159146c75b4b515a2bccd66df5abd5c571
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan:
+  en: d9ea50c1a629a3d1
+  zh: d9bab6223f3b3095
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure:
+  en: 27d69c82a1d98799
+  zh: 1902f7aca0055611
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-1-doctor-package-skeleton-check-abstraction-tests:
+  en: 8fdb8e70f6ef51c8
+  zh: 3bae94f7945854af
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-2-environment-checks-node-version-disk-space-env-bootstrap-variables:
+  en: 80763e5cb6ef7b8f
+  zh: 14bda51ff04aa74e
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-3-configuration-checks-settings-yaml-the-user-cordis-patch-yml:
+  en: 2da3511c07fcb243
+  zh: 7dac49a9407daf03
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-4-plugin-checks-profile-bundles-resolvable-third-party-plugin-compatibility-core-mvp:
+  en: f1661d25b7615fcc
+  zh: 797bd3b1d9f9093a
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-5-third-party-plugin-safe-mode-dsh-safe-mode-plugins-in-the-app-boot-layer:
+  en: 1797a7c1f0a5401e
+  zh: 762d0d102f5f41d1
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-6-desktop-launcher-go-layer-integration-diagnose-repair-startsafemode:
+  en: 1b112d86fb92dfa9
+  zh: db16825061fb27ad
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-7-wire-the-doctor-subcommand-into-the-dsh-cli:
+  en: 51b0f5e8e5166d67
+  zh: eb3ab0bbf2990643
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/file-structure/task-8-end-to-end-verification:
+  en: a927eb27191613fc
+  zh: 6b1ed1e9ee53659c
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/self-review:
+  en: 6fef7aee3b1f9849
+  zh: c57f77906690480c
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/self-review/spec-coverage:
+  en: db3a30980edcd94f
+  zh: 1486e8da55d1ad67
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/self-review/placeholder-scan:
+  en: c0b21452d0cf5b06
+  zh: 8f21e588143fe278
+/dsh-doctor-diagnostics-repair-and-safe-mode-implementation-plan/self-review/type-consistency:
+  en: 75fcfbc0e975c0f9
+  zh: 6669718854c69894

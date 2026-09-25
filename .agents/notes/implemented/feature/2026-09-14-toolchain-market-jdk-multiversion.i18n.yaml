@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-toolchain-market-jdk-multiversion.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-toolchain-market-jdk-multiversion.md
-2026-09-14-toolchain-market-jdk-multiversion.md: 7a88eac863c0016aac17ba9dd9cdd1f3ef7e6b37
-2026-09-14-toolchain-market-jdk-multiversion.zh.md: c8a023062e3dd8b11ea98194358f11a5fd54b21c
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog:
+  en: 9c06e06944e34ecd
+  zh: 60f87389b58c6c78
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/problem:
+  en: c446973226629bdb
+  zh: b1c241e7b76d2ded
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/decision:
+  en: 9f6a9177cdfeb5ce
+  zh: 0148c001e10647cb
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/coverage-of-the-added-versions:
+  en: d72c6ffbbb346b32
+  zh: 7b30a61d52ea0f51
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/alternatives-considered:
+  en: a15f48b0ab1e8147
+  zh: d9a26b73e6dcd674
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/consequences:
+  en: 8cffa25a9c6e745c
+  zh: 68763549c2d07e81
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/testing:
+  en: 61f46f9b0dace4ac
+  zh: ba5aa6988399ffa3
+/agent-note-multi-version-jdk-entries-in-the-toolchain-market-catalog/related:
+  en: 000486c25b5ccb08
+  zh: a3f276190aadb0be

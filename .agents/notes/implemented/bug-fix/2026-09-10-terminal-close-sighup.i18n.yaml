@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-terminal-close-sighup.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-terminal-close-sighup.md
-2026-09-10-terminal-close-sighup.md: ddd8dce1ab2e5b71d4bcff42ed7e77a35092aa13
-2026-09-10-terminal-close-sighup.zh.md: 32ea5eda5b1fbb0647f5a2daa38f1eba0c572561
+/agent-note-terminal-close-signals-sighup-not-sigterm:
+  en: 16be6869a81911e4
+  zh: 2bffc95adf57fb9c
+/agent-note-terminal-close-signals-sighup-not-sigterm/problem:
+  en: 857f8cbd465e63ad
+  zh: a64a449602efb065
+/agent-note-terminal-close-signals-sighup-not-sigterm/decision:
+  en: 5587b79879275e45
+  zh: 2d03570ef7c48270
+/agent-note-terminal-close-signals-sighup-not-sigterm/alternatives-considered:
+  en: a2898a907e64f551
+  zh: 072f358883d726a2
+/agent-note-terminal-close-signals-sighup-not-sigterm/consequences:
+  en: 07c72d99dfbb4cc2
+  zh: 8d89d433be5a0b95

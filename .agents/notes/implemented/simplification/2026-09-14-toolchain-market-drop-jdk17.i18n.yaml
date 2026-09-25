@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-toolchain-market-drop-jdk17.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-14-toolchain-market-drop-jdk17.md
-2026-09-14-toolchain-market-drop-jdk17.md: 812933accbf1f61d628fc8c63cba62af7d7cd0bb
-2026-09-14-toolchain-market-drop-jdk17.zh.md: 22bda384068cc7d7d870ca99036b62d3234b5274
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog:
+  en: a03797550613f0da
+  zh: 7e29f47d41267d44
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/problem:
+  en: 073233c83d95b2e6
+  zh: e8c17a6805ee6ddb
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/decision:
+  en: cfec47e27d9e44be
+  zh: 7da09645fc84133a
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/republishing-the-index:
+  en: 20a1725b4908b6aa
+  zh: 7a4219d719b5859f
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/consequences:
+  en: 2c03f46ce94bba8b
+  zh: f7a96e2df71e218f
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/alternatives-considered:
+  en: c0353520d4226f66
+  zh: 7beec514a834ae84
+/agent-note-dropping-jdk-17-from-the-toolchain-market-catalog/related:
+  en: c1ae5efc8f49f150
+  zh: a7bbca2ef3b5de43

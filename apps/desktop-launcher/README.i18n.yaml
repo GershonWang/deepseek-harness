@@ -1,6 +1,49 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop-launcher/README.md
-README.md: 760e9059220d0ef49c8d42b5d41162e82b5c6067
-README.zh.md: d44ec0b2eb1d31cd66177300eb59d050308cfff0
+/deepseek-harness-linux-desktop-launcher:
+  en: 6e85920ff9488099
+  zh: d40675daf4484ce9
+/deepseek-harness-linux-desktop-launcher/architecture:
+  en: 5dcfdbd0eb955989
+  zh: c19d6e26dce3585e
+/deepseek-harness-linux-desktop-launcher/startup-phases-and-loading-page-progress:
+  en: d9e000ed7e0e9728
+  zh: 8c0ac8b716c37e9e
+/deepseek-harness-linux-desktop-launcher/auto-disabling-incompatible-plugins-and-the-post-startup-notice:
+  en: 78a84f7d3c9193ae
+  zh: 8614e51f557d999a
+/deepseek-harness-linux-desktop-launcher/file-layout:
+  en: 5b4a4230b2e857bb
+  zh: e8fcab1a669bcfcc
+/deepseek-harness-linux-desktop-launcher/environment-resolution-three-level-fallback:
+  en: 87085cf85ec62dc6
+  zh: b25b5e8c498d314d
+/deepseek-harness-linux-desktop-launcher/environment-variables:
+  en: 3405537103d02df9
+  zh: 56ae6ac13eda7d5e
+/deepseek-harness-linux-desktop-launcher/connecting-to-an-external-service:
+  en: d26b4fcc05761252
+  zh: e561cce0618d79e0
+/deepseek-harness-linux-desktop-launcher/building-and-running:
+  en: db4d11fb0533f190
+  zh: cdf27c1d55b5ff30
+/deepseek-harness-linux-desktop-launcher/building-and-running/development:
+  en: 6efc30ffa4faf42f
+  zh: 8f9f3fd36d64afa4
+/deepseek-harness-linux-desktop-launcher/building-and-running/testing:
+  en: 801effc276b50084
+  zh: 17ae9671072d6939
+/deepseek-harness-linux-desktop-launcher/linglong-packaging:
+  en: 31cd0f0d40c0a098
+  zh: a35b62c08731f20a
+/deepseek-harness-linux-desktop-launcher/container-usability-toolchain-mounts:
+  en: 757de99d3f5a0c77
+  zh: 96cbaf8afb29d558
+/deepseek-harness-linux-desktop-launcher/clipboard-image-bridging:
+  en: 46a3ffb0aeefbc89
+  zh: 80b5ce31cb5f4919
+/deepseek-harness-linux-desktop-launcher/known-issues:
+  en: caca93b0096c3236
+  zh: 29c43ece98fe59ab

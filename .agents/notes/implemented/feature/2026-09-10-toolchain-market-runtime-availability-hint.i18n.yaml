@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-toolchain-market-runtime-availability-hint.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-toolchain-market-runtime-availability-hint.md
-2026-09-10-toolchain-market-runtime-availability-hint.md: e9cd3bb6a68f8ecccc78f6b1074c8af360661254
-2026-09-10-toolchain-market-runtime-availability-hint.zh.md: d14545e99398e0c5e7629aa12b6ad47afdce7352
+/agent-note-toolchain-market-runtime-availability-hint-on-cards:
+  en: 03352c9e006333ba
+  zh: f9728a923dd33ea5
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/problem:
+  en: f630ae193577813c
+  zh: 12acc1c0e4d37cd5
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/decision:
+  en: cecfa1690f0ab1ae
+  zh: 86b011b0b643d8ad
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/alternatives-considered:
+  en: 58d8983fc946c4d8
+  zh: 6c6a5962074343b7
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/consequences:
+  en: ccf442844faa346a
+  zh: 2fef74f6064fcef2
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/testing:
+  en: 7df4a358a77f1027
+  zh: 2eab07817b3fe945
+/agent-note-toolchain-market-runtime-availability-hint-on-cards/related:
+  en: 65e63ad949c72b6b
+  zh: c34c259b78a85574

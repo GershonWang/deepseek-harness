@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-17-wayland-clipboard-image-paste.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-wayland-clipboard-image-paste.md
-2026-09-17-wayland-clipboard-image-paste.md: 9b079060065143b0af37ea016fcea5d456e58f0d
-2026-09-17-wayland-clipboard-image-paste.zh.md: dd43eb44e8c17070e249faa46cf7c8114b6c491e
+/agent-note-clipboard-image-paste-in-a-wayland-session:
+  en: 8ed079eb709f2dfc
+  zh: 2e70d959d6dee040
+/agent-note-clipboard-image-paste-in-a-wayland-session/problem:
+  en: 29810121cfca5724
+  zh: 81b3f325b3f0b4c0
+/agent-note-clipboard-image-paste-in-a-wayland-session/decision:
+  en: 2fadc11147c927bd
+  zh: a46846e147477305
+/agent-note-clipboard-image-paste-in-a-wayland-session/alternatives-considered:
+  en: 94c38e19284b86a9
+  zh: 36162732feeb7acf
+/agent-note-clipboard-image-paste-in-a-wayland-session/consequences:
+  en: 3b20bbd452f1acf2
+  zh: 7f321df911d88b62
+/agent-note-clipboard-image-paste-in-a-wayland-session/testing:
+  en: ef28b64df7566fdc
+  zh: 307a4b88eed82058
+/agent-note-clipboard-image-paste-in-a-wayland-session/related:
+  en: 3889c23701f41d30
+  zh: 55d7bf8eaeeb892e

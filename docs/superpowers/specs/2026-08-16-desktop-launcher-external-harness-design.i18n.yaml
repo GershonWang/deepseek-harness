@@ -1,6 +1,34 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-desktop-launcher-external-harness-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-08-16-desktop-launcher-external-harness-design.md
-2026-08-16-desktop-launcher-external-harness-design.md: e7f54c4d27e2f9ae0db4a61315ab6d23f8939c32
-2026-08-16-desktop-launcher-external-harness-design.zh.md: 22546b388919ec2f7f4ca42697f454512b4a9324
+/desktop-launcher-external-harness-connection-local-remote-service-design:
+  en: 3dffdd91f3590f78
+  zh: 535fe22b40cde4a5
+/desktop-launcher-external-harness-connection-local-remote-service-design/background-and-goals:
+  en: be56d57b95ebd7ee
+  zh: c01f40a363524850
+/desktop-launcher-external-harness-connection-local-remote-service-design/confirmed-requirements-aligned-with-the-user:
+  en: 8af2d50cb41d550f
+  zh: 47a5796d9fb4f629
+/desktop-launcher-external-harness-connection-local-remote-service-design/overall-architecture:
+  en: 0a39e858a4624dd9
+  zh: 53ea70cf0fa240a2
+/desktop-launcher-external-harness-connection-local-remote-service-design/dialog-layout-redesign-to-designer:
+  en: e0e443fb7b9c7abb
+  zh: 3024c7f06a049e4e
+/desktop-launcher-external-harness-connection-local-remote-service-design/url-persistence-and-safety-confirmation:
+  en: cb6f9b3333b08746
+  zh: 9d1c1a7baf4381df
+/desktop-launcher-external-harness-connection-local-remote-service-design/error-handling:
+  en: c6900ea426be6b3e
+  zh: 4656c717f1fcad26
+/desktop-launcher-external-harness-connection-local-remote-service-design/tests-all-pure-go-gtk-stays-a-thin-layer:
+  en: 1ddc1bf0138c8019
+  zh: 55eea51b6fb76307
+/desktop-launcher-external-harness-connection-local-remote-service-design/file-changes-all-under-apps-desktop-launcher:
+  en: 415408b2ac0fea0d
+  zh: 4221e93f85f44551
+/desktop-launcher-external-harness-connection-local-remote-service-design/boundaries-and-risks:
+  en: 196dc29b0c7a99ab
+  zh: acbafbd172644620

@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-container-deps-gate-timing.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-container-deps-gate-timing.md
-2026-09-14-container-deps-gate-timing.md: ce075a42177e7a9ab87ed09252843c51bc19a920
-2026-09-14-container-deps-gate-timing.zh.md: 743891e51244974fbefbeb3e173291d4292d9172
+/agent-note-container-dependency-checks-run-where-their-packages-exist:
+  en: 062a92b3d4057857
+  zh: 3faadd3f132cfece
+/agent-note-container-dependency-checks-run-where-their-packages-exist/problem:
+  en: a94ff2e60a13f7f0
+  zh: ccaf452ad5ab2737
+/agent-note-container-dependency-checks-run-where-their-packages-exist/decision:
+  en: 9eb4069892fa3c17
+  zh: 8bfc427e9f777d3a
+/agent-note-container-dependency-checks-run-where-their-packages-exist/evidence-behind-the-rules:
+  en: 03bae6320e4652a5
+  zh: 23ac5c7d4fb80f52
+/agent-note-container-dependency-checks-run-where-their-packages-exist/alternatives-considered:
+  en: d5bbd9080e385406
+  zh: 67016bb9e70e57b3
+/agent-note-container-dependency-checks-run-where-their-packages-exist/consequences:
+  en: b50b2bb0ed7a46cc
+  zh: 90a6efaedebdcc40
+/agent-note-container-dependency-checks-run-where-their-packages-exist/testing:
+  en: df9436bb1d3a1984
+  zh: 369fad01742b9f08
+/agent-note-container-dependency-checks-run-where-their-packages-exist/related:
+  en: a411a0a51801444f
+  zh: e62e985ea15037ff

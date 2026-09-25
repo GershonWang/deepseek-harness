@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-launcher-copy-service-address.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-desktop-launcher-copy-service-address.md
-2026-09-11-desktop-launcher-copy-service-address.md: 15763d7dbe126b89da7c35f2813ee53b88873c47
-2026-09-11-desktop-launcher-copy-service-address.zh.md: d0a7b325d1ddbdf5a88fa644a325eaa7a8cfce4d
+/agent-note-copying-the-harness-service-address-from-the-server-dialog:
+  en: b7e2a8ac8ff9b8f2
+  zh: 4e801d9cd6fa73a7
+/agent-note-copying-the-harness-service-address-from-the-server-dialog/problem:
+  en: b8982969b048c661
+  zh: 1c7edffdc43240cc
+/agent-note-copying-the-harness-service-address-from-the-server-dialog/decision:
+  en: 262bb91c71416d7f
+  zh: 73b8047cb423acdf
+/agent-note-copying-the-harness-service-address-from-the-server-dialog/alternatives-considered:
+  en: 18b1c7ed870c71a5
+  zh: 44b7e723b626fd11
+/agent-note-copying-the-harness-service-address-from-the-server-dialog/consequences:
+  en: 3c672902d12cbe7f
+  zh: 896c1a4d1944762b
+/agent-note-copying-the-harness-service-address-from-the-server-dialog/testing:
+  en: 847a83c8dabfd3b2
+  zh: f2f6d3e64129e836

@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-host-escape-open-in-app.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.md
-2026-09-20-host-escape-open-in-app.md: 76d6ed80fc6403b7480b2e7f5cf4ba53957b999b
-2026-09-20-host-escape-open-in-app.zh.md: 6ab2c97052f0c6e6a18c0f0b4cd53afe66d8d2d9
+/agent-note-host-applications-from-inside-the-linglong-sandbox:
+  en: 04a1f202f44f7510
+  zh: 2ee5d9bf1a19a27f
+/agent-note-host-applications-from-inside-the-linglong-sandbox/problem:
+  en: b9cca2b490cbf544
+  zh: 4f90461cd96f20f3
+/agent-note-host-applications-from-inside-the-linglong-sandbox/decision:
+  en: 1c817afaeda5c6e7
+  zh: 70721c722d1365a5
+/agent-note-host-applications-from-inside-the-linglong-sandbox/alternatives-considered:
+  en: 483778888abd773a
+  zh: ecb6d7bc35eab0c3
+/agent-note-host-applications-from-inside-the-linglong-sandbox/consequences:
+  en: a1dbef80b07f603e
+  zh: 0b49f8d128c9d2c6
+/agent-note-host-applications-from-inside-the-linglong-sandbox/verification:
+  en: 53820ad3f9f3e204
+  zh: 213caa024d6c9a64
+/agent-note-host-applications-from-inside-the-linglong-sandbox/related:
+  en: 521f28a1239e7107
+  zh: 1a1f58657d0da8e2

@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-30-clipboard-paste-large-image-and-file-copy.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-30-clipboard-paste-large-image-and-file-copy.md
-2026-08-30-clipboard-paste-large-image-and-file-copy.md: 7998fd20bfc730a2149a36533cb2adba3cb45d02
-2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md: 51465200ee2d3edf84ef90610f658fa72d67aee1
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies:
+  en: fb3cdca0ebd5a8c5
+  zh: f8ac8a2bf99df84e
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies/problem:
+  en: 990dc8b317fe0e17
+  zh: 13702f01ffc1a0f2
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies/decision:
+  en: 625893d467eb3a13
+  zh: a3705447bd59e96e
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies/testing:
+  en: 57d1c8c9d065e845
+  zh: d4f49086e4c8448d
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies/alternatives-considered:
+  en: 53bfcd23c290768c
+  zh: b6da42bef376a734
+/agent-note-shell-clipboard-paste-handles-large-images-and-file-copies/consequences:
+  en: fd512e0d8a00b20c
+  zh: ecfb169d31490593

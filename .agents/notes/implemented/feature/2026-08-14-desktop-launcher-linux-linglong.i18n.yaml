@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-14-desktop-launcher-linux-linglong.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-desktop-launcher-linux-linglong.md
-2026-08-14-desktop-launcher-linux-linglong.md: cb04a7c950e3d90de09e624106e6e6f7a51d790a
-2026-08-14-desktop-launcher-linux-linglong.zh.md: ffaa99653e53e4789aa731e8235ee3f2ed38f870
+/agent-note-linux-desktop-launcher-via-go-webview-go:
+  en: a6cbe44b740e2bb2
+  zh: d7cf0af29b33a143
+/agent-note-linux-desktop-launcher-via-go-webview-go/problem:
+  en: 5eab7f149c5e9d98
+  zh: 00859e100acf9c06
+/agent-note-linux-desktop-launcher-via-go-webview-go/decision:
+  en: 94f430459e0bbbef
+  zh: a3305c0993b66008
+/agent-note-linux-desktop-launcher-via-go-webview-go/alternatives-considered:
+  en: 8de4c0d6c9f9a84f
+  zh: 95c907e06733973f
+/agent-note-linux-desktop-launcher-via-go-webview-go/consequences:
+  en: ae1ad5297a331fe9
+  zh: f59a75602f13b40d

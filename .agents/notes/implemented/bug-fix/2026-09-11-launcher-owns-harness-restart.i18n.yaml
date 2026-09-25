@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-launcher-owns-harness-restart.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-launcher-owns-harness-restart.md
-2026-09-11-launcher-owns-harness-restart.md: aac2283ef2eec21505ebb4f36cb50c9a76e830d7
-2026-09-11-launcher-owns-harness-restart.zh.md: dc7d77f06f9ae158bdbaef14ff2c25ed5726f941
+/agent-note-the-launcher-owns-harness-restart:
+  en: eaab22a57124adf7
+  zh: 1e307c03ff5b1321
+/agent-note-the-launcher-owns-harness-restart/problem:
+  en: 754e990ff019695d
+  zh: 4b0aa95332adb7a0
+/agent-note-the-launcher-owns-harness-restart/decision:
+  en: 193608d15c4b24ed
+  zh: adf401a3e514500a
+/agent-note-the-launcher-owns-harness-restart/alternatives-considered:
+  en: 4e2e32145e80f7a0
+  zh: e37053cd21f7535b
+/agent-note-the-launcher-owns-harness-restart/consequences:
+  en: c7638a0f2caf865d
+  zh: f1baba291bda1a79
+/agent-note-the-launcher-owns-harness-restart/testing:
+  en: b3c8568400d7f003
+  zh: aa6c77dd6fda7f35
+/agent-note-the-launcher-owns-harness-restart/related:
+  en: e23ccd949889f543
+  zh: 179d80a5bfafa34a

@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-26-toolchain-dialog-redesign.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-26-toolchain-dialog-redesign.md
-2026-08-26-toolchain-dialog-redesign.md: 8138928239333086174f7f6b2ca1c6fde9738072
-2026-08-26-toolchain-dialog-redesign.zh.md: e1d74a6dd99899fd51f06be906358f1c4c059c46
+/toolchain-dialog-redesign-implementation-plan:
+  en: 158bc487ba9e0690
+  zh: 790d085c3ec6f2dc
+/toolchain-dialog-redesign-implementation-plan/file-structure:
+  en: 9dfcfd0949ce6c07
+  zh: 8c03a8765fb0c7aa
+/toolchain-dialog-redesign-implementation-plan/file-structure/task-1-uv-one-click-install-entry-catalog-tools-yaml:
+  en: 9d6fbd87c53a699a
+  zh: 2854e2ed857e1f75
+/toolchain-dialog-redesign-implementation-plan/file-structure/task-2-dialog-html-structure-summary-bar-three-section-cards:
+  en: 5a8861bef04b1975
+  zh: 6a207c0ef63f578d
+/toolchain-dialog-redesign-implementation-plan/file-structure/task-3-brand-tokens-and-component-styles-dark-light-dual-theme:
+  en: 3d972bf6db713a00
+  zh: 321835d55d033100
+/toolchain-dialog-redesign-implementation-plan/file-structure/task-4-rendertools-rewrite-summary-badges-detail-subtext:
+  en: 138bc7105002bcbb
+  zh: cd6117fbe88fb82e
+/toolchain-dialog-redesign-implementation-plan/file-structure/task-5-full-build-and-manual-verification:
+  en: 7b7317b55e90a2f8
+  zh: b6710ef28ff992c8
+/toolchain-dialog-redesign-implementation-plan/self-check-notes:
+  en: 5771340d4c9e1724
+  zh: 8785a2f2f48b59f0

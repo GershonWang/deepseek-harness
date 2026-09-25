@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-clipboard-incr-transfer-and-event-offsets.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-11-clipboard-incr-transfer-and-event-offsets.md
-2026-09-11-clipboard-incr-transfer-and-event-offsets.md: 3921a835113d0c39643608f7e5fc746554e4bb97
-2026-09-11-clipboard-incr-transfer-and-event-offsets.zh.md: 31dbf0b205daa4eae31e741a8f664134845a153f
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers:
+  en: 4383bff618d4778c
+  zh: eca3053466264629
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers/problem:
+  en: 34817a34935ad66c
+  zh: 471812deef9db7b0
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers/decision:
+  en: 17577b7efd574e45
+  zh: f3745fdbf79c4531
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers/testing:
+  en: 924739b2de20364c
+  zh: 020cde4e82f4d022
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers/alternatives-considered:
+  en: 1bab7e57e80f98d6
+  zh: f9822fdd39e07b6a
+/agent-note-shell-clipboard-reads-x11-incr-image-transfers/consequences:
+  en: d100fca42e282544
+  zh: 4168298bdd02fe5a

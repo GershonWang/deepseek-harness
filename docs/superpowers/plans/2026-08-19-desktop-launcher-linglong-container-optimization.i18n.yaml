@@ -1,6 +1,61 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-desktop-launcher-linglong-container-optimization.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-19-desktop-launcher-linglong-container-optimization.md
-2026-08-19-desktop-launcher-linglong-container-optimization.md: 20ba6704db8e9a14298ea433d0d26ed47829b2ee
-2026-08-19-desktop-launcher-linglong-container-optimization.zh.md: 8306e59e460cdd786fdbb6c00785c7f548d5b946
+/linglong-sandbox-container-usability-optimization-implementation-plan:
+  en: 6980ff67eacc9cc0
+  zh: 11dd39d04e017862
+/linglong-sandbox-container-usability-optimization-implementation-plan/file-structure:
+  en: 14760d996968c19c
+  zh: d84adea7bcc89f34
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-a-build-time-tool-manifest-and-validation:
+  en: 7247084add3b099a
+  zh: 818572f98359eec1
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-a-build-time-tool-manifest-and-validation/task-1-the-linglong-tools-yaml-manifest:
+  en: f33c18a17eaf1a16
+  zh: 026dc33802df9d97
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-a-build-time-tool-manifest-and-validation/task-2-verify-tools-sh-and-its-failure-pass-path-tests:
+  en: 930132904b2ff99b
+  zh: 0dbc1d6b382b83bf
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-a-build-time-tool-manifest-and-validation/task-3-linglong-yaml-dependency-additions-and-build-linglong-sh-integration:
+  en: e32435c75379f320
+  zh: b21a740bd24e9e35
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-b-runtime-on-demand-installation-layer-3:
+  en: 4e39b1bfe7fb289f
+  zh: 79118415b77d081f
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-b-runtime-on-demand-installation-layer-3/task-4-the-toolinstall-go-on-demand-installation-mechanism:
+  en: 421b90fbd93df586
+  zh: 2483da34ddc60868
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-b-runtime-on-demand-installation-layer-3/task-5-env-go-injects-the-on-demand-tools-directory:
+  en: e844e2077f43cd78
+  zh: d083708f99b8663c
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-b-runtime-on-demand-installation-layer-3/task-6-the-toolcheck-go-runtime-probe:
+  en: 707c1d28405100a0
+  zh: 620042fd81e11878
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-c-credentials-and-the-gui-panels:
+  en: 3d35b097f6114a87
+  zh: 13b08697ec47727f
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-c-credentials-and-the-gui-panels/task-7-gitcred-go-credential-reads-and-writes:
+  en: 7c9d78bc6d52ea5b
+  zh: 2633283bbcd99b1f
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-c-credentials-and-the-gui-panels/task-8-the-tool-credential-panel-state-pure-functions-and-the-thin-gui-layer:
+  en: 64ad17a51f318170
+  zh: 4af10f3c03f4e58e
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-c-credentials-and-the-gui-panels/task-9-the-host-credential-mount-template-and-the-readme:
+  en: d419fc33a887dbf4
+  zh: 1df0c0a43b7aef63
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-d-the-harness-side-model-visible-tool-manifest-a-separate-sub-project:
+  en: a6311b3b36fcfdf4
+  zh: 146af9bd20fec689
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-d-the-harness-side-model-visible-tool-manifest-a-separate-sub-project/task-10-investigate-the-instruction-text-s-log-path-and-pick-the-implementation-branch:
+  en: 65fe1075cdc74b85
+  zh: 08aee536e267260b
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-d-the-harness-side-model-visible-tool-manifest-a-separate-sub-project/task-11-the-desktop-launcher-harness-overlay-preset:
+  en: 73b55b79cf1012b2
+  zh: 0b98e6e4730fef7e
+/linglong-sandbox-container-usability-optimization-implementation-plan/phase-d-the-harness-side-model-visible-tool-manifest-a-separate-sub-project/task-12-the-agent-note-and-wrap-up:
+  en: f2780022c7f2d346
+  zh: 59504959f9e9c362
+/linglong-sandbox-container-usability-optimization-implementation-plan/self-review-results-checked-against-the-spec-while-writing-the-plan:
+  en: 4a5c88dc466ad82b
+  zh: abfe5d2a171d90c5

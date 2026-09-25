@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-13-remove-deb-packaging-path.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-13-remove-deb-packaging-path.md
-2026-09-13-remove-deb-packaging-path.md: ce50f28e1335daa7cf54bc5336ddce0c778f7c30
-2026-09-13-remove-deb-packaging-path.zh.md: 4098175bf66f528c68704e4582ff8d333bf291d1
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path:
+  en: fd3ca29799e0bd25
+  zh: 14d26e5a75b8aec7
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/problem:
+  en: d5c9fa313a1c62a6
+  zh: dc1a766761666d60
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/decision:
+  en: 684a8b57a7d1e47c
+  zh: 13c1ac3dd6606e02
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/alternatives-considered:
+  en: 2ad32d25ad804df2
+  zh: 30b0fc59eea44822
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/consequences:
+  en: a9beaa88ac995901
+  zh: e86dbb365c8f25e8
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/testing:
+  en: 096f328b193dbcc1
+  zh: 77f138192f4653cc
+/agent-note-the-desktop-launcher-ships-only-the-linglong-packaging-path/related:
+  en: 5d04b87f4e78b9a9
+  zh: 5d04b87f4e78b9a9

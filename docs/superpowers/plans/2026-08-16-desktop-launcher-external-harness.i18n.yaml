@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-desktop-launcher-external-harness.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-16-desktop-launcher-external-harness.md
-2026-08-16-desktop-launcher-external-harness.md: ef0c8ff0d97b18a18ef9b71fe73be8a8c757ff77
-2026-08-16-desktop-launcher-external-harness.zh.md: 21c518dc8e0270b0366e30db89440952d5d568bf
+/desktop-launcher-external-harness-connection-implementation-plan:
+  en: 7d141d609de501ee
+  zh: 24133bb7946e5b22
+/desktop-launcher-external-harness-connection-implementation-plan/global-constraints:
+  en: ed487bb062b9ca2f
+  zh: 5c56c0ac2a8f16be
+/desktop-launcher-external-harness-connection-implementation-plan/global-constraints/task-1-connection-go-pure-go-core-tests:
+  en: 7e7aebc4e9d308cd
+  zh: a16d8e52e1d9a0be
+/desktop-launcher-external-harness-connection-implementation-plan/global-constraints/task-2-dialog-redesign-external-connection-interaction-ui-go-window-go-ui-state-go:
+  en: 7aed81fc00816cb2
+  zh: 02cc35179916a362
+/desktop-launcher-external-harness-connection-implementation-plan/global-constraints/task-3-documentation-and-closing-verification:
+  en: ba55bae0cca1c432
+  zh: 2a2c9c3962c6f50f
+/desktop-launcher-external-harness-connection-implementation-plan/self-review:
+  en: 57d427410511ab2f
+  zh: 579d782fcf0c089c

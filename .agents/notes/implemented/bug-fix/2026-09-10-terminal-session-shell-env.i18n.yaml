@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-terminal-session-shell-env.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-terminal-session-shell-env.md
-2026-09-10-terminal-session-shell-env.md: 16c873bf705dc2737d734a1c9119655e7a411f72
-2026-09-10-terminal-session-shell-env.zh.md: 98cbc2a03f2015f6729ad994e9b7fb33f2bbda8e
+/agent-note-terminal-sessions-carry-their-own-shell-env-fallback:
+  en: 7e1ad6c541cbbfa4
+  zh: e68014df01e22075
+/agent-note-terminal-sessions-carry-their-own-shell-env-fallback/problem:
+  en: ff0f3abcb66b04f9
+  zh: 4a39f06bb54f7e25
+/agent-note-terminal-sessions-carry-their-own-shell-env-fallback/decision:
+  en: b17fcedff45e89da
+  zh: 708471e9ec090673
+/agent-note-terminal-sessions-carry-their-own-shell-env-fallback/alternatives-considered:
+  en: 09a011ca42c88d86
+  zh: 7bc495682e71bb9b
+/agent-note-terminal-sessions-carry-their-own-shell-env-fallback/consequences:
+  en: dd872bd615e315e4
+  zh: b9c1e2a0e08487b5

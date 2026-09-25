@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-toolchain-card-install-overflow.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-toolchain-card-install-overflow.md
-2026-09-14-toolchain-card-install-overflow.md: 2cabb0671758ba91e014376420d9848d8500e321
-2026-09-14-toolchain-card-install-overflow.zh.md: 2f7ca42785e5fef079d766250d9c3380263e9c69
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market:
+  en: 9dc376e805ad1bb3
+  zh: 58b802004ee18f7f
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/problem:
+  en: 100054948bf3246c
+  zh: 31438734e9d7cfe8
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/decision:
+  en: 8859e26a18fb5a8c
+  zh: ee24a84895d5a701
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/why-both-a-bucket-and-max-content:
+  en: 83e01bc172fe449e
+  zh: 41cc3d1ff5ed5447
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/alternatives-considered:
+  en: 199ec9e5fedc7259
+  zh: b91a962c9135eb80
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/consequences:
+  en: 52d15dd76a78939c
+  zh: b603b011135afb9a
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/testing:
+  en: 2ab17872da0b6a8b
+  zh: 3642f0c0a795be31
+/agent-note-installing-tool-cards-overflow-their-row-in-the-toolchain-market/related:
+  en: 935eb64007c1502a
+  zh: 301e1d060d65aa2e

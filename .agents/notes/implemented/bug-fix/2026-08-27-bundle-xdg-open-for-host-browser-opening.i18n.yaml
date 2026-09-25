@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-27-bundle-xdg-open-for-host-browser-opening.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-bundle-xdg-open-for-host-browser-opening.md
-2026-08-27-bundle-xdg-open-for-host-browser-opening.md: 12cd6a0914111788ec8a313fd5139c55aee7e5a3
-2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md: bc6370c2b05d72bdf62ee1e4a363ea0f817d3dd4
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package:
+  en: ce62bb452fa7c392
+  zh: 2d8428321e323d4c
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/problem:
+  en: 01d714cd9f070da8
+  zh: 95946b33b77fe62c
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/decision:
+  en: 8aa348447119e573
+  zh: 44c3a2089b22d828
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/alternatives-considered:
+  en: ba46014520117888
+  zh: 9763bcc5d21f8b31
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/consequences:
+  en: dbf8bd76b9c965b0
+  zh: 61ba6b372dea7a0e
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/testing:
+  en: 327aebf8df9d25f6
+  zh: 7533c82d5b3730d2
+/agent-note-bundle-a-real-xdg-open-in-the-desktop-launcher-package/related:
+  en: 5935ea95f3676b21
+  zh: 43c14285769f0952

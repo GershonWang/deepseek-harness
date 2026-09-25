@@ -1,6 +1,43 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-desktop-launcher-linglong-container-optimization-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-08-19-desktop-launcher-linglong-container-optimization-design.md
-2026-08-19-desktop-launcher-linglong-container-optimization-design.md: 93024a8df92470ee20b5e77f995e6144fc6b0e3d
-2026-08-19-desktop-launcher-linglong-container-optimization-design.zh.md: 0457c733250bfda6287d84028eb229c668be7c26
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design:
+  en: 2f10237cafa1f19d
+  zh: c6b0c0c78bcc77a5
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/background-and-goals:
+  en: 660d05c46816da48
+  zh: 8cf9231eea6613c7
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/confirmed-requirements-aligned-with-the-user:
+  en: 6de283e438913a47
+  zh: 4a2edbd0e8eb3eea
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/background-facts-linglong-mechanics-verified-in-source:
+  en: 9f6d36b83ddb079d
+  zh: 0144423176c0af2c
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/overall-architecture-three-layers-of-defense:
+  en: 0389f2ecb59aebbf
+  zh: 29089f0b0c403665
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/layer-1-build-time-tool-inventory-and-verification:
+  en: 7c88af26fb64a676
+  zh: 589b7945f8aa1584
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/layer-2-runtime-self-check-and-a-model-visible-tool-inventory:
+  en: f99e4fb89660e4b2
+  zh: 63c997baa989f5cf
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/layer-3-on-demand-runtime-installation-heavy-rare-tools:
+  en: 111693931b3af7db
+  zh: 48436567bfe2c540
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/credentials-and-user-data-reachability:
+  en: a3c6de191b4b03fb
+  zh: 8cc69fce9e322ded
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/file-changes-all-under-apps-desktop-launcher-except-the-harness-inventory-injection:
+  en: 280de51cb08f6e01
+  zh: 871795c4fea4f048
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/error-handling:
+  en: 93d4bd375c397832
+  zh: 7ccc540b65006224
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/verification:
+  en: d4dcbac7fbc049d5
+  zh: 451c6cf25c056abf
+/desktop-launcher-linglong-sandbox-container-usability-optimization-design/boundaries-and-risks:
+  en: b227edb265b04d07
+  zh: 00557090d6facc27

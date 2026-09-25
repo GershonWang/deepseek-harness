@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-14-webkit-delivery-from-deb.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-14-webkit-delivery-from-deb.md
-2026-09-14-webkit-delivery-from-deb.md: a5ebd8ad1811b73b2a3d87ba33121bdad9eb4c46
-2026-09-14-webkit-delivery-from-deb.zh.md: 04ae250a27a3f9f423d9dd27d361497ac61d259c
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb:
+  en: 58104896fc510b1f
+  zh: 5637bb4198112aab
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/problem:
+  en: a4a0b9f2cc3ece78
+  zh: b8bcd6c5b54382fd
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/decision:
+  en: 8b7adc115368db9b
+  zh: e7ada6c4b1ffaf8e
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/alternatives-considered:
+  en: 92f3e770c8febe5f
+  zh: 53f251803d795268
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/consequences:
+  en: 2fd46a86abef03ea
+  zh: f241583eed7dbd75
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/testing:
+  en: ae002e0a8035acad
+  zh: 973bb9d6327b0b5c
+/agent-note-webkit-is-delivered-from-the-apt-candidate-s-deb/related:
+  en: e3bc4f976f4bd708
+  zh: 38eea08427f0b9e8

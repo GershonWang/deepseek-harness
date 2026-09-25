@@ -1,6 +1,28 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-28-doctor-plugin-dynamic-load.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-28-doctor-plugin-dynamic-load.md
-2026-08-28-doctor-plugin-dynamic-load.md: 37700a12176c1bf58eb1eaa1bcde6e60fa348c6b
-2026-08-28-doctor-plugin-dynamic-load.zh.md: 4df6b4703cfc6bf24718d649bf418bd09f140929
+/agent-note-doctor-live-load-check-for-third-party-plugins:
+  en: f6be2f0f031d39bd
+  zh: 3663de610052d031
+/agent-note-doctor-live-load-check-for-third-party-plugins/problem:
+  en: 87167515c76e6621
+  zh: a4905d7b190ec119
+/agent-note-doctor-live-load-check-for-third-party-plugins/decision:
+  en: 38c39120944b8980
+  zh: 122e1c717921b9dc
+/agent-note-doctor-live-load-check-for-third-party-plugins/why-manifest-edit-not-patch-file-disable:
+  en: 045ae7466c7c8f95
+  zh: d43d14d00d6b0b77
+/agent-note-doctor-live-load-check-for-third-party-plugins/deferred:
+  en: 0468d1b94556b056
+  zh: 6890a65aab3606a0
+/agent-note-doctor-live-load-check-for-third-party-plugins/testing:
+  en: a8ad12076933be5d
+  zh: bf26965a008e64b2
+/agent-note-doctor-live-load-check-for-third-party-plugins/alternatives-considered:
+  en: d53ae506f04a7f3e
+  zh: cc5435a7f442b9c2
+/agent-note-doctor-live-load-check-for-third-party-plugins/consequences:
+  en: 8b49c1a7acaf1ad9
+  zh: fb21e59fa589b568

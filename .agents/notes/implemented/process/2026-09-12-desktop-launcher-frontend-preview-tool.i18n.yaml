@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-desktop-launcher-frontend-preview-tool.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-12-desktop-launcher-frontend-preview-tool.md
-2026-09-12-desktop-launcher-frontend-preview-tool.md: 21d4e80f4051090060b4efba140a96a091c92ab8
-2026-09-12-desktop-launcher-frontend-preview-tool.zh.md: 48b92a733a5d934c09a907c2b5220c0a48ec1b9f
+/agent-note-layout-verification-for-the-desktop-launcher-frontend:
+  en: 6f6b2a2828ec45c6
+  zh: c1b257b29a103592
+/agent-note-layout-verification-for-the-desktop-launcher-frontend/problem:
+  en: d6be61cbd72b8a7b
+  zh: f7d8e3261e126ab9
+/agent-note-layout-verification-for-the-desktop-launcher-frontend/decision:
+  en: 3da778792e458f39
+  zh: ecd9a82ca2c857af
+/agent-note-layout-verification-for-the-desktop-launcher-frontend/alternatives-considered:
+  en: ca1c9656e4bdafe5
+  zh: b48178ccf4768bb1
+/agent-note-layout-verification-for-the-desktop-launcher-frontend/consequences:
+  en: 48b9bd9b70d42826
+  zh: 8f0020ceee745d3f
+/agent-note-layout-verification-for-the-desktop-launcher-frontend/testing:
+  en: 1c6ffc5d7a72029c
+  zh: e352c26d504d643a

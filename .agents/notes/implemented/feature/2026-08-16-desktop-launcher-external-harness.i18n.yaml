@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-desktop-launcher-external-harness.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-desktop-launcher-external-harness.md
-2026-08-16-desktop-launcher-external-harness.md: 9109e2dddb4eeca73ffd2b462b6765feb1d2e7d2
-2026-08-16-desktop-launcher-external-harness.zh.md: 0e39dedc6f25374fd35adf7a05d7f5bb87bfc206
+/agent-note-external-harness-connection-in-the-desktop-launcher:
+  en: c09381592b583e88
+  zh: 40da1091aad84057
+/agent-note-external-harness-connection-in-the-desktop-launcher/problem:
+  en: 54e5992777559ae7
+  zh: b7bd0d3acd68ad50
+/agent-note-external-harness-connection-in-the-desktop-launcher/decision:
+  en: 6d52c7df8b2c6e5e
+  zh: 8c3129947d684552
+/agent-note-external-harness-connection-in-the-desktop-launcher/alternatives-considered:
+  en: 4fcf26f9cb73cd83
+  zh: 952b1bf3d2a2a0df
+/agent-note-external-harness-connection-in-the-desktop-launcher/consequences:
+  en: a0ea77375ff82dce
+  zh: 2360644485c2b116

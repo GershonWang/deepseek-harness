@@ -1,6 +1,67 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-03-26-plugin-dynamic-load-doctor.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-03-26-plugin-dynamic-load-doctor.md
-2026-03-26-plugin-dynamic-load-doctor.md: cb0812b0f6bd55003e97c2082cfa241067715260
-2026-03-26-plugin-dynamic-load-doctor.zh.md: be849339832debf9129fc62922acf2f7b4b48a78
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis-implementation-plan:
+  en: 278e6ea7733fdfa8
+  zh: 987df1f4cc614302
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis-implementation-plan/file-structure-overview:
+  en: ff457ec5ba606e6b
+  zh: fde062dc653968a6
+/phase-1-doctor-dynamic-load-check:
+  en: 588c1e1e9d826932
+  zh: fe3c3a3223a93abe
+/phase-1-doctor-dynamic-load-check/prerequisites:
+  en: e1ff003cc7119d82
+  zh: 3e7b9a135e8461d8
+/phase-1-doctor-dynamic-load-check/prerequisites/task-1-1-turn-the-bisect-helper-into-a-generic-bisection-framework:
+  en: 9858abcc8045b3e7
+  zh: 5ea75a825211b885
+/phase-1-doctor-dynamic-load-check/prerequisites/task-1-2-the-loader-probe-subprocess-probe-script:
+  en: f7e6bb1265602a55
+  zh: fd6ab8539e5d6008
+/phase-1-doctor-dynamic-load-check/prerequisites/task-1-3-the-plugin-dynamic-load-check:
+  en: 21c4d151a0913800
+  zh: a5a3b8fb4c4af540
+/phase-1-doctor-dynamic-load-check/prerequisites/task-1-4-implement-the-repair-logic-l2-disables-the-bad-bundle:
+  en: e33642b3871470ce
+  zh: 3e9161cd65643910
+/phase-1-doctor-dynamic-load-check/prerequisites/task-1-5-typecheck-full-test-run:
+  en: 831ebaaa888c6283
+  zh: b4374bc8a3d1bd25
+/phase-2-startup-ui-polish:
+  en: 037bcd8e1ede67a0
+  zh: e159dd60f37f62ff
+/phase-2-startup-ui-polish/prerequisites:
+  en: 8c018af1ff6ec0cb
+  zh: 88685bf1f11db848
+/phase-2-startup-ui-polish/prerequisites/task-2-1-add-the-startup-loading-page-and-startup-failure-page-structure:
+  en: 72887774a90d6732
+  zh: c9194b1dba0e7fc7
+/phase-2-startup-ui-polish/prerequisites/task-2-2-add-the-styles:
+  en: 828a4141529324de
+  zh: 1fb07e8fd5f28fca
+/phase-2-startup-ui-polish/prerequisites/task-2-3-adjust-the-frontend-status-rendering-logic-debounce:
+  en: 6a6d512287492aad
+  zh: f0acc68c106b4e16
+/phase-3-automatic-diagnosis-of-startup-failure:
+  en: b081a09bf0762a5e
+  zh: 0291f9c767ae139e
+/phase-3-automatic-diagnosis-of-startup-failure/prerequisites:
+  en: 732495c2349c0582
+  zh: d4b36da77db7ced0
+/phase-3-automatic-diagnosis-of-startup-failure/prerequisites/task-3-1-go-side-trigger-doctor-automatically-on-startup-failure:
+  en: 95771e5f325d372a
+  zh: 2864ee198fcafdb5
+/phase-3-automatic-diagnosis-of-startup-failure/prerequisites/task-3-2-frontend-sense-the-automatic-diagnosis-pop-up-automatically:
+  en: ea9bec38dd53431a
+  zh: d29dae9a7510d182
+/phase-3-automatic-diagnosis-of-startup-failure/prerequisites/task-3-3-linglong-build-verification:
+  en: 4304fa595f3e8fd0
+  zh: e023bce2198e01b8
+/phase-3-automatic-diagnosis-of-startup-failure/wrap-up:
+  en: e878b313f7ca8e27
+  zh: af00075fb5c2e477
+/phase-3-automatic-diagnosis-of-startup-failure/wrap-up/task-final-final-checks-commit:
+  en: c2cee4a9fce2f534
+  zh: f2c7177a017a04d2

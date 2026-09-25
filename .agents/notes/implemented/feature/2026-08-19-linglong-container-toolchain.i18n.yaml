@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-19-linglong-container-toolchain.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-linglong-container-toolchain.md
-2026-08-19-linglong-container-toolchain.md: ef7509a891e6ba3f021644c3ef208b22e9665e2c
-2026-08-19-linglong-container-toolchain.zh.md: 747f25724bd75c1f3e02a2f69ff0081d9083e083
+/agent-note-linglong-container-toolchain-availability:
+  en: 69ab242f69eab344
+  zh: 06c305b56aeb1369
+/agent-note-linglong-container-toolchain-availability/problem:
+  en: acd2207b59b4d8cf
+  zh: d509259a3a584394
+/agent-note-linglong-container-toolchain-availability/decision:
+  en: 094993795bb2845d
+  zh: 822334f6a79af591
+/agent-note-linglong-container-toolchain-availability/alternatives-considered:
+  en: 659e96a59dcadb1e
+  zh: 1437f2b0cc9b61ea
+/agent-note-linglong-container-toolchain-availability/consequences:
+  en: 537092f5ea0dc030
+  zh: 19342a0b3a90bbe3
+/agent-note-linglong-container-toolchain-availability/testing:
+  en: 558e52be99decb79
+  zh: aa2418f748b4c774
+/agent-note-linglong-container-toolchain-availability/related:
+  en: 3ee63a7b800b83cf
+  zh: d897553a6d363260

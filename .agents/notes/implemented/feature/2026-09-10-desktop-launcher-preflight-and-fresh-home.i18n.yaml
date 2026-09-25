@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-desktop-launcher-preflight-and-fresh-home.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-10-desktop-launcher-preflight-and-fresh-home.md
-2026-09-10-desktop-launcher-preflight-and-fresh-home.md: 7c3ef1f9c16211126b43b262b385ac2c5c33a7e8
-2026-09-10-desktop-launcher-preflight-and-fresh-home.zh.md: 48c2620a9a80999393f0148deb31bcf815fa04f7
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback:
+  en: d18ab130179a9253
+  zh: d18ab130179a9253
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/problem:
+  en: 0dbb1edbf23e51cd
+  zh: 57e18d6b964eb731
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/decision:
+  en: 6720996dcaca671d
+  zh: 422953feac9a8011
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/alternatives-considered:
+  en: c560e77ef2331d5b
+  zh: fc60abc0346c9924
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/consequences:
+  en: 01bb835a7865d8e8
+  zh: 51727c6537446b50
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/testing:
+  en: 543af88147f8a006
+  zh: 82d16e90d2a2f2ef
+/agent-note-desktop-launcher-preflight-gate-and-fresh-home-fallback/related:
+  en: 16645542873323ff
+  zh: 006867b965d9facb

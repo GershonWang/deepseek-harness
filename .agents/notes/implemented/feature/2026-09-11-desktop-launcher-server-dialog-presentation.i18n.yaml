@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-11-desktop-launcher-server-dialog-presentation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-desktop-launcher-server-dialog-presentation.md
-2026-09-11-desktop-launcher-server-dialog-presentation.md: 7f35645bd0688b57b57edfee7b2ab7bef9d9bd6b
-2026-09-11-desktop-launcher-server-dialog-presentation.zh.md: 5cdb9683ee8d4c4f548dcb623d5eb2bbebb340d3
+/agent-note-the-desktop-launcher-s-server-dialog-presentation:
+  en: de4f3b2c78f00df0
+  zh: c34eb97ae92bb586
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/problem:
+  en: b1759efc9460f492
+  zh: 9b3a3d5d1df31418
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/decision:
+  en: fcc237386d3a121f
+  zh: a166b79a2f92bc28
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/fixed-dialog-height:
+  en: 64ee7301a09e1966
+  zh: 0b750632fab77c3f
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/alternatives-considered:
+  en: 8f2aa9cd39f60655
+  zh: b4f840022a5b427a
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/consequences:
+  en: 5afb5e293d37d0cc
+  zh: fd7054e7c55c180b
+/agent-note-the-desktop-launcher-s-server-dialog-presentation/testing:
+  en: 02894da7ed2fd72a
+  zh: a469c9a0a923350f

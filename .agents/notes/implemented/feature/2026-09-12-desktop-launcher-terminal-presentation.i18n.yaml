@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-desktop-launcher-terminal-presentation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-desktop-launcher-terminal-presentation.md
-2026-09-12-desktop-launcher-terminal-presentation.md: b9d66ef9c738ce76d8758d137ffbc32b83bc3b4e
-2026-09-12-desktop-launcher-terminal-presentation.zh.md: 9d1c1d0ac2601102e9b4a75ed7372e97c8a434bb
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface:
+  en: 2cf9975b25b215d4
+  zh: a6b6bb5367ec3200
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/problem:
+  en: 1af4c2b2149b9dc6
+  zh: 5c37a1ec96de55d5
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/decision:
+  en: 61a65fad54340f2b
+  zh: c7d3ec2d32b96788
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/keyboard-ownership:
+  en: 38a671722541eb5d
+  zh: 429cd67de7a290c8
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/alternatives-considered:
+  en: 6444cac157ba55d5
+  zh: c631b8862ac8bbc5
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/consequences:
+  en: 370585ad4f463adc
+  zh: 16e1b4fa8f544de6
+/agent-note-the-desktop-launcher-terminal-dialog-s-presentation-and-keyboard-surface/testing:
+  en: b881d1a0123e1d69
+  zh: 8f4aab787a95cf7d

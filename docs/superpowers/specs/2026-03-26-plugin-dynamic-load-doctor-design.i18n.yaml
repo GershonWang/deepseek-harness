@@ -1,6 +1,76 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-03-26-plugin-dynamic-load-doctor-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-03-26-plugin-dynamic-load-doctor-design.md
-2026-03-26-plugin-dynamic-load-doctor-design.md: a6ad7ab66ca6a75d242194ea0cfa3dd98cb9f14f
-2026-03-26-plugin-dynamic-load-doctor-design.zh.md: c7ce28a12f27704ed66463cf187a8797c8a6ae27
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis:
+  en: 74c6558d26616a1c
+  zh: d9f25366b9666e17
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/background:
+  en: 06475f70785b415f
+  zh: 287751bfc9b5360e
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/goals:
+  en: 9b074e328f2a9761
+  zh: fa7f78ccaa14b883
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load:
+  en: df8021fd49c4a454
+  zh: 46a77a18232fd2cd
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load/1-1-check-strategy:
+  en: 9e390ceab312a8b4
+  zh: 291ef214839991df
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load/1-2-the-subprocess-probe-script:
+  en: c9d12f4caa08bf89
+  zh: d2989fddb91c10ee
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load/1-3-bisection-implementation:
+  en: 8ead3025087d58d5
+  zh: 76bf0182d066ac85
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load/1-4-check-registration:
+  en: 170f749ebbc16bcf
+  zh: 0e69475e6e6eebad
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/1-doctor-dynamic-load-check-plugin-dynamic-load/1-5-repair-logic-l2:
+  en: 047a8ed2255bf4fa
+  zh: 53abd24c5e2a413e
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/2-automatic-diagnosis-on-startup-failure:
+  en: ad172ab01fd73284
+  zh: 27dfd2ed1c914c5d
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/2-automatic-diagnosis-on-startup-failure/2-1-trigger-point:
+  en: 3771ead017e97372
+  zh: 9ef0755da1e10fba
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/2-automatic-diagnosis-on-startup-failure/2-2-the-existing-retry-mechanism:
+  en: cf4b7ca36c70df26
+  zh: 560f01384e0070a6
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/2-automatic-diagnosis-on-startup-failure/2-3-go-side-changes:
+  en: d44b9303641f58f8
+  zh: 07e262752c621c10
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/2-automatic-diagnosis-on-startup-failure/2-4-frontend-changes:
+  en: 7c2b9e269acffe16
+  zh: 538098d0f4cb3702
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/3-startup-ui-polish:
+  en: 47234fb8782e5e54
+  zh: ef5dc2f52a61ad67
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/3-startup-ui-polish/3-1-main-stage-status-mapping:
+  en: 9ef76b81a616ac27
+  zh: 6fea85fbb85d47fd
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/3-startup-ui-polish/3-2-startup-loading-page:
+  en: b965b6123e56e71e
+  zh: 0afb4352c393ef07
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/3-startup-ui-polish/3-3-startup-failure-page:
+  en: a321569515e01e23
+  zh: 79207ed961a47f44
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/3-startup-ui-polish/3-4-status-debounce-during-retries:
+  en: 79d9c62cc1ad9bac
+  zh: b47fc446f5bf1742
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/4-edge-cases:
+  en: c2403b791a2a9915
+  zh: ffbe6a9a84f16077
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/5-list-of-changed-files:
+  en: 9444a3a6b83c4e22
+  zh: 6d9984275cf1249d
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/5-list-of-changed-files/the-doctor-package:
+  en: 664e129fe25f0d34
+  zh: ab28b7b4f5e491c2
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/5-list-of-changed-files/desktop-launcher-go:
+  en: 32bdac8df3ba4aa0
+  zh: 457f00f0093f78c9
+/plugin-dynamic-load-check-and-automatic-startup-failure-diagnosis/5-list-of-changed-files/desktop-launcher-frontend:
+  en: bd7b161578415a09
+  zh: bbee5df3de71e55f

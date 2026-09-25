@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-toolchain-market-catalog-expansion.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-toolchain-market-catalog-expansion.md
-2026-09-12-toolchain-market-catalog-expansion.md: 428552494dba683a667e9f6bb38cf720569209df
-2026-09-12-toolchain-market-catalog-expansion.zh.md: 38d55b8cd78424160747ed50682fb097ee8a531b
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure:
+  en: 81571790b7049e4d
+  zh: 64a89ff79dddd24d
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/problem:
+  en: eabf13bd39fc182f
+  zh: 1c605f0bb0cd437b
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/decision:
+  en: 575488eafeda4388
+  zh: 1bd4907fc43d2adb
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/alternatives-considered:
+  en: 5fd1a42629c0ccd9
+  zh: 7d0148edb3fe79dc
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/consequences:
+  en: 309bb68aa533b5aa
+  zh: d86cd322a1c4bf7d
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/testing:
+  en: a9162bb97ff867c5
+  zh: c80768f197437b83
+/agent-note-toolchain-market-catalog-expansion-and-command-exposure/related:
+  en: a58415079611117c
+  zh: 17316e70c95e663a

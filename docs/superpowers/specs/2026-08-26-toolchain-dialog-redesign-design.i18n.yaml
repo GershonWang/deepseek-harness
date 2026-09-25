@@ -1,6 +1,61 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-26-toolchain-dialog-redesign-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-08-26-toolchain-dialog-redesign-design.md
-2026-08-26-toolchain-dialog-redesign-design.md: d15efac62cadef68e7360b6aff986b3f41ae716e
-2026-08-26-toolchain-dialog-redesign-design.zh.md: a8cfeb4fa65fd22ba9a38c51a7fd051402e8bfed
+/toolchain-dialog-redesign:
+  en: 42cef60c1127b4e0
+  zh: 6c108a693853850a
+/toolchain-dialog-redesign/background:
+  en: ad7d82b27b295cce
+  zh: f81dfff71eb997a6
+/toolchain-dialog-redesign/goals:
+  en: a5cc95edb0b7883c
+  zh: 47b795a6664fe147
+/toolchain-dialog-redesign/non-goals-out-of-scope:
+  en: 9bff7daadf7c48f3
+  zh: 2e255a8959a62bf1
+/toolchain-dialog-redesign/file-scope:
+  en: 9a98c04653f8a296
+  zh: 657c08e21e9609cc
+/toolchain-dialog-redesign/dialog-structure-html-skeleton:
+  en: 9c39656c85731004
+  zh: 35d306223e3f2b77
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have:
+  en: da9668e8afc2ccd1
+  zh: 33dae8e230b8224c
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have/bundled-tools-toolstatus-rows-toolcheck-name-ok-version-err:
+  en: b2ca2e37949fd04f
+  zh: d43d2b9342091e9b
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have/one-click-install-toolstatus-catalog-catalogstatus-name-label-version-installedversion-state-pinned-together-with-toolstatus-installing:
+  en: e0ceba36948a8ea0
+  zh: e8dac42c4e5d1236
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have/host-mounts-toolstatus-hosttools-hosttoolentry-name-source-target-mounted:
+  en: 1b29d67fb81171aa
+  zh: 3e92bb9dc293b1a3
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have/summary-bar:
+  en: a23fa870a757090b
+  zh: 34c363e18170f053
+/toolchain-dialog-redesign/status-mapping-honest-about-the-data-invent-no-state-the-backend-does-not-have/hints-and-errors:
+  en: 31b36db14a4e91ca
+  zh: 2b4ad6e146373148
+/toolchain-dialog-redesign/bundled-tool-details-in-row-subtext-option-a:
+  en: ab46d3e0d4fe7a73
+  zh: af29805d44204c93
+/toolchain-dialog-redesign/uv-on-demand-install-approach-1-new:
+  en: 560d49dcf1e13322
+  zh: 4492ac061ba7347a
+/toolchain-dialog-redesign/styles-css:
+  en: b170ce2bd96af8ee
+  zh: 619121a3d553a3c1
+/toolchain-dialog-redesign/styles-css/brand-tokens:
+  en: 3507d5852c549cc7
+  zh: 234a341da21a2542
+/toolchain-dialog-redesign/styles-css/component-styles:
+  en: 347ff686d9c70bf4
+  zh: aa05f0143c474036
+/toolchain-dialog-redesign/verification:
+  en: b6b77334bd3993c5
+  zh: 0d0382f6eca11bac
+/toolchain-dialog-redesign/confirmed-decision-record:
+  en: 7c24092bebbbbb44
+  zh: dba8f10bd351c6a0

@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-10-terminal-font-bundled-face.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-terminal-font-bundled-face.md
-2026-09-10-terminal-font-bundled-face.md: 0163bb0350854b6ff9d62acfa81dfbd9e897d21f
-2026-09-10-terminal-font-bundled-face.zh.md: 50a2021c7df455ca9c37a95ca707407235a279ac
+/agent-note-deliver-the-terminal-font-from-the-bundled-frontend:
+  en: eccb91b5fb9f259d
+  zh: e1bd812c84f92733
+/agent-note-deliver-the-terminal-font-from-the-bundled-frontend/problem:
+  en: 73882310ff9f36d7
+  zh: 6f6eaf96f8106710
+/agent-note-deliver-the-terminal-font-from-the-bundled-frontend/decision:
+  en: 663398514833137d
+  zh: 8862fbebcf6c5934
+/agent-note-deliver-the-terminal-font-from-the-bundled-frontend/alternatives-considered:
+  en: 532a173d70cadd2a
+  zh: 4e70a96d6acda094
+/agent-note-deliver-the-terminal-font-from-the-bundled-frontend/consequences:
+  en: 40bfe525e668de73
+  zh: e527e25478a9d0b4

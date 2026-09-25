@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-16-desktop-launcher-statusbar-dialogs.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/plans/2026-08-16-desktop-launcher-statusbar-dialogs.md
-2026-08-16-desktop-launcher-statusbar-dialogs.md: 7298039e8ad48e826951b53fdd0c58cc82cae819
-2026-08-16-desktop-launcher-statusbar-dialogs.zh.md: e04b22176977b8d2d938c03f8b65327e470fed04
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan:
+  en: f7a5b3a5a489cd98
+  zh: 879db1896891dcd7
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/global-constraints:
+  en: d9aa99d93d8f5db4
+  zh: d4178a4f3c58a13d
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/global-constraints/task-1-supervisor-state-machine-and-manual-lifecycle-api:
+  en: bad15a08e2f83f7f
+  zh: f5fef8f6decad086
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/global-constraints/task-2-status-text-formatting-and-version-resolution-pure-functions:
+  en: c787b630bc121e9e
+  zh: b35267f40b0a012d
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/global-constraints/task-3-gtk-status-bar-dialogs-and-window-centering:
+  en: 91d7df4ccce56717
+  zh: 77edaf3c674dac63
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/global-constraints/task-4-documentation-and-closing-verification:
+  en: 5d4333f7de5c62b9
+  zh: e0f8f597e4ae47de
+/desktop-launcher-centered-window-bottom-status-bar-server-status-about-dialogs-implementation-plan/self-review:
+  en: 66296d955734c7c0
+  zh: 56906df98eadff7a

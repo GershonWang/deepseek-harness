@@ -1,6 +1,25 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-12-desktop-launcher-toolchain-market-presentation.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-12-desktop-launcher-toolchain-market-presentation.md
-2026-09-12-desktop-launcher-toolchain-market-presentation.md: e66cb43e2d07009484ca9ba26fb896886288f6fa
-2026-09-12-desktop-launcher-toolchain-market-presentation.zh.md: b69f04dc0e18c23253c52f321d18befe7e2b5bb5
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation:
+  en: 80f116712239dadc
+  zh: db2e6dd6e1cf4f03
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/problem:
+  en: 4eb0170758059cc3
+  zh: 7a9a1cf63fe0c180
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/decision:
+  en: 14836dd4ea7445f4
+  zh: 87b92c4b53dc2063
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/alternatives-considered:
+  en: 870f7fcdfc343f07
+  zh: 8af2627acfda223a
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/consequences:
+  en: df00731d61d18cbe
+  zh: f1c635a7f4d0359f
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/testing:
+  en: 5dac90c069ab140b
+  zh: 5a4be7317d3cde47
+/agent-note-the-desktop-launcher-s-toolchain-market-presentation/related:
+  en: b25d78103d8c1f70
+  zh: 5e1576b18ba9e45e

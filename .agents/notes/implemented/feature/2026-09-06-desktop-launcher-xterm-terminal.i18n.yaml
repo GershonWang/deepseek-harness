@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-06-desktop-launcher-xterm-terminal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-launcher-xterm-terminal.md
-2026-09-06-desktop-launcher-xterm-terminal.md: cdd68bb23c434a1367b1a62ab8aad1354bdf8d24
-2026-09-06-desktop-launcher-xterm-terminal.zh.md: 6afaef9f8438a26f96b7d1fd909862a41e5ee63f
+/agent-note-xterm-js-terminal-in-the-desktop-launcher:
+  en: d417368791eb45ac
+  zh: 210bf7a10e0058ab
+/agent-note-xterm-js-terminal-in-the-desktop-launcher/problem:
+  en: 308fc5a8ba8bae36
+  zh: 8c75a4d5df7e037e
+/agent-note-xterm-js-terminal-in-the-desktop-launcher/decision:
+  en: 8f59b2c56988e38d
+  zh: 9e11a3c9dd037556
+/agent-note-xterm-js-terminal-in-the-desktop-launcher/alternatives-considered:
+  en: 01f782d0cb98e857
+  zh: 7b937808c9ce4a4e
+/agent-note-xterm-js-terminal-in-the-desktop-launcher/consequences:
+  en: f2b2e645f28a61dd
+  zh: c70cb3d375b71fd0

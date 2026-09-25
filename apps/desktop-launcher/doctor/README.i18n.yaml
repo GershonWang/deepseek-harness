@@ -1,6 +1,46 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop-launcher/doctor/README.md
-README.md: 6a6a56c1acef9ae68a0555681ea8e0a317e323d1
-README.zh.md: b5816773a27c847204d85ed4ffd1e66158206c4f
+/:
+  en: 6d535666858bef93
+  zh: 1959798556e140bc
+/dsh-desktop-doctor:
+  en: 138d99442a657a69
+  zh: c464942b964ae4aa
+/dsh-desktop-doctor/summary:
+  en: 3901a236efe8d9c9
+  zh: 8fec2f2d7ac37b76
+/dsh-desktop-doctor/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 6195f049e8537637
+/dsh-desktop-doctor/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/dsh-desktop-doctor/use-this-package/when-to-use-it:
+  en: cd8efcdc0a9bb022
+  zh: 7d4632a8c32b95da
+/dsh-desktop-doctor/use-this-package/entry-point:
+  en: 7cc6c5bfd428cbd0
+  zh: 31c44a25f2e715ef
+/dsh-desktop-doctor/understand-the-implementation:
+  en: 38d43774e332eea5
+  zh: 039098a3e2c2c3ef
+/dsh-desktop-doctor/understand-the-implementation/source-map:
+  en: 2392c80a7a71e87c
+  zh: 3949676a66ec6625
+/dsh-desktop-doctor/understand-the-implementation/check-set:
+  en: 2ad123201eddd672
+  zh: d568c6ef708b2b67
+/dsh-desktop-doctor/understand-the-implementation/repair:
+  en: ff09b6d4da21cb16
+  zh: fdfb54d57b5a11f9
+/dsh-desktop-doctor/further-exploration:
+  en: bcaae363c9916a4e
+  zh: 1f90709136b7fbb3
+/dsh-desktop-doctor/known-limitations-and-deferred-work:
+  en: d3267c52bb6b541f
+  zh: d6eb4c6c793cf27d
+/dsh-desktop-doctor/known-limitations-and-deferred-work/dev-note:
+  en: 3f36e333ef236458
+  zh: 65ad12cc0542e70e

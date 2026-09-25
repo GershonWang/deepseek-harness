@@ -1,6 +1,70 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-20-host-escape-open-in-app-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-09-20-host-escape-open-in-app-design.md
-2026-09-20-host-escape-open-in-app-design.md: f62b6b561e976b23dfd5f4a92ade78a390995b8b
-2026-09-20-host-escape-open-in-app-design.zh.md: ea76e9a8cfbfc27dd4f8e17f74a7299003efc272
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design:
+  en: fae77c311ba676e0
+  zh: 64929b6c38b27e45
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/background-and-goals:
+  en: dddecf0d5c44be64
+  zh: bbf071d07a14fc8f
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/confirmed-requirements-aligned-with-the-user:
+  en: 5b4c5791b19ed82c
+  zh: d9ecc12ab744f7a2
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/background-facts-measured-on-this-machine:
+  en: 7f9ecf9f7be64f62
+  zh: 6f5cfb649a3b0de7
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/overall-architecture:
+  en: 1c846b9299e144c5
+  zh: 834e688770765e09
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts:
+  en: 116f48ac034a0868
+  zh: 44c6d1417275423e
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/1-environment-fact-launch-environment:
+  en: 402ddbf5fb3cfdf4
+  zh: 48b1135f0e212875
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/2-detection-catalog-additions:
+  en: 5a41c485aa3545b6
+  zh: e56d777d6bf865a0
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/3-launch-host-argv-and-the-bridge-argv:
+  en: 1d82c2f870217c92
+  zh: 5d89b3f03a46f789
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/4-channel-probe-once-at-resolution-time:
+  en: a5b0a391ef59fac1
+  zh: a3bb05af768b0d62
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/5-icons:
+  en: 9d613ad14a287846
+  zh: 1961cc3ff13068c3
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/6-client-and-i18n:
+  en: 0b1d52491796574b
+  zh: 4afe0b7afe71e063
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/interfaces-and-contracts/7-go-side-injection:
+  en: 5560985cf6ed7c13
+  zh: ee9052be01519f36
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/relationship-to-existing-decisions-found-in-passing:
+  en: 0e9244cd18a9be02
+  zh: 011571483e871dc6
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/path-validation-matrix:
+  en: f8e9a532a1c363b6
+  zh: f696e25581e50261
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/fallback-matrix:
+  en: 81a45e0c867e46c1
+  zh: 98a0c258cc448ca4
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/security-model:
+  en: f38a9e4a286001af
+  zh: 735353d9c77196b6
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/test-case-inventory:
+  en: b273c47ec19e9eea
+  zh: 7d130fe68cb12c32
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/commit-breakdown-conventional-commits-one-commit-per-feature:
+  en: 37a538b856040508
+  zh: 429f2a014b0ed934
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/file-changes:
+  en: 03e4ff4dae3faefa
+  zh: 89b756edab5e0ff9
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/deviations-when-implemented:
+  en: a4f96e67663a0a69
+  zh: eeead2d0d9990496
+/desktop-client-loading-host-developer-tools-in-the-linglong-sandbox-design/known-limitations-and-open-questions:
+  en: 9d8a7d96ba84a7d9
+  zh: 438ee7ca3bb130e6
