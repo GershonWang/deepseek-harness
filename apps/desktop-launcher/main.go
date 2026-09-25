@@ -46,6 +46,9 @@ func main() {
 	}
 	appenv.ConfigureChildEnv(home)
 	packaging.ConfigureWebKitHelperPath()
+	// 同样须在 wails.Run 之前：做音频设备枚举的是 WebKit 的 WebProcess，它继承本
+	// 进程环境，插件搜索路径要在它启动前就位。
+	packaging.ConfigureGStreamerPlugins()
 	// 须在 wails.Run 之前：webkit2gtk 只在 GTK/WebKit 初始化时读取渲染后端的开关。
 	packaging.ConfigureWebKitRendering()
 	// 同样须在 wails.Run 之前：GTK/WebKit 首次读取 FONTCONFIG_FILE 时即固定字体配置。
