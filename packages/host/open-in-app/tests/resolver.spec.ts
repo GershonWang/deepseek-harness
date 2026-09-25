@@ -726,6 +726,38 @@ describe('host-desktop locators', () => {
     })
   })
 
+  it('resolves the packager spelling of the VS Code entry when no code.desktop exists', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    await writeEntry(join(hostRootfs, 'usr', 'share'), 'com.microsoft.VSCode', '[Desktop Entry]\nExec=/usr/share/code/code %F\nIcon=vscode\n')
+    await writeProgram(join(hostRootfs, 'usr', 'share', 'code', 'code'))
+
+    await expect(resolveLaunch(byId('vscode'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))).resolves.toEqual({
+      launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] },
+      hostDesktopId: 'com.microsoft.VSCode',
+    })
+  })
+
+  it('keeps the first declared entry id when the host carries both spellings', async () => {
+    const home = await tempRoot()
+    const hostRootfs = await tempRoot()
+    const applications = join(hostRootfs, 'usr', 'share')
+    await writeEntry(applications, 'code', '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
+    await writeEntry(applications, 'com.microsoft.VSCode', '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
+    await writeProgram(join(hostRootfs, 'usr', 'share', 'code', 'code'))
+
+    await expect(resolveLaunch(byId('vscode'), TIMEOUT_MS, bare({
+      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
+      hostEscape: { hostRootfs, launcher: 'systemd-run' },
+    }))).resolves.toEqual({
+      launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] },
+      hostDesktopId: 'code',
+    })
+  })
+
   it('reads a per-user host entry from the shared home, trying the declared ids in order', async () => {
     const home = await tempRoot()
     const hostRootfs = await tempRoot()

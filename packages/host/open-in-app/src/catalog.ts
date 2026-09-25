@@ -260,7 +260,9 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
           '${ProgramFiles}/Microsoft VS Code/Code.exe',
         ]),
       ),
-      linux: desktopSpec('code', cli('code'), hostDesktop(['code'], PATH_TOKEN)),
+      // 部分发行版/应用商店把 VS Code 的桌面条目名写成 `com.microsoft.VSCode`（Exec 仍指向
+      // 宿主的 /usr/share/code/code），因此按 `code` 之外再列一个兜底 id；顺序保证常见布局先匹配。
+      linux: desktopSpec('code', cli('code'), hostDesktop(['code', 'com.microsoft.VSCode'], PATH_TOKEN)),
     },
   },
   {
