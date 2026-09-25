@@ -28,4 +28,4 @@ Wails v2 的 Linux 后端从不连接 `WebKitWebView::permission-request`，而 
 
 ## Consequences
 
-启动器因此接受了对 GTK 与 WebKit 的 CGO 依赖，`webviewperm` 成为模块里唯一的非纯 Go 包；但它的判定逻辑留在 Go 里，`policy.go` 在没有 GTK 的环境中依旧可测。启动流程从不依赖遍历成功——找不到视图时只记一行日志，壳的行为与改动前一致。验证必须在真实窗口上进行，因为遍历针对的就是 Wails 自己的控件树：本次记录的证据来自一个用启动器模块构建的一次性 Wails 探针（在打包态环境下运行），以及直接读取运行中 `WebKitWebProcess` 的环境变量，以确认发行版实际导出了哪些变量。
+启动器因此接受了对 GTK 与 WebKit 的 CGO 依赖，`webviewperm` 成为模块里唯一的非纯 Go 包；但它的判定逻辑留在 Go 里，`policy.go` 在没有 GTK 的环境中依旧可测。启动流程从不依赖遍历成功——找不到视图时只记一行日志，壳的行为与改动前一致。验证必须在真实窗口上进行，因为遍历针对的就是 Wails 自己的控件树：本次记录的证据来自一个用启动器模块构建的一次性 Wails 探针（在打包态环境下运行），以及直接读取运行中 `WebKitWebProcess` 的环境变量，以确认发行版实际导出了哪些变量。该容器里真正采集音频还需要换一套完全不同的录制实现，见[语音输入改用 AudioWorklet 采集](2026-09-25-voice-input-audioworklet-capture.zh.md)。

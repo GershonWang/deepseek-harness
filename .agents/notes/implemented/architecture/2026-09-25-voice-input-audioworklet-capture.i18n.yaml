@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-09-25-voice-input-audioworklet-capture.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-25-voice-input-audioworklet-capture.md
+/agent-note-audioworklet-capture-instead-of-mediarecorder:
+  en: 925d58aa8277dcd1
+  zh: e343a07809d01776
+/agent-note-audioworklet-capture-instead-of-mediarecorder/problem:
+  en: 68f65e656624d4c7
+  zh: 5b76a6738ac8f960
+/agent-note-audioworklet-capture-instead-of-mediarecorder/decision:
+  en: db295df7294165b2
+  zh: f86600552a568bee
+/agent-note-audioworklet-capture-instead-of-mediarecorder/alternatives-considered:
+  en: ca9bd4071074bc65
+  zh: 4a9bac9ff7c4bea3
+/agent-note-audioworklet-capture-instead-of-mediarecorder/consequences:
+  en: 8491beae3701e09e
+  zh: 4f295929bbd79bbe
