@@ -29,7 +29,7 @@ it('reports unavailable recording and denied permission', async () => {
 })
 
 it('releases a microphone granted after cancellation', async () => {
-  const permission = Promise.withResolvers<{ getTracks: () => { stop: () => void }[] }>()
+  const permission = Promise.withResolvers<{ getTracks: () => { stop: () => void }[]; getAudioTracks: () => never[] }>()
   const stop = vi.fn(), dispose = vi.fn()
   vi.stubGlobal('AudioWorkletNode', function WorkletStub() {})
   vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: () => permission.promise } })
@@ -69,7 +69,7 @@ it.each([{ empty: true }, { recorderError: true }, { constructError: true }])('r
 })
 
 it('discards resampling results that finish after cancellation', async () => {
-  const b = captureFixture(), rendered = Promise.withResolvers<{ getChannelData: () => Float32Array }>()
+  const b = captureFixture(), rendered = Promise.withResolvers<{ getChannelData: () => Float32Array<ArrayBuffer> }>()
   b.rendering.mockReturnValueOnce(rendered.promise)
   await b.recording.start()
   b.emit()
