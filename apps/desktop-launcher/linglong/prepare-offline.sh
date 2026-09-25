@@ -37,11 +37,28 @@ node apps/desktop-launcher/tools/doctor-build.mjs
 #    桌面壳（electron-builder → @electron/osx-sign）用的补丁，而本步只部署
 #    @deepseek-ai/dsh 的生产闭包，闭包里没有它；pnpm 11 对未被使用的补丁是
 #    硬报错（ERR_PNPM_UNUSED_PATCH），因此在这一步显式放行，只影响本步骤。
+#    另需借出仓库根的 pnpm 工作区状态再原样交还：deploy 会在仓库根把它改写成
+#    prod + hoisted，而仓库根的 node_modules 始终是第 1 步那个 dev + isolated
+#    安装（deploy 只写 $STAGE/harness，不动它的布局）。不交还的话，此后仓库根
+#    任何 `pnpm run` 都会拿这份失真快照判定依赖失配，去跑要先删掉 isolated
+#    node_modules 的 `pnpm install --production`，无 TTY 时即中止。
+WORKSPACE_STATE="node_modules/.pnpm-workspace-state-v1.json"
+STATE_BACKUP=""
+if [ -f "$WORKSPACE_STATE" ]; then
+  STATE_BACKUP=$(mktemp)
+  cp -p "$WORKSPACE_STATE" "$STATE_BACKUP"
+fi
+
 pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   --config.node-linker=hoisted \
   --config.allowUnusedPatches=true \
   "$STAGE/harness"
 node scripts/fix-deploy-closure.mjs "$STAGE/harness"
+
+if [ -n "$STATE_BACKUP" ]; then
+  cp -p "$STATE_BACKUP" "$WORKSPACE_STATE"
+  rm -f "$STATE_BACKUP"
+fi
 
 # 2.0.5 生产闭包瘦身：删掉确定不是 runtime 依赖的大包。
 #    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）。

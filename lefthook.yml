@@ -52,11 +52,14 @@ pre-merge-commit:
 pre-push:
   jobs:
     - name: typecheck
-      # 用 npm 直接跑（typecheck 脚本本身就是 npm run 链）：pnpm run 会在执行前
-      # 做 deps 状态检查，在非交互/受限环境（如玲珑容器内只读 HOME）会因 store
-      # SQLite 打不开或需整体重装 node_modules 而无 TTY 中止，导致钩子无法执行；
-      # npm run 不做该检查，行为在所有环境一致。
-      run: npm run typecheck
+      # 该链的 build:lib:host 末尾会调 `pnpm --filter … run`，而 pnpm 11 的
+      # verify-deps-before-run 会拿 node_modules/.pnpm-workspace-state-v1.json 逐键比对
+      # 当前配置。玲珑打包脚本的 `pnpm deploy --prod --config.node-linker=hoisted` 会在
+      # 仓库根把这份状态改写成 prod + hoisted，此后任何 `pnpm run` 都判定依赖失配，去跑
+      # 需要先删掉 isolated node_modules 的 `pnpm install --production`，无 TTY 时即以
+      # ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY 中止。pnpm 只认 pnpm_config_* 前缀
+      # （npm_config_* 无效），写在 run 上会随整条命令链传递。
+      run: pnpm_config_verify_deps_before_run=false npm run typecheck
 
     # 启动器前端的布局不变量：高度是否随模式/状态跳动、地址框两行预留、输入框封顶。
     # 这些只有真实布局看得见，DOM 桩测试覆盖不到，因此放在唯一的推送出口上。
