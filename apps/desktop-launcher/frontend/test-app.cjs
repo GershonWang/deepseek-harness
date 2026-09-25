@@ -893,6 +893,38 @@ test("语言消息校验：非法载荷不改语言也不回推", async () => {
   assert.deepEqual(h.localeCalls, ["zh"], "非法载荷不应产生新的回推");
 });
 
+test("语言切换后重绘状态栏与加载提示：二者由 app.js 渲染，不随静态回填", async () => {
+  // 这两个元素不挂 data-i18n（静态回填会在语言上报时把动态文案打回静态键值，
+  // 见 index.html），代价是它们的语言跟随必须由 renderDynamicCopy 自己补。
+  const h = loadApp();
+  await flush();
+  h.status(baseStatus({ State: "running", URL: "http://127.0.0.1:3456", Target: "http://127.0.0.1:3456" }));
+  h.startupEvent({ Phase: "serving", Loaded: 9, Total: 9 });
+  await flush();
+  assert.equal(h.document.getElementById("status-text").textContent, "运行中 127.0.0.1:3456");
+  assert.equal(h.document.getElementById("loading-hint").textContent, "插件已就绪，正在启动服务端口");
+
+  h.message({ dshDesktop: true, type: "locale", id: "en" });
+  await flush();
+
+  assert.equal(h.document.getElementById("status-text").textContent, "Running 127.0.0.1:3456",
+    "状态栏应跟随语言切换");
+  assert.equal(h.document.getElementById("loading-hint").textContent, "Plugins are ready, starting the service port",
+    "加载提示应跟随语言切换");
+});
+
+test("动态渲染的元素不挂 data-i18n 钩子：静态回填会覆盖动态文案", () => {
+  // 这条约定只有源码层能守：DOM 桩的 querySelectorAll 不支持属性选择器，
+  // 静态回填在桩里是空操作，行为用例看不见「钩子挂回去」这个回归。
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  for (const id of ["status-text", "loading-hint"]) {
+    const tag = html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`));
+    assert.ok(tag, `index.html 里应存在 #${id}`);
+    assert.ok(!/\bdata-i18n(?:=|-)/.test(tag[0]),
+      `#${id} 的文案由 app.js 渲染，挂 data-i18n 会被静态回填覆盖：${tag[0]}`);
+  }
+});
+
 test("客户端失败优先于 iframe 目标：不给死路页设置地址", async () => {
   // Go 侧在客户端失败时会把 Target 一并清空（internal/app resolveTarget）；
   // 前端再判一次，避免快照时序或旧壳二进制把用户送回那张起不来的页面。

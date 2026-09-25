@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false };
+const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
 // 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
@@ -211,6 +211,8 @@ const loadingProgress = { ratio: 0 };
  *   缺省或零值表示当前不在启动态。
  */
 function renderStartup(v) {
+  // 缓存最近一次视图：语言切换后要按新语言重绘，而那时不会再送一份 v。
+  state.startupView = v;
   const phase = v && v.Phase ? v.Phase : "";
   // 缺省键覆盖浏览器预览与在途版本（未注入上报插件）两种没有阶段的情况。
   $("#loading-hint").textContent = tr(LOADING_PHASE_HINT[phase] || "loading.hint");
@@ -282,9 +284,14 @@ function hostLabel(url) {
   }
 }
 
-function applyStatus(s) {
-  state.status = s;
-
+/**
+ * 渲染底部状态栏的语义色圆点与文案。
+ *
+ * 文案随状态快照变，给不出静态键值，因此该元素不挂 data-i18n（见 index.html）；
+ * 语言切换时的重绘由 renderDynamicCopy 负责，与静态回填分工。
+ * @param {Object} s - Go 侧状态快照（internal/app 的 FrontendStatus）。
+ */
+function renderHarnessStatusbar(s) {
   const dot = $("#status-dot");
   const text = $("#status-text");
 
@@ -316,6 +323,22 @@ function applyStatus(s) {
     text.textContent = tr("status.stopped")
       + (s.LastExit ? tr("status.exitCode", { code: s.LastExit }) : "");
   }
+}
+
+/**
+ * 按当前语言重绘由本文件接管的动态文案。
+ *
+ * 这些元素不挂 data-i18n（静态回填只回填静态元素，见 index.html），语言切换时
+ * 静态回填管不到它们；不在这里补一次重绘，它们就会停在旧语言。
+ */
+function renderDynamicCopy() {
+  if (state.status) renderHarnessStatusbar(state.status);
+  renderStartup(state.startupView);
+}
+
+function applyStatus(s) {
+  state.status = s;
+  renderHarnessStatusbar(s);
 
   // 目标：外部已连接 / 容器运行中 -> iframe；启动中 -> 加载页（预检占用时 ->
   // 预检页）；启动失败 -> 失败页（附失败原因）；手动停止（非重试间隙）-> 引导页。
@@ -1696,6 +1719,13 @@ function init() {
   // 先定语言再渲染：加载页、预检页、失败页都在 GUI 起来之前出现，此时只能按
   // navigator 兜底；GUI 起来后由桥上报的 locale 消息覆盖（见 i18n.js）。
   window.DSHI18N.init();
+  // 状态栏与加载提示的文案由本文件渲染，静态回填不碰它们（见 index.html），
+  // 因此语言切换后的重绘要在这里补上。
+  window.DSHI18N.onChange(renderDynamicCopy);
+  // 首帧文案：此刻还没有任何状态快照，先给与"进程刚拉起"相符的默认值，
+  // 真实状态由随后的快照与启动进度事件覆盖。
+  $("#status-text").textContent = tr("status.starting");
+  $("#loading-hint").textContent = tr("loading.hint");
 
   bindUI();
 

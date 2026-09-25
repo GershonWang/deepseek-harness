@@ -92,7 +92,8 @@
       <section id="loading-page" class="loading-page hidden">
         <div class="loading-spinner" aria-hidden="true"></div>
         <h2 data-i18n="loading.title"></h2>
-        <p id="loading-hint" class="loading-hint" data-i18n="loading.hint"></p>
+        <!-- 阶段文案随启动进度变，由 app.js 渲染：同底部状态栏，不挂 data-i18n。 -->
+        <p id="loading-hint" class="loading-hint"></p>
         <!-- 真实进度：harness 侧注入的上报插件逐条上报已激活条目数（见
              internal/appenv/startup_progress.mjs）。没有上报时整块隐藏，
              页面退回上面的转圈与静态文案，不出现按时间猜的假进度。 -->
@@ -134,10 +135,12 @@
     </div>
   </main>
 
-  <!-- 底部状态栏 -->
+  <!-- 底部状态栏：文案随状态快照变（运行中／启动中／已停止…），由 app.js 渲染，
+       因此不挂 data-i18n —— 静态回填会在每次语言上报时把它打回静态键值，
+       而状态稳定后不会再推送快照，错误文案就再没人纠正。 -->
   <footer id="statusbar">
     <span id="status-dot" class="dot muted"></span>
-    <span id="status-text" data-i18n="status.starting"></span>
+    <span id="status-text"></span>
   </footer>
 </div>
 

@@ -355,6 +355,9 @@ const PREVIEW_LOCALE = process.env.DSH_PREVIEW_LOCALE || 'zh-CN'
  * 静态文案全靠 data-i18n 钩子在运行期回填。若只剥脚本不回填，量到的是"文案消失后"
  * 的几何——卡片高度、地址框两行预留这类断言会因文字没了而误报。内联而不是外链
  * 脚本，是因为预览页以 file:// 打开，跨文件的 <script src> 并不可靠。
+ *
+ * 状态栏与加载提示的文案由 app.js 渲染（不带 data-i18n，见 docs/i18n.md 6.3.2），
+ * 静态回填写不到它们，这里按壳首帧的取值补上——否则加载页的几何断言量的是空文案。
  * @param {string} dir - 预览页写入目录。
  * @returns {Promise<string>} 预览页的文件 URL。
  */
@@ -366,7 +369,10 @@ async function buildPreview(dir) {
   const stripped = source
     .replace(/<script\b[^>]*><\/script>\s*/gu, '')
     .replace('href="styles.css"', `href="file://${join(FRONTEND, 'styles.css')}"`)
-    + `\n<script>\n${localeSource}\nwindow.DSHI18N.applyFromGui(${JSON.stringify(PREVIEW_LOCALE)})\n</script>\n`
+    + `\n<script>\n${localeSource}\nwindow.DSHI18N.applyFromGui(${JSON.stringify(PREVIEW_LOCALE)})\n`
+    + "document.getElementById('status-text').textContent = window.DSHI18N.t('status.starting')\n"
+    + "document.getElementById('loading-hint').textContent = window.DSHI18N.t('loading.hint')\n"
+    + '</script>\n'
   const target = join(dir, 'preview.html')
   await writeFile(target, stripped)
   return `file://${target}`
