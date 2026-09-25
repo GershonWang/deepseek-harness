@@ -132,6 +132,12 @@ var allowedChinese = map[string][]string{
 	"internal/packaging/webkit_linux.go": {
 		"dsh-desktop: 创建 webkit helper 符号链接失败: %v\n",
 	},
+	"internal/webviewperm/permission_linux.go": {
+		// 启动器 stderr 上的排障日志：用来回答「麦克风权限处理到底挂上没有」。
+		// 它面向的是读日志的人，不随界面语言变化，界面里也不会出现。
+		"未找到内嵌 WebKitWebView，麦克风权限未挂载",
+		"麦克风权限处理已挂载",
+	},
 	"internal/toolchain/catalog.go": {
 		"toolchain: current/%s 指向安装根之外（%s），已跳过",
 		"toolchain: %s 的 bin_dirs %q 越出工具根目录，已跳过",
