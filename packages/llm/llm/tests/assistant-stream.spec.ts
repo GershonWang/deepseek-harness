@@ -235,6 +235,19 @@ describe('AssistantStreamAccumulator', () => {
   ])('rejects malformed compact record %#', (record, message) => {
     expect(() => expandAssistantStream([record] as never)).toThrow(message)
   })
+
+  it('names the rejected value and its position in the stream', () => {
+    // 记录级失败要能自证是哪条、哪个字段：否则现场只剩一句"无损 JSON 对象"，
+    // 无法判断是发送方给了非对象 chunk，还是某个字段本身不可序列化。
+    expect(() => expandAssistantStream([{ type: 'chunk', time: 1, chunk: 'nope' }] as never))
+      .toThrow('Assistant stream record 0 is invalid: Assistant stream raw chunk must be a lossless JSON object, got a string')
+    expect(() => expandAssistantStream([
+      { type: 'text-chunks', time0: 1, index: 0, dt: [], texts: ['a'] },
+      { type: 'chunk', time: 1, chunk: [] },
+    ] as never)).toThrow('Assistant stream record 1 is invalid: Assistant stream raw chunk must be a lossless JSON object, got an array')
+    expect(() => expandAssistantStream([{ type: 'chunk', time: 1, chunk: { type: 'future', bad: undefined } }] as never))
+      .toThrow('Assistant stream record 0 is invalid: Assistant stream raw chunk must be a lossless JSON object: Assistant stream chunk must be losslessly JSON-serializable')
+  })
 })
 
 /** Fragment array that counts index reads, so a scan's early exit is observable. */

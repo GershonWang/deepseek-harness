@@ -85,6 +85,27 @@ function safeIndex(value: number, label: string): number {
   return value
 }
 
+/**
+ * Name a rejected raw chunk value, so a wire mismatch is identifiable from the
+ * failure alone instead of requiring the sender's payload.
+ * @param value - the rejected `chunk` field.
+ * @returns a short description of what arrived.
+ */
+function describeRawChunk(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'an array'
+  return `a ${typeof value}`
+}
+
+/**
+ * Read a nested failure's message without assuming an Error.
+ * @param error - the failure to describe.
+ * @returns its message, or the value's string form.
+ */
+function failureMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function snapshotChunk(chunk: StreamChunk): StreamChunk {
   const snapshot = snapshotJsonValue(chunk)
   if (snapshot === undefined) throw new TypeError('Assistant stream chunk must be losslessly JSON-serializable')
@@ -194,15 +215,31 @@ export class AssistantStreamAccumulator {
 }
 
 /**
+ * Validate one compact record, naming its position so a rejected stream identifies
+ * the offending member instead of only its field.
+ * @param candidate - record read at a durable or Stream boundary.
+ * @param position - index within the record array.
+ * @returns the validated record.
+ * @throws {TypeError} naming the position and the underlying rejection.
+ */
+function validateStreamRecord(candidate: unknown, position: number): AssistantStreamRecord {
+  try {
+    return validateRecord(candidate)
+  } catch (error: unknown) {
+    throw new TypeError(`Assistant stream record ${String(position)} is invalid: ${failureMessage(error)}`, { cause: error })
+  }
+}
+
+/**
  * Expand compact records into the exact timed chunk sequence.
  * @param stream - compact records from one durable Assistant settlement.
  * @returns detached timed chunks with every original delta boundary preserved.
- * @throws {TypeError} when a record or reconstructed timestamp is invalid.
+ * @throws {TypeError} when a record or reconstructed timestamp is invalid, naming the record position.
  */
 export function expandAssistantStream(stream: readonly AssistantStreamRecord[]): readonly TimedStreamChunk[] {
   const chunks: TimedStreamChunk[] = []
-  for (const candidate of stream) {
-    const record = validateRecord(candidate)
+  for (const [position, candidate] of stream.entries()) {
+    const record = validateStreamRecord(candidate, position)
     if (record.type === 'chunk') {
       chunks.push({ time: record.time, chunk: record.chunk })
       continue
@@ -489,13 +526,13 @@ function validateRecord(value: unknown): AssistantStreamRecord {
       if (typeof record.chunk !== 'object'
         || record.chunk === null
         || Array.isArray(record.chunk)) {
-        throw new TypeError('Assistant stream raw chunk must be a lossless JSON object')
+        throw new TypeError(`Assistant stream raw chunk must be a lossless JSON object, got ${describeRawChunk(record.chunk)}`)
       }
       let chunk: StreamChunk
       try {
         chunk = snapshotChunk(record.chunk as StreamChunk)
       } catch (error: unknown) {
-        throw new TypeError('Assistant stream raw chunk must be a lossless JSON object', { cause: error })
+        throw new TypeError(`Assistant stream raw chunk must be a lossless JSON object: ${failureMessage(error)}`, { cause: error })
       }
       return deepFreeze({ type: 'chunk', time, chunk })
     }
