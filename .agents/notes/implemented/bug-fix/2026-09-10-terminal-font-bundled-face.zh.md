@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-终端字体随 web 前端一起交付：`frontend/vendor/fonts/jetbrains-mono/` 内置 JetBrains Mono 2.304 的 Medium、Medium Italic、Bold、Bold Italic 与 OFL.txt，经 `go:embed all:frontend` 编入二进制，由 Wails asset server 提供。`styles.css` 为四个面声明 `@font-face`（500/700 × 常规/斜体），`createTerminalSession` 在构造 `Terminal` 前等待四个面的 `document.fonts.load`——与 2 秒超时竞速——保证 xterm 用最终字体测量字符单元格。字体栈删去永远缺失的 macOS/Windows 族，`fontWeight` 为 `500`，同时移除无效的 `-webkit-font-smoothing` 声明；`font-feature-settings: "liga" 0, "calt" 0` 保留：JetBrains Mono 的连字会合并字符并破坏终端等宽格对齐。
+终端字体随 web 前端一起交付：`frontend/vendor/fonts/jetbrains-mono/` 内置 JetBrains Mono 2.304 的 Medium、Medium Italic、Bold、Bold Italic 与 OFL.txt，经启动器的 `//go:embed` 清单（`frontend/vendor`）编入二进制，由 Wails asset server 提供。`styles.css` 为四个面声明 `@font-face`（500/700 × 常规/斜体），`createTerminalSession` 在构造 `Terminal` 前等待四个面的 `document.fonts.load`——与 2 秒超时竞速——保证 xterm 用最终字体测量字符单元格。字体栈删去永远缺失的 macOS/Windows 族，`fontWeight` 为 `500`，同时移除无效的 `-webkit-font-smoothing` 声明；`font-feature-settings: "liga" 0, "calt" 0` 保留：JetBrains Mono 的连字会合并字符并破坏终端等宽格对齐。
 
 ## Alternatives considered
 
