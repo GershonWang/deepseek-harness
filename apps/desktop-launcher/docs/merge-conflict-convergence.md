@@ -172,27 +172,21 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 
 ## 五、归因：冲突 = 上游热文件 ∩ fork 改动
 
-> **本节口径待重校（已知遗留，先于本次合并）。** 下表写于阶段 1 之前，其中 `pnpm-lock.yaml`、`tsconfig.host.json`、`tsconfig.base.json`、`apps/cli/package.json`、`apps/cli/src/args.ts`、`apps/cli/src/bin.ts`、`apps/cli/tests/args.spec.ts` 七项**已不在当前偏离面内**（见 §四）；且表中数字按其自述窗口（`--since=2026-03-01`）**无法复现**——实测无 `-m` 得 911、带 `-m` 得 5790，均非表中的 1811。当前**权威且可复现**的热度表是 [fork-divergence.md](./fork-divergence.md) §四（窗口：最近 300 个 `upstream/master` 提交、经 `-m` 展开）。本节暂留作历史记录，重算口径见 §9 第 6 条。
+> **本节已按 [fork-divergence.md](./fork-divergence.md) §四 的口径重算，并去掉了逐文件热度表的重复。** 逐文件计数、统计窗口与复现命令的唯一出处是 §四（窗口：最近 300 个 `upstream/master` 提交、经 `-m` 展开，覆盖 6571 个路径）；本节只做按组的归因。
 
-冲突概率与「上游改动该文件的频次」正相关。以下是当前 A 类文件的上游热度（统计窗口：2026-03-01 起至上游 tip）：
+冲突概率与「上游改动该文件的频次」正相关。把 [fork-divergence.md](./fork-divergence.md) §四 的 47 个 A 类文件按本文档 §四 的分组求和——每个文件计一次，4 个 B 类新增文件不在上游热度表内故不计入；同一提交会同时改动组内多个文件，因此「合计」是热度上界，不等于冲突次数：
 
-| 文件 | 上游改动次数 | 所属组 |
-|---|---:|---|
-| `pnpm-lock.yaml` | 1811 | B（机械，**不可消除**） |
-| `tsconfig.host.json` | 346 | B |
-| `tsconfig.base.json` | 241 | B |
-| `apps/cli/package.json` | 160 | B |
-| `scripts/verify-package-readme-model-experience.ts` | 140 | D |
-| `ui-conversation/.../InputBar.tsx` | 135 | F |
-| `packages/boot/app-boot/src/index.ts` | 86 | C |
-| `packages/boot/app-boot/src/profile.ts` | 54 | C |
-| `apps/cli/src/args.ts` | 30 | B |
-| `packages/client/modules/src/index.ts` | 29 | H |
-| `apps/cli/tests/args.spec.ts` | 24 | B |
-| `lefthook.yml` | 22 | G |
-| `apps/cli/src/bin.ts` | 20 | B |
+| 组 | A 类文件数 | 上游改动次数合计 | 占比 | 组内最高 | 最高文件 |
+|---|---:|---:|---:|---:|---|
+| C 安全模式 | 2 | 90 | 13.0% | 47 | `packages/boot/app-boot/src/index.ts` |
+| D 门禁适配 | 6 | 38 | 5.5% | 19 | `scripts/translation-pairing.ts` |
+| E open-in-app / 宿主逃逸 | 24 | 349 | 50.4% | 43 | `packages/client/ui-open-in-app/README.i18n.yaml` |
+| F 壳内剪贴板 | 1 | 35 | 5.1% | 35 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` |
+| G 机械配置 | 3 | 22 | 3.2% | 14 | `tsdown.config.ts` |
+| H 其它客户端 | 11 | 158 | 22.8% | 40 | `packages/client/ui-primitives/src/ImageLightbox.module.css` |
+| **合计** | **47** | **692** | 100% | — | — |
 
-**关键结构性观察**：doctor 虽然本体是 C 类（不冲突），但它的**接线**占用了全仓最热的两个 TypeScript 工程文件（`tsconfig.host.json` 346 次、`tsconfig.base.json` 241 次）。B 组 9 个文件里有 6 个是纯 doctor 接线——这是「冲突集中在 doctor」这一体感真正的来源。
+**结构观察**：冲突面已从「工程接线」转向「文档配对面与客户端组件」。E 组以 24 个文件占掉全部热度的一半，其中 9 个是 `open-in-app` 与 `launch-environment` 的 README 配对面、合计 163 次——上游改一次文档就同时落在 `README.md`、`README.zh.md` 与 `README.i18n.yaml` 三处登记上，而三处都在偏离面内。H 组次之（158 次），集中在 `ui-primitives`、`ui-theme` 与 `client/modules`。阶段 1 之前占据榜首的 `pnpm-lock.yaml`、`tsconfig.host.json`、`tsconfig.base.json`、`apps/cli/package.json` 已不在偏离面内；D 组最高 19 次（「高」区下沿）、G 组最高 14 次（「中」区），冲突面不再由工程接线文件主导。
 
 ---
 
@@ -312,7 +306,7 @@ node --import tsx/esm scripts/verify-subsystem-pages.ts   # exit 1
 3. **本文档是否加入 `verify-repository-references` 豁免清单**——加入后可写裸提交哈希，与同目录另四份文档一致；**该改动需单独批准**。
 4. **open-in-app 的收敛路径未调研**——D1/D2/D3 三选一需要一次独立可行性调研（本文档只给出候选与已证实的机制先例）。
 5. **[fork-divergence.md](./fork-divergence.md) 基准已重校**——本轮并入 `0.1.7-rc.2` 时同步刷新为「A 类 47 + B 类 4 / 51 文件偏离」（口径：排除 `apps/desktop-launcher/`、`docs/superpowers/`、`.agents/` 三处独立目录），总偏离 374 文件 / +60101 −128。注意该文档的**处置建议**（§七）只更新了基准，逐项收敛本身尚未执行。
-6. **本文档 §五 的上游热度表口径待重校**——该表写于阶段 1 之前，既含已消除的文件，又无法按其自述命令复现（详见该节提示）。倾向按 [fork-divergence.md](./fork-divergence.md) §四 的窗口（最近 300 个上游提交 + `-m` 展开）统一重算并删除重复，**但改变本文档统计口径需单独确认**。
+6. **~~本文档 §五 的上游热度表口径待重校~~——已决议：按 [fork-divergence.md](./fork-divergence.md) §四 的窗口（最近 300 个上游提交 + `-m` 展开）重算，并删除与 §四 重复的逐文件热度表。** §五 现只保留按组的归因，逐文件计数以 §四 为唯一出处。
 
 ---
 
