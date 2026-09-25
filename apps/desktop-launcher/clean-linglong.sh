@@ -146,9 +146,9 @@ done
 
 # 3e. 启动器前端预览工具的产物
 #     .preview/ 是截图与运行时生成的预览页；.preview-cache/ 是 Chromium 的
-#     profile/HOME/XDG。两者都必须留在 go:embed 根 frontend/ 之外：写进里面
-#     会被 //go:embed all:frontend 原样嵌进启动器二进制（.gitignore 对 embed
-#     无效），而 Chromium 的缓存文件名会让 go build 直接失败（.gitignore:64-69）。
+#     profile/HOME/XDG。两者都必须留在 frontend/ 之外：写进 locales/ 或 vendor/
+#     会随 main.go 的嵌入清单进二进制，写在其他位置会让 main_test.go 的嵌入清单
+#     断言失败（.gitignore:64-69）。
 #     两者都是几秒可再生的小缓存，与 .typecheck/.dsh-build 同档。
 for d in "$APP_DIR/.preview" "$APP_DIR/.preview-cache"; do
   if [ -d "$d" ]; then

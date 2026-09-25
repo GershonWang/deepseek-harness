@@ -19,7 +19,18 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 )
 
-//go:embed all:frontend
+// 前端资源。逐项列出随包文件，不用 `all:frontend` 整体嵌入：
+// frontend/ 下还住着三个仅开发用的文件（test-app.cjs、test-i18n.cjs、
+// tools/preview.mjs，合计约 149 KB），整体嵌入会把它们塞进二进制；而 `all:` 前缀连
+// 点号或下划线开头的游离文件也一并嵌入，遇到 Go 拒绝的嵌入文件名还会让构建失败。
+// 列成清单后默认从「目录下什么都进包」翻转为「只有列出的进包」。
+//
+// locales/ 与 vendor/ 用目录模式：新增语言字典或字体无需改这里，但写进这两个目录的
+// 任何文件都会随包，所以预览产物必须留在 frontend/ 之外（见
+// frontend/tools/preview.mjs 的产物守卫）。新增 frontend/ 下的顶层资源要在此登记，
+// 漏登记由 main_test.go 断言点名。
+//
+//go:embed frontend/index.html frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor
 var assets embed.FS
 
 func main() {

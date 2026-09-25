@@ -1,9 +1,10 @@
 /* DeepSeek Harness 桌面壳 —— VS Code 深色风格，模块用清晰边框 + 圆角分隔。 */
 
 /* 随包 JetBrains Mono：终端主字体。四个面覆盖 xterm 用到的 500 常规/斜体
-   与 700 粗体/粗斜体；TTF 经 go:embed all:frontend 编入二进制，由 asset
-   server 同源提供。走 @font-face 而非系统 fontconfig 安装，是因为玲珑容器
-   的 fontconfig 只扫 /usr/share/fonts 等系统目录，看不见应用包内的字体。 */
+   与 700 粗体/粗斜体；TTF 经 main.go 的 go:embed 清单（frontend/vendor）
+   编入二进制，由 asset server 同源提供。走 @font-face 而非系统 fontconfig
+   安装，是因为玲珑容器的 fontconfig 只扫 /usr/share/fonts 等系统目录，
+   看不见应用包内的字体。 */
 @font-face {
   font-family: 'JetBrains Mono';
   src: url('vendor/fonts/jetbrains-mono/JetBrainsMono-Medium.ttf') format('truetype');

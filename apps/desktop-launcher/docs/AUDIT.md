@@ -31,7 +31,7 @@
 
 ## 条目总览
 
-下表列出全部 59 个条目，按 2026-09-20 复核时点的状态排列：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。此后第 14 行（24 壳前端 i18n）于 2026-09-22 转为「已修」，为保持与附录 H 的行号对应未移动该行，故现值为 22／10／27。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
+下表列出全部 59 个条目，按 2026-09-20 复核时点的状态排列：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。此后第 14 行（24 壳前端 i18n）于 2026-09-22、第 22 行（N28）于 2026-09-25 转为「已修」，为保持与附录 H 的行号对应未移动这两行，故现值为 21／10／28。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
 
 | # | 级别 | 条目 | 状态 |
 |---|---|---|---|
@@ -56,7 +56,7 @@
 | 19 | 低危 | N23 工具 ID `jdk21` 与内容不符（现含 8/21），改名需要一次性迁移 | 未修（有意延期）｜✅ 已复核 |
 | 20 | 低危 | N24 `ToolVersion.LibRel` 无消费点 | 未修｜✅ 已复核 |
 | 21 | 低危 | N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它 | 未修（记录待查）｜✅ 实测复核 |
-| 22 | 低危 | N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转 | 未修｜✅ 本次产物复核实测 |
+| 22 | 低危 | N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转 | 已修（2026-09-25）｜✅ 实测复核 |
 | 23 | 低危 | N29 49 个 `*.tsbuildinfo` 随包交付 | 未修｜✅ 本次产物复核实测 |
 | 24 | 高危 | N3 工具索引来自个人 fork 的可变分支，且无签名 | 部分修复｜✅ 实测复核 |
 | 25 | 高危 | 33 WebKit helper 字节补丁与版本号硬编码 | 部分修复｜✅ 实测复核 |
@@ -620,12 +620,16 @@
 
 ## N28 `//go:embed all:frontend` 把开发文件一并嵌进启动器，且 `all:` 当前是空转
 
-- **状态**：未修｜✅ 本次产物复核实测
-- **位置**：`main.go:22`、`frontend/test-app.cjs`、`frontend/tools/preview.mjs`
+- **状态**：已修（2026-09-25）｜✅ 实测复核
+- **位置**：`main.go`（嵌入指令）、`main_test.go`（新增判据）、`frontend/test-app.cjs`、`frontend/test-i18n.cjs`、`frontend/tools/preview.mjs`
 - **问题**：`all:` 前缀会嵌入 `frontend/` 下所有文件。实测包内启动器（`output/binary/files/bin/dsh-desktop-launcher`，13,402,592 B）含 `frontend/test-app.cjs`（78,938 B）与 `frontend/tools/preview.mjs`（33,566 B），合计约 110 KB。另一面：`frontend/` 现有 16 个文件全部被 git 跟踪、`git status --ignored` 无任何被忽略项，即 `all:` 与不带前缀当前等价——它今天唯一的效果是让将来出现在 `frontend/` 下的游离文件静默进入二进制。S7 修的是"预览产物落到 `frontend/` 内"，而该防线现在只剩 `preview.mjs` 自己的守卫，产物侧没有断言。
 - **影响**：体积多约 110 KB；更主要的是"什么会被嵌进二进制"没有可执行的判据，回归时无人拦。
 - **建议**（二选一）：(a) 把开发用文件移出 embed 根（如 `apps/desktop-launcher/frontend-tools/`），需同步改测试与文档中的路径；(b) 保留目录结构，在 `build-linglong.sh` 组装前加断言——`frontend/` 下的文件集合必须等于一份显式清单，出现新文件即失败。前者治本但要动目录，后者改动小且恰好挡住"游离文件被静默嵌入"。
-- **注**：既然 `all:` 当前为空转，若确认 `frontend/` 下永不出现被 gitignore 的文件，直接去掉该前缀即可消除这一面；代价是构建期 vendored 资源必须保持被跟踪。
+- **修复**：`main.go` 的嵌入指令改为逐项列出随包资源——`frontend/index.html`、`frontend/app.js`、`frontend/styles.css`、`frontend/i18n.js`，加目录模式的 `frontend/locales` 与 `frontend/vendor`——默认从「目录下什么都进包」翻转为「只有列出的进包」，`all:` 一并去掉。新增 `main_test.go` 的 `TestFrontendEmbedMatchesShippedFiles` 断言「磁盘上 `frontend/` 的文件集合 − 嵌入集合 == 仅开发用清单（三项）」，不一致时点名文件并给出两个去向：加进嵌入清单，或加进仅开发用清单。
+- **取舍**：原建议 (a) 移出 embed 根虽治本，但要改三个开发文件的相对路径读取、`preview.mjs` 的 `FRONTEND` 推导，以及约 25 份活动 `.agents/notes` 中的历史路径引用，故未采用；原建议 (b) 的构建期断言不移除体积、只在打包时给反馈，改由源平面的 Go 断言承担判据。该断言按决定只作为 `go test ./...` 的一部分执行，未接入 pre-push 钩子。
+- **验证**：`gofmt -l` 无输出、`go vet ./...` 通过、`go test -run TestFrontendEmbedMatchesShippedFiles` 通过；变异检查——置入 `frontend/stray-probe.txt` 后该测试失败并点名该文件，移除后恢复通过。同参数 A/B 构建（`CGO_ENABLED=0 go build`）12,467,488 B → 12,315,928 B，减少 151,560 B（148.0 KB）；二进制内 `preview.mjs` 独有标记 5 → 0、`test-app.cjs` 独有标记 1 → 0，`app.js` 的 `renderHarnessStatusbar` 保持 3 处。容器内没有 C 编译器，且运行时包已裁剪 gcc 工具链，`CGO_ENABLED=1 -tags "production webkit2_41"` 的打包构建无法在此复现，因此包内绝对体积未核对。
+- **残留**：`frontend/` 下新出现的点号或下划线文件不再进入二进制；`frontend/styles.css`、`clean-linglong.sh`、`docs/i18n.md`、两份 README 与 `preview.mjs` 中描述该指令的注释已同步。
+- **原注**：既然 `all:` 当前为空转，若确认 `frontend/` 下永不出现被 gitignore 的文件，直接去掉该前缀即可消除这一面；代价是构建期 vendored 资源必须保持被跟踪。
 
 ## N29 49–54 个 `*.tsbuildinfo` 随包交付
 

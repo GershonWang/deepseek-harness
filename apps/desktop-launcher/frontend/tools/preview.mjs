@@ -31,10 +31,10 @@ const INDEX = join(FRONTEND, 'index.html')
 /**
  * 一次性浏览器状态的根目录（每次运行在其下建独立子目录）。
  *
- * 必须落在 `frontend/` 之外：启动器用 `//go:embed all:frontend` 嵌入整个前端
- * 目录，而 go:embed 既不读 .gitignore，`all:` 前缀又连点号开头的目录一起嵌入，
- * 于是 Chromium 在 `Code Cache/pc/` 下写出的文件名（含 `;` 与反引号）会触发
- * Go 的嵌入文件名校验，让 `go build` 报 invalid name 并打断整个打包流程。
+ * 必须落在 `frontend/` 之外：`main.go` 的嵌入清单把 `locales/` 与 `vendor/` 整体
+ * 当作目录嵌入，写进这两个目录的任何文件都会随包；落在 `frontend/` 其他位置的游离
+ * 文件（Chromium 的 `Code Cache/pc/` 就写出这种文件）虽不随包，却会让 `main_test.go`
+ * 的嵌入清单断言失败。
  *
  * 放在启动器 module 目录下：既在 embed 根之外，又仍在工作区内——受限文件沙箱
  * 只允许写工作区，Chromium 的 HOME/XDG 落到别处会卡在只读路径上。
@@ -519,9 +519,10 @@ function parseArgs(argv) {
 
 /**
  * 产物目录：默认在启动器 module 目录下的 `.preview`（已在 .gitignore 内），
- * 与 SCRATCH_ROOT 一样必须落在 `frontend/` 之外——`//go:embed all:frontend` 不看
- * .gitignore，预览页与截图写在 frontend/ 里会被原样嵌进启动器二进制（`verify`
- * 是 pre-push 钩子，每次推送都会写一份 preview.html 进去）。
+ * 与 SCRATCH_ROOT 一样必须落在 `frontend/` 之外：预览页与截图是每次运行都会重写的
+ * 产物，写进 `locales/` 或 `vendor/` 会随包，写在 `frontend/` 其他位置会让
+ * `main_test.go` 的嵌入清单断言失败（`verify` 是 pre-push 钩子，每次推送都会写一份
+ * preview.html 进去）。
  * 只决定截图与预览页的位置；浏览器状态固定走 SCRATCH_ROOT，不随 --out 移动。
  * @param {Record<string, string|boolean>} args - 命令行参数。
  * @returns {string} 产物目录绝对路径。
@@ -550,12 +551,12 @@ async function createScratch() {
  */
 async function run(command, args) {
   const out = resolveOut(args)
-  // 产物目录不能落在 embed 根里：写进去的预览页与截图会被 `//go:embed all:frontend`
-  // 静默嵌进启动器二进制（.gitignore 对 go:embed 无效），而这件事在构建期没有任何
-  // 提示。这里直接失败，把"默认值被改回 frontend/ 内"或"--out 指到 frontend/ 里"
+  // 产物目录不能落在 frontend/ 里：写进 locales/ 或 vendor/（两者都被整体嵌入）
+  // 会随包，写在其他位置会让 `main_test.go` 的嵌入清单断言失败。两件事在构建期都
+  // 不报错，这里直接失败，把"默认值被改回 frontend/ 内"或"--out 指到 frontend/ 里"
   // 变成一个当场可见的错误。
   if (out === FRONTEND || out.startsWith(FRONTEND + sep)) {
-    throw new Error(`产物目录不能位于 frontend/ 内（会被 //go:embed all:frontend 嵌入启动器二进制）：${out}`)
+    throw new Error(`产物目录不能位于 frontend/ 内（locales/ 与 vendor/ 会被整体嵌入，其他位置会破坏嵌入清单断言）：${out}`)
   }
   await mkdir(out, { recursive: true })
   const pageUrl = await buildPreview(out)
