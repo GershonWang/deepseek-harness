@@ -31,7 +31,7 @@
 
 ## 条目总览
 
-下表列出全部 59 个条目，按 2026-09-20 复核时点的状态排列：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。此后第 14 行（24 壳前端 i18n）于 2026-09-22、第 22 行（N28）于 2026-09-25 转为「已修」，为保持与附录 H 的行号对应未移动这两行，故现值为 21／10／28。第 60、61 行（N31、N32）为 2026-09-25 新增的「未修」条目，同样按追加顺序排在表末而不插入「未修」区，以免打乱 H 的行号对应；现合计 61 条，现值 23／10／28。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
+下表列出全部 59 个条目，按 2026-09-20 复核时点的状态排列：先 23 条「未修」，再 10 条「部分修复／部分实现」，最后 26 条「已修／已执行」。此后第 14 行（24 壳前端 i18n）于 2026-09-22、第 22 行（N28）于 2026-09-25 转为「已修」，为保持与附录 H 的行号对应未移动这两行，故现值为 21／10／28。第 60、61 行（N31、N32）为 2026-09-25 新增的「未修」条目，同样按追加顺序排在表末而不插入「未修」区，以免打乱 H 的行号对应；现合计 61 条，现值 23／10／28。第 62 行（N33）为 2026-09-27 新增的「已修」条目（构建链路缺陷，见正文 N33）；现合计 62 条，现值 23／10／29。状态行是权威，本表只作索引——细节与验证证据在各条目正文内。
 
 | # | 级别 | 条目 | 状态 |
 |---|---|---|---|
@@ -96,6 +96,7 @@
 | 59 | 低危 | N27 包版本只存在于工作区，未进任何提交 | 已修（2026-09-16）｜✅ 本次产物复核实测（`0.1.3.2`） |
 | 60 | 低危 | N31 `plugin-patch-composable` 一律标「可修复 L2」，但修复实现只覆盖五类告警中的两类 | 未修｜✅ 实测复核（2026-09-25） |
 | 61 | 中危 | N32 探针因与插件无关的原因失败时会把健康 bundle 指为元凶，并据此给出会停用它的 L2 修复 | 未修｜✅ 实测复核（2026-09-25） |
+| 62 | 中危 | N33 tsdown workspace 把无 `package.json` 的遗留目录当成构建单元，报错却指向仓库根 | 已修（2026-09-27）｜✅ 实测复核 |
 
 
 ---
@@ -474,6 +475,17 @@
   2. **把契约写进调用方**：`bisectBy` 的文档已写明 `isBad([]) === false` 这一前提，但没有任何调用方验证它；`locateCulprit` 应在二分前用上面的基线探测显式验证，验证不过就不进入二分。
   3. **区分「探针基础设施失败」与「插件失败」**：例如给探针退出码分档（插件加载失败 vs 环境/IO 失败），检查按档决定是否归因，而不是从输出文本里推断。
 - **备注**：与 N31 同族——都是「诊断结论／修复承诺」超出实现实际能保证的范围；N31 是「修不了却标可修复」，本条是「分不清却给出了元凶」。
+
+## N33 tsdown workspace 把无 `package.json` 的遗留目录当成构建单元，报错却指向仓库根
+
+- **状态**：已修（2026-09-27）｜✅ 实测复核
+- **位置**：`tsdown.config.ts:16`（重述的默认排除项）、`:30-33`（`directoriesWithoutManifest`）、`:49-56`（`workspace` 的 include/exclude）；`apps/desktop-launcher/linglong/prepare-offline.sh:26-33`（构建前新增的 `pnpm run constraints`）。触发对象是上游重命名或删除包后残留的 12 个空壳目录：`packages/code-runtime/{code-runtime,code-runtime-worker-thread}`、`packages/e2b/{e2b,fs-e2b,subprocess-e2b}`、`packages/experimental/{agent-team-web-profile,code-runtime-python}`、`packages/fs/tool-present`、`packages/preset/agent-presets`、`packages/settings/settings-file`、`packages/support/doctor`、`packages/workflow/workflow-worker-thread`。
+- **问题**：`workspace` 以 `['vendor/*','packages/*/*','apps/cli','apps/desktop-host']` 作 include 通配，tsdown 用 `onlyDirectories` 展开，**目录本身**因此就是构建单元；空壳目录没有自己的清单，tsdown 仍把根配置的 `entry: ['lib/types/{index,invariant,startup}.js']` 套在它身上，而空壳里没有 `lib/types`，解析必然失败。报错前缀之所以是 `[@deepseek-ai/dsh-root]`，是因为 tsdown 的清单查找走 `empathic` 的 `up()`：目录没有自己的 `package.json` 就一路向上找到仓库根——**报错里的包名与被指责的对象都是假的**，真正失败的是 include 命中范围内任何没有清单的目录。git 只删文件、不删目录，上游 2026-09-25 的合并（`4f6bd7605b`）正是这批空壳的来源。
+- **复现（2026-09-27 实测）**：`node_modules/.bin/tsdown --env.DSH_BUILD_FACE host` 在修复前失败，日志为 `ERROR Error: [@deepseek-ai/dsh-root] Cannot find entry: ["lib/types/{index,invariant,startup}.js"]`，即用户在 `build-linglong.sh` 里看到的那条。把 workspace 单元逐个枚举后共 **293** 个单元、恰好 **12** 个失败，与 12 个空壳一一对应（`vendor/*` 与 `apps/{cli,desktop-host}` 下无失败项）。清单查找同样实测（tsdown 的 `readPackageJson(dir)` 就是 `up({ cwd: dir })` 加一次读文件）：空目录解析到仓库根 `package.json`，正常包解析到它自己的清单。
+- **影响**：`pnpm run build:lib:host`（`build-linglong.sh` 经 `prepare-offline.sh` 调用的第一步）整体失败，打包链停住；而报错把维护者引向并不需要存在的根 `lib/`——仓库根是 solution-only 聚合，`tsconfig.host.json` 设 `noEmit: true`，永远不会产出 `lib/types`，它也从不是 tsdown 的构建单元。上游同一现象见讨论 `#6089`：该帖开头给出的「根聚合有 entry 却不产出」结论已被同帖后续的对照实验推翻。rolldown/tsdown 的 `#1067`（诊断）与 `#1069`（修法）**均未合并**，`#1068`（报错带上 cwd）仍 open；tsdown 最新版 `0.23.0`（2026-09-03）早于该 PR，而本仓库锁定 `^0.22.2`（0.x 的 caret 不跨 minor），升级依赖拿不到修法。
+- **修复**：`workspace` 改为显式 `{ include, exclude }`——include 保持原目录范围，exclude 先重述 tsdown 的默认排除项（显式提供 exclude 会整体替换默认值，不重述就会递归匹配到 `node_modules`），再追加「include 命中但没有 `package.json` 的目录」，排除项由 include 派生，目录范围只写一份。12 个空壳目录同时删除。另在 `prepare-offline.sh` 构建前加 `pnpm run constraints`：这门禁本就存在（`check:ci` 的静态门禁之一，`scripts/check-workspace-constraints.ts`），会直接点名 `packages/e2b/e2b: expected a package here (no package.json found)`，原先只是不跑在 build／typecheck／lint 路径上。提交 `647f2da939`、`e9b66f1bff`。
+- **验证**：修复后 `pnpm run build:lib:host` exit 0（288 个单元全部 `Build complete`）、`pnpm run build:lib:client` exit 0（206 个）、`pnpm run build:web` exit 0；**故意造回两个空壳**（`packages/e2b/e2b`、`packages/experimental/zzz-ghost-probe`）后，host 与 client 两个 face 在 `--no-write` 下仍 exit 0，单元数与干净树一致（282／206）。`pnpm run constraints` 在干净树通过，造出空壳后 exit 1 并点名该目录。
+- **验证边界**：本机无 `gcc` 与 `ll-builder`，`pnpm run build` 的第一步 `build:native-system` 与完整 `build-linglong.sh` 未跑；上述结论止于 `build:lib` 与 `build:web`。
 
 ---
 
