@@ -37,6 +37,12 @@ var assets embed.FS
 
 func main() {
 	home, _ := os.UserHomeDir()
+	// 改名工具的历史安装先搬到新 ID，再走下面的软链自愈：否则旧 ID 名下的目录与
+	// current 软链会成为新清单里查不到的孤儿，用户既看不到也用不上那份安装。
+	// 迁移幂等且逐项留痕，失败不拦启动。
+	if migrated := toolchain.MigrateLegacyToolIDs(toolchain.InstallDir(home)); len(migrated) > 0 {
+		log.Printf("工具链 ID 迁移: %v", migrated)
+	}
 	// 启动自愈：重建 ~/.dsh-tools/bin 软链，保证已装工具链在重装/更新/HOME 迁移后
 	// 仍自动可用；随后 ConfigureChildEnv 把该目录注入子进程 PATH。
 	// 索引里越界的 bin_names/bin_dirs 与越界的 current 目标会被跳过，这里留痕，

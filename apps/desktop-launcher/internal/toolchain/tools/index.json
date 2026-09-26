@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-09-14T05:32:09Z",
+  "updated_at": "2026-09-26T09:54:26Z",
   "category_labels": {
     "language-sdk": "语言 SDK",
     "build-tools": "构建与编译",
@@ -14,23 +14,33 @@
       "name": "Go",
       "category": "language-sdk",
       "description": "Go 编程语言工具链",
-      "provides": ["go", "gofmt"],
+      "provides": [
+        "go",
+        "gofmt"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.23.2",
-          "url": "https://go.dev/dl/go1.23.2.linux-amd64.tar.gz",
-          "sha256": "542d3c1705f1c6a1c5a80d5dc62e2e45171af291e755d591c5e6531ef63b454e",
-          "bin_rel": "bin"
+          "version": "1.27.1",
+          "url": "https://go.dev/dl/go1.27.1.linux-amd64.tar.gz",
+          "sha256": "63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445",
+          "bin_rel": "bin",
+          "size": 70553950,
+          "major": "1"
         }
       ]
     },
     {
-      "id": "jdk21",
+      "id": "jdk",
       "name": "JDK (Temurin)",
       "category": "language-sdk",
-      "description": "Eclipse Temurin OpenJDK，可选 8 / 21",
-      "provides": ["java", "javac", "jdb", "jar"],
+      "description": "Eclipse Temurin OpenJDK，可选 8 / 11 / 17 / 21 / 25",
+      "provides": [
+        "java",
+        "javac",
+        "jdb",
+        "jar"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -39,13 +49,42 @@
           "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
           "size": 207473347,
           "bin_rel": "bin",
-          "lib_rel": "lib"
+          "lib_rel": "lib",
+          "major": "21"
         },
         {
           "version": "8u504",
           "url": "https://github.com/adoptium/temurin8-binaries/releases/download/jdk8u504-b01/OpenJDK8U-jdk_x64_linux_hotspot_8u504b01.tar.gz",
           "sha256": "9c70e102f527ac674ac2fe9c7d47b9a04e2d19842ba5ab8e9b33f368bbadfaea",
           "size": 103542511,
+          "bin_rel": "bin",
+          "lib_rel": "lib",
+          "major": "8"
+        },
+        {
+          "version": "25.0.4.1",
+          "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jdk_x64_linux_hotspot_25.0.4.1_1.tar.gz",
+          "sha256": "dbb698396d478e7fa2b1e50f4103324b2a99b90569ee27c33f2261f9215cf41e",
+          "size": 141329719,
+          "major": "25",
+          "bin_rel": "bin",
+          "lib_rel": "lib"
+        },
+        {
+          "version": "17.0.20.1",
+          "url": "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz",
+          "sha256": "3808d1d15e3ec6bd5b84057fb5d84c33d8a1536a258146bcea2e603fc726e08e",
+          "size": 193252603,
+          "major": "17",
+          "bin_rel": "bin",
+          "lib_rel": "lib"
+        },
+        {
+          "version": "11.0.32.1",
+          "url": "https://github.com/adoptium/temurin11-binaries/releases/download/jdk-11.0.32.1%2B1/OpenJDK11U-jdk_x64_linux_hotspot_11.0.32.1_1.tar.gz",
+          "sha256": "5c3f68887c325d36d852ba534303e1f5f1f5cae7d6cc1e951d73e0d8e98a058d",
+          "size": 195609919,
+          "major": "11",
           "bin_rel": "bin",
           "lib_rel": "lib"
         }
@@ -56,14 +95,38 @@
       "name": "Python 3.12",
       "category": "language-sdk",
       "description": "CPython 3.12 独立构建（含 pip）",
-      "provides": ["python3", "python", "pip3", "pip"],
+      "provides": [
+        "python3",
+        "python",
+        "pip3",
+        "pip"
+      ],
       "dependencies": [],
       "versions": [
         {
           "version": "3.12.14",
-          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260825/cpython-3.12.14%2B20260825-x86_64-unknown-linux-gnu-install_only.tar.gz",
-          "sha256": "cbdd2f0cf02f941bc5c81e546f377275e322733abffe805ac29d2b7e8a58f7e3",
-          "size": 109290197,
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.12.14%2B20260924-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "sha256": "5eae8cf79dd47fc2496a4fccc892936be831ce7a84d984b2299dfb1cdb592682",
+          "size": 66890910,
+          "bin_rel": "bin",
+          "lib_rel": "lib",
+          "major": "3.12"
+        },
+        {
+          "version": "3.14.7",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.14.7%2B20260924-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "sha256": "5539eaf1de20bd9b5f43ea11c3c1f84cbac74fe927ac050318a9210c022618cb",
+          "size": 74964439,
+          "major": "3.14",
+          "bin_rel": "bin",
+          "lib_rel": "lib"
+        },
+        {
+          "version": "3.13.15",
+          "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260924/cpython-3.13.15%2B20260924-x86_64-unknown-linux-gnu-install_only.tar.gz",
+          "sha256": "c20e1ff8600a0241849588b36948942eaccdc80da34df69674f3784a687197de",
+          "size": 75134396,
+          "major": "3.13",
           "bin_rel": "bin",
           "lib_rel": "lib"
         }
@@ -74,14 +137,27 @@
       "name": "CMake",
       "category": "build-tools",
       "description": "跨平台构建系统（含 ctest/cpack）",
-      "provides": ["cmake", "ctest", "cpack"],
+      "provides": [
+        "cmake",
+        "ctest",
+        "cpack"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "3.30.3",
-          "url": "https://github.com/Kitware/CMake/releases/download/v3.30.3/cmake-3.30.3-linux-x86_64.tar.gz",
-          "sha256": "4a5864e9ff0d7945731fe6d14afb61490bf0ec154527bc3af0456bd8fa90decb",
-          "size": 53648385,
+          "version": "4.4.3",
+          "url": "https://github.com/Kitware/CMake/releases/download/v4.4.3/cmake-4.4.3-linux-x86_64.tar.gz",
+          "sha256": "d6c83076c575bc00b823522ac974bda66d0af05d6ddc30e739c12385cf32c6cc",
+          "size": 64872980,
+          "bin_rel": "bin",
+          "major": "4.4"
+        },
+        {
+          "version": "3.31.12",
+          "url": "https://github.com/Kitware/CMake/releases/download/v3.31.12/cmake-3.31.12-linux-x86_64.tar.gz",
+          "sha256": "0dc2e9a6860f06bf10bd8fadc03e35d9eeb4df46e33763a7e480e987758f385c",
+          "size": 55005786,
+          "major": "3.31",
           "bin_rel": "bin"
         }
       ]
@@ -91,14 +167,18 @@
       "name": "ripgrep (rg)",
       "category": "modern-cli",
       "description": "更快的 grep，递归搜索目录",
-      "provides": ["rg"],
+      "provides": [
+        "rg"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "14.1.0",
-          "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.0/ripgrep-14.1.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "f84757b07f425fe5cf11d87df6644691c644a5cd2348a2c670894272999d3ba7",
-          "bin_rel": "."
+          "version": "15.2.0",
+          "url": "https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "33e15bcf1624b25cdd2a55813a47a2f95dbe126268203e76aa6a585d1e7b149c",
+          "bin_rel": ".",
+          "size": 2265718,
+          "major": "15"
         }
       ]
     },
@@ -107,15 +187,18 @@
       "name": "fd",
       "category": "modern-cli",
       "description": "简单快速的 find 替代品",
-      "provides": ["fd"],
+      "provides": [
+        "fd"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "10.2.0",
-          "url": "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "d9bfa25ec28624545c222992e1b00673b7c9ca5eb15393c40369f10b28f9c932",
-          "size": 1681679,
-          "bin_rel": "."
+          "version": "10.5.0",
+          "url": "https://github.com/sharkdp/fd/releases/download/v10.5.0/fd-v10.5.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "761c72dc8e120d85b22292063be8a796e2eeb20eb3e4f38b8fa2343ccf3514a7",
+          "size": 1573549,
+          "bin_rel": ".",
+          "major": "10"
         }
       ]
     },
@@ -124,15 +207,18 @@
       "name": "bat",
       "category": "modern-cli",
       "description": "带语法高亮的 cat 替代品",
-      "provides": ["bat"],
+      "provides": [
+        "bat"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.24.0",
-          "url": "https://github.com/sharkdp/bat/releases/download/v0.24.0/bat-v0.24.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "d39a21e3da57fe6a3e07184b3c1dc245f8dba379af569d3668b6dcdfe75e3052",
-          "size": 3038788,
-          "bin_rel": "."
+          "version": "0.26.1",
+          "url": "https://github.com/sharkdp/bat/releases/download/v0.26.1/bat-v0.26.1-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "0dcd8ac79732c0d5b136f11f4ee00e581440e16a44eab5b3105b611bbf2cf191",
+          "size": 3584928,
+          "bin_rel": ".",
+          "major": "0.26"
         }
       ]
     },
@@ -141,15 +227,18 @@
       "name": "sd",
       "category": "modern-cli",
       "description": "直观的 sed 替代品",
-      "provides": ["sd"],
+      "provides": [
+        "sd"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.0.0",
-          "url": "https://github.com/chmln/sd/releases/download/v1.0.0/sd-v1.0.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "9f42e4fec7848fa8d6eeab7b1090f5c9c9e374c94a9974db6ff33df052c9e132",
-          "size": 1048508,
-          "bin_rel": "."
+          "version": "1.1.0",
+          "url": "https://github.com/chmln/sd/releases/download/v1.1.0/sd-v1.1.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "02f00f4777d43e8e95b7b8d49e1a0d6e502fed4b8e79c1c8b8063857a30caa2e",
+          "size": 1049511,
+          "bin_rel": ".",
+          "major": "1"
         }
       ]
     },
@@ -158,15 +247,18 @@
       "name": "eza",
       "category": "modern-cli",
       "description": "功能丰富的 ls 替代品",
-      "provides": ["eza"],
+      "provides": [
+        "eza"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.20.1",
-          "url": "https://github.com/eza-community/eza/releases/download/v0.20.1/eza_x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "3afbd0036da94cb5990c225d99da4921081854f6c8841249ee71464dd67725dd",
-          "size": 1156482,
-          "bin_rel": "."
+          "version": "0.23.5",
+          "url": "https://github.com/eza-community/eza/releases/download/v0.23.5/eza_x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "e06eebab74b73d6b7d51a796a353824b001bea82df077706382e100815d28904",
+          "size": 1412332,
+          "bin_rel": ".",
+          "major": "0.23"
         }
       ]
     },
@@ -175,15 +267,18 @@
       "name": "fzf",
       "category": "modern-cli",
       "description": "命令行模糊查找器",
-      "provides": ["fzf"],
+      "provides": [
+        "fzf"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.55.0",
-          "url": "https://github.com/junegunn/fzf/releases/download/v0.55.0/fzf-0.55.0-linux_amd64.tar.gz",
-          "sha256": "4df2393776942780ddab2cea713ddaac06cd5c3886cd23bc9119a6d3aa1e02bd",
-          "size": 1556217,
-          "bin_rel": "."
+          "version": "0.74.4",
+          "url": "https://github.com/junegunn/fzf/releases/download/v0.74.4/fzf-0.74.4-linux_amd64.tar.gz",
+          "sha256": "05e6813a337cc722c3ed07e54a764b75cc5d671e2e60459db0ba696ee5fa7504",
+          "size": 2286563,
+          "bin_rel": ".",
+          "major": "0.74"
         }
       ]
     },
@@ -192,15 +287,18 @@
       "name": "delta",
       "category": "modern-cli",
       "description": "git diff 语法高亮查看器",
-      "provides": ["delta"],
+      "provides": [
+        "delta"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.18.2",
-          "url": "https://github.com/dandavison/delta/releases/download/0.18.2/delta-0.18.2-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "b7ea845004762358a00ef9127dd9fd723e333c7e4b9cb1da220c3909372310ee",
-          "size": 3301354,
-          "bin_rel": "."
+          "version": "0.19.2",
+          "url": "https://github.com/dandavison/delta/releases/download/0.19.2/delta-0.19.2-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "f1ea01ca7728ce3462debc359f39dfc7cbbc1a63224b71fefabf92042864aa1b",
+          "size": 3403232,
+          "bin_rel": ".",
+          "major": "0.19"
         }
       ]
     },
@@ -209,7 +307,9 @@
       "name": "zoxide",
       "category": "modern-cli",
       "description": "更聪明的 cd，基于目录访问频率",
-      "provides": ["zoxide"],
+      "provides": [
+        "zoxide"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -217,7 +317,8 @@
           "url": "https://github.com/ajeetdsouza/zoxide/releases/download/v0.10.0/zoxide-0.10.0-x86_64-unknown-linux-musl.tar.gz",
           "sha256": "2d93385b99f3e82cf2701609a1bffcad863fbeb75aa3fe7eb6be4d29be68b1ae",
           "size": 591384,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "0.10"
         }
       ]
     },
@@ -226,7 +327,9 @@
       "name": "bottom (btm)",
       "category": "modern-cli",
       "description": "图形化系统监视器（终端）",
-      "provides": ["btm"],
+      "provides": [
+        "btm"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -234,7 +337,8 @@
           "url": "https://github.com/ClementTsang/bottom/releases/download/0.14.9/bottom_x86_64-unknown-linux-musl.tar.gz",
           "sha256": "b4bee5b193e7d3f6e090ac14f0ca15acec2e7fe4ef64988e0bfc492e16c28c9a",
           "size": 2126967,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "0.14"
         }
       ]
     },
@@ -243,15 +347,18 @@
       "name": "hyperfine",
       "category": "modern-cli",
       "description": "命令行基准测试工具",
-      "provides": ["hyperfine"],
+      "provides": [
+        "hyperfine"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.18.0",
-          "url": "https://github.com/sharkdp/hyperfine/releases/download/v1.18.0/hyperfine-v1.18.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "ef3855ad6a1bf97055a90dc3dfc5d4a48494cb80344027db932a96341d415193",
-          "size": 694152,
-          "bin_rel": "."
+          "version": "1.20.0",
+          "url": "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "3285ec7959285288137043dd81dce0dde056227018a8277532d9a364b4f03c2b",
+          "size": 710161,
+          "bin_rel": ".",
+          "major": "1"
         }
       ]
     },
@@ -260,15 +367,18 @@
       "name": "dust",
       "category": "modern-cli",
       "description": "磁盘用量分析（比 du 更直观）",
-      "provides": ["dust"],
+      "provides": [
+        "dust"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.1.1",
-          "url": "https://github.com/bootandy/dust/releases/download/v1.1.1/dust-v1.1.1-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "4d0e7f3e39ce85e98cc69260ab6f40e460a455cd8575af1ba70d14a2940ae553",
-          "size": 1259970,
-          "bin_rel": "."
+          "version": "1.2.6",
+          "url": "https://github.com/bootandy/dust/releases/download/v1.2.6/dust-v1.2.6-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "cbf2cb5c9d6227e46fc4b29c03dc43b8632020dfc5cf269d263d6e29c399e044",
+          "size": 1256184,
+          "bin_rel": ".",
+          "major": "1"
         }
       ]
     },
@@ -277,15 +387,18 @@
       "name": "duf",
       "category": "modern-cli",
       "description": "磁盘使用情况查看器（比 df 更好用）",
-      "provides": ["duf"],
+      "provides": [
+        "duf"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.8.1",
-          "url": "https://github.com/muesli/duf/releases/download/v0.8.1/duf_0.8.1_linux_x86_64.tar.gz",
-          "sha256": "a8343eed730df04acfc0ba1553b99b4ef91d5122cab58ee241ea8196948408d7",
-          "size": 919990,
-          "bin_rel": "."
+          "version": "0.9.1",
+          "url": "https://github.com/muesli/duf/releases/download/v0.9.1/duf_0.9.1_linux_x86_64.tar.gz",
+          "sha256": "5add851e7062c5e56939abb664705e4d14fa2d06289490aff31d51f153832de7",
+          "size": 1285584,
+          "bin_rel": ".",
+          "major": "0.9"
         }
       ]
     },
@@ -294,15 +407,18 @@
       "name": "xh",
       "category": "modern-cli",
       "description": "友好的 HTTP 请求工具",
-      "provides": ["xh"],
+      "provides": [
+        "xh"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.23.0",
-          "url": "https://github.com/ducaale/xh/releases/download/v0.23.0/xh-v0.23.0-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "79fb00506a53ae2bbc490e4690c75d488ff029e06f8e7835095d1c680103488a",
-          "size": 3334691,
-          "bin_rel": "."
+          "version": "0.26.2",
+          "url": "https://github.com/ducaale/xh/releases/download/v0.26.2/xh-v0.26.2-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "8c53b6a23435754f9e2ea8ab8c0d0296a1921404b88132cf9b364ff6e8c22a6e",
+          "size": 4609532,
+          "bin_rel": ".",
+          "major": "0.26"
         }
       ]
     },
@@ -311,15 +427,18 @@
       "name": "lazygit",
       "category": "modern-cli",
       "description": "终端 Git UI",
-      "provides": ["lazygit"],
+      "provides": [
+        "lazygit"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.64.1",
-          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.64.1/lazygit_0.64.1_linux_x86_64.tar.gz",
-          "sha256": "f8ea237c41f194cd799b48505518bfdaae4edf5a2ad6bd3d898e939785ee4532",
-          "size": 6946700,
-          "bin_rel": "."
+          "version": "0.65.1",
+          "url": "https://github.com/jesseduffield/lazygit/releases/download/v0.65.1/lazygit_0.65.1_linux_x86_64.tar.gz",
+          "sha256": "02beacbcda0fa342e50ae3480ba8147307353af3fb28e1d5f790e02329c201a6",
+          "size": 6987830,
+          "bin_rel": ".",
+          "major": "0.65"
         }
       ]
     },
@@ -328,15 +447,18 @@
       "name": "GitHub CLI",
       "category": "modern-cli",
       "description": "GitHub 官方命令行工具",
-      "provides": ["gh"],
+      "provides": [
+        "gh"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "2.98.0",
-          "url": "https://github.com/cli/cli/releases/download/v2.98.0/gh_2.98.0_linux_amd64.tar.gz",
-          "sha256": "3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de",
-          "size": 14863663,
-          "bin_rel": "bin"
+          "version": "2.101.0",
+          "url": "https://github.com/cli/cli/releases/download/v2.101.0/gh_2.101.0_linux_amd64.tar.gz",
+          "sha256": "9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8",
+          "size": 15282175,
+          "bin_rel": "bin",
+          "major": "2"
         }
       ]
     },
@@ -345,14 +467,18 @@
       "name": "uv",
       "category": "modern-cli",
       "description": "极快的 Python 包管理和 Python 版本管理工具",
-      "provides": ["uv"],
+      "provides": [
+        "uv"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.12.6",
-          "url": "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz",
-          "sha256": "8681d8921e7d520fb368991dcf5f9c1905b80f5bf2a265a0ed085c8d8e342477",
-          "bin_rel": "."
+          "version": "0.12.19",
+          "url": "https://github.com/astral-sh/uv/releases/download/0.12.19/uv-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "23bf5552d220e0842b65c862097b2ebaeba0064b74eda5e565e77fd25969d8c8",
+          "bin_rel": ".",
+          "size": 19831732,
+          "major": "0.12"
         }
       ]
     },
@@ -361,14 +487,28 @@
       "name": "Node.js",
       "category": "language-sdk",
       "description": "JavaScript 运行时（可装与内置不同的版本）",
-      "provides": ["node", "npm", "npx", "corepack"],
+      "provides": [
+        "node",
+        "npm",
+        "npx",
+        "corepack"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "24.20.0",
-          "url": "https://nodejs.org/dist/v24.20.0/node-v24.20.0-linux-x64.tar.gz",
-          "sha256": "855d581f8a4eb1a8117e3426de25fe02770592febcfb31369aee1ffbfee9e8ec",
-          "size": 58006679,
+          "version": "24.21.0",
+          "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz",
+          "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff",
+          "size": 58088022,
+          "bin_rel": "bin",
+          "major": "24"
+        },
+        {
+          "version": "22.23.3",
+          "url": "https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.gz",
+          "sha256": "1084aa36196bba4c3a5e69a1ee388a6e4ff729dad09445fbcd434b28fe3c24af",
+          "size": 56792076,
+          "major": "22",
           "bin_rel": "bin"
         }
       ]
@@ -378,15 +518,19 @@
       "name": "Bun",
       "category": "language-sdk",
       "description": "JavaScript 运行时 + 包管理器 + 打包器",
-      "provides": ["bun", "bunx"],
+      "provides": [
+        "bun",
+        "bunx"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.4.0",
-          "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.0/bun-linux-x64.zip",
-          "sha256": "2d03fb5fb83ac8b567aca0a281b2ce1a1a19d488f56c2968d88c3f25e92fe452",
-          "size": 36697619,
-          "bin_rel": "."
+          "version": "1.4.2",
+          "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip",
+          "sha256": "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913",
+          "size": 36646985,
+          "bin_rel": ".",
+          "major": "1"
         }
       ]
     },
@@ -395,15 +539,18 @@
       "name": "Deno",
       "category": "language-sdk",
       "description": "安全的 JavaScript/TypeScript 运行时",
-      "provides": ["deno"],
+      "provides": [
+        "deno"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "2.9.6",
-          "url": "https://github.com/denoland/deno/releases/download/v2.9.6/deno-x86_64-unknown-linux-gnu.zip",
-          "sha256": "394f07f4da2bebe6ce6f1e7ce0fa16429b29b08c35e3fac3fe25972676dff4b2",
-          "size": 41582794,
-          "bin_rel": "."
+          "version": "2.9.7",
+          "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-unknown-linux-gnu.zip",
+          "sha256": "c6527f24f4b16031d3ae4fa9f658d5f11534c8d84ce7dc8502420280919c3490",
+          "size": 41596794,
+          "bin_rel": ".",
+          "major": "2"
         }
       ]
     },
@@ -412,15 +559,19 @@
       "name": "Flutter SDK",
       "category": "language-sdk",
       "description": "Flutter 移动/桌面应用开发 SDK（含 Dart）",
-      "provides": ["flutter", "dart"],
+      "provides": [
+        "flutter",
+        "dart"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "3.47.2",
-          "url": "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.2-stable.tar.xz",
-          "sha256": "447878859d01ca9bfdb99a85f245af07ed8a15fedcd9d189c4749e8e92d1f185",
-          "size": 1574023716,
-          "bin_rel": "bin"
+          "version": "3.47.5",
+          "url": "https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.47.5-stable.tar.xz",
+          "sha256": "2132e990f236f8d22e7c6314b29a191a95b10d7cbcfec9b4e2e303d996652cbb",
+          "size": 1576266884,
+          "bin_rel": "bin",
+          "major": "3.47"
         }
       ]
     },
@@ -429,15 +580,18 @@
       "name": "Dart SDK",
       "category": "language-sdk",
       "description": "Dart 编程语言 SDK",
-      "provides": ["dart"],
+      "provides": [
+        "dart"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "3.13.3",
-          "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.3/sdk/dartsdk-linux-x64-release.zip",
-          "sha256": "549c182cffbdc6864df7509c16fec646c73fe6cb8a18c2cb572db1292f300cd7",
-          "size": 238710402,
-          "bin_rel": "bin"
+          "version": "3.13.4",
+          "url": "https://storage.googleapis.com/dart-archive/channels/stable/release/3.13.4/sdk/dartsdk-linux-x64-release.zip",
+          "sha256": "6487a10df5eab890d746d14a55f4c70bec3c1c0633f51804eb504cbc0fc395bb",
+          "size": 238712443,
+          "bin_rel": "bin",
+          "major": "3.13"
         }
       ]
     },
@@ -446,15 +600,25 @@
       "name": "Rust",
       "category": "language-sdk",
       "description": "Rust 编程语言工具链（rustc + cargo）",
-      "provides": ["rustc", "cargo", "rustdoc", "rustfmt", "rust-gdb"],
+      "provides": [
+        "rustc",
+        "cargo",
+        "rustdoc",
+        "rustfmt",
+        "rust-gdb"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "1.98.0",
-          "url": "https://static.rust-lang.org/dist/2026-08-20/rust-1.98.0-x86_64-unknown-linux-gnu.tar.gz",
-          "sha256": "aa30409afa67bd1ada244cefd82c7980e6a65bc113bb978e934b2413c75e3900",
-          "size": 381691823,
-          "bin_dirs": ["cargo/bin", "rustc/bin"]
+          "version": "1.98.1",
+          "url": "https://static.rust-lang.org/dist/rust-1.98.1-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "24ba1338a2d35c5a3247936546429e163fa674d726102af18bdf624582c57aea",
+          "size": 381649661,
+          "bin_dirs": [
+            "cargo/bin",
+            "rustc/bin"
+          ],
+          "major": "1"
         }
       ]
     },
@@ -463,14 +627,25 @@
       "name": ".NET SDK",
       "category": "language-sdk",
       "description": "Microsoft .NET 10 SDK（含 C#/F# 编译器）",
-      "provides": ["dotnet"],
+      "provides": [
+        "dotnet"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "10.0.400",
-          "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.400/dotnet-sdk-10.0.400-linux-x64.tar.gz",
-          "sha256": "7ad9d2db01512e41fd580a0630321bb70cd062d7fe4c5badfb4ce81ec1eddbb8",
-          "size": 240133692,
+          "version": "10.0.401",
+          "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/10.0.401/dotnet-sdk-10.0.401-linux-x64.tar.gz",
+          "sha256": "137268c8ad939c064ff1ee2a6fdf0899d8725377114ea012fbd1ad5fa2550418",
+          "size": 240059572,
+          "bin_rel": ".",
+          "major": "10"
+        },
+        {
+          "version": "8.0.425",
+          "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/8.0.425/dotnet-sdk-8.0.425-linux-x64.tar.gz",
+          "sha256": "ec2c55738f3aa16c58b2c0c565ce10ad6fea83925574a6f08c920ba62a39712b",
+          "size": 216833108,
+          "major": "8",
           "bin_rel": "."
         }
       ]
@@ -480,15 +655,19 @@
       "name": "Kotlin",
       "category": "language-sdk",
       "description": "Kotlin 编程语言编译器",
-      "provides": ["kotlin", "kotlinc"],
+      "provides": [
+        "kotlin",
+        "kotlinc"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "2.4.10",
-          "url": "https://github.com/JetBrains/kotlin/releases/download/v2.4.10/kotlin-compiler-2.4.10.zip",
-          "sha256": "473dd66c7a3ef4b182065b3da670466c1bf2773a9dbb0ed8b33a39fe9d4f876d",
-          "size": 87077443,
-          "bin_rel": "bin"
+          "version": "2.4.20",
+          "url": "https://github.com/JetBrains/kotlin/releases/download/v2.4.20/kotlin-compiler-2.4.20.zip",
+          "sha256": "59e9ca74c7904ef2c122b12114937673ccce68de820a663f0ed66ccf8799e0b7",
+          "size": 89729132,
+          "bin_rel": "bin",
+          "major": "2.4"
         }
       ]
     },
@@ -497,7 +676,9 @@
       "name": "Ninja",
       "category": "build-tools",
       "description": "小而快的构建系统，CMake 常用后端",
-      "provides": ["ninja"],
+      "provides": [
+        "ninja"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -505,7 +686,8 @@
           "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-linux.zip",
           "sha256": "5749cbc4e668273514150a80e387a957f933c6ed3f5f11e03fb30955e2bbead6",
           "size": 134040,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "1.13"
         }
       ]
     },
@@ -514,7 +696,9 @@
       "name": "yq",
       "category": "modern-cli",
       "description": "YAML/JSON/XML 命令行处理器（jq 语法）",
-      "provides": ["yq"],
+      "provides": [
+        "yq"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -523,7 +707,11 @@
           "sha256": "38b907b21b1b04327fb9481c595331d925a67c6ee1aabd0ef419d0b7d12dfb3d",
           "size": 5729058,
           "bin_rel": ".",
-          "bin_names": { "yq_linux_amd64": "yq", "install-man-page.sh": "" }
+          "bin_names": {
+            "yq_linux_amd64": "yq",
+            "install-man-page.sh": ""
+          },
+          "major": "4.53"
         }
       ]
     },
@@ -532,7 +720,12 @@
       "name": "SQLite",
       "category": "modern-cli",
       "description": "SQLite 命令行工具（含 sqldiff 与分析工具）",
-      "provides": ["sqlite3", "sqldiff", "sqlite3_analyzer", "sqlite3_rsync"],
+      "provides": [
+        "sqlite3",
+        "sqldiff",
+        "sqlite3_analyzer",
+        "sqlite3_rsync"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -540,7 +733,8 @@
           "url": "https://sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip",
           "sha256": "7a6f4d1720e4bc13faa3d934bfce37b816a496c0a2480deacd64cfd8be6cf224",
           "size": 4265665,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "3.53"
         }
       ]
     },
@@ -549,7 +743,9 @@
       "name": "DuckDB",
       "category": "modern-cli",
       "description": "进程内分析型数据库 CLI，可直接查询 CSV/Parquet",
-      "provides": ["duckdb"],
+      "provides": [
+        "duckdb"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -557,7 +753,8 @@
           "url": "https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip",
           "sha256": "08c0ca117111fcede14239d0093792352befdc174218c344d232c13279643d05",
           "size": 21263499,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "1.5"
         }
       ]
     },
@@ -566,7 +763,11 @@
       "name": "Pandoc",
       "category": "modern-cli",
       "description": "通用文档格式转换器（Markdown/DOCX/LaTeX 等）",
-      "provides": ["pandoc", "pandoc-server", "pandoc-lua"],
+      "provides": [
+        "pandoc",
+        "pandoc-server",
+        "pandoc-lua"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -574,7 +775,8 @@
           "url": "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-linux-amd64.tar.gz",
           "sha256": "37edb3bbcf722f921a009941bf5874e2e0c09263226c9b4a2d980788cb062ab6",
           "size": 34940580,
-          "bin_rel": "bin"
+          "bin_rel": "bin",
+          "major": "3.11"
         }
       ]
     },
@@ -583,7 +785,9 @@
       "name": "just",
       "category": "modern-cli",
       "description": "命令运行器，跑 justfile 里的项目任务",
-      "provides": ["just"],
+      "provides": [
+        "just"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -591,7 +795,8 @@
           "url": "https://github.com/casey/just/releases/download/1.58.0/just-1.58.0-x86_64-unknown-linux-musl.tar.gz",
           "sha256": "4a5cc2f53e6f0f8c59092a6cc38291eb729d46a7dd95d3ae582008881b84931d",
           "size": 2529009,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "1.58"
         }
       ]
     },
@@ -600,15 +805,18 @@
       "name": "Ruff",
       "category": "code-quality",
       "description": "极快的 Python linter 与格式化工具",
-      "provides": ["ruff"],
+      "provides": [
+        "ruff"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "0.16.7",
-          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.7/ruff-x86_64-unknown-linux-musl.tar.gz",
-          "sha256": "8d28939cf5cabe54a2f8f7cbfab52c643436d1bc70474198181db9e48f504411",
-          "size": 10355951,
-          "bin_rel": "."
+          "version": "0.16.9",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.16.9/ruff-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "6a561ed4bc860472f7833dfb0f0b8285d3969fa627188c5678ea4ac2c462bbee",
+          "size": 10360561,
+          "bin_rel": ".",
+          "major": "0.16"
         }
       ]
     },
@@ -617,15 +825,18 @@
       "name": "golangci-lint",
       "category": "code-quality",
       "description": "Go 静态检查聚合器，并发运行多个 linter",
-      "provides": ["golangci-lint"],
+      "provides": [
+        "golangci-lint"
+      ],
       "dependencies": [],
       "versions": [
         {
-          "version": "2.13.2",
-          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.13.2/golangci-lint-2.13.2-linux-amd64.tar.gz",
-          "sha256": "2277d43b98ec0054280f2ac26b53268bae97682444678a59a657dd565da021d6",
-          "size": 15451894,
-          "bin_rel": "."
+          "version": "2.14.0",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-linux-amd64.tar.gz",
+          "sha256": "ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab",
+          "size": 15519402,
+          "bin_rel": ".",
+          "major": "2"
         }
       ]
     },
@@ -634,7 +845,9 @@
       "name": "actionlint",
       "category": "code-quality",
       "description": "GitHub Actions 工作流静态检查",
-      "provides": ["actionlint"],
+      "provides": [
+        "actionlint"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -642,7 +855,8 @@
           "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz",
           "sha256": "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8",
           "size": 2353908,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "1.7"
         }
       ]
     },
@@ -651,7 +865,9 @@
       "name": "ShellCheck",
       "category": "code-quality",
       "description": "Shell 脚本静态检查",
-      "provides": ["shellcheck"],
+      "provides": [
+        "shellcheck"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -659,7 +875,8 @@
           "url": "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz",
           "sha256": "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198",
           "size": 2559196,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "0.11"
         }
       ]
     },
@@ -668,7 +885,9 @@
       "name": "Zig",
       "category": "build-tools",
       "description": "Zig 语言工具链，zig cc 可当 C/C++ 编译器用",
-      "provides": ["zig"],
+      "provides": [
+        "zig"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -676,6 +895,15 @@
           "url": "https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz",
           "sha256": "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00",
           "size": 55478392,
+          "bin_rel": ".",
+          "major": "0.16"
+        },
+        {
+          "version": "0.15.2",
+          "url": "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz",
+          "sha256": "02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239",
+          "size": 53733924,
+          "major": "0.15",
           "bin_rel": "."
         }
       ]
@@ -685,16 +913,23 @@
       "name": "Gradle",
       "category": "build-tools",
       "description": "JVM 生态构建工具（依赖 JDK，脚本经 PATH 里的 java 启动）",
-      "provides": ["gradle"],
-      "dependencies": ["jdk21"],
+      "provides": [
+        "gradle"
+      ],
+      "dependencies": [
+        "jdk"
+      ],
       "versions": [
         {
-          "version": "9.7.1",
-          "url": "https://services.gradle.org/distributions/gradle-9.7.1-bin.zip",
-          "sha256": "acd53f1edaf02f1a8ff99879f8a34b302661a057d9b063ae9e35b552f804d20a",
-          "size": 151433392,
+          "version": "9.8.0",
+          "url": "https://services.gradle.org/distributions/gradle-9.8.0-bin.zip",
+          "sha256": "bafd5ce9cfaea0fbccfdc8439a1ac42fbd4cd9c89dc9a988228d8a2639a58e6c",
+          "size": 151611662,
           "bin_rel": "bin",
-          "bin_names": { "gradle.bat": "" }
+          "bin_names": {
+            "gradle.bat": ""
+          },
+          "major": "9"
         }
       ]
     },
@@ -703,15 +938,20 @@
       "name": "Maven",
       "category": "build-tools",
       "description": "JVM 生态构建与依赖管理（依赖 JDK，经 PATH 里的 java 启动）",
-      "provides": ["mvn"],
-      "dependencies": ["jdk21"],
+      "provides": [
+        "mvn"
+      ],
+      "dependencies": [
+        "jdk"
+      ],
       "versions": [
         {
           "version": "3.9.16",
           "url": "https://archive.apache.org/dist/maven/maven-3/3.9.16/binaries/apache-maven-3.9.16-bin.tar.gz",
           "sha256": "80ffca22aed9e8b9713a232f3394fd81d7f20322df75efdb2b047dbd3e3a23bb",
           "size": 9278065,
-          "bin_rel": "bin"
+          "bin_rel": "bin",
+          "major": "3.9"
         }
       ]
     },
@@ -720,7 +960,9 @@
       "name": "PHP 8.5",
       "category": "language-sdk",
       "description": "PHP 静态构建（CLI，自带扩展依赖）",
-      "provides": ["php"],
+      "provides": [
+        "php"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -728,6 +970,23 @@
           "url": "https://dl.static-php.dev/static-php-cli/common/php-8.5.8-cli-linux-x86_64.tar.gz",
           "sha256": "517a18e0f0874de35669fe134eb3c52508e128a6d1da5bf890760cb800ada410",
           "size": 12931817,
+          "bin_rel": ".",
+          "major": "8.5"
+        },
+        {
+          "version": "8.4.23",
+          "url": "https://dl.static-php.dev/static-php-cli/common/php-8.4.23-cli-linux-x86_64.tar.gz",
+          "sha256": "1aeed5bc7967977ca5b1da7163acd91bf9ba3ac56037045d4e91ee2ff2712bb7",
+          "size": 12375301,
+          "major": "8.4",
+          "bin_rel": "."
+        },
+        {
+          "version": "8.3.32",
+          "url": "https://dl.static-php.dev/static-php-cli/common/php-8.3.32-cli-linux-x86_64.tar.gz",
+          "sha256": "d7ff2bc40846f4efed2757e5929f7469c96f672fbf33eb4bb80cd695534750fe",
+          "size": 11744291,
+          "major": "8.3",
           "bin_rel": "."
         }
       ]
@@ -737,7 +996,9 @@
       "name": "grpcurl",
       "category": "modern-cli",
       "description": "gRPC 命令行客户端，支持反射与服务描述文件",
-      "provides": ["grpcurl"],
+      "provides": [
+        "grpcurl"
+      ],
       "dependencies": [],
       "versions": [
         {
@@ -745,7 +1006,8 @@
           "url": "https://github.com/fullstorydev/grpcurl/releases/download/v1.9.4/grpcurl_1.9.4_linux_x86_64.tar.gz",
           "sha256": "97e13d58d2733a0e62cd2571d1d5f0c02823f0d25282f08bddedf1ad9c5d1736",
           "size": 9968722,
-          "bin_rel": "."
+          "bin_rel": ".",
+          "major": "1.9"
         }
       ]
     }

@@ -143,6 +143,13 @@ var allowedChinese = map[string][]string{
 		"toolchain: %s 的 bin_dirs %q 越出工具根目录，已跳过",
 		"toolchain: 索引里的命令名 %q 不是合法的软链名，已跳过",
 	},
+	"internal/toolchain/migrate.go": {
+		// 启动 stderr 上的迁移留痕：回答「旧 ID 的安装到底搬没搬、搬到哪」。
+		// 它面向读日志排障的人，不随界面语言变化，界面里也不会出现。
+		"%s %s: 目标已存在，保留现有",
+		"%s %s: 迁移失败 %v",
+		"%s %s: 已迁移",
+	},
 	"internal/toolchain/project.go": {
 		"line %d: 无法解析 %q",
 		"line %d: tools 应为 section 头（tools:）",
@@ -163,6 +170,7 @@ var allowedChinese = map[string][]string{
 	},
 	"main.go": {
 		"工具链软链自愈有被拒绝的条目: %v",
+		"工具链 ID 迁移: %v",
 	},
 }
 
