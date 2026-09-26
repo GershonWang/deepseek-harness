@@ -1316,95 +1316,7 @@ function toolCard(c) {
   const actions = document.createElement("div");
   actions.className = "tool-card-actions";
 
-  if (c.Installed) {
-    // 已装：版本下拉（已装版本 + 清单里尚未安装的版本）+ 安装 / 两击确认卸载。
-    // 多版本工具若只能「卸载再重装」换版本，等于把多版本能力藏起来：这里让未装版本
-    // 也能在卡片上直接安装，并沿用后端的「安装即激活」语义。
-    const installed = c.InstalledVersions || [];
-    const sel = document.createElement("select");
-    sel.className = "version-select";
-    sel.title = tr("tools.versionSelect.title");
-    const appendOption = (v, isInstalled) => {
-      const opt = document.createElement("option");
-      opt.value = v;
-      opt.textContent = "v" + v + (v === c.ActiveVersion
-        ? tr("tools.version.current")
-        : (isInstalled ? tr("tools.version.installed") : tr("tools.version.installable")));
-      if (v === c.ActiveVersion) opt.selected = true;
-      sel.appendChild(opt);
-    };
-    for (const v of installed) appendOption(v, true);
-    for (const v of c.AvailableVersions || []) {
-      if (!installed.includes(v)) appendOption(v, false);
-    }
-    const isInstalled = () => installed.includes(sel.value);
-
-    const install = document.createElement("button");
-    install.className = "btn btn-primary";
-    install.textContent = tr("tools.install");
-    install.addEventListener("click", () => {
-      install.disabled = true;
-      install.textContent = tr("tools.installing");
-      api().InstallToolVersion(c.ID, sel.value);
-    });
-
-    const un = document.createElement("button");
-    un.className = "btn btn-danger";
-    un.textContent = tr("tools.uninstall");
-    un.addEventListener("click", async () => {
-      if (!consumeConfirmClick(un, tr("tools.uninstall"), tr("tools.uninstallConfirm"))) return;
-      const err = await api().UninstallTool(c.ID, sel.value);
-      if (err) { $("#toolchain-notice").textContent = err; }
-      api().RefreshTools();
-    });
-
-    // 选中的是未装版本时，「卸载」对那个版本无意义（后端会返回不存在），
-    // 因此两者互斥显示：安装按钮只为未装版本出现，卸载只为已装版本出现。
-    const syncActions = () => {
-      const ok = isInstalled();
-      install.classList.toggle("hidden", ok);
-      un.classList.toggle("hidden", !ok);
-      if (!ok) install.textContent = tr("tools.installVersion", { version: sel.value });
-    };
-
-    sel.addEventListener("change", async () => {
-      syncActions();
-      if (!isInstalled()) return; // 未装版本等用户点「安装」
-      const err = await api().SetActiveToolVersion(c.ID, sel.value);
-      if (err) { $("#toolchain-notice").textContent = err; }
-      api().RefreshTools();
-    });
-    syncActions();
-    actions.append(sel, install, un);
-  } else {
-    // 未装：可选版本（多版本时给下拉，默认推荐）+ 安装按钮。
-    const vers = c.AvailableVersions || [];
-    let sel = null;
-    if (vers.length > 1) {
-      sel = document.createElement("select");
-      sel.className = "version-select";
-      for (const v of vers) {
-        const opt = document.createElement("option");
-        opt.value = v;
-        opt.textContent = "v" + v;
-        sel.appendChild(opt);
-      }
-      actions.appendChild(sel);
-    }
-    const b = document.createElement("button");
-    b.className = "btn btn-primary";
-    const size = fmtSize(c.Size);
-    b.textContent = installing
-      ? tr("tools.installing")
-      : (size ? tr("tools.installWithSize", { size: size }) : tr("tools.install"));
-    b.disabled = installing;
-    b.addEventListener("click", () => {
-      b.disabled = true;
-      b.textContent = tr("tools.installing");
-      api().InstallToolVersion(c.ID, sel ? sel.value : c.AvailableVersion);
-    });
-    actions.appendChild(b);
-  }
+  buildVersionActions(actions, c, installing);
 
   if (installing) {
     el.append(head, desc, meta, progress, pctLabel, actions);
@@ -1418,6 +1330,117 @@ function toolCard(c) {
     el.append(runtimeHint);
   }
   return el;
+}
+
+// buildVersionActions 组装卡片动作区：版本选择 + 安装/卸载。
+//
+// 版本选择分两级。一级是大版本线（JDK 8/11/17/21/25），只在工具确有多条线时出现——
+// 多数工具只有一条，多挂一个恒定下拉只会占掉卡片宽度。二级是选中线内要展示的小版本，
+// 候选由后端 Groups 算好（该线最新小版本 ∪ 本机已装的小版本）：同线的历史小版本彼此
+// 只差补丁，全列出来会淹没真正要选的项；跨大版本才有兼容性后果，所以一级一条都不能少。
+//
+// 已装与未装卡片共用同一套控件，动作按「当前选中的版本是否已装」实时决定：选中已装
+// 版本显示卸载（选中即切换激活），选中未装版本显示安装。因此不再依赖卡片的初始状态。
+function buildVersionActions(actions, c, installing) {
+  const installed = c.InstalledVersions || [];
+  const isInstalledVersion = (v) => installed.includes(v);
+  // 后端总会给出 Groups；退化分支只为兼容还没带 Groups 的状态快照。
+  const groups = c.Groups && c.Groups.length
+    ? c.Groups
+    : [{ Major: "", Latest: c.AvailableVersion, Installed: [], Active: "", Versions: [c.AvailableVersion] }];
+  let group = groups.find((g) => g.Active) || groups[0];
+
+  // 大版本下拉固定窄宽，把剩余宽度让给小版本下拉：`21` 这类标签两个字符就够，
+  // 而 `v21.0.12.1` 需要更多位置（见 .version-major）。
+  let majorSel = null;
+  if (groups.length > 1) {
+    majorSel = document.createElement("select");
+    majorSel.className = "version-select version-major";
+    majorSel.title = tr("tools.versionSelect.majorTitle");
+    for (const g of groups) {
+      const opt = document.createElement("option");
+      opt.value = g.Major;
+      opt.textContent = g.Major;
+      if (g === group) opt.selected = true;
+      majorSel.appendChild(opt);
+    }
+  }
+
+  const verSel = document.createElement("select");
+  verSel.className = "version-select";
+  verSel.title = tr("tools.versionSelect.title");
+  // fillVersions 整体重画二级选项：不同大版本线的候选集合互不相干，只做增量更新会
+  // 让选中的值停留在当前线之外。
+  const fillVersions = () => {
+    verSel.innerHTML = "";
+    for (const v of group.Versions) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = "v" + v + (v === c.ActiveVersion
+        ? tr("tools.version.current")
+        : (isInstalledVersion(v) ? tr("tools.version.installed") : tr("tools.version.installable")));
+      // 该线已激活就选激活版本；否则选该线最新版本（未装的线只有最新这一项）。
+      if (v === group.Active || (!group.Active && v === group.Latest)) opt.selected = true;
+      verSel.appendChild(opt);
+    }
+  };
+  fillVersions();
+
+  const install = document.createElement("button");
+  install.className = "btn btn-primary";
+  install.disabled = installing;
+  const size = fmtSize(c.Size);
+  install.addEventListener("click", () => {
+    install.disabled = true;
+    install.textContent = tr("tools.installing");
+    api().InstallToolVersion(c.ID, verSel.value);
+  });
+
+  const un = document.createElement("button");
+  un.className = "btn btn-danger";
+  un.textContent = tr("tools.uninstall");
+  un.addEventListener("click", async () => {
+    if (!consumeConfirmClick(un, tr("tools.uninstall"), tr("tools.uninstallConfirm"))) return;
+    const err = await api().UninstallTool(c.ID, verSel.value);
+    if (err) { $("#toolchain-notice").textContent = err; }
+    api().RefreshTools();
+  });
+
+  // 选中的是未装版本时，「卸载」对该版本无意义（后端返回不存在），反向也不该给已装
+  // 版本提供安装入口，因此两者互斥显示。
+  const syncActions = () => {
+    const ok = isInstalledVersion(verSel.value);
+    install.classList.toggle("hidden", ok);
+    un.classList.toggle("hidden", !ok);
+    if (installing) {
+      install.textContent = tr("tools.installing");
+    } else if (!ok) {
+      install.textContent = tr("tools.installVersion", { version: verSel.value });
+    } else {
+      install.textContent = size ? tr("tools.installWithSize", { size: size }) : tr("tools.install");
+    }
+  };
+
+  if (majorSel) {
+    majorSel.addEventListener("change", () => {
+      group = groups.find((g) => g.Major === majorSel.value) || groups[0];
+      fillVersions();
+      syncActions();
+    });
+  }
+  verSel.addEventListener("change", async () => {
+    syncActions();
+    if (!isInstalledVersion(verSel.value)) return; // 未装版本等用户点「安装」
+    const err = await api().SetActiveToolVersion(c.ID, verSel.value);
+    if (err) { $("#toolchain-notice").textContent = err; }
+    api().RefreshTools();
+  });
+  syncActions();
+
+  if (majorSel) actions.appendChild(majorSel);
+  // 单线单版本没有可选项，下拉只会重复按钮上已有的版本信息。
+  if (groups.length > 1 || group.Versions.length > 1) actions.appendChild(verSel);
+  actions.append(install, un);
 }
 
 // renderStatusbar 渲染底部状态栏：随包 + 已装 L2 + 总大小 + 宿主挂载数。

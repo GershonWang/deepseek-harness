@@ -182,6 +182,7 @@ window.DSH_LOCALES.en = {
   "tools.runtime.available": "Already available in the container: {cmd} ({source})",
   "tools.runtime.availableVersion": "Already available in the container: {cmd} {version} ({source})",
   "tools.runtime.title": "This command comes from the Linglong container environment and is not installed from the market repository; after installing it from the market, ~/.dsh-tools manages it and takes priority when PATH is injected",
+  "tools.versionSelect.majorTitle": "Major version line; switching it lists the versions selectable within that line",
   "tools.versionSelect.title": "Picking an installed version switches to it; click “Install” for a version that is not installed",
   "tools.version.current": " · current",
   "tools.version.installed": " · installed",

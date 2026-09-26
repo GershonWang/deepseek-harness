@@ -1251,6 +1251,10 @@ button, input, select, textarea { font: inherit; }
   border-radius: var(--radius-sm); background: var(--bg-input); color: var(--fg); font-size: 11.5px; outline: none;
 }
 .version-select:focus { border-color: var(--accent); }
+/* 大版本下拉固定窄宽：它只放 `21`/`3.12` 这类线标签，而旁边的小版本下拉要放
+   `v21.0.12.1 · 当前` 这种长文本。两者都 flex:1 会平分卡片宽度，把真正需要
+   位置的版本号挤到只剩几个字符。flex:0 0 auto + 宽度上限让线标签够用即止。 */
+.version-major { flex: 0 0 auto; max-width: 30%; }
 
 /* statusbar + "内置"按钮并排（footer flex） */
 /* 弹框底部固定区：statusbar + 内置按钮（flex 布局）+ 通知 + 宿主导入，均不缩 */

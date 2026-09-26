@@ -198,6 +198,9 @@ window.DSH_LOCALES.zh = {
   "tools.runtime.available": "容器内已可用：{cmd}（{source}）",
   "tools.runtime.availableVersion": "容器内已可用：{cmd} {version}（{source}）",
   "tools.runtime.title": "该命令由玲珑容器环境提供，市场仓库尚未安装；通过市场安装后将由 ~/.dsh-tools 统一管理，注入 PATH 时优先使用",
+  // 两级版本选择：上一级是大版本线（JDK 8/11/17/21/25），下一级是该线内可选的小版本。
+  // 两条提示分开成键，因为下拉的用途不同：上级只负责筛线，下级才决定装/切哪个版本。
+  "tools.versionSelect.majorTitle": "大版本线；切换后列出该线内可选的版本",
   "tools.versionSelect.title": "已装版本选中即切换；未装版本点「安装」",
   "tools.version.current": " · 当前",
   "tools.version.installed": " · 已装",
