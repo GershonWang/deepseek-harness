@@ -588,11 +588,14 @@
 
 ## N23 工具 ID `jdk21` 与内容不符（现含 8/21），改名需要一次性迁移
 
-- **状态**：未修（有意延期）｜✅ 已复核
-- **位置**：`internal/toolchain/tools/index.json`（`id: jdk21`，`versions` 两条）、`linglong/tools.yaml`、`internal/toolchain/catalog_test.go:14`/`:158`、`internal/toolchain/install.go:131-142`（依赖解析）
+- **状态**：已修（2026-09-26）｜✅ 实测复核（迁移逻辑；真实安装目录待随发版验证）
+- **位置**：`internal/toolchain/tools/index.json`（`id` 已为 `jdk`）、`linglong/tools.yaml`（`installable` 键）、`internal/toolchain/catalog_test.go`、`internal/toolchain/install.go:131-142`（依赖解析）、`internal/toolchain/migrate.go`（新增）、`main.go`（调用点）
 - **问题**：ID 在 2026-09-14 扩为多版本后成为误称。改名为 `jdk` 会连带四处：`gradle` 与 `maven` 的 `dependencies: ["jdk21"]`（不改则新用户装这两个工具直接在 `unknown tool: jdk21` 失败，已有 `jdk21-*` 目录的用户因 `ListVersions` 非空而侥幸跳过）、`linglong/tools.yaml` 的 `installable` 键（不改则 `verify-tools.sh` 的 ID 集合 diff 失败）、`catalog_test.go` 的两条断言，以及**已装用户的状态迁移**——安装目录 `~/.dsh-tools/jdk21-<version>`、`current/jdk21` 软链，还有 `.dsh-toolchain.yml` 里手写的工具 ID（该能力后端已实现而前端未接，见 S6）。
-- **迁移期风险（尚未发生，记录以备将来）**：改名而不同时迁移时，残留的 `current/jdk21` 仍会被 `ReconcileBinLinks` 扫描（它不校验工具是否还在清单里，`toolBinDirs` 未命中即回退默认布局探测），继续把 `java`/`javac` 软链进 `~/.dsh-tools/bin`；`os.ReadDir` 按名排序使 `jdk` 先于 `jdk21` 处理，**旧目录的软链最后写入并覆盖新的**，表现为「装了新 `jdk`，`PATH` 上的 `java` 仍指向旧目录」。该推导为逐行阅读所得，**未实跑复现**。
-- **建议**：下一次代码改动时一并做：改 ID、依赖声明、白名单键与断言，并写一次性迁移（把 `jdk21-*` 目录转为 `jdk-*`、重建 `current` 与 `bin` 软链、清理孤儿目录）。本次选择先铺多版本、后改 ID，代价是届时迁移的目录从 1 个变成 1–2 个。
+- **迁移期风险（本条原记录的推导，已按实跑更正）**：原文推测「残留的 `current/jdk21` 仍会被 `ReconcileBinLinks` 扫描…`os.ReadDir` 按名排序使 `jdk` 先于 `jdk21` 处理，**旧目录的软链最后写入并覆盖新的**」。逐行复核后确认**前半段成立、结论不成立**：`ReconcileBinLinks` 确实不校验工具是否还在清单里——它对 `current/` 下每个条目按 `e.Name()` 当工具 ID 查 `toolBinDirs`/`toolBinNames`，未命中即回退默认布局探测（`root/bin` 存在则用它），因此旧的 `current/jdk21` 仍会被处理并把 `java` 软链进 `~/.dsh-tools/bin`。但**不会覆盖**：`linkExecutables` 用同一个 `seenBins` 去重且先到先得，而 `os.ReadDir` 按名排序使 `jdk` 先于 `jdk21`，故 `bin/java` 保持指向新目录。真实后果是旧目录**永久留在 `current/` 下被每次自愈反复扫描**，且其中新目录没有的同名可执行文件仍会被链进 `PATH`——表现为「`PATH` 上多出几个来路不明的命令」，而非原文所说的版本指向错误。
+- **修复**：新增 `internal/toolchain/migrate.go` 的 `MigrateLegacyToolIDs(dir)`——把 `jdk21-*` 版本目录搬到 `jdk-*`、重建 `current/jdk` 软链、清掉旧软链；幂等、逐项留痕、失败不拦启动。调用点在 `main.go` 里**排在 `ReconcileBinLinks` 之前**：先搬家再自愈，否则自愈会先按旧名扫一遍。改名同步覆盖依赖声明（gradle/maven → `["jdk"]`）、`tools.yaml`、断言与预览 mock。
+- **验证**：`internal/toolchain` 全包通过。迁移逻辑由 `migrate_test.go` 的 5 个用例覆盖（目录与软链一起搬、重复调用无事可做、新 ID 已存在同名版本时保留既有那份不覆盖、无旧安装时静默略过、多版本全搬）；经变异验证有判别力——把软链指向错误路径会让 3 条用例失败，去掉覆盖保护会让「目标已存在」那条失败。
+- **残留**：**迁移从未在真实的 `~/.dsh-tools` 上运行过**——`main` 包依赖 cgo 与系统 GTK 开发库，本机无 gcc 时编译不了，故只做了逐行核对与单元验证。发布清单（`docs/toolchain-index-release.md`）据此要求安装前先备份 `~/.dsh-tools`。`.dsh-toolchain.yml` 里手写的 `jdk21` 不在本次迁移范围（该能力前端未接，无既存用户数据）。
+- **原注**：本次选择先铺多版本、后改 ID，代价是届时迁移的目录从 1 个变成 1–2 个——已按此预期实现（多版本全搬由 `_MultipleVersions` 覆盖）。
 
 ## N24 `ToolVersion.LibRel` 无消费点
 
@@ -604,15 +607,16 @@
 
 ## N25 JDK 17 从清单下架，远端索引重钉仍未完成
 
-- **状态**：已执行（本地清单、文档与索引重钉）｜⏳ 待随发版到达用户｜✅ 已复核
-- **位置**：`internal/toolchain/tools/index.json`（`jdk21.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 已重钉到 `ff0b924d11`）、`frontend/tools/preview.mjs:264-269`（预览 mock；`ff0b924d11` 下架时该处在 `:202`，见下）
+- **状态**：已闭环（2026-09-26：17 作为独立大版本线重回清单）｜⏳ 重钉待随发版｜✅ 实测复核
+- **位置**：`internal/toolchain/tools/index.json`（`jdk.versions`、`description`）、`internal/toolchain/remote.go:44`（`defaultIndexURL` 仍为 `ff0b924d11`）、`frontend/tools/preview.mjs`（预览 mock）
 - **说明**：多版本清单上线当天先收窄版本面——`jdk21` 只保留推荐版本 `21.0.12.1` 与 `8u504`，移除 `17.0.20.1`，`description` 同步改为「可选 8 / 21」。动机是把 N20/N21/N22 三条未修的多版本语义缺陷的暴露面从三版本压到两版本，并为随后修复「更新不切换」（N7）留出更小的改动面。**不是 17 自身有故障**：其下载地址在 2026-09-14 实测 `HTTP/2 302` 可达，清单里的 url/sha256/size 未被改动，本次只是不再提供。
+- **收窄的动机已消失**：当时压版本面是为了给 N7/N20/N21 的修复留出小改动面，而这三条已修（见各条状态），大版本线分组也已落地。**17 因此作为独立大版本线重回清单**（`17.0.20.1`，与 8/11/21/25 并列），不再是「被下架」。分组语义下每条线只在同线内比较，17 的存在不会再触发当初那类跨版本误判。
 - **影响**：
-  - 已装 `jdk21-17.0.20.1` 的机器不受影响——`ListVersions` 扫目录而非查清单，该版本仍可切换与卸载；但「可安装版本」下拉里不再出现 17，且因 N20 未修，激活 17 时卡片仍显示「可更新」。
-  - **索引已重钉，但仍待发版**：`defaultIndexURL` 已从 `ee9c181bf6`（含 17）移到承载新清单的 `ff0b924d11`，实现侧取证见 N3。已发布的旧客户端在带这次重钉的版本发布前仍会提供 17；本机 `~/.dsh-tools/index.json` 缓存在 24 小时 TTL 内也仍是旧内容，需等 TTL 过期或点「刷新索引」。
-  - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 的「当前只有 JDK 8/17/21」已同步为两版本。**`preview.mjs` 的预览 mock 与清单不同步（对原文的更正）**：`ff0b924d11` 确实删掉了当时那处的 `17.0.20.1`，但同日晚些的 `54483bf5c7` 把 mock 重建为「已装 / 安装中」两种动作区时又写回了 `v17.0.20.1 · 可安装`，而该提交改了本文却没同步这一句。当前 `preview.mjs:264-269` 两处仍含 17。它按该处注释是用来量卡片最坏宽度的 fixture、不是清单的镜像，因此不改变「17 已下架」的结论，但**「已同步为两版本」的说法不成立**。
-- **发布前置（已完成的部分）**：承载新 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。
-- **建议**：N7 / N20 / N21 的修复已于同日完成（见各条状态），与本次重钉一并发布即可，不必再分两次。
+  - 已装 `jdk21-17.0.20.1` 的机器在改名迁移后（见 N23）该目录变为 `jdk-17.0.20.1`，仍可切换与卸载；17 线现在有自己的下拉项。
+  - **索引已重钉，但仍待发版**：`defaultIndexURL` 已从 `ee9c181bf6`（含 17）移到承载新清单的 `ff0b924d11`，实现侧取证见 N3。已发布的旧客户端在带这次重钉的版本发布前仍会提供旧清单；本机 `~/.dsh-tools/index.json` 缓存在 24 小时 TTL 内也仍是旧内容，需等 TTL 过期或点「刷新索引」。
+  - `test-verify-tools.sh` 只比对工具 ID 集合、`catalog_test.go` 无 17 断言，两者都不受影响；`README.md`/`README.zh.md` 中关于 JDK 可选版本的描述需与当前清单（8/11/17/21/25）一致。**`preview.mjs` 的预览 mock 已同步**：该 mock 按注释是用来量卡片最坏宽度的 fixture、不是清单的镜像，现已改为两级下拉并把 17 放回 21 之外的独立线（见该文件注释）。
+- **发布前置（已完成的部分）**：承载旧 `index.json` 的提交已推送，`git rev-parse ff0b924d11:apps/desktop-launcher/internal/toolchain/tools/index.json` 得 blob `599f8341…`，实跑 curl 取回 HTTP 200 且 sha256 与工作区逐字节一致。**本次改版的索引尚未推送**，重钉步骤见 `docs/toolchain-index-release.md`。
+- **建议**：无遗留动作——本条当初的收窄措施已被分组方案取代，17 已回到清单，剩下的只是随下次发版把索引送达用户。
 
 ## N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它
 
