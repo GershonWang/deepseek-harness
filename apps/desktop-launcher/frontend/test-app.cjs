@@ -1321,9 +1321,13 @@ function fakeTools() {
         AvailableVersions: ["2.1.4"], Size: 39700000 },
       { ID: "go", Name: "Go", Category: "language-sdk", Description: "Go 编译工具链",
         Provides: ["go", "gofmt"], Installed: true, ActiveVersion: "1.23.2",
-        AvailableVersions: ["1.23.2"], Size: 70000000 },
+        AvailableVersion: "1.23.2", AvailableVersions: ["1.23.2"],
+        InstalledVersions: ["1.23.2"], Size: 70000000,
+        // 单大版本线单版本：后端 Groups 只有一项，卡片据此退化成「只显示小版本」的形态，
+        // 而版本下拉仍必须渲染——它是这张卡片上「当前跑哪一版」的唯一读数。
+        Groups: [{ Major: "1", Latest: "1.23.2", Installed: ["1.23.2"], Active: "1.23.2", Versions: ["1.23.2"] }] },
     ],
-    Sandboxed: true, HostTools: [], UpdateCount: 0, Notice: "",
+    Sandboxed: true, HostTools: [], Notice: "",
   };
 }
 
@@ -1360,6 +1364,57 @@ test("市场卡片：仓库未装但容器内已有命令时提示来源，已�
   assert.equal(pills[0].textContent, "可安装");
   assert.equal(pills[1].textContent, "可安装");
   assert.match(pills[2].textContent, /已安装/);
+});
+
+test("市场卡片：已装单选版本卡片仍给出版本下拉并选中当前版本", () => {
+  // 单大版本线单版本的已装卡片没有第二项可选，但下拉必须留着：卸载按钮只写「卸载」，
+  // 卡片上再没有第二处能读出「当前跑的是哪一版」。此前的抑制条件把这类卡片变成了
+  // 只有卸载按钮的形态。
+  const h = loadApp();
+  h.sandbox.__testRenderTools(fakeTools());
+  const cards = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item");
+  const goCard = cards[2];
+  assert.equal(goCard.dataset.toolId, "go", "第三张卡是已装的 go");
+
+  const selects = goCard.querySelectorAll(".version-select");
+  assert.equal(selects.length, 1, "单条大版本线不该多出大版本下拉");
+  const chosen = selects[0].children.find((o) => o.selected);
+  assert.ok(chosen, "下拉必须有选中项");
+  assert.equal(chosen.textContent, "v1.23.2 · 当前", "选中项应读出当前版本");
+
+  // 已装版本仍走卸载分支：版本下拉不改变动作的互斥关系。
+  const uninstall = goCard.children
+    .filter((ch) => ch.classList.contains("tool-card-actions"))
+    .map((ch) => ch.children)
+    .flat()
+    .find((b) => b.classList.contains("btn-danger"));
+  assert.ok(uninstall, "已装卡片应给出卸载按钮");
+});
+
+test("市场卡片：可更新提示指向同线更新目标，而不是推荐版本", () => {
+  // 提示要用户去卡片下拉里选中它点的那一版，因此必须是下拉里真实存在的同线小版本；
+  // AvailableVersion 是「没装时该装哪个」的推荐版本，可能在另一条大版本线上。
+  const h = loadApp();
+  const tools = fakeTools();
+  tools.Catalog = [
+    { ID: "go", Name: "Go", Category: "language-sdk", Description: "Go 编译工具链",
+      Provides: ["go"], Installed: true, ActiveVersion: "1.23.2",
+      HasUpdate: true, UpdateTarget: "1.23.3",
+      AvailableVersion: "1.25.0", AvailableVersions: ["1.23.2", "1.23.3"],
+      InstalledVersions: ["1.23.2"], Size: 70000000,
+      Groups: [{ Major: "1", Latest: "1.23.3", Installed: ["1.23.2"], Active: "1.23.2", Versions: ["1.23.3", "1.23.2"] }] },
+  ];
+  h.sandbox.__testRenderTools(tools);
+
+  const card = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item")[0];
+  const pill = card.querySelector(".pill");
+  assert.equal(pill.textContent, "可更新");
+  assert.match(pill.title, /可更新到 v1\.23\.3/u, "提示应指向同线更新目标");
+  assert.doesNotMatch(pill.title, /1\.25\.0/u, "提示不该指向另一条大版本线的推荐版本");
+
+  const options = card.querySelector(".version-select").children.map((o) => o.textContent);
+  assert.deepEqual(options, ["v1.23.3 · 可安装", "v1.23.2 · 当前"],
+    "目标版本必须真的在这张卡片的下拉里");
 });
 
 test("提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖", () => {

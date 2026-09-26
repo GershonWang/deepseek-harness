@@ -178,7 +178,7 @@ window.DSH_LOCALES.en = {
   "tools.pill.installed": "✓ Installed",
   "tools.pill.installing": "Installing",
   "tools.pill.installable": "Installable",
-  "tools.card.updateHint": "Can update to v{version}: use “Update all” at the top; the older version stays on disk and can be switched to or uninstalled from the dropdown",
+  "tools.card.updateHint": "Can update to v{version}: pick that version in the card's dropdown and click Install; the older version stays on disk and can be switched back to or uninstalled",
   "tools.runtime.available": "Already available in the container: {cmd} ({source})",
   "tools.runtime.availableVersion": "Already available in the container: {cmd} {version} ({source})",
   "tools.runtime.title": "This command comes from the Linglong container environment and is not installed from the market repository; after installing it from the market, ~/.dsh-tools manages it and takes priority when PATH is injected",

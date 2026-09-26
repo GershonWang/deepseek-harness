@@ -1264,10 +1264,12 @@ function toolCard(c) {
   const status = document.createElement("span");
   if (c.Installed && c.HasUpdate) {
     // 徽标保持短文案：卡片仅约 170px 宽，写上「可更新到 v21.0.12.1」会把工具名挤成
-    // 省略号。目标版本由横幅（有整行空间）与这里的 title 共同给出。
+    // 省略号。目标版本由这里的 title 给出。用 UpdateTarget 而不是 AvailableVersion：
+    // 后者是「没装时该装哪个」的推荐版本，可能落在另一条大版本线，而提示要用户去卡片
+    // 下拉里选中它，指的必须是本线内真实存在的那个小版本（见 ToolStatus.UpdateTarget）。
     status.className = "pill warn";
     status.textContent = tr("tools.pill.update");
-    status.title = tr("tools.card.updateHint", { version: c.AvailableVersion });
+    status.title = tr("tools.card.updateHint", { version: c.UpdateTarget });
   } else if (c.Installed) {
     status.className = "pill ok";
     status.textContent = tr("tools.pill.installed");
@@ -1438,8 +1440,10 @@ function buildVersionActions(actions, c, installing) {
   syncActions();
 
   if (majorSel) actions.appendChild(majorSel);
-  // 单线单版本没有可选项，下拉只会重复按钮上已有的版本信息。
-  if (groups.length > 1 || group.Versions.length > 1) actions.appendChild(verSel);
+  // 已装卡片一律给二级下拉：它是「当前跑的是哪一版」的唯一读数，也是切版/回滚的入口，
+  // 单版本时退化成一个只读的选中项。未装卡片不必给——未装时安装按钮已经写着
+  // 「安装 10.5.0」，再挂一个下拉只会重复同一个版本号并占掉卡片宽度。
+  if (groups.length > 1 || group.Versions.length > 1 || c.Installed) actions.appendChild(verSel);
   actions.append(install, un);
 }
 

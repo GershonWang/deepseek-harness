@@ -192,7 +192,7 @@ window.DSH_LOCALES.zh = {
   "tools.pill.installed": "✓ 已安装",
   "tools.pill.installing": "安装中",
   "tools.pill.installable": "可安装",
-  "tools.card.updateHint": "可更新到 v{version}：点顶部「一键更新」切过去；旧版本保留在磁盘上，可在下拉中切换或卸载",
+  "tools.card.updateHint": "可更新到 v{version}：在卡片下拉里选中该版本后点「安装」；旧版本保留在磁盘上，可随时切回或卸载",
   // 运行时可用提示有两个形态：带版本号的那句多一段，因此单独成键，而不是在代码里
   // 拼半句（占位符之间的空格与标点各语言不同）。
   "tools.runtime.available": "容器内已可用：{cmd}（{source}）",
