@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -13,11 +14,21 @@ import (
 // ToolVersion 描述一个工具的某个具体版本。
 type ToolVersion struct {
 	Version string `json:"version"`
-	URL     string `json:"url"`
-	SHA256  string `json:"sha256"`
-	Size    int64  `json:"size,omitempty"` // 字节数，可选
-	BinRel  string `json:"bin_rel"`        // 包内二进制目录相对路径
-	LibRel  string `json:"lib_rel"`        // 包内库目录相对路径（可选，进 LD_LIBRARY_PATH）
+	// Major 是该版本所属的大版本线，界面按它分组展示（如 JDK 的 "8"/"11"/"21"）。
+	//
+	// 为什么必须由清单显式声明：版本号格式跨工具差异过大，没有任何一种自动切法通用。
+	// Go 的功能版本在第二段（1.26 与 1.27 该分两条线），而 Node 的功能版本在第一段
+	// （24.20 与 24.21 必须同一条线）；JDK 8 用无点分隔的发行标签 `8u504`；Rust 有
+	// 向后兼容承诺，1.98 与 1.99 不该被拆成两条线。切错会让界面要么把同一条线拆开、
+	// 要么把不同线合并。
+	//
+	// 缺省（旧索引）时按 majorOf 的兜底规则取版本号首个数字段，因此旧索引照常工作。
+	Major  string `json:"major,omitempty"`
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size,omitempty"` // 字节数，可选
+	BinRel string `json:"bin_rel"`        // 包内二进制目录相对路径
+	LibRel string `json:"lib_rel"`        // 包内库目录相对路径（可选，进 LD_LIBRARY_PATH）
 	// BinDirs 多个二进制目录（相对路径），用于 bin 分散在多个子目录的发行包
 	// （如 Rust：cargo/bin 与 rustc/bin）。非空时优先于 BinRel；为空走默认
 	// 布局探测（bin/ 子目录，否则工具根目录）。
@@ -526,6 +537,22 @@ func Conflicts(dirA, dirB string) []string {
 
 // —— 状态组装（给 UI 用） ——
 
+// VersionGroup 是一个大版本线（如 JDK 21）在当前环境下的展示单元。
+//
+// 卡片按它渲染两级选择：一级列出所有 VersionGroup（大版本），二级列出选中组内的
+// Versions（小版本）。二级只含「该线最新小版本」与「本机已装的小版本」——同线的
+// 历史小版本之间只差补丁，全列出来只会淹没真正要选的项；跨大版本之间才是有兼容性
+// 后果的选择，因此一级必须全部保留。
+type VersionGroup struct {
+	Major     string   // 大版本标识，如 "21"；界面直接展示它
+	Latest    string   // 该线内清单里的最新小版本；该线只有孤儿版本时即该孤儿版本
+	Installed []string // 该线内本机已装的小版本，降序
+	Active    string   // 该线内的激活小版本，空表示该线未激活
+	// Versions 是该线在界面上要展示的小版本（Latest ∪ Installed，降序）。
+	// 后端算好下发，前端只做纯渲染，避免两处各自实现同一套合并规则。
+	Versions []string
+}
+
 // ToolStatus 是工具的运行时状态，供 UI 渲染。
 // 字段故意不带 JSON tag：序列化用 Go 字段名（PascalCase），与前端 toolCard 的
 // camelCase 读取（c.ID / c.AvailableVersion / c.Installed）及外层 app.ToolStatus
@@ -544,7 +571,15 @@ type ToolStatus struct {
 	ActiveVersion     string   // 当前激活版本
 	InstalledVersions []string // 所有已装版本
 	Size              int64    // 字节
-	HasUpdate         bool     // 推荐版本高于当前激活版本（激活链接缺失时也为 true，作为修复入口）
+	HasUpdate         bool     // 激活版本低于同大版本线内的最新小版本；激活链接缺失/损坏时也为 true，作为修复入口
+	// UpdateTarget 是 HasUpdate 为真时要升到的版本，即激活版本所属大版本线内的
+	// Latest。它不等于 AvailableVersion：后者是「没装时该装哪个」的推荐版本，
+	// 可能位于另一条大版本线（例如推荐 21 而用户装的是 8），拿它当更新目标会
+	// 把「升级小版本」误导成「换大版本」。
+	UpdateTarget string
+	// Groups 是按大版本线归组后的展示单元，降序（新大版本在前）。
+	// 单大版本工具的 Groups 长度为 1，界面据此退化成只显示小版本。
+	Groups []VersionGroup
 	// 以下三项描述"容器内运行时可用性"：该工具提供的命令已在当前 PATH 命中
 	// （随包/宿主导入/系统提供），与市场仓库安装状态（Installed）相互独立。
 	// 由 app 层组装填充，toolchain 包只声明字段；未命中均为空。
@@ -564,11 +599,12 @@ func ToolStatuses(dir string) []ToolStatus {
 		// 卡片下拉里「越靠前越新」的预期就不成立了。
 		sortVersionsDesc(installedVersions)
 		active := ActiveVersion(dir, t.ID)
-		// 「可更新」按版本号比较，而不是「当前激活是否等于推荐版本」的字符串不等：
-		// 推荐版本只是清单首项，它可以低于当前激活版本（清单回退时），那时不该报更新。
-		// active 为空（current 软链缺失或损坏）时仍报更新，让「更新」成为一键修复入口。
-		hasUpdate := len(installedVersions) > 0 && latest != "" &&
-			(active == "" || compareVersions(active, latest) < 0)
+		groups := buildVersionGroups(t, installedVersions, active)
+		// 「可更新」只在激活版本所属的大版本线内比较：装 8u504 的用户不该被提示
+		// 「更新到 21」，那是换大版本而不是打补丁，跨线迁移必须由用户主动选。
+		// 按版本号而非字符串比较，是因为推荐版本只是清单首项，它可以低于当前激活
+		// 版本（清单回退时），那时不该报更新。
+		hasUpdate, updateTarget := updateOf(groups, installedVersions, active)
 		ts := ToolStatus{
 			ID:                t.ID,
 			Name:              t.Name,
@@ -581,6 +617,8 @@ func ToolStatuses(dir string) []ToolStatus {
 			InstalledVersions: installedVersions,
 			ActiveVersion:     active,
 			HasUpdate:         hasUpdate,
+			UpdateTarget:      updateTarget,
+			Groups:            groups,
 		}
 		for _, v := range t.Versions {
 			ts.AvailableVersions = append(ts.AvailableVersions, v.Version)
@@ -589,6 +627,136 @@ func ToolStatuses(dir string) []ToolStatus {
 		out = append(out, ts)
 	}
 	return out
+}
+
+// majorOf 返回版本所属的大版本线：清单显式声明优先，缺省时按版本号首个数字段兜底。
+//
+// 兜底规则与 compareVersions 的分段同源（`8u504` 取 8、`21.0.12.1` 取 21），因此旧索引
+// 在没有 major 字段时也能归组。代价是首个数字段无区分度的工具会退化成单线（Go 的
+// 1.26/1.27 都会并到 "1"），这正是新索引必须逐条显式声明 Major 的原因。
+func majorOf(declared, version string) string {
+	if declared != "" {
+		return declared
+	}
+	if segs, ok := versionSegments(version); ok && len(segs) > 0 {
+		return strconv.Itoa(segs[0])
+	}
+	// 整串不含数字（畸形或非版本标签）：按整串归组，至少让相同字符串落在同一组。
+	return version
+}
+
+// buildVersionGroups 把清单版本与本机已装版本按大版本线归组，并算出每线要展示的小版本。
+//
+// 已装但不在清单里的版本（索引下架、手工放进目录的版本）必须单独成组并保留：归组
+// 逻辑一旦漏掉它们，用户在卡片上既看不到、也切不回去、也卸不掉，而磁盘上那份安装
+// 仍占着空间——这比多出一组更难解释。
+func buildVersionGroups(tool Tool, installed []string, active string) []VersionGroup {
+	byMajor := map[string]*VersionGroup{}
+	var order []string
+	ensure := func(major string) *VersionGroup {
+		if g, ok := byMajor[major]; ok {
+			return g
+		}
+		g := &VersionGroup{Major: major}
+		byMajor[major] = g
+		order = append(order, major)
+		return g
+	}
+	for _, v := range tool.Versions {
+		g := ensure(majorOf(v.Major, v.Version))
+		if g.Latest == "" || compareVersions(v.Version, g.Latest) > 0 {
+			g.Latest = v.Version
+		}
+	}
+	for _, v := range installed {
+		g := ensure(majorOf("", v))
+		g.Installed = append(g.Installed, v)
+		if g.Latest == "" {
+			// 孤儿版本：该线在清单里没有任何条目，它自己就是这条线唯一可见的版本。
+			g.Latest = v
+		}
+	}
+	out := make([]VersionGroup, 0, len(order))
+	for _, major := range order {
+		g := byMajor[major]
+		if len(g.Installed) > 1 {
+			sortVersionsDesc(g.Installed)
+		}
+		g.Active = activeIn(g.Installed, active)
+		g.Versions = groupVersions(g.Latest, g.Installed)
+		out = append(out, *g)
+	}
+	// 新大版本排在前面：一级下拉里「越靠前越新」与二级的排序预期一致。
+	sort.SliceStable(out, func(i, j int) bool {
+		return compareVersions(out[i].Latest, out[j].Latest) > 0
+	})
+	return out
+}
+
+// activeIn 返回激活版本在该线已装集合中的归属；不属于该线时返回空。
+func activeIn(installed []string, active string) string {
+	for _, v := range installed {
+		if v == active {
+			return active
+		}
+	}
+	return ""
+}
+
+// groupVersions 合并「该线最新小版本」与「该线已装小版本」，降序去重。
+// 同线的历史小版本不在此列：它们与最新版只差补丁，全列出来会淹没真正要选的项。
+func groupVersions(latest string, installed []string) []string {
+	out := make([]string, 0, len(installed)+1)
+	if latest != "" {
+		out = append(out, latest)
+	}
+	for _, v := range installed {
+		if v != latest {
+			out = append(out, v)
+		}
+	}
+	sortVersionsDesc(out)
+	return out
+}
+
+// updateOf 判定是否有更新及更新目标，只在激活版本所属的大版本线内比较。
+//
+// 激活链接缺失或损坏（active 为空）而本机确有安装时仍报更新，并把目标指向最新一条
+// 大版本线：此时「更新」是一键重建软链的入口，与既有语义一致。
+func updateOf(groups []VersionGroup, installed []string, active string) (bool, string) {
+	if len(installed) == 0 {
+		return false, ""
+	}
+	if active == "" {
+		// 软链缺失/损坏（含用户手工删了 current 的情况）。修复目标取「已装最高版本
+		// 所属那条线」的最新版，而不是清单里最新的大版本线：后者会把「重建软链」
+		// 偷偷变成「换大版本」，而用户原本刻意激活的可能是旧线（如 JDK 8）。
+		// 已装版本的归组由 buildVersionGroups 保证必然存在，因此按每个组的
+		// Installed 反查即可，无需再算一次 major。
+		var newest *VersionGroup
+		for i := range groups {
+			if len(groups[i].Installed) == 0 {
+				continue
+			}
+			if newest == nil || compareVersions(groups[i].Latest, newest.Latest) > 0 {
+				newest = &groups[i]
+			}
+		}
+		if newest == nil || newest.Latest == "" {
+			return false, ""
+		}
+		return true, newest.Latest
+	}
+	for _, g := range groups {
+		if g.Active != active {
+			continue
+		}
+		if g.Latest != "" && compareVersions(active, g.Latest) < 0 {
+			return true, g.Latest
+		}
+		return false, ""
+	}
+	return false, ""
 }
 
 // OutdatedTools 返回所有已安装且有更新版本的工具 ID 列表。

@@ -11,8 +11,8 @@ func TestLookupTool(t *testing.T) {
 	if _, ok := LookupTool("go"); !ok {
 		t.Fatal("catalog 应含 go")
 	}
-	if it, ok := LookupTool("jdk21"); !ok || it.LatestVersion().SHA256 == "" {
-		t.Fatalf("jdk21 应已填实 sha256: %+v", it)
+	if it, ok := LookupTool("jdk"); !ok || it.LatestVersion().SHA256 == "" {
+		t.Fatalf("jdk 应已填实 sha256: %+v", it)
 	}
 	if _, ok := LookupTool("nonexistent"); ok {
 		t.Fatal("未知项不应命中")
@@ -155,8 +155,8 @@ func TestToolStatuses(t *testing.T) {
 	if cs := byID["go"]; !cs.Installed || cs.ActiveVersion != "1.23.2" {
 		t.Fatalf("go 应已安装且版本 1.23.2: %+v", cs)
 	}
-	if cs := byID["jdk21"]; cs.Installed || cs.AvailableVersion == "" {
-		t.Fatalf("jdk21 应未安装且已给出推荐版本: %+v", cs)
+	if cs := byID["jdk"]; cs.Installed || cs.AvailableVersion == "" {
+		t.Fatalf("jdk 应未安装且已给出推荐版本: %+v", cs)
 	}
 }
 
@@ -215,14 +215,15 @@ func TestCatalog_Uv(t *testing.T) {
 	if v.SHA256 == "" {
 		t.Fatal("uv 应已填实 sha256")
 	}
-	if v.URL != "https://github.com/astral-sh/uv/releases/download/0.12.6/uv-x86_64-unknown-linux-gnu.tar.gz" {
-		t.Fatalf("uv URL 应指向官方 0.12.6 gnu tarball: %+v", v)
+	// 断言 URL 与版本号同源、且指向官方的 gnu tarball，而不是钉死某个版本：
+	// 索引升版是常规操作，钉死版本号会让每次升级都要顺带改这条测试，久而久之
+	// 就没人再核对 URL 与版本是否对得上——那正是这里真正要守的事。
+	wantURL := "https://github.com/astral-sh/uv/releases/download/" + v.Version + "/uv-x86_64-unknown-linux-gnu.tar.gz"
+	if v.URL != wantURL {
+		t.Fatalf("uv URL 应指向官方的 gnu tarball: %+v", v)
 	}
 	if v.BinRel != "." {
 		t.Fatalf("uv tarball 单顶层目录剥离后可执行在根: BinRel 应为 .: %+v", v)
-	}
-	if v.Version != "0.12.6" {
-		t.Fatalf("uv 版本应为 0.12.6: %+v", v)
 	}
 }
 
@@ -272,10 +273,13 @@ func statusOf(t *testing.T, dir, id string) ToolStatus {
 // TestHasUpdate_VersionOrder 固定「可更新」的判定语义（AUDIT N20）：它取决于版本号大小，
 // 而不是「当前激活是否等于清单首项」。字符串不等会把刻意固定旧版本的用户永久标成可更新，
 // 并在清单首项低于当前激活版本（回退清单）时给出相反结论。
+//
+// 比较范围限定在激活版本所属的大版本线内：跨大版本是换工具链而非打补丁，必须由用户
+// 主动选，所以装了 JDK 8 的用户不该被提示「更新到 21」。
 func TestHasUpdate_VersionOrder(t *testing.T) {
-	jdk, ok := LookupTool("jdk21")
+	jdk, ok := LookupTool("jdk")
 	if !ok {
-		t.Fatal("catalog 应含 jdk21")
+		t.Fatal("catalog 应含 jdk")
 	}
 	recommended := jdk.LatestVersion().Version
 
@@ -284,22 +288,25 @@ func TestHasUpdate_VersionOrder(t *testing.T) {
 		active string // 空串表示不建 current 软链
 		want   bool
 	}{
-		{"激活版本低于推荐版本应提示", "8u504", true},
-		{"激活版本等于推荐版本不提示", recommended, false},
-		{"激活版本高于推荐版本不提示", "99.0.0", false},
+		// 8u504 是 JDK 8 线在清单里唯一的条目，21 属于另一条线：跨大版本不构成更新。
+		{"跨大版本不提示（8 线内没有更新的小版本）", "8u504", false},
+		// 21.0.9 不在清单里，但按版本号首段归入 21 线，因此能看见该线的 21.0.12.1。
+		{"同一大版本线内低于最新小版本应提示", "21.0.9", true},
+		{"激活版本等于该线最新版本不提示", recommended, false},
+		{"激活版本高于该线最新版本不提示", "99.0.0", false},
 		{"current 链接缺失时报更新，作为修复入口", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
-			mkToolVersion(t, dir, "jdk21", "8u504", "java")
+			mkToolVersion(t, dir, "jdk", "8u504", "java")
 			if c.active != "" {
-				mkToolVersion(t, dir, "jdk21", c.active, "java")
-				if err := SetActiveVersion(dir, "jdk21", c.active); err != nil {
+				mkToolVersion(t, dir, "jdk", c.active, "java")
+				if err := SetActiveVersion(dir, "jdk", c.active); err != nil {
 					t.Fatalf("激活 %s: %v", c.active, err)
 				}
 			}
-			if got := statusOf(t, dir, "jdk21").HasUpdate; got != c.want {
+			if got := statusOf(t, dir, "jdk").HasUpdate; got != c.want {
 				t.Fatalf("激活=%q 时 HasUpdate=%v, want %v", c.active, got, c.want)
 			}
 		})
@@ -311,9 +318,9 @@ func TestHasUpdate_VersionOrder(t *testing.T) {
 func TestToolStatuses_InstalledVersionsOrderedByVersion(t *testing.T) {
 	dir := t.TempDir()
 	for _, v := range []string{"8u504", "17.0.20.1", "21.0.12.1"} {
-		mkToolVersion(t, dir, "jdk21", v, "java")
+		mkToolVersion(t, dir, "jdk", v, "java")
 	}
-	got := statusOf(t, dir, "jdk21").InstalledVersions
+	got := statusOf(t, dir, "jdk").InstalledVersions
 	want := []string{"21.0.12.1", "17.0.20.1", "8u504"}
 	if len(got) != len(want) {
 		t.Fatalf("InstalledVersions = %v, want %v", got, want)
@@ -330,9 +337,9 @@ func TestToolStatuses_InstalledVersionsOrderedByVersion(t *testing.T) {
 // 早期实现取字母序最后一个，在 `8u504`/`17.0.20.1`/`21.0.12.1` 这组标签下会静默
 // 把 PATH 上的 java 换成 JDK 8。
 func TestUninstall_FallbackByVersionOrder(t *testing.T) {
-	jdk, ok := LookupTool("jdk21")
+	jdk, ok := LookupTool("jdk")
 	if !ok {
-		t.Fatal("catalog 应含 jdk21")
+		t.Fatal("catalog 应含 jdk")
 	}
 	recommended := jdk.LatestVersion().Version
 
@@ -340,15 +347,15 @@ func TestUninstall_FallbackByVersionOrder(t *testing.T) {
 		dir := t.TempDir()
 		// 额外造一个数值高于推荐版本的 99.0.0：规则是「回到推荐版本」而不是「取最高」。
 		for _, v := range []string{"8u504", recommended, "99.0.0"} {
-			mkToolVersion(t, dir, "jdk21", v, "java")
+			mkToolVersion(t, dir, "jdk", v, "java")
 		}
-		if err := SetActiveVersion(dir, "jdk21", "8u504"); err != nil {
+		if err := SetActiveVersion(dir, "jdk", "8u504"); err != nil {
 			t.Fatal(err)
 		}
-		if err := Uninstall(dir, "jdk21", "8u504"); err != nil {
+		if err := Uninstall(dir, "jdk", "8u504"); err != nil {
 			t.Fatalf("卸载: %v", err)
 		}
-		if got := ActiveVersion(dir, "jdk21"); got != recommended {
+		if got := ActiveVersion(dir, "jdk"); got != recommended {
 			t.Fatalf("卸载激活版本后应回到推荐版本 %s, got %q", recommended, got)
 		}
 	})
@@ -356,16 +363,16 @@ func TestUninstall_FallbackByVersionOrder(t *testing.T) {
 	t.Run("推荐版本已卸载时取版本号最高的剩余版本", func(t *testing.T) {
 		dir := t.TempDir()
 		for _, v := range []string{"8u504", "17.0.20.1", recommended} {
-			mkToolVersion(t, dir, "jdk21", v, "java")
+			mkToolVersion(t, dir, "jdk", v, "java")
 		}
-		if err := SetActiveVersion(dir, "jdk21", recommended); err != nil {
+		if err := SetActiveVersion(dir, "jdk", recommended); err != nil {
 			t.Fatal(err)
 		}
-		if err := Uninstall(dir, "jdk21", recommended); err != nil {
+		if err := Uninstall(dir, "jdk", recommended); err != nil {
 			t.Fatalf("卸载: %v", err)
 		}
 		// 字母序实现会在这里选中 8u504。
-		if got := ActiveVersion(dir, "jdk21"); got != "17.0.20.1" {
+		if got := ActiveVersion(dir, "jdk"); got != "17.0.20.1" {
 			t.Fatalf("卸载推荐版本后应回退到数值最高的 17.0.20.1, got %q", got)
 		}
 	})
