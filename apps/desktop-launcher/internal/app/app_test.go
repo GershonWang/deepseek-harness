@@ -483,10 +483,12 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("等待 %s 超时", what)
 }
 
-// TestUpdateAllTools_ActivatesRecommendedVersion 固定「一键更新即切换」的接线（AUDIT N7）：
-// 推荐版本已在磁盘、当前仍激活旧版本时，更新必须把推荐版本设为当前版本，而不是下载/
-// 假装成功之后仍停在旧版本上。
-func TestUpdateAllTools_ActivatesRecommendedVersion(t *testing.T) {
+// TestInstallToolVersion_ActivatesChosenVersion 固定「卡片上选中的版本就是之后要用的版本」
+// 这条接线（AUDIT N7）：目标版本已在磁盘、当前仍激活旧版本时，点安装必须把它设为当前版本，
+// 而不是下载/假装成功之后仍停在旧版本上（InstallTool 对已装版本本会早退，只有显式要求
+// 激活才走幂等 SetActiveVersion）。批量更新入口已移除，卡片安装路径是该要求在 app 层的
+// 唯一出口，判据也留在这里。
+func TestInstallToolVersion_ActivatesChosenVersion(t *testing.T) {
 	home := t.TempDir()
 	dir := toolchain.InstallDir(home)
 	goTool, ok := toolchain.LookupTool("go")
@@ -502,40 +504,16 @@ func TestUpdateAllTools_ActivatesRecommendedVersion(t *testing.T) {
 	}
 
 	a := &App{home: home}
-	if got := a.UpdateAllTools(); got != "" {
-		t.Fatalf("UpdateAllTools 返回 %q, want 空串", got)
+	if got := a.InstallToolVersion("go", recommended); got != "" {
+		t.Fatalf("InstallToolVersion 返回 %q, want 空串", got)
 	}
-	waitFor(t, "更新切换到推荐版本", func() bool {
+	waitFor(t, "安装切换到选中版本", func() bool {
 		return toolchain.ActiveVersion(dir, "go") == recommended
 	})
 	// 再等 goroutine 走过 ConfigureChildEnv，避免用例结束回收临时目录时与它相撞。
 	waitFor(t, "市场 bin 注入 PATH", func() bool {
 		return strings.Contains(os.Getenv("PATH"), filepath.Join(dir, "bin"))
 	})
-}
-
-// TestUpdateNotice 固定更新结果通知的要点：成功项给出目标版本，并说明旧版本的去向
-// （多版本并存是既定行为，通知不说清楚用户会以为旧版本被删了或没生效）。
-func TestUpdateNotice(t *testing.T) {
-	cases := []struct {
-		name    string
-		updated []string
-		failed  int
-		want    string
-	}{
-		{"全部成功", []string{"JDK (Temurin) → 21.0.12.1"}, 0,
-			"已更新 1 个工具：JDK (Temurin) → 21.0.12.1。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载"},
-		{"部分失败", []string{"Go → 1.23.2"}, 2,
-			"已更新 1 个工具：Go → 1.23.2；失败 2 个。旧版本保留在磁盘上，可在卡片版本下拉中切换或卸载"},
-		{"全部失败只说数量", nil, 3, "已更新 0 个工具；失败 3 个"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := updateNotice(zhText, c.updated, c.failed); got != c.want {
-				t.Fatalf("updateNotice = %q, want %q", got, c.want)
-			}
-		})
-	}
 }
 
 // TestFinishStartupDoctor_StaleEpochDiscarded 固定自动诊断的收尾归属只认 epoch：

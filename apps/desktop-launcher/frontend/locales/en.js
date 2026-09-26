@@ -147,10 +147,6 @@ window.DSH_LOCALES.en = {
   "tools.search": "Search toolchains",
   "tools.refreshIndexTitle": "Refresh the remote index",
   "tools.refreshIndex": "Refresh index",
-  "tools.updateBanner.count": "{count} toolchains can be updated",
-  "tools.updateBanner.withTargets": "{count} toolchains can be updated: {targets}",
-  "tools.updateBanner.title": "One-click update switches to these versions: {targets}; older versions stay on disk and can be switched to or uninstalled from a card's dropdown",
-  "tools.updateAll": "Update all",
   "tools.gridLabel": "Toolchain list",
   "tools.builtin": "Bundled",
   "tools.builtinLabel": "Bundled toolchain list",
@@ -211,8 +207,6 @@ window.DSH_LOCALES.en = {
   "tools.hostMountWritten": "Mount config written; restart the app to apply",
   "tools.hostMountWrittenWithWarning": "⚠ {warning}　Mount config written; restart the app to apply",
   "tools.refreshing": "Refreshing…",
-  "tools.updating": "Updating…",
-  "tools.updateFailed": "Update failed: {error}",
   "tools.scanning": "Scanning…",
 
 

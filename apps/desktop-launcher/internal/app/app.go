@@ -120,7 +120,6 @@ type ToolStatus struct {
 	HostTools      []HostToolEntry // 宿主命令挂载列表（仅沙箱环境）
 	Sandboxed      bool            // 是否玲珑打包（沙箱）环境
 	Notice         string          // 一次性提示（安装结果等）
-	UpdateCount    int             // 可更新的工具数量
 }
 
 // HostToolEntry 是宿主命令挂载的渲染数据。
@@ -1028,12 +1027,6 @@ func (a *App) collectTools() ToolStatus {
 
 	catalog := toolchain.ToolStatuses(dir)
 	annotateRuntime(a.t, catalog, checks, a.home, a.bundledBinPrefix())
-	updateCount := 0
-	for _, t := range catalog {
-		if t.HasUpdate {
-			updateCount++
-		}
-	}
 
 	return ToolStatus{
 		Rows:           rows,
@@ -1043,7 +1036,6 @@ func (a *App) collectTools() ToolStatus {
 		CategoryLabels: toolchain.CategoryLabels(),
 		HostTools:      hostTools,
 		Sandboxed:      a.sandboxed(),
-		UpdateCount:    updateCount,
 	}
 }
 
@@ -1147,66 +1139,6 @@ func (a *App) checkToolUpdatesBackground() {
 	}
 	st := a.collectTools()
 	a.emitToolchain(st)
-}
-
-// UpdateAllTools 一键更新所有过时工具。异步执行，进度通过
-// toolchain:progress 事件推送，最终状态通过 toolchain:status 推送。
-//
-// 更新意味着「现在起用新版本」，因此显式要求激活：下载完成后必须把推荐版本设为当前
-// 激活版本，否则用户按提示操作后命令仍在跑旧版本（AUDIT N7）。旧版本保留在磁盘上
-// （多版本并存是有意能力），完成通知里说明它的去向。
-func (a *App) UpdateAllTools() string {
-	outdated := toolchain.OutdatedTools(toolchain.InstallDir(a.home))
-	if len(outdated) == 0 {
-		return ""
-	}
-	go func() {
-		dir := toolchain.InstallDir(a.home)
-		activate := true
-		failed := 0
-		updated := make([]string, 0, len(outdated))
-		for _, id := range outdated {
-			tool, ok := toolchain.LookupTool(id)
-			if !ok {
-				failed++
-				continue
-			}
-			a.emitProgress(id, "queued", 0)
-			err := toolchain.InstallTool(dir, id, "", &toolchain.InstallOptions{
-				Activate: &activate,
-				Progress: func(phase string, percent int) {
-					a.emitProgress(id, phase, percent)
-				},
-			})
-			if err != nil {
-				failed++
-				continue
-			}
-			updated = append(updated, tool.Name+" → "+tool.LatestVersion().Version)
-		}
-		appenv.ConfigureChildEnv(a.home)
-		st := a.collectTools()
-		st.Notice = updateNotice(a.t, updated, failed)
-		a.emitToolchain(st)
-	}()
-	return ""
-}
-
-// updateNotice 组装一键更新的结果通知：列出每个成功工具的目标版本，并说明旧版本的去向。
-// 措辞集中在此，避免「旧版本保留」这条多版本事实分散在多处、说法不一致。
-func updateNotice(t translate, updated []string, failed int) string {
-	var b strings.Builder
-	b.WriteString(t("toolchain.updatedCount", len(updated)))
-	if len(updated) > 0 {
-		b.WriteString(t("common.listIntro") + strings.Join(updated, t("common.listSeparator")))
-	}
-	if failed > 0 {
-		b.WriteString(t("toolchain.updatedFailed", failed))
-	}
-	if len(updated) > 0 {
-		b.WriteString(t("toolchain.updatedKept"))
-	}
-	return b.String()
 }
 
 // sandboxed 判断是否玲珑打包（沙箱）环境：打包态可执行文件在 $PREFIX/bin，

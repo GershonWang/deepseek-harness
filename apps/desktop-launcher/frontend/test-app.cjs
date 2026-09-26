@@ -1433,6 +1433,16 @@ test("提示条：开发态说明不被同一渲染周期的 t.Notice 覆盖", (
     "打包态无提示时应为空，不残留开发态文案");
 });
 
+test("批量更新入口已移除：壳标记与前端代码都不再引用红点、提示条与 UpdateAllTools", () => {
+  // Wails 绑定是运行时解析的：前端残留一次 api().UpdateAllTools() 调用不会编译失败，
+  // 只在用户点到时才抛错。标记节点同理不会被任何 DOM 桩用例发现，只能在源头钉住。
+  const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
+  for (const id of ["tools-update-badge", "market-update-banner", "market-update-text", "market-update-all"]) {
+    assert.ok(!html.includes(id), `index.html 不应再有 ${id}`);
+  }
+  assert.ok(!APP_CODE.includes("UpdateAllTools"), "app.js 不应再调用已删除的 UpdateAllTools");
+});
+
 test("安装进度按 dataset 定位卡片，伪造 tool id 不波及其他卡片", () => {
   // id 来自 toolchain:progress 事件（远程索引下发的工具 ID）。拼进属性选择器时，
   // 含引号的 id 会变成另一条选择器或让查询抛错，整轮进度刷新随之中断。

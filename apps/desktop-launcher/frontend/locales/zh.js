@@ -158,11 +158,6 @@ window.DSH_LOCALES.zh = {
   "tools.search": "搜索工具",
   "tools.refreshIndexTitle": "刷新远程索引",
   "tools.refreshIndex": "刷新索引",
-  // 计数与目标版本是数据，句子在字典里整句给出。
-  "tools.updateBanner.count": "检测到 {count} 个工具可更新",
-  "tools.updateBanner.withTargets": "检测到 {count} 个工具可更新：{targets}",
-  "tools.updateBanner.title": "一键更新会切到这些版本：{targets}；旧版本保留在磁盘上，可在卡片下拉中切换或卸载",
-  "tools.updateAll": "一键更新",
   "tools.gridLabel": "工具列表",
   "tools.builtin": "内置",
   "tools.builtinLabel": "内置工具清单",
@@ -233,8 +228,6 @@ window.DSH_LOCALES.zh = {
   // 带警告的形态单独成键：警告文本与全角空格的拼接顺序各语言不同。
   "tools.hostMountWrittenWithWarning": "⚠ {warning}　已写入挂载配置，请重启应用后生效",
   "tools.refreshing": "刷新中…",
-  "tools.updating": "更新中…",
-  "tools.updateFailed": "更新失败: {error}",
   "tools.scanning": "扫描中…",
 
 

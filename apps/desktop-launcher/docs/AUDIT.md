@@ -302,6 +302,7 @@
 - **影响**：命令仍跑旧版本、`HasUpdate` 恒真、可更新徽标永不清除；再点一次会因 `IsInstalled` 提前返回，却仍提示「已更新 N 个工具，失败 0 个」。
 - **修复**：`UpdateAllTools` 与 `installToolAsync`（用户在卡片上安装/选版本）显式传 `Activate: true`；`InstallTool` 的已安装分支不再无条件早退，要求激活时执行一次幂等 `SetActiveVersion`——这条路径正是原缺陷的死局出口（更新下载完成、用户点多少次都不收敛）。依赖自动安装与并存安装仍走默认规则：首次安装自动激活，已有其它版本时不覆盖当前激活（`TestInstallVersion_SecondVersionKeepsActive` 继续守住该语义）。
 - **验证**：新增 `TestUpdateAllTools_ActivatesRecommendedVersion`（临时 home 预置「旧版本已激活 + 推荐版本已下载」，不联网）——把 `UpdateAllTools` 的 `Activate` 临时改回 `false` 时该用例以 30s 超时失败，改回后通过；新增 `TestInstallTool_AlreadyInstalledHonorsActivate` 分别固定「不要求激活则不动当前版本」与「要求激活则切过去」两条分支。`go test ./...`（desktop-launcher 全包）通过。
+- **2026-09-27 变更**：批量更新入口（弹框顶部提示条与工具栏红点）已移除，`App.UpdateAllTools` 与 `updateNotice` 一并删除，激活要求此后只由卡片安装路径（`InstallToolVersion` → `installToolAsync`）承担。改判据随之从 `TestUpdateAllTools_ActivatesRecommendedVersion` 改写为 `TestInstallToolVersion_ActivatesChosenVersion`（同一套临时 home 夹具与断言，只把驱动入口换成卡片安装）。`install.go` 的激活条件与幂等 `SetActiveVersion` 未动，N7 的结论仍成立。本次复跑（Go 1.27.1，`CGO_ENABLED=0`）：`go test ./internal/... -count=1` 全部通过（含 `internal/app` 的改写用例）、`go vet ./internal/...` 无输出、`gofmt -l` 对改动文件无输出；依赖 webkit/cgo 的 `main` 包不在这一轮内。｜✅ 实测复核
 
 ## N8 下载与解压无体积上限
 
@@ -430,6 +431,7 @@
 - **影响**：多版本能力的正常用法（项目指定 JDK 8）被界面判成「该更新」；卡片徽标与状态栏的「N 个可更新」长期不收敛，用户按提示操作不会产生任何变化。
 - **修复**：新增 `compareVersions`（`internal/toolchain/version.go`），`HasUpdate` 改为「推荐版本确实高于当前激活版本」；`current` 软链缺失时仍报可更新，让「更新」充当一键修复入口。前端横幅改为点明每个工具的目标版本（`JDK (Temurin) → 21.0.12.1`），卡片徽标保持短文案，卡片宽度约 170px 放不下完整句子（目标版本放在徽标 `title` 与横幅里）。更新流程的切换问题随 N7 一并解决。
 - **验证**：`TestHasUpdate_VersionOrder` 覆盖「低于推荐→提示 / 等于推荐→不提示 / 高于推荐→不提示 / 链接缺失→提示」四种情况；`TestCompareVersions` 固定比较规则（含 `8u504` 与 `21.0.12.1` 的跨风格比较、无数字标签退化为字节序）；`go test ./...` 通过。
+- **2026-09-27 变更**：横幅与「全部更新」按钮已随批量更新入口移除，上文「让『更新』充当一键修复入口」与「目标版本放在横幅里」两句随之失效——`current` 软链缺失时卡片仍报「可更新」，但修复只能靠卡片下拉切版本或卸载重装（单版本卡片上可能只剩「卸载」，属已知边界）。卡片徽标的 `title` 由 `AvailableVersion`（推荐版本，可能位于另一条大版本线）改为 `UpdateTarget`（同线内的更新目标），与下拉里真实可选的项一致；`HasUpdate` 判定与 `UpdateTarget` 计算未动。前端判据：`node --test frontend/test-app.cjs`（68 例）、`node --test frontend/test-i18n.cjs`（20 例）、`node apps/desktop-launcher/frontend/tools/preview.mjs verify` 全部通过。｜✅ 已复核
 
 ## N21 `Uninstall` 卸载激活版本后按字母序回退，多版本下会激活错误版本
 

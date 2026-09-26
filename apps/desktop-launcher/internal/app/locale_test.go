@@ -59,7 +59,7 @@ func TestRenderedCopyFollowsLocale(t *testing.T) {
 	if got := joinOrNone(a.t, nil); got != "None" {
 		t.Fatalf("切到英文后 joinOrNone = %q，期望 None", got)
 	}
-	if got := updateNotice(a.t, []string{"go 1.25 → 1.26"}, 1); got != "Updated 1 tool(s): go 1.25 → 1.26; 1 failed. Older versions stay on disk; switch or uninstall them from the version dropdown on the card" {
-		t.Fatalf("切到英文后 updateNotice = %q", got)
+	if got := a.t("toolchain.installDone", "go 1.25"); got != "Toolchain go 1.25 installed and set as the current version" {
+		t.Fatalf("切到英文后 installDone = %q", got)
 	}
 }

@@ -1050,7 +1050,6 @@ function renderTools(t) {
   renderMarketGrid();
   renderStatusbar(t);
   renderHostTools(t);
-  renderUpdateBadge(t);
   $("#toolchain-notice").textContent = hostToolsNotice(t);
 }
 
@@ -1061,32 +1060,6 @@ function hostToolsNotice(t) {
   if (t.Sandboxed) return t.Notice || "";
   const devMsg = tr("tools.devNotice");
   return t.Notice ? devMsg + " " + t.Notice : devMsg;
-}
-
-// renderUpdateBadge 更新工具链图标的小红点和弹框内的更新提示条。
-// 横幅是唯一有整行空间的地方，因此在这里点明每个工具会更新到哪个版本：
-// 卡片徽标只放得下短文案（见 toolCard），而「会切到哪一版」正是用户点更新前要知道的。
-function renderUpdateBadge(t) {
-  var count = Number(t.UpdateCount) || 0;
-  var badge = $("#tools-update-badge");
-  if (badge) badge.classList.toggle("hidden", count === 0);
-  var banner = $("#market-update-banner");
-  var text = $("#market-update-text");
-  if (banner && text) {
-    if (count > 0) {
-      var targets = (t.Catalog || [])
-        .filter(function (c) { return c.HasUpdate; })
-        .map(function (c) { return c.Name + " → " + c.AvailableVersion; });
-      const list = targets.join(tr("common.listSeparator"));
-      text.textContent = targets.length
-        ? tr("tools.updateBanner.withTargets", { count: count, targets: list })
-        : tr("tools.updateBanner.count", { count: count });
-      text.title = targets.length ? tr("tools.updateBanner.title", { targets: list }) : "";
-      banner.classList.remove("hidden");
-    } else {
-      banner.classList.add("hidden");
-    }
-  }
 }
 
 // renderBuiltin 渲染内置工具收纳盒（#builtin-panel）：随包工具不可卸载，
@@ -1679,23 +1652,6 @@ function bindUI() {
     btn.disabled = false;
     btn.textContent = tr("tools.refreshIndex");
   });
-
-  // 一键更新所有过时工具
-  var updateAllBtn = $("#market-update-all");
-  if (updateAllBtn) {
-    updateAllBtn.addEventListener("click", async () => {
-      if (updateAllBtn.disabled) return;
-      updateAllBtn.disabled = true;
-      updateAllBtn.textContent = tr("tools.updating");
-      var err = await api().UpdateAllTools();
-      if (err) {
-        $("#toolchain-notice").textContent = tr("tools.updateFailed", { error: err });
-        updateAllBtn.disabled = false;
-        updateAllBtn.textContent = tr("tools.updateAll");
-      }
-      // 成功时由 toolchain:status 事件刷新 UI 和按钮状态
-    });
-  }
 
   // 宿主导入向导：扫描常见宿主工具链根目录。
   $("#host-scan").addEventListener("click", async () => {
