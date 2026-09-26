@@ -21,6 +21,17 @@ mkdir -p "$STAGE/bin"
 
 # 1. harness 全量构建（lib + web 前端）
 pnpm install --frozen-lockfile
+
+# 1.0 构建前先查 packages/ 的包清单。上游重命名或删除包后 git 只删文件、不删目录，遗留的
+#     空壳包目录会被 tsdown 的 workspace include 当成构建单元，报出的却是伪装成根包的
+#     "Cannot find entry"——tsdown 用 empathic 向上查找 package.json，空壳最终命中的是仓库
+#     根清单（AUDIT N33）。constraints 是仓库既有门禁，会直接点名是哪个目录没有清单；它
+#     原本只跑在 check:ci 里，不在 build/typecheck/lint 路径上，所以放到构建前，让失败在
+#     这里就说清位置。tsdown 侧另有排除兜底（tsdown.config.ts 的 workspace.exclude），
+#     两道防线互不依赖：这里负责「说清是哪个目录」，那里负责「即使没人清也构得出包」。
+echo "==> 校验 packages/ 层次与包清单（遗留空壳目录会在此点名）"
+pnpm run constraints
+
 pnpm run build
 
 # 1.1 doctor 单独构建。它已迁到 apps/desktop-launcher/doctor，既不是 pnpm
