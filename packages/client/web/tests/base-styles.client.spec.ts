@@ -70,6 +70,16 @@ describe('web shell base.css', () => {
     )
   })
 
+  it('keeps the pre-theme canvas on the Host-injected boot background', () => {
+    // The Host's boot stylesheet precedes this sheet, so its body background
+    // loses the cascade to the mount default below. Without the boot variable in
+    // that fallback chain, a dark theme paints one `#fff` frame before the
+    // ui-theme client entry defines `--dsw-alias-bg-base`.
+    expect(normalizedCss).toContain(
+      'background: var(--dsw-alias-bg-base, var(--dsh-boot-bg, #fff));',
+    )
+  })
+
   it('auto-spaces prose while preserving literal content', () => {
     expect(baseCss).toMatch(/body\s*\{[^}]*text-autospace:\s*normal;/)
     expect(normalizedCss).toContain(

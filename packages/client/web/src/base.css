@@ -27,7 +27,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--dsw-alias-label-primary, #0f1115);
-  background: var(--dsw-alias-bg-base, #fff);
+  /* The Host's boot stylesheet lands ahead of this sheet, so an `#fff` fallback
+     here would paint one white frame in a dark theme until the ui-theme client
+     plugin defines the tokens. Follow the injected boot color instead. */
+  background: var(--dsw-alias-bg-base, var(--dsh-boot-bg, #fff));
   /* Supporting browsers insert CJK/Latin spacing in inherited prose. */
   text-autospace: normal;
 }
