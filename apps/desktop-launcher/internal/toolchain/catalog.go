@@ -629,20 +629,31 @@ func ToolStatuses(dir string) []ToolStatus {
 	return out
 }
 
-// majorOf 返回版本所属的大版本线：清单显式声明优先，缺省时按版本号首个数字段兜底。
+// majorOf 返回版本所属的大版本线：清单显式声明优先，缺省时由版本号推导。
 //
-// 兜底规则与 compareVersions 的分段同源（`8u504` 取 8、`21.0.12.1` 取 21），因此旧索引
-// 在没有 major 字段时也能归组。代价是首个数字段无区分度的工具会退化成单线（Go 的
-// 1.26/1.27 都会并到 "1"），这正是新索引必须逐条显式声明 Major 的原因。
+// 推导按「首段是否为 0」分两种，因为索引里各工具声明的线形状本就分两种含义：
+//   - 首段非 0（`1.23.2`、`21.0.9`、`8u504`、`1.98.0`）：功能版本就在首段，
+//     线取首段 → "1"、"21"、"8"、"1"。
+//   - 首段为 0（`0.26.1`、`0.12.6`、`0.23.5`）：0 是占位、无区分度，功能版本
+//     在次段，线取前两段 → "0.26"、"0.12"、"0.23"。
+//
+// 为什么必须与声明落在同一套切法上：本机若装了清单里没有的旧版本（清单只有
+// `0.12.19` 而装了 `0.12.6`，或清单只有 `1.27.1` 而装了 `1.23.2`），该版本走推导
+// 而其余版本走声明；两套规则若不一致，同一条线会裂成两组，单线工具凭空多出一个
+// 大版本下拉，二级选项也被拆散。
 func majorOf(declared, version string) string {
 	if declared != "" {
 		return declared
 	}
-	if segs, ok := versionSegments(version); ok && len(segs) > 0 {
-		return strconv.Itoa(segs[0])
+	segs, ok := versionSegments(version)
+	if !ok || len(segs) == 0 {
+		// 整串不含数字（畸形或非版本标签）：按整串归组，至少让相同字符串落在同一组。
+		return version
 	}
-	// 整串不含数字（畸形或非版本标签）：按整串归组，至少让相同字符串落在同一组。
-	return version
+	if segs[0] == 0 && len(segs) >= 2 {
+		return strconv.Itoa(segs[0]) + "." + strconv.Itoa(segs[1])
+	}
+	return strconv.Itoa(segs[0])
 }
 
 // buildVersionGroups 把清单版本与本机已装版本按大版本线归组，并算出每线要展示的小版本。
@@ -662,14 +673,26 @@ func buildVersionGroups(tool Tool, installed []string, active string) []VersionG
 		order = append(order, major)
 		return g
 	}
+	// 清单里每个版本声明的线，供已装版本按版本号反查（见下）。不直接复用 majorOf
+	// 的兜底规则，是因为兜底与显式声明可能不一致：`0.26.1` 兜底得到 "0"，而清单
+	// 声明的是 "0.26"。同一条线按两套规则切会裂成两组，让单线工具凭空多出一个
+	// 大版本下拉，二级选项也被拆散。
+	declared := make(map[string]string, len(tool.Versions))
 	for _, v := range tool.Versions {
 		g := ensure(majorOf(v.Major, v.Version))
+		declared[v.Version] = g.Major
 		if g.Latest == "" || compareVersions(v.Version, g.Latest) > 0 {
 			g.Latest = v.Version
 		}
 	}
 	for _, v := range installed {
-		g := ensure(majorOf("", v))
+		// 已装版本优先按版本号命中清单里的声明；只有清单里没有这个版本（索引下架或
+		// 手工放进目录的孤儿）才退回兜底规则。
+		major, ok := declared[v]
+		if !ok {
+			major = majorOf("", v)
+		}
+		g := ensure(major)
 		g.Installed = append(g.Installed, v)
 		if g.Latest == "" {
 			// 孤儿版本：该线在清单里没有任何条目，它自己就是这条线唯一可见的版本。
