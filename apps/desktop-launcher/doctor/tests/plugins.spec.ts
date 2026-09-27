@@ -18,17 +18,17 @@ afterEach(async () => {
 })
 
 describe('plugin-bundles-resolvable', () => {
-  it('resolves official bundles for a fresh profile', async () => {
+  it('resolves shipped bundles for a fresh profile', async () => {
     const report = await runDiagnosis(tempHome)
     const c = report.checks.find(x => x.id === 'plugin-bundles-resolvable')
     expect(c?.result.ok).toBe(true)
     expect(c?.result.message).toContain('bundles resolved')
-    expect(c?.result.message).toContain('official')
+    expect(c?.result.message).toContain('shipped')
   })
 })
 
 describe('plugin-patch-composable', () => {
-  it('composes cleanly with only official bundles', async () => {
+  it('composes cleanly with only shipped bundles', async () => {
     const report = await runDiagnosis(tempHome)
     const c = report.checks.find(x => x.id === 'plugin-patch-composable')
     expect(c?.result.ok).toBe(true)
@@ -182,6 +182,6 @@ describe('plugin-third-party-list', () => {
     const report = await runDiagnosis(tempHome)
     const c = report.checks.find(x => x.id === 'plugin-third-party-list')
     expect(c?.result.ok).toBe(true)
-    expect(c?.result.message).toContain('No third-party')
+    expect(c?.result.message).toContain('No opt-in')
   })
 })

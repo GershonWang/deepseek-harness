@@ -70,17 +70,19 @@ The framework keeps one process-wide check registry, runs every entry concurrent
 | [`src/types.ts`](src/types.ts) | Report, check, severity, and repair-level types |
 | [`src/checks/env.ts`](src/checks/env.ts) | Node version, free disk space, bootstrap environment |
 | [`src/checks/config.ts`](src/checks/config.ts) | `settings.yaml` and user patch YAML validity |
-| [`src/checks/plugins.ts`](src/checks/plugins.ts) | Bundle resolvability, patch composability and targets, third-party inventory, live probe |
+| [`src/checks/plugins.ts`](src/checks/plugins.ts) | Bundle resolvability, patch composability and targets, opt-in inventory, live probe |
 | [`src/checks/data.ts`](src/checks/data.ts) | Session-log integrity, corrupt-session archival, attachment storage |
 | [`src/loader-probe.ts`](src/loader-probe.ts) | Standalone subprocess that really boots one profile and reports by exit code |
+| [`src/install-anchor.ts`](src/install-anchor.ts) | The installation root the static checks and the probe share; `DSH_DESKTOP_INSTALL_ANCHOR` overrides it, and the packaged layout is derived by position |
+| [`src/bundle-scope.ts`](src/bundle-scope.ts) | Splits a profile's layers into installation-supplied and profile-selected (opt-in) bundles |
 | [`src/auto-disabled.ts`](src/auto-disabled.ts) | Cross-process record of the bundles doctor disabled, read by the Desktop shell |
-| [`src/bisect.ts`](src/bisect.ts) | Binary-search isolation of the third-party bundle that breaks a profile load |
+| [`src/bisect.ts`](src/bisect.ts) | Binary-search isolation of the opt-in bundle that breaks a profile load |
 | [`src/bisect-by.ts`](src/bisect-by.ts) | Generic subset bisection the plugin isolation builds on |
 | — | No runtime invariant companion is published; the framework owns no event stream or mutable runtime data of its own, and its registration, report, and repair contracts are enforced by unit tests. |
 
 ### Check set
 
-Eleven checks run by default, grouped by the category that names their subject. `env-node-version`, `env-disk-space`, and `env-bootstrap-env` cover the runtime precondition and reject bootstrap variables that a discovered file must not set. `cfg-settings-yaml` and `cfg-user-patch` parse the user configuration. `plugin-bundles-resolvable` proves every bundle a profile declares resolves to an installed layer, `plugin-patch-composable` and `plugin-patch-targets` compose the patch list and check its targets, `plugin-third-party-list` reports the inventory, and `plugin-dynamic-load` adds the twelfth check by booting one profile through the real Loader in a subprocess. `data-sessions-integrity` and `data-attachments` cover stored session logs and attachment files.
+Eleven checks run by default, grouped by the category that names their subject. `env-node-version`, `env-disk-space`, and `env-bootstrap-env` cover the runtime precondition and reject bootstrap variables that a discovered file must not set. `cfg-settings-yaml` and `cfg-user-patch` parse the user configuration. `plugin-bundles-resolvable` proves every bundle a profile declares resolves to an installed layer, `plugin-patch-composable` and `plugin-patch-targets` compose the patch list and check its targets, `plugin-third-party-list` reports the opt-in inventory, and `plugin-dynamic-load` adds the twelfth check by booting one profile through the real Loader in a subprocess. `data-sessions-integrity` and `data-attachments` cover stored session logs and attachment files.
 
 Severity separates a precondition from a defect: a `fatal` check blocks startup, an `error` check breaks a feature, a `warning` check degrades it, and an `info` check only reports. `--quick` removes exactly `plugin-dynamic-load`, which is the only check that spawns the probe, so a static preflight stays fast while a full run can still observe a plugin that fails only at mount time.
 
@@ -113,7 +115,7 @@ These limits define what one run can and cannot prove. They are current package 
 - **The live probe boots one profile** — `plugin-dynamic-load` is the only check that observes mount-time failure, and `--quick` removes it; a static run cannot see a plugin that fails only when it mounts.
 - **Repair authority belongs to the caller** — a fix runs only when its `suggestedLevel` is within the requested level, so `--repair 1` deliberately repairs less than a full run reports as fixable; level 3 fixes delete state and are never implied.
 - **Backups are capped, not archived** — doctor keeps the five most recent `backups/doctor-*` directories; anything older is pruned, so a repair's preserved state must be copied elsewhere when it must outlive five further repair runs.
-- **The third-party inventory reports only** — `plugin-third-party-list` names installed third-party bundles at `info` severity; deciding which of them to disable remains a human or launcher decision.
+- **The opt-in inventory reports only** — `plugin-third-party-list` names the profile-selected bundles at `info` severity; deciding which of them to disable remains a human or launcher decision.
 
 <a id="dev-note"></a>
 ### Dev Note

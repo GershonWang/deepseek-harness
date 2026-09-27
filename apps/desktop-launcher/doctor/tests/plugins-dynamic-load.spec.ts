@@ -123,7 +123,7 @@ describe('plugin-dynamic-load', () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-dyn-none-'))
     const result = await pluginDynamicLoadCheck.check(home)
     expect(result.ok).toBe(true)
-    expect(result.message).toContain('无第三方插件')
+    expect(result.message).toContain('无选装插件')
     expect(result.fixable).toBe(false)
   })
 
@@ -167,7 +167,7 @@ describe('plugin-dynamic-load', () => {
 
     const result = await pluginDynamicLoadCheck.check(home)
     expect(result.ok).toBe(true)
-    expect(result.message).toContain('所有 2 个第三方插件加载正常')
+    expect(result.message).toContain('所有 2 个选装插件加载正常')
   }, PROBE_BOUND)
 
   it('reports an unlocatable failure when only the pair of bundles breaks', async () => {

@@ -627,3 +627,60 @@ func TestResolve_DevLayoutFindsBuiltDoctor(t *testing.T) {
 		t.Errorf("开发态应解析到 %q,got %q", want, got)
 	}
 }
+
+// 安装锚点的解析顺序：显式覆盖优先，其次开发态 apps/cli（打包态依赖 launcher
+// 自身位置，无法在测试里伪造 os.Executable）。锚点必须是真实存在的清单路径，
+// doctor 会用它的包名做校验。
+func TestResolveInstallAnchor_EnvOverride(t *testing.T) {
+	t.Setenv(InstallAnchorEnv, "/custom/harness/package.json")
+
+	if got := resolveInstallAnchor(); got != "/custom/harness/package.json" {
+		t.Errorf("锚点应取 %s,got %q", InstallAnchorEnv, got)
+	}
+}
+
+func TestResolveInstallAnchor_DevLayout(t *testing.T) {
+	dir := t.TempDir()
+	anchor := filepath.Join(dir, "cli", "package.json")
+	if err := os.MkdirAll(filepath.Dir(anchor), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(anchor, []byte("{\"name\":\"@deepseek-ai/dsh\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv(InstallAnchorEnv)
+	launcherDir := filepath.Join(dir, "desktop-launcher")
+	if err := os.MkdirAll(launcherDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(launcherDir)
+
+	if got := resolveInstallAnchor(); got != anchor {
+		t.Errorf("开发态应解析到 %q,got %q", anchor, got)
+	}
+}
+
+// 两次都找不到时返回空：doctor 于是回退到自己的位置推导（见 doctor 的
+// install-anchor 模块），预检不因这一条中断。
+func TestResolveInstallAnchor_MissingReturnsEmpty(t *testing.T) {
+	t.Chdir(t.TempDir())
+	os.Unsetenv(InstallAnchorEnv)
+
+	if got := resolveInstallAnchor(); got != "" {
+		t.Errorf("无安装根时应为空,got %q", got)
+	}
+}
+
+// 交付给 doctor 子进程的环境条目：空锚点不传，非空时只传这一条，键名由本包
+// 唯一给出（preflight 不认识这个变量）。
+func TestDoctorEnv(t *testing.T) {
+	if got := (Resolved{}).DoctorEnv(); got != nil {
+		t.Errorf("无锚点时应不传条目,got %v", got)
+	}
+
+	got := Resolved{InstallAnchor: "/opt/harness/package.json"}.DoctorEnv()
+	want := []string{InstallAnchorEnv + "=/opt/harness/package.json"}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Errorf("应传 %v,got %v", want, got)
+	}
+}

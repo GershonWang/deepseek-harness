@@ -44,7 +44,7 @@ func newGateTestAppWithCLI(t *testing.T, cmd, doctorCLI string) *App {
 	return &App{
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-gate-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
-		preflightRunner: preflight.NewRunner(cmd, doctorCLI, t.TempDir()),
+		preflightRunner: preflight.NewRunner(cmd, doctorCLI, nil, t.TempDir()),
 	}
 }
 

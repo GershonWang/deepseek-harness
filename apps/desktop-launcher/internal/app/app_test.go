@@ -31,7 +31,7 @@ func zhText(key string, args ...any) string { return i18n.T(i18n.Zh, key, args..
 func testApp() *App {
 	return &App{
 		conn:            connector.New(),
-		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", "/tmp/test-dsh-home"),
+		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", nil, "/tmp/test-dsh-home"),
 	}
 }
 
@@ -143,7 +143,7 @@ func TestTrackStartupDoctor_ResetOnExitFailed(t *testing.T) {
 func TestDoctorEnv_StripsSafeModeAndPointsDshHome(t *testing.T) {
 	t.Setenv("DSH_SAFE_MODE", "plugins")
 	t.Setenv("DSH_HOME", "/should-be-overridden")
-	a := &App{home: "/home/tester", preflightRunner: preflight.NewRunner("node", "", "/home/tester/.dsh")}
+	a := &App{home: "/home/tester", preflightRunner: preflight.NewRunner("node", "", nil, "/home/tester/.dsh")}
 	env := map[string]string{}
 	for _, kv := range a.preflightRunner.Env() {
 		key, value, _ := strings.Cut(kv, "=")
@@ -174,7 +174,7 @@ exit 1
 	// 作为 doctor 的 cli.js 传入，exec 出来即 exec.Command(sh, script, ...)。
 	a := &App{
 		home:            t.TempDir(),
-		preflightRunner: preflight.NewRunner("sh", script, t.TempDir()),
+		preflightRunner: preflight.NewRunner("sh", script, nil, t.TempDir()),
 	}
 	report := a.RunDoctor()
 	if report.Error != "" {
@@ -269,7 +269,7 @@ func clientFailureTestApp(t *testing.T) *App {
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
-		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", t.TempDir()),
+		preflightRunner: preflight.NewRunner("dsh-doctor-no-such-bin", "", nil, t.TempDir()),
 	}
 }
 
@@ -330,7 +330,7 @@ func TestOnShutdown_CancelsRunningDoctor(t *testing.T) {
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
-		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
+		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), nil, t.TempDir()),
 	}
 	defer a.sup.Stop()
 
@@ -353,7 +353,7 @@ func TestRunDoctorRepair_CancellableViaStopDoctor(t *testing.T) {
 	// 关闭窗口时不可取消而残留。现在纳入 doctor 追踪，stopDoctor 必须能取消它。
 	a := &App{
 		home:            t.TempDir(),
-		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
+		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), nil, t.TempDir()),
 	}
 
 	done := make(chan struct{})
@@ -380,7 +380,7 @@ func TestShutdown_CancelsRunningDoctor(t *testing.T) {
 		conn:            connector.New(),
 		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-doctor-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
 		home:            t.TempDir(),
-		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), t.TempDir()),
+		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), nil, t.TempDir()),
 	}
 	defer a.sup.Stop()
 

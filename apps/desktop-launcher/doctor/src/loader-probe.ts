@@ -23,7 +23,6 @@
  */
 
 import { writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
@@ -37,12 +36,11 @@ import {
   PROFILE_PATCH_FILENAME,
 } from '@deepseek-ai/dsh-app-boot'
 import { provideCmdline } from '@deepseek-ai/dsh-cmdline'
+import { optInBundles } from './bundle-scope.js'
+import { resolveInstallAnchor } from './install-anchor.js'
 
 /** Diagnostic prefix matching the other doctor surfaces. */
 const BIN_NAME = 'doctor'
-
-/** Bundle names owned by the installation; `--include` selects among the rest. */
-const OFFICIAL_PREFIX = '@deepseek-ai/'
 
 /** The root config every profile tree patches over: an empty entry list. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches.
@@ -55,7 +53,7 @@ interface ProbeOptions {
   profile: string
   /** Harness home directory. */
   home: string
-  /** Third-party bundle subset to load; empty means every bundle layer. */
+  /** Opt-in bundle subset to load; empty means every bundle layer. */
   include: readonly string[]
   /** How long the load may take before the probe gives up. */
   timeoutMs: number
@@ -93,31 +91,32 @@ function parseProbeArgs(argv: readonly string[]): ProbeOptions {
   }
 }
 
-/** Resolve the installation anchor the way the doctor's static checks do. */
-function resolveInstallAnchor(): string {
-  return createRequire(import.meta.url).resolve('@deepseek-ai/dsh-web-app/package.json')
-}
-
 /**
  * Select the bundle layers to load. Without `--include` every bundle layer
- * loads; with it, official layers always remain (they are the installation's
- * own composition) and only the named third-party layers are added. A name
- * that is not one of the profile's third-party bundles is a misconfiguration
- * and fails loud rather than silently loading nothing.
+ * loads; with it, installation-supplied layers always remain (they are the
+ * installation's own composition, and a subset that dropped them would probe
+ * a tree nobody runs) and only the named opt-in layers are added. A name that
+ * is not one of the profile's opt-in bundles is a misconfiguration and fails
+ * loud rather than silently loading nothing.
+ * @param profileName - profile whose layers are being narrowed, for the error text.
+ * @param layers - every resolved layer of that profile.
+ * @param include - opt-in bundle names to keep, empty to keep all.
+ * @param installAnchor - installation root manifest, deciding which layers are opt-in.
+ * @returns the layers this probe run mounts.
  */
-function selectLayers<T extends { packageName: string }>(profileName: string, layers: readonly T[], include: readonly string[]): T[] {
+function selectLayers<T extends { packageName: string }>(
+  profileName: string, layers: readonly T[], include: readonly string[], installAnchor: string,
+): T[] {
   if (include.length === 0) return [...layers]
-  const thirdParty = new Set(
-    layers.filter(layer => !layer.packageName.startsWith(OFFICIAL_PREFIX)).map(layer => layer.packageName),
-  )
+  const optIn = new Set(optInBundles(installAnchor, layers).map(layer => layer.packageName))
   for (const name of include) {
-    if (!thirdParty.has(name)) {
-      const available = [...thirdParty].join(', ') || 'none'
-      throw new Error(`--include ${JSON.stringify(name)} is not a third-party bundle of profile ${JSON.stringify(profileName)}; available: ${available}`)
+    if (!optIn.has(name)) {
+      const available = [...optIn].join(', ') || 'none'
+      throw new Error(`--include ${JSON.stringify(name)} is not an opt-in bundle of profile ${JSON.stringify(profileName)}; available: ${available}`)
     }
   }
   const wanted = new Set(include)
-  return layers.filter(layer => layer.packageName.startsWith(OFFICIAL_PREFIX) || wanted.has(layer.packageName))
+  return layers.filter(layer => !optIn.has(layer.packageName) || wanted.has(layer.packageName))
 }
 
 /**
@@ -134,9 +133,11 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
   // 不可写时让必需插件激活失败——而检查层读到的只是"树没起来"，会把这次失败
   // 错误地归咎于某个第三方 bundle，甚至据此把它停用。
   process.env.DSH_HOME = options.home
+  // 锚点必须与真实启动同源（见 install-anchor 的模块注释）：它同时决定静态层解析
+  // 与运行时解析闭包，探针用错锚点就会把能加载的 bundle 报成模块缺失。
   const installAnchor = resolveInstallAnchor()
   const profile = loadProfile(BIN_NAME, options.profile, installAnchor, options.home)
-  const selected = selectLayers(options.profile, profile.layers, options.include)
+  const selected = selectLayers(options.profile, profile.layers, options.include, installAnchor)
   const resolution = await createRuntimeResolution({ installAnchor, profile, home: options.home })
 
   const rootConfig = join(profile.dir, 'cordis.yml')

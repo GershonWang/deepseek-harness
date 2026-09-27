@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 )
 
 // fakeRunner 记录收到的调用入参，按序回放预设 stdout。
@@ -54,10 +56,15 @@ func itoa(n int) string {
 // `doctor` 子命令层——这条常量同时是"子命令层已被移除"的断言基准。
 const testDoctorCLI = "/opt/harness/doctor/lib/types/cli.js"
 
+// testDoctorAnchor 是调用方（appenv）解析好的安装锚点。它经 NewRunner 的 extraEnv
+// 原样进入子进程环境，preflight 自己不认这个变量名——所以这里断言的是"原样传递"，
+// 变量名的唯一来源仍是 appenv.InstallAnchorEnv。
+const testDoctorAnchor = "/opt/harness/package.json"
+
 func newTestRunner(t *testing.T, stdouts ...string) (*Runner, *fakeRunner) {
 	t.Helper()
 	fake := &fakeRunner{stdouts: stdouts}
-	r := NewRunner("/usr/bin/node", testDoctorCLI, "/home/u/.dsh")
+	r := NewRunner("/usr/bin/node", testDoctorCLI, []string{appenv.InstallAnchorEnv + "=" + testDoctorAnchor}, "/home/u/.dsh")
 	r.runner = fake
 	return r, fake
 }
@@ -79,8 +86,8 @@ func TestRunner_DiagnoseQuickArgvAndParse(t *testing.T) {
 	if strings.Join(call.args, " ") != strings.Join(want, " ") {
 		t.Errorf("argv 不匹配,got %v", call.args)
 	}
-	// 环境：剥离 DSH_SAFE_MODE、注入 DSH_HOME。
-	foundHome, foundSafe := false, false
+	// 环境：剥离 DSH_SAFE_MODE、注入 DSH_HOME，并带上调用方给的额外条目。
+	foundHome, foundSafe, foundAnchor := false, false, false
 	for _, kv := range call.env {
 		if kv == "DSH_HOME=/home/u/.dsh" {
 			foundHome = true
@@ -88,12 +95,18 @@ func TestRunner_DiagnoseQuickArgvAndParse(t *testing.T) {
 		if strings.HasPrefix(kv, "DSH_SAFE_MODE=") {
 			foundSafe = true
 		}
+		if kv == appenv.InstallAnchorEnv+"="+testDoctorAnchor {
+			foundAnchor = true
+		}
 	}
 	if !foundHome {
 		t.Error("子进程环境应包含 DSH_HOME")
 	}
 	if foundSafe {
 		t.Error("子进程环境不应携带 DSH_SAFE_MODE")
+	}
+	if !foundAnchor {
+		t.Error("子进程环境应包含调用方传入的安装锚点")
 	}
 	// 报告解析：result 展平到 Check。
 	if report.Fatal != 1 || report.Fixable != 1 {
@@ -136,7 +149,7 @@ func TestRunner_DiagnoseBadJSONFails(t *testing.T) {
 // 不同（前者是安装缺件，后者是 doctor 跑了但没说话），且必须一次子进程都不启动。
 func TestRunner_NotConfiguredSkipsSpawn(t *testing.T) {
 	fake := &fakeRunner{}
-	r := NewRunner("/usr/bin/node", "", "/home/u/.dsh")
+	r := NewRunner("/usr/bin/node", "", nil, "/home/u/.dsh")
 	r.runner = fake
 
 	_, err := r.Diagnose(context.Background(), true)

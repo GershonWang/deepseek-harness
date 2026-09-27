@@ -114,22 +114,32 @@ type Runner struct {
 }
 
 // NewRunner 构造 doctor 执行器：env 在 launcher 当前环境基础上剥离
-// DSH_SAFE_MODE、注入 DSH_HOME=dshHome。
+// DSH_SAFE_MODE、注入 DSH_HOME=dshHome，并追加调用方解析好的 extraEnv。
+//
+// extraEnv 交给调用方（appenv）解析而不是在这里推导：这些条目的值属于"本次用
+// 哪一次安装"，只有解析 harness 入口的那一层知道（如 doctor 的安装锚点
+// DSH_DESKTOP_INSTALL_ANCHOR）。本包不认识这些变量名，只负责把它们原样传下去，
+// 因此 preflight 不依赖 appenv，编译面上的依赖方向保持单向。
+//
+// extraEnv 里与 launcher 当前环境同名的条目由调用方保证一致（appenv 优先读同一
+// 环境变量，见 appenv.resolveInstallAnchor），这里不做去重。
 //
 // doctorCLI 为空不算构造失败：预检是尽力而为的前置检查，由 runDoctor 归类为
 // DoctorNotConfigured 后交调用方决定，不在这里提前中断。
-func NewRunner(cmd, doctorCLI, dshHome string) *Runner {
-	env := make([]string, 0, len(os.Environ())+1)
+func NewRunner(cmd, doctorCLI string, extraEnv []string, dshHome string) *Runner {
+	env := make([]string, 0, len(os.Environ())+1+len(extraEnv))
 	for _, kv := range os.Environ() {
 		if strings.HasPrefix(kv, "DSH_SAFE_MODE=") {
 			continue
 		}
 		env = append(env, kv)
 	}
+	env = append(env, "DSH_HOME="+dshHome)
+	env = append(env, extraEnv...)
 	return &Runner{
 		cmd:       cmd,
 		doctorCLI: doctorCLI,
-		env:       append(env, "DSH_HOME="+dshHome),
+		env:       env,
 		runner:    osProcessRunner{},
 	}
 }

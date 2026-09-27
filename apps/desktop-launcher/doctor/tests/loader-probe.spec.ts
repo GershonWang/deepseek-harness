@@ -174,7 +174,7 @@ describe('loader-probe', () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-probe-include-'))
     const result = await runProbe(['--dsh-home', home, '--include', 'no-such-bundle'])
     expect(result.code).toBe(1)
-    expect(result.stderr).toContain('not a third-party bundle')
+    expect(result.stderr).toContain('not an opt-in bundle')
     expect(result.stderr).toContain('no-such-bundle')
   })
 

@@ -25,6 +25,25 @@ type Resolved struct {
 	DoctorNode string
 	// DoctorCLI doctor 的 cli.js 路径；空表示本次安装未随包提供 doctor。
 	DoctorCLI string
+	// InstallAnchor 安装根清单（`@deepseek-ai/dsh` 的 package.json）路径；空表示
+	// 本次布局里找不到安装根，doctor 自行按位置推导。它决定 doctor 的插件检查与
+	// 真实启动是否用同一个安装根，进而决定运行时解析闭包（详见 DoctorEnv）。
+	InstallAnchor string
+}
+
+// DoctorEnv 返回必须显式传给 doctor 子进程的环境条目。
+//
+// 目前只有安装锚点 `DSH_DESKTOP_INSTALL_ANCHOR`：doctor 用它区分「安装自带」与
+// 「本 profile 选装」的 bundle，两者分界错了，检查会把能正常加载的 bundle 报成
+// 缺依赖，修复也会去停用无辜的插件。锚点为空（找不到安装根）时不传，让 doctor
+// 回退到自己的位置推导——预检是尽力而为的前置检查，不该因为这一条而中断。
+//
+// @returns 形如 `KEY=VALUE` 的环境条目；没有可传的内容时返回 nil。
+func (r Resolved) DoctorEnv() []string {
+	if r.InstallAnchor == "" {
+		return nil
+	}
+	return []string{InstallAnchorEnv + "=" + r.InstallAnchor}
 }
 
 // Resolve 按优先级解析子进程环境：
@@ -36,11 +55,14 @@ type Resolved struct {
 // 四条分支都经 harnessArgs 组装参数，以保证监护声明 overlay 无一遗漏。
 //
 // doctor 的运行环境独立解析（见 resolveDoctor）：它不再挂在 dsh 的 argv 上，
-// 因此不能从上面的分支里顺带推导。
+// 因此不能从上面的分支里顺带推导。doctor 的安装锚点同理（见 resolveInstallAnchor）：
+// 它必须指向上面这些分支实际启动的那次安装，而从分支里顺带推导会把两者绑死在
+// 同一段代码上，改一处就得同时改另一处。
 func Resolve() Resolved {
 	port := resolvePort()
 	logDir := resolveLogDir()
 	doctorNode, doctorCLI := resolveDoctor()
+	installAnchor := resolveInstallAnchor()
 
 	if bin := os.Getenv("DSH_DESKTOP_DSH_BIN"); bin != "" {
 		return Resolved{
@@ -48,6 +70,8 @@ func Resolve() Resolved {
 			Port:       port,
 			DoctorNode: doctorNode,
 			DoctorCLI:  doctorCLI,
+			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
+			InstallAnchor: installAnchor,
 		}
 	}
 
@@ -66,6 +90,8 @@ func Resolve() Resolved {
 			Port:       port,
 			DoctorNode: node,
 			DoctorCLI:  doctorCLI,
+			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
+			InstallAnchor: installAnchor,
 		}
 	}
 
@@ -77,14 +103,17 @@ func Resolve() Resolved {
 			Port:       port,
 			DoctorNode: resolveNode(),
 			DoctorCLI:  doctorCLI,
+			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
+			InstallAnchor: installAnchor,
 		}
 	}
 
 	return Resolved{
-		Config:     supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
-		Port:       port,
-		DoctorNode: resolveNode(),
-		DoctorCLI:  doctorCLI,
+		Config:        supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
+		Port:          port,
+		DoctorNode:    resolveNode(),
+		DoctorCLI:     doctorCLI,
+		InstallAnchor: installAnchor,
 	}
 }
 
@@ -132,6 +161,45 @@ func resolveDoctor() (node, cli string) {
 	}
 
 	return node, ""
+}
+
+// InstallAnchorEnv 允许在非标准布局下显式指定安装锚点（开发调试、CI 冒烟）。
+// 导出是因为它由本包解析、由 preflight 组装进 doctor 子进程环境：跨进程契约只能
+// 有一个字面量来源，两处各写一遍迟早会分叉。
+const InstallAnchorEnv = "DSH_DESKTOP_INSTALL_ANCHOR"
+
+// resolveInstallAnchor 解析安装锚点：安装根 `@deepseek-ai/dsh` 的 package.json。
+//
+// doctor 用锚点算 bundle 的运行时解析闭包，并划出「安装自带」与「本 profile 选装」
+// 的分界；真实启动的锚点是 CLI 包自己的清单（apps/cli/src/profile-boot.ts 的
+// INSTALL_ANCHOR）。两者必须是同一个包，否则安装自带的 optional bundle 会被判成
+// 依赖缺失，检查报出并不存在的启动失败。
+//
+// 解析顺序与 harness 入口一致：显式覆盖 → 打包态 <prefix>/harness → 开发态
+// apps/cli。返回空表示本次布局里找不到安装根：doctor 于是回退到自己的位置推导，
+// 这条降级路径的理由同 resolveDoctor——预检是尽力而为的前置检查。
+//
+// 只确认路径存在，不校验清单里的包名：名字不符由 doctor fail loud（它的报错带
+// 上路径与包名），launcher 不做第二处校验，避免同一约束两个判定点。
+func resolveInstallAnchor() string {
+	if v := os.Getenv(InstallAnchorEnv); v != "" {
+		return v
+	}
+
+	exe, _ := os.Executable()
+	prefix := filepath.Dir(filepath.Dir(exe))
+	packaged := filepath.Join(prefix, "harness", "package.json")
+	if _, err := os.Stat(packaged); err == nil {
+		return packaged
+	}
+
+	cwd, _ := os.Getwd()
+	dev := filepath.Join(cwd, "..", "cli", "package.json")
+	if _, err := os.Stat(dev); err == nil {
+		return dev
+	}
+
+	return ""
 }
 
 // supervisorOverlayName 是 launcher 写入运行时目录、并在每次 spawn 时传给

@@ -1,6 +1,6 @@
 /**
  * Plugin-level diagnostic checks: profile bundle resolvability,
- * third-party inventory, patch composability, and one live-load probe.
+ * opt-in bundle inventory, patch composability, and one live-load probe.
  *
  * Most checks are static; `pluginDynamicLoadCheck` additionally spawns the
  * loader-probe subprocess for a bounded real boot, catching plugin modules
@@ -12,7 +12,6 @@
 
 import { execFile } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as yaml from 'js-yaml'
@@ -29,33 +28,26 @@ import {
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { recordAutoDisabled } from '../auto-disabled.js'
 import { bisectBy } from '../bisect-by.js'
+import { optInBundles } from '../bundle-scope.js'
+import { resolveInstallAnchor } from '../install-anchor.js'
 import type { DoctorCheck, CheckResult, FixResult } from '../types.js'
-
-const require = createRequire(import.meta.url)
-
-function isOfficialBundle(packageName: string): boolean {
-  return packageName.startsWith('@deepseek-ai/')
-}
-
-function webAppAnchor(): string {
-  return require.resolve('@deepseek-ai/dsh-web-app/package.json')
-}
 
 /**
  * 以诊断视角加载 web profile：宿主为了让应用仍然启动，会把解析不到的 bundle
  * 静默剔除（只在 stderr 留一行告警），而 doctor 的检查必须看见它们——否则缺装
- * 的第三方 bundle 会以「bundle 均已解析」或「无第三方插件」的形式从报告里消失，
+ * 的 bundle 会以「bundle 均已解析」或「无选装插件」的形式从报告里消失，
  * fatal 级的可解析性检查也永远不触发。启动器为此在 preflight 的子进程环境里剥离
  * DSH_SAFE_MODE，这里同样显式关闭安全模式的收紧，保证诊断看到真实组合。
  *
  * 报错沿用解析器的 `cannot resolve profile bundle` 措辞：`plugin-bundles-resolvable`
- * 靠这段文字把「第三方缺依赖」与其它 profile 故障分开，改动措辞会静默丢掉那条提示。
+ * 靠这段文字把「缺依赖」与其它 profile 故障分开，改动措辞会静默丢掉那条提示。
  * @param dshHome - 被测的 Harness home。
+ * @param installAnchor - 安装锚点清单；必须与真实启动同源，见 `resolveInstallAnchor`。
  * @returns 声明的 bundle 全部解析出层的 profile。
  * @throws 清单或用户补丁层不可读，以及某个声明的 bundle 没有对应层时。
  */
-function loadDoctorProfile(dshHome: string): Profile {
-  const profile = loadProfile('doctor', 'web', webAppAnchor(), dshHome, { skipThirdPartyBundles: false })
+function loadDoctorProfile(dshHome: string, installAnchor: string): Profile {
+  const profile = loadProfile('doctor', 'web', installAnchor, dshHome, { skipThirdPartyBundles: false })
   const declared = readProfileManifest('doctor', profile.dir).dsh?.profile?.bundles ?? []
   const resolved = new Set(profile.layers.map(layer => layer.packageName))
   const missing = [...new Set(declared)].filter(name => !resolved.has(name))
@@ -109,7 +101,7 @@ async function removeOrphanedPatchEntries(
   // 文件不存在（从未创建，或已被 cfg-user-patch 改名为 .disabled）：无条目可处置。
   if (!existsSync(patchPath)) return { kind: 'file-missing' }
 
-  const profile = loadDoctorProfile(dshHome)
+  const profile = loadDoctorProfile(dshHome, resolveInstallAnchor())
   const baselineIds = new Set(
     composeEntries(profile.layers.map(l => l.patches))
       .map(entry => entry.id)
@@ -139,30 +131,31 @@ const pluginBundlesResolvable: DoctorCheck = {
   severity: 'fatal',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadDoctorProfile(dshHome)
-      const official = profile.layers.filter(l => isOfficialBundle(l.packageName))
-      const thirdParty = profile.layers.filter(l => !isOfficialBundle(l.packageName))
+      const installAnchor = resolveInstallAnchor()
+      const profile = loadDoctorProfile(dshHome, installAnchor)
+      const optIn = optInBundles(installAnchor, profile.layers)
+      const shipped = profile.layers.length - optIn.length
       const base = {
         ok: true,
-        message: `${profile.layers.length} bundles resolved (${official.length} official, ${thirdParty.length} third-party)`,
-        fixable: thirdParty.length > 0,
+        message: `${profile.layers.length} bundles resolved (${shipped} shipped, ${optIn.length} opt-in)`,
+        fixable: optIn.length > 0,
         suggestedLevel: 1 as const,
       }
-      if (thirdParty.length > 0) {
-        return { ...base, detail: `Third-party: ${thirdParty.map(t => t.packageName).join(', ')}` }
+      if (optIn.length > 0) {
+        return { ...base, detail: `Opt-in: ${optIn.map(t => t.packageName).join(', ')}` }
       }
       return base
     } catch (err) {
       const msg = (err as Error).message
-      const thirdPartyMentioned = msg.includes('cannot resolve profile bundle')
+      const bundleResolutionMentioned = msg.includes('cannot resolve profile bundle')
       const base = {
         ok: false,
         message: `Cannot resolve profile bundles: ${msg}`,
         fixable: true,
         suggestedLevel: 1 as const,
       }
-      if (thirdPartyMentioned) {
-        return { ...base, detail: 'A third-party plugin may have broken dependencies after upgrade. Try plugin-safe mode.' }
+      if (bundleResolutionMentioned) {
+        return { ...base, detail: 'A profile-selected plugin may have broken dependencies after upgrade. Try plugin-safe mode.' }
       }
       return base
     }
@@ -176,7 +169,7 @@ const pluginPatchComposable: DoctorCheck = {
   severity: 'error',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadDoctorProfile(dshHome)
+      const profile = loadDoctorProfile(dshHome, resolveInstallAnchor())
       const allLayers = [
         ...profile.layers.map(l => l.patches),
         profile.patches,
@@ -227,34 +220,35 @@ const pluginPatchComposable: DoctorCheck = {
   },
 }
 
-const pluginThirdPartyList: DoctorCheck = {
+const pluginOptInList: DoctorCheck = {
   id: 'plugin-third-party-list',
-  name: 'Third-party plugin bundles',
+  name: 'Opt-in plugin bundles',
   category: 'plugin',
   severity: 'info',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadDoctorProfile(dshHome)
-      const thirdParty = profile.layers.filter(l => !isOfficialBundle(l.packageName))
-      if (thirdParty.length === 0) {
+      const installAnchor = resolveInstallAnchor()
+      const profile = loadDoctorProfile(dshHome, installAnchor)
+      const optIn = optInBundles(installAnchor, profile.layers)
+      if (optIn.length === 0) {
         return {
           ok: true,
-          message: 'No third-party bundles installed',
+          message: 'No opt-in bundles selected',
           fixable: false,
           suggestedLevel: 1,
         }
       }
       return {
         ok: true,
-        message: `${thirdParty.length} third-party bundle(s): ${thirdParty.map(t => t.packageName).join(', ')}`,
-        detail: 'If harness fails to start after upgrade, try plugin-safe mode to skip third-party bundles.',
-        fixable: thirdParty.length > 0,
+        message: `${optIn.length} opt-in bundle(s): ${optIn.map(t => t.packageName).join(', ')}`,
+        detail: 'If harness fails to start after upgrade, try plugin-safe mode to skip opt-in bundles.',
+        fixable: optIn.length > 0,
         suggestedLevel: 1,
       }
     } catch {
       return {
         ok: true,
-        message: 'Cannot list third-party bundles (profile not loadable)',
+        message: 'Cannot list opt-in bundles (profile not loadable)',
         fixable: false,
         suggestedLevel: 1,
       }
@@ -270,7 +264,7 @@ const pluginPatchTargets: DoctorCheck = {
   severity: 'warning',
   check: async (dshHome: string): Promise<CheckResult> => {
     try {
-      const profile = loadDoctorProfile(dshHome)
+      const profile = loadDoctorProfile(dshHome, resolveInstallAnchor())
       if (profile.patches.length === 0) {
         return { ok: true, message: 'No user patches', fixable: false, suggestedLevel: 2 }
       }
@@ -368,9 +362,9 @@ interface LoaderProbeOutcome {
 
 /**
  * Run the loader-probe subprocess against `dshHome`, loading every bundle
- * layer when `include` is empty or only the named third-party subset.
+ * layer when `include` is empty or only the named opt-in subset.
  * @param dshHome - harness home, passed as `--dsh-home`.
- * @param include - third-party bundle names to load (`--include` per name).
+ * @param include - opt-in bundle names to load (`--include` per name).
  * @returns the probe exit code and its captured output.
  */
 function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<LoaderProbeOutcome> {
@@ -411,12 +405,12 @@ function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<Lo
   })
 }
 
-/** One third-party inspection pass shared by the check and its repair. */
+/** One opt-in inspection pass shared by the check and its repair. */
 interface LocateCulpritResult {
   /** Whether the profile manifest loaded enough to enumerate bundles. */
   loadable: boolean
-  /** Third-party bundle names currently layered in the profile. */
-  thirdParty: string[]
+  /** Opt-in bundle names currently layered in the profile. */
+  optIn: string[]
   /**
    * Captured full-tree probe output, or the profile-read error when
    * `loadable` is false.
@@ -429,44 +423,47 @@ interface LocateCulpritResult {
 }
 
 /**
- * Enumerate the profile's third-party bundles, boot them all through the
- * loader probe once, and bisect to the single bundle that breaks the load.
+ * Enumerate the profile's opt-in bundles, boot them all through the loader
+ * probe once, and bisect to the single bundle that breaks the load.
  * Shared by the check (which reports the culprit) and its repair (which
  * re-locates the culprit at fix time instead of trusting check state).
+ *
+ * 可疑集合必须与探针 `--include` 认的那套完全一致（见 bundle-scope）：只要有一层
+ * 既进不了 `--include`、又可能坏，二分就失去单调性，定位结果会落到列表首个 bundle
+ * 上，报告与修复一起错。
  * @param dshHome - harness home passed to loadProfile and the probe.
  * @returns the load outcome and the located culprit, if any.
  */
 async function locateCulprit(dshHome: string): Promise<LocateCulpritResult> {
-  let thirdParty: string[]
+  let optIn: string[]
   try {
-    const profile = loadDoctorProfile(dshHome)
-    thirdParty = profile.layers
-      .filter(layer => !isOfficialBundle(layer.packageName))
-      .map(layer => layer.packageName)
+    const installAnchor = resolveInstallAnchor()
+    const profile = loadDoctorProfile(dshHome, installAnchor)
+    optIn = optInBundles(installAnchor, profile.layers).map(layer => layer.packageName)
   } catch (err) {
-    return { loadable: false, thirdParty: [], output: (err as Error).message, fullOk: false, culprit: null }
+    return { loadable: false, optIn: [], output: (err as Error).message, fullOk: false, culprit: null }
   }
-  if (thirdParty.length === 0) {
-    return { loadable: true, thirdParty, output: '', fullOk: true, culprit: null }
+  if (optIn.length === 0) {
+    return { loadable: true, optIn, output: '', fullOk: true, culprit: null }
   }
 
   const full = await runLoaderProbe(dshHome, [])
   if (full.code === 0) {
-    return { loadable: true, thirdParty, output: full.output, fullOk: true, culprit: null }
+    return { loadable: true, optIn, output: full.output, fullOk: true, culprit: null }
   }
 
   // The full tree failed to load; isolate the offending bundle. A subset
   // "is bad" when loading only it still fails — with the full set failing
   // and the empty set passing, bisectBy's contract holds.
-  const culprit = await bisectBy(thirdParty, async (subset) => {
+  const culprit = await bisectBy(optIn, async (subset) => {
     const result = await runLoaderProbe(dshHome, subset)
     return result.code !== 0
   })
-  return { loadable: true, thirdParty, output: full.output, fullOk: false, culprit }
+  return { loadable: true, optIn, output: full.output, fullOk: false, culprit }
 }
 
 /**
- * Load every third-party bundle once; on failure, binary-search which bundle
+ * Load every opt-in bundle once; on failure, binary-search which bundle
  * breaks the load and report it. Failures only a real boot exposes (plugin
  * modules importing dependencies the installation no longer provides) land
  * here, so the report can name the culprit instead of the whole tree. Its
@@ -484,18 +481,18 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     if (!located.loadable) {
       return {
         ok: true,
-        message: `Cannot list third-party bundles (profile not loadable): ${located.output}`,
+        message: `Cannot list opt-in bundles (profile not loadable): ${located.output}`,
         fixable: false,
         suggestedLevel: 2,
       }
     }
-    if (located.thirdParty.length === 0) {
-      return { ok: true, message: '无第三方插件', fixable: false, suggestedLevel: 2 }
+    if (located.optIn.length === 0) {
+      return { ok: true, message: '无选装插件', fixable: false, suggestedLevel: 2 }
     }
     if (located.fullOk) {
       return {
         ok: true,
-        message: `所有 ${located.thirdParty.length} 个第三方插件加载正常`,
+        message: `所有 ${located.optIn.length} 个选装插件加载正常`,
         fixable: false,
         suggestedLevel: 2,
       }
@@ -511,7 +508,7 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     }
     return {
       ok: false,
-      message: '第三方插件导致启动失败，未能定位',
+      message: '选装插件导致启动失败，未能定位',
       detail: located.output,
       fixable: false,
       suggestedLevel: 2,
@@ -523,7 +520,7 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     const original = readFileSync(manifestPath, 'utf8')
     const backupPath = join(backupDir, 'web-profile.package.json')
 
-    // 循环禁用所有导致加载失败的第三方 bundle：禁用一个后重新全量探测，若
+    // 循环禁用所有导致加载失败的选装 bundle：禁用一个后重新全量探测，若
     // 仍失败则继续定位下一个元凶（多个插件各自损坏时逐个处理），直到全量
     // 探测通过或无法再定位。整轮以最初 manifest 为回滚基准：任何一步的探测
     // 失败都不还原中间结果（已修好的保留），只有"全部禁用仍无法加载"才用最
@@ -537,7 +534,7 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     if (!located.loadable) {
       return { ok: false, message: '无法读取 profile，无法自动修复' }
     }
-    if (located.thirdParty.length === 0 || located.fullOk) {
+    if (located.optIn.length === 0 || located.fullOk) {
       return { ok: true, message: '插件加载已正常，无需修复' }
     }
 
@@ -571,7 +568,7 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
       currentBundles = current.dsh?.profile?.bundles ?? []
     }
 
-    // 所有第三方 bundle 已禁用仍无法加载，或无法再定位元凶：整体还原，
+    // 所有选装 bundle 已禁用仍无法加载，或无法再定位元凶：整体还原，
     // 保留备份供手动处理。
     await writeFileAtomic(manifestPath, original, { mode: 0o600 })
     const reason = disabled.length > 0
@@ -585,6 +582,6 @@ export const pluginChecks: DoctorCheck[] = [
   pluginBundlesResolvable,
   pluginPatchComposable,
   pluginPatchTargets,
-  pluginThirdPartyList,
+  pluginOptInList,
   pluginDynamicLoadCheck,
 ]

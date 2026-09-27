@@ -235,7 +235,7 @@ func New(resolved appenv.Resolved, home, configPath string) *App {
 		home:            home,
 		term:            term,
 		locale:          i18n.FromEnv(),
-		preflightRunner: preflight.NewRunner(resolved.DoctorNode, resolved.DoctorCLI, preflightHomePath(home)),
+		preflightRunner: preflight.NewRunner(resolved.DoctorNode, resolved.DoctorCLI, resolved.DoctorEnv(), preflightHomePath(home)),
 	}
 	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
 	a.sup.SetStartupProgressListener(a.emitStartupProgress)

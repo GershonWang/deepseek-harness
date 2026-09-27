@@ -70,17 +70,19 @@ node <doctor>/lib/types/cli.js --repair 2 # diagnose, then apply fixes whose sug
 | [`src/types.ts`](src/types.ts) | 报告、检查、严重级别与修复等级类型 |
 | [`src/checks/env.ts`](src/checks/env.ts) | Node 版本、磁盘剩余空间、启动环境 |
 | [`src/checks/config.ts`](src/checks/config.ts) | `settings.yaml` 与用户补丁 YAML 的有效性 |
-| [`src/checks/plugins.ts`](src/checks/plugins.ts) | 包可解析性、补丁可组合性与目标、第三方清单、实时探针 |
+| [`src/checks/plugins.ts`](src/checks/plugins.ts) | 包可解析性、补丁可组合性与目标、选装清单、实时探针 |
 | [`src/checks/data.ts`](src/checks/data.ts) | 会话日志完整性、损坏会话归档、附件存储 |
 | [`src/loader-probe.ts`](src/loader-probe.ts) | 真正启动一个 profile 并以退出码汇报的独立子进程 |
+| [`src/install-anchor.ts`](src/install-anchor.ts) | 静态检查与探针共用的安装根；`DSH_DESKTOP_INSTALL_ANCHOR` 可覆盖，打包态按位置推导 |
+| [`src/bundle-scope.ts`](src/bundle-scope.ts) | 把 profile 的层分成安装自带与 profile 选装（opt-in） |
 | [`src/auto-disabled.ts`](src/auto-disabled.ts) | doctor 禁用过的包留下的跨进程记录，供桌面壳读取 |
-| [`src/bisect.ts`](src/bisect.ts) | 二分定位导致 profile 加载失败的第三方包 |
+| [`src/bisect.ts`](src/bisect.ts) | 二分定位导致 profile 加载失败的选装包 |
 | [`src/bisect-by.ts`](src/bisect-by.ts) | 插件隔离所依赖的通用子集二分框架 |
 | — | 不发布运行时不变式伴生模块；本框架自身不拥有事件流或可变运行时数据，其注册、报告与修复约定由单元测试保证。 |
 
 ### 检查集合
 
-默认运行十一项检查，按描述其对象的分类归组。`env-node-version`、`env-disk-space`、`env-bootstrap-env` 覆盖运行时前提，并拒绝被发现的文件不应设置的启动变量。`cfg-settings-yaml` 与 `cfg-user-patch` 解析用户配置。`plugin-bundles-resolvable` 证明 profile 声明的每个包都能解析到已安装的层，`plugin-patch-composable` 与 `plugin-patch-targets` 组合补丁列表并校验其目标，`plugin-third-party-list` 汇报清单，`plugin-dynamic-load` 通过在子进程里用真实 Loader 启动一个 profile 构成第十二项检查。`data-sessions-integrity` 与 `data-attachments` 覆盖已存会话日志与附件文件。
+默认运行十一项检查，按描述其对象的分类归组。`env-node-version`、`env-disk-space`、`env-bootstrap-env` 覆盖运行时前提，并拒绝被发现的文件不应设置的启动变量。`cfg-settings-yaml` 与 `cfg-user-patch` 解析用户配置。`plugin-bundles-resolvable` 证明 profile 声明的每个包都能解析到已安装的层，`plugin-patch-composable` 与 `plugin-patch-targets` 组合补丁列表并校验其目标，`plugin-third-party-list` 汇报选装清单，`plugin-dynamic-load` 通过在子进程里用真实 Loader 启动一个 profile 构成第十二项检查。`data-sessions-integrity` 与 `data-attachments` 覆盖已存会话日志与附件文件。
 
 严重级别区分前提与缺陷：`fatal` 阻止启动，`error` 破坏某个功能，`warning` 使其降级，`info` 仅作汇报。`--quick` 精确地移除 `plugin-dynamic-load`——它是唯一会拉起探针的检查，因此静态预检保持快速，而完整运行仍能观察到只在挂载时失败的插件。
 
@@ -113,7 +115,7 @@ node <doctor>/lib/types/cli.js --repair 2 # diagnose, then apply fixes whose sug
 - **实时探针只启动一个 profile** —— 只有 `plugin-dynamic-load` 能观察到挂载期失败，而 `--quick` 会移除它；静态运行看不到只在挂载时才失败的插件。
 - **修复授权属于调用方** —— 仅在 `suggestedLevel` 处于请求等级之内时修复才执行，因此 `--repair 1` 有意只修一部分；等级 3 的修复会删除状态，绝不被隐含授权。
 - **备份有上限而非归档** —— doctor 只保留最近五个 `backups/doctor-*` 目录，更早的会被清理；需要长期留存时必须在五次修复之前另存。
-- **第三方清单只做汇报** —— `plugin-third-party-list` 以 `info` 级别列出已安装的第三方包，是否禁用它们仍由人或启动器决定。
+- **选装清单只做汇报** —— `plugin-third-party-list` 以 `info` 级别列出 profile 选装的包（含安装自带的 optional bundle），是否禁用它们仍由人或启动器决定。
 
 <a id="dev-note"></a>
 ### 开发备注
