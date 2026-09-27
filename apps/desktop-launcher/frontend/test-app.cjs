@@ -1391,6 +1391,40 @@ test("市场卡片：已装单选版本卡片仍给出版本下拉并选中当�
   assert.ok(uninstall, "已装卡片应给出卸载按钮");
 });
 
+test("市场卡片：未装单版本卡片也给出版本下拉，动作区形态与已装卡片一致", () => {
+  // 形态统一：动作区恒为「版本下拉 + 按钮」，未装与已装、单版本线与多版本线都长一样，
+  // 装完之后卡片不再变形。单版本线里下拉没有第二项可选，但它读出「即将安装的是哪一版」，
+  // 与只写「安装 X」的按钮互补。
+  const h = loadApp();
+  h.sandbox.__testRenderTools(fakeTools());
+  const cards = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item");
+  const nodeCard = cards[0];
+  assert.equal(nodeCard.dataset.toolId, "node", "第一张卡是未装的单版本 node");
+
+  const selects = nodeCard.querySelectorAll(".version-select");
+  assert.equal(selects.length, 1, "单条大版本线只给一个版本下拉");
+  const options = selects[0].children.map((o) => o.textContent);
+  assert.deepEqual(options, ["v24.13.0 · 可安装"], "下拉应读出待装版本");
+  assert.equal(selects[0].children[0].selected, true, "唯一一项应处于选中态");
+  // 选中项的 value 就是安装按钮实际会装的那一版（真实浏览器里 select.value 由此推导；
+  // 测试桩的 value 是普通属性，故这里断言选项自身的 value）。
+  assert.equal(selects[0].children[0].value, "24.13.0", "选项值应是可安装的版本号");
+
+  // 动作互斥关系不受影响：未装卡片仍只给安装按钮，不给卸载入口。
+  assert.equal(nodeCard.querySelector(".btn-primary").classList.contains("hidden"), false,
+    "安装按钮应可见");
+  assert.equal(nodeCard.querySelector(".btn-danger").classList.contains("hidden"), true,
+    "未装卡片不该给出卸载入口");
+
+  // 退化护栏：状态快照还没带 Groups 且推荐版本为空时，不渲染空下拉。
+  const degenerate = fakeTools();
+  degenerate.Catalog = [{ ID: "x", Name: "X", Category: "modern-cli", Description: "无版本数据",
+    Provides: ["x"], Installed: false, AvailableVersion: "", AvailableVersions: [] }];
+  h.sandbox.__testRenderTools(degenerate);
+  const card = h.document.getElementById("market-grid").querySelectorAll(".tool-card-item")[0];
+  assert.equal(card.querySelectorAll(".version-select").length, 0, "没有版本数据时不该渲染空下拉");
+});
+
 test("市场卡片：可更新提示指向同线更新目标，而不是推荐版本", () => {
   // 提示要用户去卡片下拉里选中它点的那一版，因此必须是下拉里真实存在的同线小版本；
   // AvailableVersion 是「没装时该装哪个」的推荐版本，可能在另一条大版本线上。

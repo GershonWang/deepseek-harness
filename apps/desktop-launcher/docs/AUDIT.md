@@ -431,7 +431,8 @@
 - **影响**：多版本能力的正常用法（项目指定 JDK 8）被界面判成「该更新」；卡片徽标与状态栏的「N 个可更新」长期不收敛，用户按提示操作不会产生任何变化。
 - **修复**：新增 `compareVersions`（`internal/toolchain/version.go`），`HasUpdate` 改为「推荐版本确实高于当前激活版本」；`current` 软链缺失时仍报可更新，让「更新」充当一键修复入口。前端横幅改为点明每个工具的目标版本（`JDK (Temurin) → 21.0.12.1`），卡片徽标保持短文案，卡片宽度约 170px 放不下完整句子（目标版本放在徽标 `title` 与横幅里）。更新流程的切换问题随 N7 一并解决。
 - **验证**：`TestHasUpdate_VersionOrder` 覆盖「低于推荐→提示 / 等于推荐→不提示 / 高于推荐→不提示 / 链接缺失→提示」四种情况；`TestCompareVersions` 固定比较规则（含 `8u504` 与 `21.0.12.1` 的跨风格比较、无数字标签退化为字节序）；`go test ./...` 通过。
-- **2026-09-27 变更**：横幅与「全部更新」按钮已随批量更新入口移除，上文「让『更新』充当一键修复入口」与「目标版本放在横幅里」两句随之失效——`current` 软链缺失时卡片仍报「可更新」，但修复只能靠卡片下拉切版本或卸载重装（单版本卡片上可能只剩「卸载」，属已知边界）。卡片徽标的 `title` 由 `AvailableVersion`（推荐版本，可能位于另一条大版本线）改为 `UpdateTarget`（同线内的更新目标），与下拉里真实可选的项一致；`HasUpdate` 判定与 `UpdateTarget` 计算未动。前端判据：`node --test frontend/test-app.cjs`（68 例）、`node --test frontend/test-i18n.cjs`（20 例）、`node apps/desktop-launcher/frontend/tools/preview.mjs verify` 全部通过。｜✅ 已复核
+- **2026-09-27 变更**：横幅与「全部更新」按钮已随批量更新入口移除，上文「让『更新』充当一键修复入口」与「目标版本放在横幅里」两句随之失效——`current` 软链缺失时卡片仍报「可更新」，但修复只能靠卡片下拉切版本或卸载重装（单版本线卡片的下拉只有一项，切不出 `change` 事件，因此实际只剩「卸载重装」一条界面路径，属已知边界）。卡片徽标的 `title` 由 `AvailableVersion`（推荐版本，可能位于另一条大版本线）改为 `UpdateTarget`（同线内的更新目标），与下拉里真实可选的项一致；`HasUpdate` 判定与 `UpdateTarget` 计算未动。前端判据：`node --test frontend/test-app.cjs`（68 例）、`node --test frontend/test-i18n.cjs`（20 例）、`node apps/desktop-launcher/frontend/tools/preview.mjs verify` 全部通过。｜✅ 已复核
+- **2026-09-27 变更（卡片动作区形态）**：二级版本下拉由「多线 / 多版本 / 已装才给」改为**一律渲染**，未装且只有一条大版本线的卡片（Bun、Flutter、Dart 这类清单里只有一个小版本的工具）也给出下拉。理由是动作区形态恒定：未装与已装、单线与多线都长「版本下拉 + 按钮」，安装完成后卡片不再变形；单版本线下拉只有一项可选，但它读出「即将安装 / 当前激活的是哪一版」，与只写「安装 X」「卸载」的按钮互补。退化护栏：状态快照还没带 `Groups` 且推荐版本为空（`Versions` 为 `[""]`）时不渲染空下拉。前端判据：`node --test frontend/test-app.cjs`（69 例，新增「未装单版本卡片也给出版本下拉，动作区形态与已装卡片一致」）、`node --test frontend/test-i18n.cjs`（20 例）、`node apps/desktop-launcher/frontend/tools/preview.mjs verify` 全部通过。｜✅ 已复核
 
 ## N21 `Uninstall` 卸载激活版本后按字母序回退，多版本下会激活错误版本
 

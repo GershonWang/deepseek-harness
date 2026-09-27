@@ -1413,10 +1413,13 @@ function buildVersionActions(actions, c, installing) {
   syncActions();
 
   if (majorSel) actions.appendChild(majorSel);
-  // 已装卡片一律给二级下拉：它是「当前跑的是哪一版」的唯一读数，也是切版/回滚的入口，
-  // 单版本时退化成一个只读的选中项。未装卡片不必给——未装时安装按钮已经写着
-  // 「安装 10.5.0」，再挂一个下拉只会重复同一个版本号并占掉卡片宽度。
-  if (groups.length > 1 || group.Versions.length > 1 || c.Installed) actions.appendChild(verSel);
+  // 二级下拉一律保留：它与「安装/卸载」按钮一起构成卡片动作区的固定形态，未装与已装、
+  // 单版本线（Bun、Flutter 这类清单里只有一个小版本）与多版本线都长一样，装完卡片不再
+  // 变形。单版本线里它没有第二项可选，但仍读出「即将安装/当前激活的是哪一版」——卸载
+  // 按钮只写「卸载」，不读下拉就无从知道卡片上跑的是哪一版。
+  //
+  // 退化护栏：还没带 Groups 的状态快照里 Versions 可能是 [""]，此时不该渲染空下拉。
+  if (group.Versions.some((v) => v)) actions.appendChild(verSel);
   actions.append(install, un);
 }
 
