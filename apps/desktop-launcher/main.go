@@ -16,6 +16,7 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/app"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/linglonghost"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/webviewperm"
@@ -49,6 +50,19 @@ func main() {
 	// 不静默吞掉（自愈本身失败不该拦住启动）。
 	if err := toolchain.ReconcileBinLinks(toolchain.InstallDir(home)); err != nil {
 		log.Printf("工具链软链自愈有被拒绝的条目: %v", err)
+	}
+	// 宿主玲珑工具链：容器里没有 ll-builder/ll-cli，宿主的玲珑守护进程、层仓库
+	// (/var/lib/linglong) 与可写状态目录也只在宿主侧，因此把它们以透传包装的形式放到
+	// ~/.dsh-linglong/bin，紧随其后的 ConfigureChildEnv 把该目录注入子进程 PATH——
+	// 模型用既有的 Bash 工具就能构建与打包玲珑应用。
+	// 非玲珑容器（开发态直接在宿主上跑）或宿主未装玲珑时探测结果为空，旧包装会被清掉，
+	// 不拦启动。
+	if fact, ok := appenv.HostEscape(); ok {
+		if n, err := linglonghost.Ensure(home, fact.Rootfs); err != nil {
+			log.Printf("玲珑宿主工具链包装未启用: %v", err)
+		} else if n > 0 {
+			log.Printf("玲珑宿主工具链: %d 条命令可在容器内直接调用", n)
+		}
 	}
 	appenv.ConfigureChildEnv(home)
 	packaging.ConfigureWebKitHelperPath()

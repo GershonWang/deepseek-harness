@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/linglonghost"
 )
 
 func TestResolve_OverrideBin(t *testing.T) {
@@ -224,6 +226,62 @@ func TestConfigureChildEnv_HostBinsPrependFirst(t *testing.T) {
 	wantPrefix := hostBin + string(os.PathListSeparator) + toolsBin + string(os.PathListSeparator)
 	if !strings.HasPrefix(got, wantPrefix) {
 		t.Fatalf("PATH 顺序应为 宿主>按需>现有, got: %q", got)
+	}
+}
+
+func TestConfigureChildEnv_LinglongWrappersRankAfterHostBins(t *testing.T) {
+	home := t.TempDir()
+	toolsBin := filepath.Join(home, ".dsh-tools", "bin")
+	wrapperDir := linglonghost.WrapperDir(home)
+	for _, dir := range []string{toolsBin, wrapperDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldPath := os.Getenv("PATH")
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
+
+	base := t.TempDir()
+	hostBin := filepath.Join(base, "jdk", "bin")
+	if err := os.MkdirAll(hostBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prev := hostToolsBase
+	hostToolsBase = base
+	defer func() { hostToolsBase = prev }()
+
+	ConfigureChildEnv(home)
+	got := os.Getenv("PATH")
+	sep := string(os.PathListSeparator)
+	// 玲珑包装透传的是宿主那份命令，必须排在市场按需安装之前；用户显式声明的宿主导入
+	// 仍排在最前。
+	wantPrefix := hostBin + sep + wrapperDir + sep + toolsBin + sep
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Fatalf("PATH 顺序应为 宿主导入>玲珑包装>按需安装, got: %q", got)
+	}
+}
+
+func TestHostEscape_RequiresBothRootfsAndLauncher(t *testing.T) {
+	prevRootfs, prevLookPath := hostRootfsBase, lookPath
+	defer func() { hostRootfsBase, lookPath = prevRootfs, prevLookPath }()
+
+	rootfs := t.TempDir()
+	hostRootfsBase = rootfs
+	lookPath = func(string) (string, error) { return "/usr/bin/" + hostLauncher, nil }
+	fact, ok := HostEscape()
+	if !ok || fact.Rootfs != rootfs || fact.Launcher != hostLauncher {
+		t.Fatalf("HostEscape = (%+v, %v), 预期两半齐备", fact, ok)
+	}
+
+	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	if _, ok := HostEscape(); ok {
+		t.Fatal("启动器不在 PATH 时不该报告通道可用")
+	}
+
+	lookPath = func(string) (string, error) { return "/usr/bin/" + hostLauncher, nil }
+	hostRootfsBase = filepath.Join(t.TempDir(), "absent")
+	if _, ok := HostEscape(); ok {
+		t.Fatal("宿主根挂载点缺失时不该报告通道可用")
 	}
 }
 

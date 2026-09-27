@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/hosttools"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/linglonghost"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/supervisor"
 )
 
@@ -273,6 +274,29 @@ const (
 	hostLauncher    = "systemd-run"
 )
 
+// HostEscapeFact 是本次运行的宿主逃逸通道：宿主根文件系统的只读挂载点，加在宿主机上
+// 启动程序的启动器。它和 harness 侧 packages/util/launch-environment 的 HostEscapeFact
+// 描述同一份事实（跨语言契约，变量名见 hostRootfsEnv/hostLauncherEnv）。
+type HostEscapeFact struct {
+	// Rootfs 是宿主根文件系统的只读挂载点。
+	Rootfs string
+	// Launcher 是在宿主机上启动程序的启动器（systemd-run）。
+	Launcher string
+}
+
+// HostEscape 探测本次运行是否具备宿主逃逸通道，供"把宿主能力接到容器内"的功能使用
+// （例如 linglonghost 的透传包装）。判据与声明通道时一致：宿主根挂载点存在，且启动器
+// 在 PATH 上。缺少任一即视为没有通道，调用方必须保持容器内的既有行为。
+func HostEscape() (HostEscapeFact, bool) {
+	if !dirExists(hostRootfsBase) {
+		return HostEscapeFact{}, false
+	}
+	if _, err := lookPath(hostLauncher); err != nil {
+		return HostEscapeFact{}, false
+	}
+	return HostEscapeFact{Rootfs: hostRootfsBase, Launcher: hostLauncher}, true
+}
+
 // configureHostEscapeEnv 声明本沙箱的宿主逃逸通道：宿主根的只读挂载点，加上
 // 在宿主机上运行程序的启动器。两者成对出现，harness 侧据此判断本次运行能否把
 // 工作区交给宿主应用打开；缺失时 harness 保持沙箱内的既有行为，因此宿主根不可读
@@ -281,14 +305,12 @@ const (
 // 已存在的同名变量一律不覆盖：这两个变量也是使用者手工调试与临时关闭该通道的入口，
 // 覆盖会把开关从使用者手里拿走（把 DSH_HOST_ROOTFS 设为空即关闭）。
 func configureHostEscapeEnv() {
-	if info, err := os.Stat(hostRootfsBase); err != nil || !info.IsDir() {
+	fact, ok := HostEscape()
+	if !ok {
 		return
 	}
-	if _, err := lookPath(hostLauncher); err != nil {
-		return
-	}
-	setenvIfUnset(hostRootfsEnv, hostRootfsBase)
-	setenvIfUnset(hostLauncherEnv, hostLauncher)
+	setenvIfUnset(hostRootfsEnv, fact.Rootfs)
+	setenvIfUnset(hostLauncherEnv, fact.Launcher)
 }
 
 // setenvIfUnset 仅在变量完全缺失时写入；空值也视为使用者的显式取值。
@@ -299,7 +321,12 @@ func setenvIfUnset(key, value string) {
 }
 
 // ConfigureChildEnv 设置子进程（harness 及其后代）需要的环境变量。
-// PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 按需安装(~/.dsh-tools/bin) > 现有 PATH。
+// PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 玲珑宿主包装(~/.dsh-linglong/bin) >
+// 按需安装(~/.dsh-tools/bin) > 现有 PATH。
+//
+// 玲珑宿主包装排在按需安装之前是刻意的：它透传的是宿主那份 ll-builder/ll-cli，而玲珑
+// 命令离不开宿主的守护进程、层仓库与可写状态；市场里若出现同名的自包含安装，那份在
+// 容器内反而用不了。用户自己声明的宿主导入仍排在它之前——显式选择优先。
 func ConfigureChildEnv(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
 	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
@@ -315,14 +342,24 @@ func ConfigureChildEnv(home string) {
 	if bins := hostToolBins(hostToolsBase); len(bins) > 0 {
 		segs = append(segs, bins...)
 	}
+	if dir := linglonghost.WrapperDir(home); dirExists(dir) {
+		segs = append(segs, dir)
+	}
 	bin, lib := dshToolsEnv(home)
-	if info, err := os.Stat(bin); err == nil && info.IsDir() {
+	if dirExists(bin) {
 		segs = append(segs, bin)
 	}
 	prependPathEnv("PATH", segs)
-	if info, err := os.Stat(lib); err == nil && info.IsDir() {
+	if dirExists(lib) {
 		prependPathEnv("LD_LIBRARY_PATH", []string{lib})
 	}
+}
+
+// dirExists 判断路径存在且是目录。PATH/LD_LIBRARY_PATH 只注入真实存在的目录：注入
+// 不存在的目录既让子进程多走一次无效查找，也让"这个能力到底有没有"变得不可读。
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // prependPathEnv 把 segs 按给定顺序前置进名为 key 的路径列表变量，并先剔除同名旧段。
