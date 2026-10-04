@@ -1,11 +1,8 @@
 // @vitest-environment jsdom
-import { useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
-import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry, ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { OpenInAppAction, type OpenInAppActionProps } from '../src/client/OpenInAppAction.tsx'
 import { OpenInAppController } from '../src/client/controller.ts'
@@ -17,7 +14,6 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const SESSION = 'session' as SessionId
 const t: OpenInAppActionProps['t'] = makeTranslate(zh)
 
 interface Bench {
@@ -32,16 +28,10 @@ function bench(over: {
   /** 宿主报出"没有图标来源"的应用 id，控件据此不拼图标地址。 */
   iconless?: readonly string[]
   choice?: string
-  cwd?: string
+  absolutePath?: string
   shortcuts?: readonly ShortcutCatalogEntry[]
   launch?: (appId: string, path: string) => Promise<void>
 } = {}): Bench {
-  const state: SessionListState = {
-    ids: [SESSION],
-    byId: over.cwd === undefined ? {} : { [SESSION]: { id: SESSION, displayTitle: 'Workspace', cwd: over.cwd, running: false, retainedBy: {}, blank: false, updatedAt: 0 } },
-    phase: 'ready',
-    projectionsBySession: {},
-  }
   const apps = createSnapshotStore<readonly string[] | null>(over.apps ?? null)
   const choice = createSnapshotStore<string>(over.choice ?? '')
   const controller = new OpenInAppController(async (_input, init) => {
@@ -52,44 +42,35 @@ function bench(over: {
   const launch = vi.fn((appId: string, path: string) => controller.launch(appId, path))
   const choose = vi.fn()
   const refresh = vi.fn()
-  function useSessions<T>(select: (snapshot: SessionListState) => T): T {
-    return select(state)
-  }
-  function useSelector<T, R>(source: { getSnapshot(): T; subscribe(listener: () => void): () => void }): (select: (value: T) => R) => R {
-    return select => select(useSyncExternalStore(listener => source.subscribe(listener), () => source.getSnapshot()))
-  }
-  const props = {
-    sessionId: SESSION,
-    useSessions,
-    useOpenInAppApps: useSelector(apps),
-    useOpenInAppChoice: useSelector(choice),
-    useOpenInAppLaunch: useSelector(controller.operation),
-    useShortcuts: useSelector(createSnapshotStore(over.shortcuts ?? [])),
+  const props: OpenInAppActionProps = {
+    absolutePath: over.absolutePath ?? '/w',
+    useOpenInAppApps: bindSnapshotSelector(apps),
+    useOpenInAppChoice: bindSnapshotSelector(choice),
+    useOpenInAppLaunch: bindSnapshotSelector(controller.operation),
+    useShortcuts: bindSnapshotSelector(createSnapshotStore(over.shortcuts ?? [])),
     launch,
     choose,
     refresh,
     iconFor: (appId: string) => over.iconless?.includes(appId) === true ? null : `open-in-app/icon/${appId}`,
     t,
-  } as OpenInAppActionProps
+  }
   return { props, launch, choose, refresh }
 }
 
 describe('OpenInAppAction visibility', () => {
   it('advertises the configured workspace accelerator', () => {
-    render(<OpenInAppAction {...bench({ apps: ['finder'], cwd: '/w', shortcuts: [{
+    render(<OpenInAppAction {...bench({ apps: ['finder'], absolutePath: '/w', shortcuts: [{
       id: 'workspace.openLocal' as ShortcutCommandId, label: 'Open', aliases: [], binding: null,
       keys: ['Ctrl', 'O'], aria: 'Control+O', modified: true, conflicts: [], issue: null,
     }] }).props} />)
     expect(screen.getByRole('button', { name: t('open.title', { app: zh['app.finder'] }) }).getAttribute('aria-keyshortcuts')).toBe('Control+O')
   })
-  it('renders nothing before availability arrives, with no apps, without a cwd, and for unnameable ids', () => {
+  it('renders nothing before availability arrives, with no apps, and for unnameable ids', () => {
     for (const over of [
-      { apps: null, cwd: '/w' },
-      { apps: [], cwd: '/w' },
-      { apps: [], choice: 'vscode', cwd: '/w' },
-      { apps: ['finder'] },
-      { apps: ['finder'], cwd: '' },
-      { apps: ['someday-an-app'], cwd: '/w' },
+      { apps: null, absolutePath: '/w' },
+      { apps: [], absolutePath: '/w' },
+      { apps: [], choice: 'vscode', absolutePath: '/w' },
+      { apps: ['someday-an-app'], absolutePath: '/w' },
     ] as const) {
       const { container } = render(<OpenInAppAction {...bench(over).props} />)
       expect(container.innerHTML).toBe('')
@@ -98,11 +79,11 @@ describe('OpenInAppAction visibility', () => {
   })
 
   it('shows the remembered choice, falling back to the first available app when it is gone', () => {
-    render(<OpenInAppAction {...bench({ apps: ['finder', 'cursor'], choice: 'cursor', cwd: '/w' }).props} />)
+    render(<OpenInAppAction {...bench({ apps: ['finder', 'cursor'], choice: 'cursor', absolutePath: '/w' }).props} />)
     expect(screen.getByRole('button', { name: t('open.title', { app: 'Cursor' }) }).querySelector('img')?.getAttribute('src')).toBe('open-in-app/icon/cursor')
     cleanup()
 
-    render(<OpenInAppAction {...bench({ apps: ['finder', 'cursor'], choice: 'vscode', cwd: '/w' }).props} />)
+    render(<OpenInAppAction {...bench({ apps: ['finder', 'cursor'], choice: 'vscode', absolutePath: '/w' }).props} />)
     expect(screen.getByRole('button', { name: t('open.title', { app: zh['app.finder'] }) }).querySelector('img')?.getAttribute('src')).toBe('open-in-app/icon/finder')
   })
 })
@@ -110,7 +91,7 @@ describe('OpenInAppAction visibility', () => {
 describe('OpenInAppAction launching', () => {
   it('disables both buttons and ignores duplicate gestures until the launch settles', async () => {
     const pending = Promise.withResolvers<undefined>()
-    const b = bench({ apps: ['finder', 'cursor'], cwd: '/w/dir', launch: () => pending.promise })
+    const b = bench({ apps: ['finder', 'cursor'], absolutePath: '/w/dir', launch: () => pending.promise })
     const view = render(<OpenInAppAction {...b.props} />)
     const main = screen.getByRole('button', { name: t('open.title', { app: zh['app.finder'] }) })
     fireEvent.click(main)
@@ -124,7 +105,7 @@ describe('OpenInAppAction launching', () => {
   })
 
   it('announces launch failure without changing the remembered application', async () => {
-    const b = bench({ apps: ['finder', 'cursor'], cwd: '/w', launch: async () => { throw new Error('gone') } })
+    const b = bench({ apps: ['finder', 'cursor'], absolutePath: '/w', launch: async () => { throw new Error('gone') } })
     render(<OpenInAppAction {...b.props} />)
     fireEvent.click(screen.getByRole('button', { name: zh['path.more'] }))
     await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Cursor' })) })
@@ -133,7 +114,7 @@ describe('OpenInAppAction launching', () => {
   })
 
   it('lists only applications, marks the remembered default, and remembers a successful choice', async () => {
-    const b = bench({ apps: ['finder', 'cursor', 'terminal'], cwd: '/w/dir' })
+    const b = bench({ apps: ['finder', 'cursor', 'terminal'], absolutePath: '/w/dir' })
     render(<OpenInAppAction {...b.props} />)
     fireEvent.click(screen.getByRole('button', { name: zh['path.more'] }))
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual(['访达（默认）', 'Cursor', '终端'])
@@ -144,7 +125,7 @@ describe('OpenInAppAction launching', () => {
   })
 
   it('asks the host to re-read availability as the menu opens, not as it closes', () => {
-    const b = bench({ apps: ['finder', 'cursor'], cwd: '/w/dir' })
+    const b = bench({ apps: ['finder', 'cursor'], absolutePath: '/w/dir' })
     render(<OpenInAppAction {...b.props} />)
     const toggle = screen.getByRole('button', { name: zh['path.more'] })
     fireEvent.click(toggle)
@@ -157,7 +138,7 @@ describe('OpenInAppAction launching', () => {
   })
 
   it('closes on Escape without launching and falls back after an icon fails', async () => {
-    const b = bench({ apps: ['finder', 'terminal'], cwd: '/w' })
+    const b = bench({ apps: ['finder', 'terminal'], absolutePath: '/w' })
     const view = render(<OpenInAppAction {...b.props} />)
     fireEvent.click(screen.getByRole('button', { name: zh['path.more'] }))
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
@@ -170,24 +151,24 @@ describe('OpenInAppAction launching', () => {
   })
 
   it('does not re-request an icon that already failed in this page', () => {
-    const first = render(<OpenInAppAction {...bench({ apps: ['terminal'], cwd: '/w' }).props} />)
+    const first = render(<OpenInAppAction {...bench({ apps: ['terminal'], absolutePath: '/w' }).props} />)
     fireEvent.error(first.container.querySelector('img')!)
     expect(first.container.querySelector('img')).toBeNull()
     // 重新挂载：该地址本页已取失败过一次，不重新请求，直接画通用图标。
     cleanup()
-    const second = render(<OpenInAppAction {...bench({ apps: ['terminal'], cwd: '/w' }).props} />)
+    const second = render(<OpenInAppAction {...bench({ apps: ['terminal'], absolutePath: '/w' }).props} />)
     expect(second.container.querySelector('img')).toBeNull()
     expect(second.container.querySelector('svg')).not.toBeNull()
   })
 
   it('renders only the generic glyph for an application the host served without an icon source', () => {
-    const view = render(<OpenInAppAction {...bench({ apps: ['filemanager'], cwd: '/w', iconless: ['filemanager'] }).props} />)
+    const view = render(<OpenInAppAction {...bench({ apps: ['filemanager'], absolutePath: '/w', iconless: ['filemanager'] }).props} />)
     expect(view.container.querySelector('img')).toBeNull()
     expect(view.container.querySelector('svg')).not.toBeNull()
   })
 
   it('names the selected application in the tooltip', async () => {
-    render(<OpenInAppAction {...bench({ apps: ['finder'], cwd: '/w' }).props} />)
+    render(<OpenInAppAction {...bench({ apps: ['finder'], absolutePath: '/w' }).props} />)
     fireEvent.mouseEnter(screen.getByRole('button', { name: t('open.title', { app: zh['app.finder'] }) }))
     expect(await screen.findByText(t('open.title', { app: zh['app.finder'] }))).toBeTruthy()
   })
@@ -195,7 +176,18 @@ describe('OpenInAppAction launching', () => {
 
 
 it('omits the dropdown when only one directory application is available', () => {
-  render(<OpenInAppAction {...bench({ apps: ['finder'], cwd: '/w' }).props} />)
+  render(<OpenInAppAction {...bench({ apps: ['finder'], absolutePath: '/w' }).props} />)
   expect(screen.getAllByRole('button')).toHaveLength(1)
   expect(screen.queryByRole('button', { name: zh['path.more'] })).toBeNull()
+})
+
+it('opens the displayed directory and follows its changes', async () => {
+  const b = bench({ apps: ['finder'], absolutePath: '/displayed-directory' })
+  const view = render(<OpenInAppAction {...b.props} absolutePath="/displayed-directory" />)
+  await act(async () => { fireEvent.click(screen.getByRole('button')) })
+  expect(b.launch).toHaveBeenLastCalledWith('finder', '/displayed-directory')
+
+  view.rerender(<OpenInAppAction {...b.props} absolutePath="/another-directory" />)
+  await act(async () => { fireEvent.click(screen.getByRole('button')) })
+  expect(b.launch).toHaveBeenLastCalledWith('finder', '/another-directory')
 })

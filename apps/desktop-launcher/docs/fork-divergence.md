@@ -10,20 +10,25 @@
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `4f6bd7605b`（`linglong-dev` 上「并入上游 master（477b4f4205，346 个提交）」的合并提交） |
-| 分支 | `linglong-dev` |
-| 上游参照 | `upstream/master` = `477b4f4205`（2026-09-24 21:39:59 +0800，`Merge pull request #5180 from deepseek-harness/rel/dsh-0.1.7-rc.2`，即 `dsh 0.1.7-rc.2`） |
-| 合并关系 | `git merge-base --is-ancestor upstream/master HEAD` → **真**（上游 master 已全部包含） |
-| fork 领先上游 | 519 个提交 |
+| 本地 HEAD | `5b62f8fbf5`（`linglong` 上「并入上游 master（639ed015，448 个提交，dsh 0.2.0-rc.2）」的合并提交） |
+| 分支 | `linglong` |
+| 上游参照 | `dsh-v0.2.0-rc.2` = `639ed015`（2026-09-29 17:21:31 +0800，`Merge pull request #5479 from deepseek-harness/worktree/release-dsh-0.2.0-rc.2`） |
+| 合并关系 | `git merge-base --is-ancestor dsh-v0.2.0-rc.2 HEAD` → **真**（上游 rc.2 已全部包含） |
+| fork 领先上游 | 576 个提交 |
+| 偏离面 | 419 个文件（+64694 −261）；上游本区间改动 1638 个文件 |
 
 复现命令：
 
 ```sh
-git diff --shortstat upstream/master...HEAD
-git diff --name-status upstream/master...HEAD
+git diff --shortstat dsh-v0.2.0-rc.2...HEAD
+git diff --name-status dsh-v0.2.0-rc.2...HEAD
 ```
 
-> **基准有效性**：本地 `upstream/master` 由本轮 `git fetch upstream --prune` 更新至远端 tip（`dsh 0.1.7-rc.2` 的发布合并），故本地参照不是陈旧引用，下文的改动热度排序与「当前无冲突」结论均成立。
+> **基准有效性**：本轮已把上游 `dsh 0.2.0-rc.2` 完整并入（合并基点正是上一轮的 `dsh 0.1.7-rc.2`，故为线性关系），本地参照不是陈旧引用。
+>
+> **本轮同步的冲突代价（实测，`git merge-tree` 与真实合并一致）**：上游 1638 个改动文件与我方 419 个偏离文件的**交集仅 13 个**，其中 **6 个产生文本冲突**，全部落在 `packages/client/ui-open-in-app/`。上游 0.2.0 在包层面为**纯增量**（新增 `otel`、`product-analytics`、`ui-settings-session-log`、`schedule-bundle` 四个包，**删除 0 个**）。
+>
+> **注意**：上一版此表列的「47 个 A 类文件」是「改过上游已有文件」的总量，**不等于**单次同步的冲突数——只有当上游在本窗口内也改到同一文件时才会冲突，本轮实际是 13 交集 / 6 冲突。A 类清单的价值在于预测**未来**同步的代价，不应直接当作单轮冲突预算。
 
 ---
 
@@ -609,8 +614,15 @@ IConversation 公开成员（service.ts:40-71）：
 
 ## 十二、结论汇总
 
-1. **当前不存在冲突。** 本轮已并入上游 346 个提交（到 `dsh 0.1.7-rc.2`，`477b4f4205`），`upstream/master` 重新成为 HEAD 的**祖先**。那次合并的代价：9 个文件出现冲突。其中两处是相邻行可直接并取——`tsdown.config.ts` 的 host glob（采纳上游去掉 `apps/desktop`）与 `ui-theme/src/styles/base.css` 的字体栈（保留我方 Noto/WQY，采纳上游 `--dsw-font-family-brand`）；一处是 JSDoc 措辞（`app-boot/src/profile.ts`）。真正需要判断的是 `profile.ts` 的语义（上游把「跳过的 bundle」改为 `Profile.skippedBundles`，与我方安全模式的 `skipThirdPartyBundles` 正交，故两者并存）、`OpenInAppAction.tsx`（上游重构该文件并抽出 `applications.ts`，与我方 `refresh` 取并集）、两份 `ui-open-in-app` README（可用性读取时机取我方、busy/error 派生取上游）与 3 份 `README.i18n.yaml`（上游改写了记录格式，按新格式重录）。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
-2. **违规面很小但很"热"。** 真正触碰上游的只有 **51 个文件、+2025 −128**，占全部偏离（374 文件 / +60101 −128）的 **约 3.4%**。其余约 97% 已经待在预期位置。
+1. **当前不存在冲突。** 本轮已并入上游 `dsh 0.2.0-rc.2`（`639ed015`，448 个提交），`dsh-v0.2.0-rc.2` 重新成为 HEAD 的**祖先**（`git merge-base --is-ancestor dsh-v0.2.0-rc.2 HEAD` → 真）。那次合并的代价：**6 个文件出现冲突**，全部在 `packages/client/ui-open-in-app/`（交集 13 个，自动合并 7 个）。这 6 处的根因是**本地与上游把同一个组件往相反方向改**——我方从会话状态在组件内部推导 `cwd`，上游删除 `PropsRuntime`/`useSessions` 改为外部显式传入 `absolutePath`，故不能一律"并取"，须按每处主干决定：
+
+   - `OpenInAppAction.tsx`：合并后我方遗留的 `key={cwd}` **无任何绑定**（上游已删导入；`index.ts` 里的 `cwd` 是 `SessionOpenInAppAction` 的局部变量，传不到该文件），是本次唯一的真编译错误。取上游 `absolutePath` 语义，并保留我方 `refresh`。
+   - `index.ts`：采纳上游 `directoryInjected` 提取与第二个注册点 `sidebar.right.tab.files.actions`，把我方 `refresh`（菜单打开时重读宿主清单）与 `iconFor`（`iconless` 应用直接给 null，省掉必然 404 的图标请求）折入 `directoryInjected`。上游的 `iconUrl` 已被我方 `iconFor` 取代。
+   - `open-in-app-action.client.spec.tsx`：取上游 harness（`bindSnapshotSelector`/`absolutePath`），在其上重加我方 `refresh` 字段与两个用例。
+   - `README{,.zh}.md` 与 `README.i18n.yaml`：以上游三注册点表述为底并入我方重读/iconless 口径；i18n 哈希用 `--write` 重新生成，不手挑任一侧。
+
+   自动合并的 7 个文件已逐一核对语义无静默改错；其中 `host/open-in-app/src/resolver.ts` 上游只加了一处 `', 'hidden''`（`NativeCommandRunner` 扩为 4 参），与我方宿主逃逸走**不同调用路径**（前者 `internals.launch`/spawn，后者 `internals.run`/execFile），互不干扰，全仓 22 个调用点均已是 4 参。A 类文件的代价只会在**上游下次前进后重新同步时**才显现。
+2. **违规面很小但很"热"。** 真正触碰上游的只有 **65 个文件、+2195 −261**（判据：本轮偏离文件里在 `dsh-v0.2.0-rc.2` 中已存在者），占全部偏离（419 文件 / +64694 −261）的**约 15.5%**。其余约 84% 是新增文件或独立新目录，不参与冲突。注意文件数占比上升是因为并入 rc.2 后我方新增目录（如 `apps/desktop-launcher/`）内的文件在上游树中不存在，分母口径与本轮一致。
 3. **用户的目标方向被仓库门禁本身证明是对的。** `packages/support/doctor` 曾触发 **4 个门禁 18 项违规**，其中 3 项（private / publishConfig / repository）**结构上无法就地修复**；而 `apps/desktop-launcher/` 因无 package.json 而零门禁成本。阶段 1 已按此结论把 doctor 迁出 `packages/`，本节记录的是当时的判据。
 4. **有一处是纯冗余**：`packages/host/directory-picker-auto/` 的 `DSH_DIRECTORY_PICKER` 改动，与上游**已有的** `apps/web/tests/pin-browse-picker.overlay.yml` 功能完全重复，可直接删除。
 5. **有一处是纯注释**：`tsdown.config.ts` 的 +4 行全是注释，可直接回退。
