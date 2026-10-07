@@ -338,6 +338,30 @@ func toolBinNames(id, dir string) map[string]string {
 	return tv.BinNames
 }
 
+// isDir 判断 path 是否为已存在的目录（跟随符号链接，与 os.Stat 一致）。
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// toolLibRel 返回工具已激活版本声明的库目录（见 ToolVersion.LibRel）。
+// 第二个返回值为 false 表示清单未声明，调用方回退到 lib64/lib 探测。
+//
+// 这是 lib_rel 唯一被消费的地方（审计 N24：此前它只被解析、写进 tool.yml，没有任何
+// 读取点，清单作者以为改得动 LD_LIBRARY_PATH 注入的库目录）。只读已激活版本的声明：
+// 库目录随版本布局而定，未激活版本没有意义。
+func toolLibRel(id, dir string) (string, bool) {
+	tool, ok := LookupTool(id)
+	if !ok {
+		return "", false
+	}
+	tv, ok := tool.FindVersion(ActiveVersion(dir, id))
+	if !ok || tv.LibRel == "" {
+		return "", false
+	}
+	return tv.LibRel, true
+}
+
 // ReconcileBinLinks 自愈：扫描 <dir>/current 下已装工具，在 <dir>/bin 重建其
 // 可执行文件软链，在 <dir>/lib 重建库目录绑定（如有 LibRel），并清理失效软链。
 // 启动时调用，保证重装、更新、HOME 迁移后工具链仍自动可用。
@@ -413,19 +437,30 @@ func ReconcileBinLinks(dir string) error {
 			record(linkExecutables(root, linkDir, seenBins, names))
 		}
 
-		// 库目录 lib/
-		if info, err := os.Stat(filepath.Join(root, "lib")); err == nil && info.IsDir() {
+		// 库目录：清单声明的 lib_rel 优先，缺失时回退到 lib64/lib 探测——声明是偏好，
+		// 探测是既有行为（审计 N24：此前 lib_rel 没有任何读取点，清单作者以为改得动
+		// LD_LIBRARY_PATH 注入的库目录，实际只有探测在起作用）。越界的声明属畸形清单：
+		// 报错并放弃该工具的库绑定，不回退——静默改绑会把它掩盖过去。
+		bindLib := func(rel string) {
 			bindLibDir := filepath.Join(libDir, e.Name())
 			_ = os.Remove(bindLibDir)
-			if err := os.Symlink(filepath.Join(root, "lib"), bindLibDir); err == nil {
+			if err := os.Symlink(filepath.Join(root, rel), bindLibDir); err == nil {
 				seenLibs[e.Name()] = true
 			}
 		}
-		if info, err := os.Stat(filepath.Join(root, "lib64")); err == nil && info.IsDir() {
-			bindLibDir := filepath.Join(libDir, e.Name())
-			_ = os.Remove(bindLibDir)
-			if err := os.Symlink(filepath.Join(root, "lib64"), bindLibDir); err == nil {
-				seenLibs[e.Name()] = true
+		rel, declared := toolLibRel(e.Name(), dir)
+		if declared && !binDirOK(rel) {
+			record(fmt.Errorf("toolchain: %s 的 lib_rel %q 越出工具根目录，已跳过", e.Name(), rel))
+		} else {
+			candidates := []string{"lib64", "lib"}
+			if declared {
+				candidates = append([]string{rel}, candidates...)
+			}
+			for _, cand := range candidates {
+				if isDir(filepath.Join(root, cand)) {
+					bindLib(cand)
+					break
+				}
 			}
 		}
 	}

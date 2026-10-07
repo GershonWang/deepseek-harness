@@ -548,3 +548,87 @@ func TestReconcileBinLinks_RejectsCurrentOutsideRoot(t *testing.T) {
 		t.Fatalf("安装根之外的目录内容不应进入 tools/bin: %v", err)
 	}
 }
+
+// libFixture 造一个只有 libtool 一个工具的清单与对应安装树。
+//
+// @param t 测试上下文。
+// @param libRel 清单声明的 lib_rel（空串表示不声明）。
+// @param dirs 归档里实际存在的库目录。
+// @returns 安装根目录与当前激活版本的根目录。
+func libFixture(t *testing.T, libRel string, dirs []string) (string, string) {
+	t.Helper()
+	idx, err := ParseIndex([]byte(`{"version":1,"updated_at":"2026-08-31T00:00:00Z","tools":[` +
+		`{"id":"libtool","name":"Libtool","category":"modern-cli","description":"test",` +
+		`"provides":["libtool"],"dependencies":[],"versions":[{"version":"1.0.0",` +
+		`"url":"https://example.com/libtool.tar.gz","sha256":"` + strings.Repeat("0", 64) + `",` +
+		`"bin_rel":".","lib_rel":"` + libRel + `"}]}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	setCatalog(idx.Tools, idx.CategoryLabels)
+	t.Cleanup(func() { restoreBuiltin(t) })
+
+	dir := t.TempDir()
+	root := filepath.Join(dir, "libtool-1.0.0")
+	for _, d := range dirs {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "libtool"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "current"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(root, filepath.Join(dir, "current", "libtool")); err != nil {
+		t.Fatal(err)
+	}
+	return dir, root
+}
+
+// TestReconcileBinLinks_ConsumesLibRel 覆盖 lib_rel 的消费（审计 N24）。
+//
+// 此前该字段只被解析、写进 tool.yml，没有任何读取点：清单作者以为改得动
+// LD_LIBRARY_PATH 注入的库目录，实际绑定只按 lib/lib64 是否存在决定，且布局与声明
+// 不符时不报错。这条固定「声明优先、缺失回退」的语义。
+func TestReconcileBinLinks_ConsumesLibRel(t *testing.T) {
+	cases := []struct {
+		name      string
+		libRel    string
+		dirs      []string
+		wantBound string
+	}{
+		{"声明的 lib_rel 生效", "custom-lib", []string{"custom-lib"}, "custom-lib"},
+		{"声明目录缺失时回退到探测", "custom-lib", []string{"lib64"}, "lib64"},
+		{"未声明时 lib64 优先（与旧实现一致）", "", []string{"lib", "lib64"}, "lib64"},
+		{"未声明且只有 lib 时绑 lib", "", []string{"lib"}, "lib"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, root := libFixture(t, tc.libRel, tc.dirs)
+			if err := ReconcileBinLinks(dir); err != nil {
+				t.Fatal(err)
+			}
+			got, err := os.Readlink(filepath.Join(dir, "lib", "libtool"))
+			if err != nil {
+				t.Fatalf("应建立库目录绑定: %v", err)
+			}
+			if want := filepath.Join(root, tc.wantBound); got != want {
+				t.Fatalf("绑定目标 = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+// 越界的 lib_rel 必须被拒并上报，不得静默回退到探测——那会掩盖一份畸形的清单。
+func TestReconcileBinLinks_RejectsEscapingLibRel(t *testing.T) {
+	dir, _ := libFixture(t, "../escape", []string{"lib64"})
+	err := ReconcileBinLinks(dir)
+	if err == nil || !strings.Contains(err.Error(), "lib_rel") {
+		t.Fatalf("越界 lib_rel 应报错并点名字段, got %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "lib", "libtool")); !os.IsNotExist(err) {
+		t.Fatalf("越界 lib_rel 不应产生任何绑定: %v", err)
+	}
+}
