@@ -142,6 +142,9 @@ var allowedChinese = map[string][]string{
 		"toolchain: current/%s 指向安装根之外（%s），已跳过",
 		"toolchain: %s 的 bin_dirs %q 越出工具根目录，已跳过",
 		"toolchain: 索引里的命令名 %q 不是合法的软链名，已跳过",
+		// 越界 ID 的拒绝原因：与同文件其余几条一样，它是领域层原样上报的事实，
+		// 经 ApplyProjectToolchain 的 Error 字段与 stderr 排障链透传，不进界面字典。
+		"toolchain: 非法的工具 ID %q，已拒绝",
 	},
 	"internal/toolchain/migrate.go": {
 		// 启动 stderr 上的迁移留痕：回答「旧 ID 的安装到底搬没搬、搬到哪」。

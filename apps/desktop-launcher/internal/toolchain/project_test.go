@@ -78,12 +78,13 @@ func TestFindProjectConfig_NotFound(t *testing.T) {
 }
 
 func TestResolveProject(t *testing.T) {
-	// 预置 go-1.23.2 已装并激活，gcc-12.3.0 已装但未激活，python 未装。
+	// 预置 go-1.23.2 已装并激活，node-24.9.0 已装但未激活，python 未装。
+	// 三个 ID 都取自清单：ResolveProject 只认清单里的工具（见其注释与 S6）。
 	home := t.TempDir()
 	dir := InstallDir(home)
 	proj := t.TempDir()
 	if err := os.WriteFile(filepath.Join(proj, ConfigFileName),
-		[]byte("tools:\n  go: 1.23.2\n  gcc: 12.3.0\n  python: 3.11\n"), 0o644); err != nil {
+		[]byte("tools:\n  go: 1.23.2\n  node: 24.9.0\n  python: 3.11\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mkVer := func(id, ver string, active bool) {
@@ -99,7 +100,7 @@ func TestResolveProject(t *testing.T) {
 		}
 	}
 	mkVer("go", "1.23.2", true)
-	mkVer("gcc", "12.3.0", false)
+	mkVer("node", "24.9.0", false)
 
 	cfg, pins, err := ResolveProject(proj, home)
 	if err != nil || cfg == nil {
@@ -112,23 +113,95 @@ func TestResolveProject(t *testing.T) {
 	if p := byID["go"]; !p.Installed || !p.Active {
 		t.Fatalf("go 应已装且激活: %+v", p)
 	}
-	if p := byID["gcc"]; !p.Installed || p.Active {
-		t.Fatalf("gcc 应已装但未激活: %+v", p)
+	if p := byID["node"]; !p.Installed || p.Active {
+		t.Fatalf("node 应已装但未激活: %+v", p)
 	}
 	if p := byID["python"]; p.Installed || p.Active {
 		t.Fatalf("python 应未装: %+v", p)
 	}
 
-	// ApplyProject(autoSwitch=true) 应把 gcc 切到 12.3.0。
+	// ApplyProject(autoSwitch=true) 应把 node 切到 24.9.0。
 	switched, err := ApplyProject(proj, home, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(switched) != 1 || switched[0] != "gcc" {
-		t.Fatalf("应只切换 gcc, got %v", switched)
+	if len(switched) != 1 || switched[0] != "node" {
+		t.Fatalf("应只切换 node, got %v", switched)
 	}
-	if ActiveVersion(dir, "gcc") != "12.3.0" {
-		t.Fatal("gcc 激活版本应为 12.3.0")
+	if ActiveVersion(dir, "node") != "24.9.0" {
+		t.Fatal("node 激活版本应为 24.9.0")
+	}
+}
+
+// 越界或不在清单里的 ID 不得产生 pin：它们会一路走到 SetActiveVersion 的 os.Remove
+// 与 Uninstall 的 os.RemoveAll，带 `../` 的 ID 会删掉安装目录之外的文件（审计 S6）。
+func TestResolveProject_SkipsUnknownAndTraversalIDs(t *testing.T) {
+	home := t.TempDir()
+	proj := t.TempDir()
+	if err := os.WriteFile(filepath.Join(proj, ConfigFileName),
+		[]byte("tools:\n  go: 1.23.2\n  ../../evil: 1.0.0\n  no-such-tool: 2.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, pins, err := ResolveProject(proj, home)
+	if err != nil || cfg == nil {
+		t.Fatalf("ResolveProject: cfg=%v err=%v", cfg, err)
+	}
+	// 配置本身原样保留（用户看得到自己写了什么），只有 pin 被过滤。
+	if len(cfg.Tools) != 3 {
+		t.Fatalf("配置应原样保留 3 项, got %v", cfg.Tools)
+	}
+	if len(pins) != 1 || pins[0].ID != "go" {
+		t.Fatalf("只应留下清单里的 go, got %+v", pins)
+	}
+}
+
+// validToolID 是删除动作前的最后一道守卫：即使调用方绕过 ResolveProject，
+// 越界 ID 也必须被拒。
+func TestValidToolID(t *testing.T) {
+	cases := map[string]bool{
+		"go":            true,
+		"jdk21":         true,
+		"golangci-lint": true,
+		"":              false,
+		".":             false,
+		"..":            false,
+		"../evil":       false,
+		"a/b":           false,
+		`a\b`:           false,
+	}
+	for id, want := range cases {
+		if got := validToolID(id); got != want {
+			t.Errorf("validToolID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}
+
+// SetActiveVersion 与 Uninstall 都带 validToolID 守卫：越界 ID 必须报错，
+// 且安装目录之外的路径一个字节都不能动。
+func TestDestructiveOpsRejectTraversalIDs(t *testing.T) {
+	base := t.TempDir()
+	dir := filepath.Join(base, "tools")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 安装目录之外、越界 ID 会命中的文件：守卫失效时它会被删掉。
+	outside := filepath.Join(base, "victim-1.0.0")
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(outside, "keep.txt")
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetActiveVersion(dir, "../victim", "1.0.0"); err == nil {
+		t.Error("SetActiveVersion 应拒绝越界 ID")
+	}
+	if err := Uninstall(dir, "../victim", "1.0.0"); err == nil {
+		t.Error("Uninstall 应拒绝越界 ID")
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("安装目录之外的文件被动了: %v", err)
 	}
 }
 

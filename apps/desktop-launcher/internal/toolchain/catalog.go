@@ -214,8 +214,30 @@ func IsInstalled(dir, id, version string) bool {
 	return err == nil
 }
 
+// validToolID 判断工具 ID 能否安全地作为安装目录下的一个名字片段。
+//
+// ID 来自两处外部数据：远程索引与项目根的 `.dsh-toolchain.yml`。它会被拼进
+// `versionDir` 与 `currentLink`，而这两个路径随后参与 os.Remove / os.RemoveAll——
+// 含 `../` 或路径分隔符的 ID 会删掉安装目录之外的文件（审计 S6）。索引侧另有
+// linkNameOK 管软链名，这里管的是工具目录名本身。
+//
+// 这是最后一道守卫：调用方（ResolveProject）已按清单比对过 ID，但删除动作不该
+// 依赖每个调用点都记得校验。
+func validToolID(id string) bool {
+	if id == "" || id == "." || id == ".." {
+		return false
+	}
+	if strings.ContainsAny(id, `/\`) {
+		return false
+	}
+	return filepath.IsLocal(id) // Windows 上另拒保留名（NUL/COM1 之类）
+}
+
 // SetActiveVersion 切换激活版本。目标版本必须已安装。
 func SetActiveVersion(dir, id, version string) error {
+	if !validToolID(id) {
+		return fmt.Errorf("toolchain: 非法的工具 ID %q，已拒绝", id)
+	}
 	if !IsInstalled(dir, id, version) {
 		return os.ErrNotExist
 	}
@@ -234,6 +256,9 @@ func SetActiveVersion(dir, id, version string) error {
 // Uninstall 卸载指定版本。如果卸载的是当前激活版本，自动激活推荐版本（仍在时），
 // 否则激活剩余里版本号最高的一个。
 func Uninstall(dir, id, version string) error {
+	if !validToolID(id) {
+		return fmt.Errorf("toolchain: 非法的工具 ID %q，已拒绝", id)
+	}
 	if !IsInstalled(dir, id, version) {
 		return os.ErrNotExist
 	}

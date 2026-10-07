@@ -31,6 +31,11 @@ type ProjectPin struct {
 
 // ResolveProject 向上查找 start 目录的项目配置，并把每个 pin 与 home 下已装
 // 工具对照，返回配置与判定结果。未找到配置时返回 nil config、nil pins、nil error。
+//
+// 不在清单里的 ID 不进 pin：它来自项目根的外部文件，而 pin 最终会走到
+// SetActiveVersion 的 os.Remove 与 Uninstall 的 os.RemoveAll；带 `../` 的 ID 会删掉
+// 安装目录之外的文件（审计 S6）。跳过而不是整体报错，是为了让同一份配置里其余
+// 合法 pin 仍然可用；删除动作本身另有 validToolID 守卫兜底。
 func ResolveProject(start, home string) (*ProjectConfig, []ProjectPin, error) {
 	path, cfg, err := FindProjectConfig(start)
 	if err != nil {
@@ -43,6 +48,9 @@ func ResolveProject(start, home string) (*ProjectConfig, []ProjectPin, error) {
 	dir := InstallDir(home)
 	pins := make([]ProjectPin, 0, len(cfg.Tools))
 	for id, ver := range cfg.Tools {
+		if _, ok := LookupTool(id); !ok {
+			continue
+		}
 		p := ProjectPin{ID: id, Version: ver, Installed: IsInstalled(dir, id, ver)}
 		p.Active = p.Installed && ActiveVersion(dir, id) == ver
 		pins = append(pins, p)
