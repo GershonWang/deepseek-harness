@@ -73,6 +73,55 @@ type OrphanRemovalOutcome =
   | { kind: 'removed'; removed: string[]; backupPath: string }
 
 /**
+ * 用户补丁里修复能删除的失效条目——`plugin-patch-composable` 的 `fixable`、
+ * `plugin-patch-targets` 的判定与 `removeOrphanedPatchEntries` 的实际删除共用这一判据，
+ * 三者因此不会漂移：check 不会承诺 fix 做不到的事。
+ *
+ * loader 在补丁合成期共发五类告警，本判据只覆盖其中两类——「insert 目标不存在」与
+ * 「非 insert 目标不存在」，两者的共同事实都是「该条目的 id 不在基准合成结果里」。
+ * 另外三类不在其中，也不该被承诺：`insert` 目标存在但不是 group、非 insert 缺 id、
+ * name 与目标不符；来自随包 bundle 层的告警同样不可通过编辑用户文件消除。
+ * @param profile - 已加载的 web profile。
+ * @returns 失效的用户补丁条目；无失效条目时为空数组。
+ */
+function orphanedUserPatches(profile: Profile): PatchOptions[] {
+  const baselineIds = new Set(
+    composeEntries(profile.layers.map(l => l.patches))
+      .map(entry => entry.id)
+      .filter((id): id is string => id !== undefined)
+      .map(String),
+  )
+  return profile.patches.filter(
+    patch => patch.id !== undefined && !baselineIds.has(String(patch.id)),
+  )
+}
+
+/**
+ * 修复覆盖不到的告警的说明：点明能力边界与手工处置方向。
+ *
+ * 最常见的是 name 与目标不符：条目里的 `name` 是「目标必须叫这个名字」的守卫，插件改名后
+ * 它就是过期断言，而修复不删它（目标 id 仍在基准里，删掉会误伤同一 id 的 config）。
+ */
+const UNFIXABLE_PATCH_HINT = '不可自动修复：修复只删除「id 已不在基准合成中」的用户补丁条目；'
+  + 'insert 目标不是 group、非 insert 缺 id、name 与目标不符三类，以及来自随包 bundle 层的告警，'
+  + '都需手工核对该条目的 name 与 config 是否已过期（name 不符时以告警里的 expected 为准）。'
+
+/**
+ * 逐条列出可自动删除的失效用户补丁条目：点名补丁文件、条目 id 与声明的 name，
+ * 让用户不必从一行告警反推该改哪个文件。
+ * @param patchPath - 用户补丁文件的绝对路径。
+ * @param orphans - 失效条目。
+ * @returns 每行一条的说明。
+ */
+function orphanPatchLines(patchPath: string, orphans: readonly PatchOptions[]): string[] {
+  return orphans.map((patch) => {
+    const declared = patch.name === undefined ? '' : `，声明 name: ${JSON.stringify(patch.name)}`
+    return `可自动修复：${patchPath} 的条目 ${JSON.stringify(String(patch.id))}${declared}`
+      + '（基准合成里已无此 id；修复会删除该条目并备份原文件）'
+  })
+}
+
+/**
  * 移除用户补丁中 target 已不存在的条目，供两个补丁检查共用。
  *
  * 以"不含用户层的合成结果"为基准：用户补丁条目里 id 不在基准 entries 中的
@@ -102,15 +151,11 @@ async function removeOrphanedPatchEntries(
   if (!existsSync(patchPath)) return { kind: 'file-missing' }
 
   const profile = loadDoctorProfile(dshHome, resolveInstallAnchor())
-  const baselineIds = new Set(
-    composeEntries(profile.layers.map(l => l.patches))
-      .map(entry => entry.id)
-      .filter((id): id is string => id !== undefined),
-  )
+  const orphanIds = new Set(orphanedUserPatches(profile).map(patch => String(patch.id)))
   const patches: PatchOptions[] = structuredClone(profile.patches)
   const removed: string[] = []
   const kept = patches.filter((patch) => {
-    if (patch.id === undefined || baselineIds.has(String(patch.id))) return true
+    if (patch.id === undefined || !orphanIds.has(String(patch.id))) return true
     removed.push(String(patch.id))
     return false
   })
@@ -186,11 +231,21 @@ const pluginPatchComposable: DoctorCheck = {
           suggestedLevel: 2,
         }
       }
+      // fixable 取自 fix 的实际判据（见 orphanedUserPatches）：合成告警有五类，修复只覆盖
+      // 其中两类。此前这里无条件返回 true，界面因此承诺「可修复 L2」而点击必然失败。
+      const orphans = orphanedUserPatches(profile)
+      const patchPath = join(resolveProfileDir('web', dshHome), PROFILE_PATCH_FILENAME)
       return {
         ok: false,
-        message: `${warnings.length} patch warning(s): ${warnings.slice(0, 3).join('; ')}${warnings.length > 3 ? '...' : ''}`,
-        detail: warnings.join('\n'),
-        fixable: true,
+        message: orphans.length > 0
+          ? `${warnings.length} patch warning(s); ${orphans.length} removable from ${PROFILE_PATCH_FILENAME}: ${orphans.map(patch => String(patch.id)).join(', ')}`
+          : `${warnings.length} patch warning(s): ${warnings.slice(0, 3).join('; ')}${warnings.length > 3 ? '...' : ''}`,
+        detail: [
+          ...warnings,
+          ...orphanPatchLines(patchPath, orphans),
+          ...(orphans.length < warnings.length ? [UNFIXABLE_PATCH_HINT] : []),
+        ].join('\n'),
+        fixable: orphans.length > 0,
         suggestedLevel: 2,
       }
     } catch (err) {
@@ -269,17 +324,8 @@ const pluginPatchTargets: DoctorCheck = {
         return { ok: true, message: 'No user patches', fixable: false, suggestedLevel: 2 }
       }
 
-      // Compose WITHOUT user patches first to get the baseline entry ids.
-      const baselineEntries = composeEntries(profile.layers.map(l => l.patches))
-      const baselineIds = new Set(baselineEntries.map(e => e.id).filter(Boolean))
-
-      // Now find user patch targets that don't exist in baseline.
-      const missingIds: string[] = []
-      for (const patch of profile.patches) {
-        if (patch.id && !baselineIds.has(patch.id as string)) {
-          missingIds.push(String(patch.id))
-        }
-      }
+      // 与 fix 共用同一判据（orphanedUserPatches）：能修的就是「id 不在基准合成里」的那些。
+      const missingIds = orphanedUserPatches(profile).map(patch => String(patch.id))
 
       if (missingIds.length === 0) {
         return {

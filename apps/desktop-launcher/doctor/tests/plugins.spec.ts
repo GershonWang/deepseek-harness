@@ -35,6 +35,68 @@ describe('plugin-patch-composable', () => {
     expect(c?.result.message).toContain('entries composed')
   })
 
+  // loader 在补丁合成期共发五类告警，而 fix 只删「id 不在基准合成中」的用户补丁条目。
+  // fixable 必须只对其中两类为 true：否则界面承诺「可修复 L2」，用户点击必然失败（AUDIT N31）。
+  it('marks an insert patch whose target group is gone as fixable', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- id: removed-group\n  insert:\n    - id: injected\n      name: ./injected.js\n',
+    )
+    const report = await runDiagnosis(tempHome)
+    const c = report.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(c?.result.ok).toBe(false)
+    expect(c?.result.fixable).toBe(true)
+    // detail 要点名文件与条目 id，用户不必从一行告警反推该改哪个文件。
+    expect(c?.result.detail).toContain('cordis.patch.yml')
+    expect(c?.result.detail).toContain('"removed-group"')
+  })
+
+  it('does not promise a repair for an insert target that is not a group', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    // llm 在基准合成里存在、但不是 group：告警是「insert 目标不是 group」，修复不覆盖。
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- id: llm\n  insert:\n    - id: injected\n      name: ./injected.js\n',
+    )
+    const report = await runDiagnosis(tempHome)
+    const c = report.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(c?.result.ok).toBe(false)
+    expect(c?.result.fixable).toBe(false)
+    expect(c?.result.detail).toContain('is not a group')
+    expect(c?.result.detail).toContain('不可自动修复')
+  })
+
+  it('does not promise a repair for a non-insert patch without an id', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- disabled: true\n',
+    )
+    const report = await runDiagnosis(tempHome)
+    const c = report.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(c?.result.ok).toBe(false)
+    expect(c?.result.fixable).toBe(false)
+    expect(c?.result.detail).toContain('id is required')
+    expect(c?.result.detail).toContain('不可自动修复')
+  })
+
+  it('does not promise a repair for a name mismatch and points at the stale guard', async () => {
+    await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
+    // 最常见的一类：插件改名后条目里的 name 成了过期断言。修复不删它——目标 id 仍在基准里，
+    // 删掉会误伤同一 id 的 config；文案必须把用户引向「以告警里的 expected 为准」。
+    await writeFile(
+      join(tempHome, 'profiles', 'web', 'cordis.patch.yml'),
+      '- id: llm\n  name: "@deepseek-ai/dsh-not-llm"\n',
+    )
+    const report = await runDiagnosis(tempHome)
+    const c = report.checks.find(x => x.id === 'plugin-patch-composable')
+    expect(c?.result.ok).toBe(false)
+    expect(c?.result.fixable).toBe(false)
+    expect(c?.result.detail).toContain('name mismatch')
+    expect(c?.result.detail).toContain('不可自动修复')
+  })
+
   it('repair disables only the broken patch row and keeps the file', async () => {
     await mkdir(join(tempHome, 'profiles', 'web'), { recursive: true })
     // 坏条目：target 在基准合成中不存在。

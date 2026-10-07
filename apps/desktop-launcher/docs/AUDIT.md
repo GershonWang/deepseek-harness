@@ -51,7 +51,6 @@
 | N24 | 低危 | `ToolVersion.LibRel` 无消费点 | 未修 |
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
-| N31 | 低危 | `plugin-patch-composable` 一律标「可修复 L2」 | 未修 |
 | 22 | 低危 | `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 部分修复 |
 | 27 | 低危 | 窗口位置未记忆 | 部分修复 |
 | 28 | 低危 | 窗口背景色硬编码 | 部分修复 |
@@ -219,15 +218,6 @@
 - **影响**：体积少量增加；`.tsbuildinfo` 记录编译机上的文件清单与编译设置。
 - **修复建议**：`prepare-offline.sh` 在复制后统一删除 `*.tsbuildinfo`（按文件名前缀删会漏掉 gaxios 的两个）。取舍：它只服务于增量编译，运行时无人读取。
 - **验收**：产物内 `find -name '*.tsbuildinfo'` 为空。
-
-## N31 `plugin-patch-composable` 一律标「可修复 L2」，但修复实现只覆盖五类告警中的两类
-
-- **状态**：未修｜✅ 实测复核（2026-09-25；2026-10-07 迁移后复跑）
-- **位置**：`doctor/src/checks/plugins.ts`（检查、`fix`、`removeOrphanedPatchEntries` 的判据）、`doctor/src/index.ts`（修复失败记为 skipped）；告警源头 `vendor/include/src/index.ts`
-- **问题**：`plugin-patch-composable` 只要 `composeEntries` 收到**任何**一条告警就返回 `ok:false, fixable:true, suggestedLevel:2`，界面上因此出现「可修复 L2」；但它的 `fix` 只做一件事——按「条目 id 不在基础层合成结果里」从**用户补丁文件**里删条目。loader 在补丁合成期会发出五类告警（`insert` 目标不存在、`insert` 目标不是 group、非 insert 缺 id、非 insert 目标不存在、name 与目标不符），该判据只覆盖第 1、4 类；第 2、3、5 类（含最常见的 name 不符）必然走到 `{kind:'none-removed'}`，`fix` 返回「无法定位失效补丁条目，未做修改」。告警若来自随包 bundle 层而非用户文件，同样无法通过编辑用户文件消除。
-- **影响**：用户按界面提示点「修复」必然失败；而真正的问题（补丁条目被整条跳过、用户配置静默不生效）只以一行英文告警呈现，没有指出「哪个文件、哪一行、该改成什么」。
-- **修复建议**：①让 `fixable` 与实际能力一致——收窄为「告警中至少有一条是 `removeOrphanedPatchEntries` 能处理的」，其余返回 `fixable:false`，并在 `message`／`detail` 里点名文件路径、条目 id、声明名与目标当前名；②（可选）对 name 不符增加一种修复——删掉该条目的 `name` 键、保留 id 与 config，代价是 id 被复用给另一插件时过期守卫消失，结果文案必须写明。不建议让 loader 对 name 不符硬失败（`vendor/` 上游代码，且会把「插件改名」升级为整树启动失败）。
-- **验收**：五类告警各自得到与实现能力一致的 `fixable` 取值，且有测试逐类固定。
 
 ## 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp`
 
