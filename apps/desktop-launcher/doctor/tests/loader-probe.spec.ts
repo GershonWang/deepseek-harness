@@ -170,6 +170,36 @@ describe('loader-probe', () => {
     expect(result.code).toBe(0)
   }, PROBE_TIMEOUT)
 
+  it('loads only installation layers with --official-only while a third-party bundle is broken (exit 0)', async () => {
+    home = await mkdtemp(join(tmpdir(), 'dsh-probe-official-'))
+    await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-bad'])
+    await writeBundle(home, 'web', 'third-party-bad', [
+      '- insert:',
+      '    - id: broken-plugin',
+      '      name: ./broken-plugin.js',
+    ].join('\n') + '\n')
+    await writeFile(
+      join(home, 'profiles', 'web', 'node_modules', 'third-party-bad', 'broken-plugin.js'),
+      "import { value } from 'dep-that-does-not-exist-xyz-12345'\nexport default function () { void value }\n",
+    )
+
+    // 全量失败、只挂官方层通过：这正是 doctor 判定"失败确实由第三方 bundle 引起"的依据
+    // （AUDIT N32）。两者一起成立，二分才满足 isBad([]) === false 的契约。
+    const all = await runProbe(['--dsh-home', home, '--timeout', '60000'])
+    expect(all.code).not.toBe(0)
+    const official = await runProbe(['--dsh-home', home, '--official-only', '--timeout', '60000'])
+    expect(official.code).toBe(0)
+  }, PROBE_TIMEOUT)
+
+  it('rejects --official-only combined with --include (exit 1)', async () => {
+    home = await mkdtemp(join(tmpdir(), 'dsh-probe-official-conflict-'))
+    const result = await runProbe([
+      '--dsh-home', home, '--official-only', '--include', 'third-party-bad',
+    ])
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain('cannot be combined with --include')
+  })
+
   it('rejects an --include that names no third-party bundle (exit 1)', async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-probe-include-'))
     const result = await runProbe(['--dsh-home', home, '--include', 'no-such-bundle'])

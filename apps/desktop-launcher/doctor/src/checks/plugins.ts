@@ -411,9 +411,12 @@ interface LoaderProbeOutcome {
  * layer when `include` is empty or only the named opt-in subset.
  * @param dshHome - harness home, passed as `--dsh-home`.
  * @param include - opt-in bundle names to load (`--include` per name).
+ * @param officialOnly - mount installation layers only (`--official-only`).
  * @returns the probe exit code and its captured output.
  */
-function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<LoaderProbeOutcome> {
+function runLoaderProbe(
+  dshHome: string, include: readonly string[], officialOnly = false,
+): Promise<LoaderProbeOutcome> {
   const env: NodeJS.ProcessEnv = { ...process.env }
   // The explicit `--dsh-home` argument owns the home; a stray ambient
   // DSH_HOME would otherwise redirect the probe to another installation.
@@ -430,6 +433,7 @@ function runLoaderProbe(dshHome: string, include: readonly string[]): Promise<Lo
         '--dsh-home', dshHome,
         '--profile', DYNAMIC_PROFILE,
         '--timeout', String(DYNAMIC_PROBE_TIMEOUT_MS),
+        ...(officialOnly ? ['--official-only'] : []),
         ...include.flatMap(name => ['--include', name]),
       ],
       { env, maxBuffer: DYNAMIC_PROBE_MAX_BUFFER, encoding: 'utf8' },
@@ -466,6 +470,11 @@ interface LocateCulpritResult {
   fullOk: boolean
   /** The bundle that alone breaks the load; null when none is found. */
   culprit: string | null
+  /**
+   * 只挂官方层的基线探测也失败：这次失败与第三方 bundle 无关，不得归因给任何一个。
+   * 与 `culprit === null` 的区别是"为什么定位不到"——这里根本没进二分。
+   */
+  baselineFailed: boolean
 }
 
 /**
@@ -477,6 +486,12 @@ interface LocateCulpritResult {
  * 可疑集合必须与探针 `--include` 认的那套完全一致（见 bundle-scope）：只要有一层
  * 既进不了 `--include`、又可能坏，二分就失去单调性，定位结果会落到列表首个 bundle
  * 上，报告与修复一起错。
+ *
+ * 全量失败后**先证明失败与 bundle 有关**再二分：`bisectBy` 的契约要求
+ * `isBad([]) === false`，而它自身从不探测空集，收尾的 `isBad([result])` 对"全局失败"
+ * 同样恒真。因此这里先跑一次"只挂官方层"的基线；基线也失败即说明问题不在第三方
+ * bundle 上（home 不可写、超时、探针自身异常……），直接返回 `culprit: null` 而不进二分
+ * ——否则任何无关失败都会被判成"某个 bundle 有罪"，返回二分命中的第一个名字。
  * @param dshHome - harness home passed to loadProfile and the probe.
  * @returns the load outcome and the located culprit, if any.
  */
@@ -487,25 +502,30 @@ async function locateCulprit(dshHome: string): Promise<LocateCulpritResult> {
     const profile = loadDoctorProfile(dshHome, installAnchor)
     optIn = optInBundles(installAnchor, profile.layers).map(layer => layer.packageName)
   } catch (err) {
-    return { loadable: false, optIn: [], output: (err as Error).message, fullOk: false, culprit: null }
+    return { loadable: false, optIn: [], output: (err as Error).message, fullOk: false, culprit: null, baselineFailed: false }
   }
   if (optIn.length === 0) {
-    return { loadable: true, optIn, output: '', fullOk: true, culprit: null }
+    return { loadable: true, optIn, output: '', fullOk: true, culprit: null, baselineFailed: false }
   }
 
   const full = await runLoaderProbe(dshHome, [])
   if (full.code === 0) {
-    return { loadable: true, optIn, output: full.output, fullOk: true, culprit: null }
+    return { loadable: true, optIn, output: full.output, fullOk: true, culprit: null, baselineFailed: false }
   }
 
-  // The full tree failed to load; isolate the offending bundle. A subset
-  // "is bad" when loading only it still fails — with the full set failing
-  // and the empty set passing, bisectBy's contract holds.
+  const baseline = await runLoaderProbe(dshHome, [], true)
+  if (baseline.code !== 0) {
+    return { loadable: true, optIn, output: full.output, fullOk: false, culprit: null, baselineFailed: true }
+  }
+
+  // The full tree failed while the official-only baseline passed, so a third-party
+  // bundle is implicated. A subset "is bad" when loading only it still fails — with
+  // the full set failing and the empty set passing, bisectBy's contract holds.
   const culprit = await bisectBy(optIn, async (subset) => {
     const result = await runLoaderProbe(dshHome, subset)
     return result.code !== 0
   })
-  return { loadable: true, optIn, output: full.output, fullOk: false, culprit }
+  return { loadable: true, optIn, output: full.output, fullOk: false, culprit, baselineFailed: false }
 }
 
 /**
@@ -539,6 +559,17 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
       return {
         ok: true,
         message: `所有 ${located.optIn.length} 个选装插件加载正常`,
+        fixable: false,
+        suggestedLevel: 2,
+      }
+    }
+    if (located.baselineFailed) {
+      // 只挂官方层的基线也失败：问题不在第三方 bundle 上。此时既不能点名元凶，
+      // 也不提供 L2 修复——修复会去禁用 bundle，而那治不了这里的病。
+      return {
+        ok: false,
+        message: '第三方插件不是启动失败的原因：只挂官方层的基线探测同样失败（环境或探针自身问题）',
+        detail: located.output,
         fixable: false,
         suggestedLevel: 2,
       }
@@ -582,6 +613,11 @@ export const pluginDynamicLoadCheck: DoctorCheck = {
     }
     if (located.optIn.length === 0 || located.fullOk) {
       return { ok: true, message: '插件加载已正常，无需修复' }
+    }
+    if (located.baselineFailed) {
+      // 禁用任何 bundle 都治不了"官方层自己也起不来"，因此直接如实返回，
+      // 不写备份、不动 manifest。
+      return { ok: false, message: '第三方插件不是启动失败的原因（只挂官方层的基线探测同样失败），未做修改' }
     }
 
     let current = readProfileManifest('doctor', profileDir)

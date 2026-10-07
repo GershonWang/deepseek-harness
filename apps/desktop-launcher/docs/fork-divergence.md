@@ -2,7 +2,7 @@
 
 > **目的**：盘点本 fork 相对上游 `deepseek-ai/deepseek-harness` 的**全部偏离**，判断哪些能收敛进 `apps/desktop-launcher/`，哪些不能。
 > **范围**：只做审计与统计。**本文档不包含任何代码改动**；文中的处置建议均为待批准的方案。
-> **分工**：启动器**自身**尚未修复、且修复点落在 `apps/desktop-launcher/` 内的缺陷由 [AUDIT.md](./AUDIT.md)（21 条待办，N3/S6/N32 等）负责，本文档只负责"fork 与上游的偏离"这一角度，两者互补不重复。
+> **分工**：启动器**自身**尚未修复、且修复点落在 `apps/desktop-launcher/` 内的缺陷由 [AUDIT.md](./AUDIT.md)（20 条待办，N3/S6/N22 等）负责，本文档只负责"fork 与上游的偏离"这一角度，两者互补不重复。
 
 ---
 
@@ -673,7 +673,7 @@ doctor 迁移完成后必须同时满足：
 
 | 文档 | 内容 |
 |---|---|
-| [AUDIT.md](./AUDIT.md) | 启动器**自身**的待办清单（21 条，只收修复点落在 `apps/desktop-launcher/` 内的缺陷，修完即删）：N3、S6、N32 等；已修条目与「卡点在上游」的条目都不收录，历史见 `git show c91f00f1ce:apps/desktop-launcher/docs/AUDIT.md` |
+| [AUDIT.md](./AUDIT.md) | 启动器**自身**的待办清单（20 条，只收修复点落在 `apps/desktop-launcher/` 内的缺陷，修完即删）：N3、S6、N22 等；已修条目与「卡点在上游」的条目都不收录，历史见 `git show c91f00f1ce:apps/desktop-launcher/docs/AUDIT.md` |
 | [./index.md](./index.md) | 本目录索引 |
 
 两者的分工：`AUDIT.md` 回答"启动器还有哪些没修"，本文档回答"fork 和上游差在哪里、怎么收敛"。

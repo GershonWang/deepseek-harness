@@ -212,6 +212,24 @@ describe('plugin-dynamic-load', () => {
     expect(result.detail).toContain('incompatible pair detected')
   }, PROBE_BOUND)
 
+  it('does not blame a bundle when the official-only baseline fails too', async () => {
+    home = await mkdtemp(join(tmpdir(), 'dsh-dyn-baseline-'))
+    await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-ok'])
+    await writeBundle(home, 'third-party-ok', healthyPatch('ok-noop'))
+    await writeBundleFile(home, 'third-party-ok', 'noop.js', NOOP_PLUGIN)
+    // 让探针必然失败、且失败与第三方 bundle 无关：探针启动时要写
+    // <profile.dir>/cordis.yml 作为补丁的根配置，把该路径占成目录即 EISDIR——
+    // 不依赖权限，root 下同样失败（chmod 只读的写法在 CI 容器里会失效）。
+    await mkdir(join(home, 'profiles', 'web', 'cordis.yml'), { recursive: true })
+
+    const result = await pluginDynamicLoadCheck.check(home)
+    expect(result.ok).toBe(false)
+    expect(result.fixable).toBe(false)
+    // 不得把健康的第三方 bundle 指为元凶，也不得据此承诺禁用它的 L2 修复。
+    expect(result.message).not.toContain('third-party-ok')
+    expect(result.message).toContain('基线')
+  }, PROBE_BOUND)
+
   it('treats an unloadable profile as a pass with a notice', async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-dyn-noprofile-'))
     // A bundle the profile neither installs nor anchors makes loadProfile throw
@@ -294,6 +312,24 @@ describe('plugin-dynamic-load', () => {
       expect(result.message).toContain('未能定位')
       // 整体还原后没有任何插件处于禁用状态，同样不该留下提示记录。
       expect(existsSync(autoDisabledPath(home))).toBe(false)
+    }, PROBE_BOUND)
+
+    it('refuses to disable anything when the official-only baseline fails too', async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-dyn-fix-baseline-'))
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'third-party-ok'], { 'third-party-ok': '1.0.0' })
+      await writeBundle(home, 'third-party-ok', healthyPatch('ok-noop'))
+      await writeBundleFile(home, 'third-party-ok', 'noop.js', NOOP_PLUGIN)
+      await mkdir(join(home, 'profiles', 'web', 'cordis.yml'), { recursive: true })
+
+      const backupDir = join(home, 'backups', 'doctor-test')
+      await mkdir(backupDir, { recursive: true })
+      const result = await pluginDynamicLoadCheck.fix!(home, backupDir)
+      expect(result.ok).toBe(false)
+      expect(result.message).toContain('未做修改')
+      // 不写备份、不动 manifest：禁用 bundle 治不了"官方层自己也起不来"。
+      expect(existsSync(join(backupDir, 'web-profile.package.json'))).toBe(false)
+      const manifest = readProfileManifest('doctor-repair-test', resolveProfileDir('web', home))
+      expect(manifest.dsh?.profile?.bundles).toContain('third-party-ok')
     }, PROBE_BOUND)
 
     it('disables every independently broken bundle, not just the first', async () => {

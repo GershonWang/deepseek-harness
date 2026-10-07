@@ -43,7 +43,6 @@
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | S6 | 中危 | 项目配置 tool ID 未校验 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
-| N32 | 中危 | 探针把健康 bundle 指为元凶并据此给出 L2 修复 | 未修 |
 | N16 | 中危 | `verify-tools.sh` 的一致性校验不覆盖多版本 | 部分修复 |
 | 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
@@ -139,16 +138,6 @@
 - **影响**：`jdk` 现有五条版本线（`21.0.12.1`/`8u504`/`25.0.4.1`/`17.0.20.1`/`11.0.32.1`），其中**四条非推荐版本**不在任何自动化覆盖内；镜像站轮换或 sha256 抄错一个字符，只会在用户点安装时暴露（grpcurl 的 sha256 抄错一字符就是由它首次跑出）。
 - **修复建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
 - **验收**：`DSH_TC_E2E=1` 跑过全部版本线，或至少可指定版本过滤并覆盖非推荐版本。
-
-## N32 探针因与插件无关的原因失败时，`bisectBy` 会把健康的第三方 bundle 指为元凶
-
-- **状态**：未修｜✅ 实测复核（2026-09-25；2026-10-07 迁移后复跑）
-- **位置**：`doctor/src/checks/plugins.ts`（`locateCulprit`、`plugin-dynamic-load` 检查与其 `fix`）、`doctor/src/bisect-by.ts`、`doctor/src/loader-probe.ts`（每次探测都无条件改写 `<home>/profiles/web/cordis.yml`；`selectLayers` 的 `--include` 为空表示「挂全部层」，因此**无法**表达「一个第三方层都不挂」）
-- **问题**：`locateCulprit` 先用全量探针判断「树没起来」，再把全部第三方 bundle 交给 `bisectBy` 二分。`bisectBy` 的文档契约要求调用方保证 `isBad([]) === false`，但算法自身从不探测空集，收尾的 `verifyBad = isBad([result])` 对「全局失败」同样恒真——于是任何与具体 bundle 无关的失败（home 不可写、超时、缺 node、探针自身异常）都会被判成「某个 bundle 有罪」，返回二分命中的第一个名字。
-- **影响**：报告把健康的第三方插件指为元凶，用户据此手工禁用或卸载它会造成真实损失。自动修复本身是自还原的（始终不通过则整体还原 manifest 并返回 `ok:false`），但修复过程会临时把全部第三方 bundle 从 profile 的 `package.json` 里摘掉，中途被中断就停在该状态，而 `recordAutoDisabled` 只在成功分支调用，用户拿不到事后提示。
-- **复现**：把 `~/.dsh` 置于只读后跑全量诊断，探针以 `EROFS … open '/home/Jokul/.dsh/profiles/web/cordis.yml'` 退出；`plugin-dynamic-load` 却报「插件 dshmarket 导致启动失败（缺少运行依赖或损坏）」，并给出 `fixable: true`、`suggestedLevel: 2`。换成可写的影子 home 复跑，同一检查变为「所有 3 个第三方插件加载正常」。
-- **修复建议**：①给探针加一个能表达「只挂官方层」的入口（如 `--include none`），`locateCulprit` 在全量失败后先跑这个基线，基线**也**失败即返回 `culprit: null`，由检查走已有的诚实分支（`fixable:false`「未能定位」）且不提供 L2 修复；②`locateCulprit` 在二分前用该基线显式验证 `bisectBy` 的契约；③给探针退出码分档（插件加载失败 vs 环境/IO 失败），检查按档决定是否归因。
-- **验收**：home 不可写时报告不再点名任何 bundle，且不提供 L2 修复；有测试固定该分支。
 
 ## N16 `verify-tools.sh` 的一致性校验不覆盖多版本
 

@@ -55,6 +55,8 @@ interface ProbeOptions {
   home: string
   /** Opt-in bundle subset to load; empty means every bundle layer. */
   include: readonly string[]
+  /** Mount only installation-supplied layers, with no opt-in bundle at all. */
+  officialOnly: boolean
   /** How long the load may take before the probe gives up. */
   timeoutMs: number
 }
@@ -67,6 +69,7 @@ function parseProbeArgs(argv: readonly string[]): ProbeOptions {
       profile: { type: 'string' },
       'dsh-home': { type: 'string' },
       include: { type: 'string', multiple: true },
+      'official-only': { type: 'boolean' },
       timeout: { type: 'string' },
     },
     strict: true,
@@ -74,6 +77,13 @@ function parseProbeArgs(argv: readonly string[]): ProbeOptions {
   const home = values['dsh-home'] ?? process.env.DSH_HOME
   if (home === undefined || home === '') {
     throw new Error('--dsh-home <path> (or DSH_HOME) is required')
+  }
+  const include = values.include ?? []
+  const officialOnly = values['official-only'] === true
+  // 两者语义互斥：`--include` 选的是"要挂哪些选装层"，`--official-only` 选的是"一个都不挂"。
+  // 同时给出说明调用方没想清楚要探测哪棵树，直接失败而不是猜一个优先级。
+  if (officialOnly && include.length > 0) {
+    throw new Error('--official-only cannot be combined with --include')
   }
   const timeoutRaw = values.timeout ?? '10000'
   if (!/^\d+$/u.test(timeoutRaw)) {
@@ -86,7 +96,8 @@ function parseProbeArgs(argv: readonly string[]): ProbeOptions {
   return {
     profile: values.profile ?? 'web',
     home,
-    include: values.include ?? [],
+    include,
+    officialOnly,
     timeoutMs,
   }
 }
@@ -98,15 +109,26 @@ function parseProbeArgs(argv: readonly string[]): ProbeOptions {
  * a tree nobody runs) and only the named opt-in layers are added. A name that
  * is not one of the profile's opt-in bundles is a misconfiguration and fails
  * loud rather than silently loading nothing.
+ *
+ * `officialOnly` is the opposite end: installation-supplied layers only, no
+ * opt-in bundle. It exists so a caller can ask "does this tree fail on its
+ * own?" before blaming a third-party bundle for a failure that has nothing to
+ * do with one.
  * @param profileName - profile whose layers are being narrowed, for the error text.
  * @param layers - every resolved layer of that profile.
  * @param include - opt-in bundle names to keep, empty to keep all.
  * @param installAnchor - installation root manifest, deciding which layers are opt-in.
+ * @param officialOnly - drop every opt-in layer instead of selecting among them.
  * @returns the layers this probe run mounts.
  */
 function selectLayers<T extends { packageName: string }>(
-  profileName: string, layers: readonly T[], include: readonly string[], installAnchor: string,
+  profileName: string, layers: readonly T[], include: readonly string[],
+  installAnchor: string, officialOnly: boolean,
 ): T[] {
+  if (officialOnly) {
+    const optIn = new Set(optInBundles(installAnchor, layers).map(layer => layer.packageName))
+    return layers.filter(layer => !optIn.has(layer.packageName))
+  }
   if (include.length === 0) return [...layers]
   const optIn = new Set(optInBundles(installAnchor, layers).map(layer => layer.packageName))
   for (const name of include) {
@@ -137,7 +159,7 @@ async function probeLoad(options: ProbeOptions): Promise<void> {
   // 与运行时解析闭包，探针用错锚点就会把能加载的 bundle 报成模块缺失。
   const installAnchor = resolveInstallAnchor()
   const profile = loadProfile(BIN_NAME, options.profile, installAnchor, options.home)
-  const selected = selectLayers(options.profile, profile.layers, options.include, installAnchor)
+  const selected = selectLayers(options.profile, profile.layers, options.include, installAnchor, options.officialOnly)
   const resolution = await createRuntimeResolution({ installAnchor, profile, home: options.home })
 
   const rootConfig = join(profile.dir, 'cordis.yml')
@@ -206,7 +228,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2)): Pro
     options = parseProbeArgs(argv)
   } catch (error) {
     process.stderr.write(`${BIN_NAME}: loader probe: ${(error as Error).message}\n`)
-    process.stderr.write('usage: node --import tsx/esm loader-probe.ts --dsh-home <path> [--profile <name>] [--include <bundle> ...] [--timeout <ms>]\n')
+    process.stderr.write('usage: node --import tsx/esm loader-probe.ts --dsh-home <path> [--profile <name>] [--include <bundle> ...] [--official-only] [--timeout <ms>]\n')
     process.exit(1)
   }
 
