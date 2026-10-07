@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-17-desktop-launcher-wayland-clipboard.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-desktop-launcher-wayland-clipboard.md
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher:
+  en: 8886eea15e3fdbc5
+  zh: b9146ff1afa66e90
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/problem:
+  en: 40efb00d9b772c7e
+  zh: 32a01c316655fa97
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/decision:
+  en: ad1ed6e142534dd7
+  zh: ef794937ab3ae931
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/measured-behavior:
+  en: ed3daa94ff0e0bd3
+  zh: 2adc9e913f7255a3
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/alternatives-considered:
+  en: 77645762a3fbd56a
+  zh: 0c9c10c4c73387c3
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/consequences:
+  en: 069cb52d62c9425c
+  zh: 6f6d266493fb7843
+/agent-note-wayland-clipboard-image-paste-in-the-desktop-launcher/testing:
+  en: e7a1fbdaef392d31
+  zh: c37af3aa1d1f8718

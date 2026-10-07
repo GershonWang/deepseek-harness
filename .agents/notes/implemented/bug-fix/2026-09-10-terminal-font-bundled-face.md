@@ -23,3 +23,7 @@ The terminal font ships inside the web frontend: `frontend/vendor/fonts/jetbrain
 ## Consequences
 
 The binary grows by about 1.1 MB of TTFs. Terminal glyphs render JetBrains Mono at true 500/700 weights regardless of host fonts; a missing font load or the timeout falls back to system monospace without blocking terminal creation, which also keeps the DOM-stub test environment (no `document.fonts`) working. The font stays page-scoped: GTK window chrome does not pick it up, and `fc-list` inside the container does not show it — the observable check is the rendered terminal, not fontconfig.
+
+## Related
+
+[Container fonts and fontconfig injection for the desktop launcher](2026-09-13-desktop-launcher-container-fonts.md) ships the launcher-side `FONTCONFIG_FILE` overlay that the first alternative above rejects. That rejection still holds for the terminal font — this note's decision stays page-scoped and changes no process-wide font resolution — but its premise that the app does not control fontconfig initialization in WebKit's processes no longer holds: the launcher sets `FONTCONFIG_FILE` before `wails.Run`, and the shipped overlay is verified to change family resolution inside the container.

@@ -7,15 +7,15 @@
 | 文档 | 回答的问题 | 体量 |
 |---|---|---|
 | [fork-divergence.md](./fork-divergence.md) | **fork 和上游差在哪里、怎么收敛**——逐项盘点 304 个文件 / +44438 行的偏离，量化冲突风险，并给出 `doctor` 包与客户端粘贴两个专项的收敛方案 | 632 行 |
-| [AUDIT.md](./AUDIT.md) | **启动器自己哪里有问题**——63 条编号发现（`N3`／`N17`／`S1–S7`／`N30`–`N34` 等），含按状态排序的**条目总览表**与附录 A–I（修复批次、验证边界、起手顺序、复核记录） | 1026 行 |
-| [i18n.md](./i18n.md) | **外壳文案怎么国际化**——真源选型（GUI `<html lang>` 上报）、字典与闸门规范、P0–P2 分期实施与验证方案；对应 `AUDIT.md` 第 24 条 | 263 行 |
+| [AUDIT.md](./AUDIT.md) | **启动器还有哪些没修**——32 条未修项（`N3`／`N18`／`S6`／`N31`–`N34` 等），按高危/中危/低危分组，每条给出位置、影响、修复建议与验收；已修条目一律删除，历史见 git | 373 行 |
+| [i18n.md](./i18n.md) | **外壳文案怎么国际化**——真源选型（GUI `<html lang>` 上报）、字典与闸门规范、P0–P2 分期实施与验证方案；对应审计第 24 条（2026-09-22 已修，已从清单删除） | 263 行 |
 | [merge-conflict-convergence.md](./merge-conflict-convergence.md) | **合并上游时冲突出在哪些文件、怎么消除**——实测最近两次合并的冲突面，把 49 个偏离文件按 fork 特性归组并量化上游热度，给出 A–F 六档可独立取舍的收敛方案与分期 | 320 行 |
 | [doctor-migration-plan.md](./doctor-migration-plan.md) | **doctor 怎么搬进启动器、每一步怎么做**——把自研诊断能力（doctor 包、`dsh doctor` 入口、`DSH_SAFE_MODE`）全部收敛进 `apps/desktop-launcher/` 的可执行方案：目标架构、影响面清单、阶段 0 spike、四阶段任务（含 TDD 步骤与确切命令）、验收标准、待决策项与回滚策略 | 1235 行 |
 | [desktop-webview-media-permission-plan.md](./desktop-webview-media-permission-plan.md) | **桌面版内嵌 WebView 的麦克风怎么修好、每一步怎么做**——三个独立根因（Wails 后端不接 `permission-request`、跨源 iframe 未授权、WebProcess 找不到包内 GStreamer 插件）的探针取证，以及方案 A 的 7 个任务（GTK 侧遍历捞取视图、纯 Go 放行策略、CGO 胶水、iframe `allow`、插件搜索路径，含确切代码/命令/验收标准） | 774 行 |
 
-六份文档角度互补、互不重复：`AUDIT.md` 审的是**实现质量**，`fork-divergence.md` 审的是**与上游的关系**，`merge-conflict-convergence.md` 审的是**合并成本**，`i18n.md` 是一份**待执行的功能方案**，`doctor-migration-plan.md` 是一份**已部分执行的迁移方案**（阶段 0 与阶段 1 已落地）；`desktop-webview-media-permission-plan.md` 是一份**已全部落地的缺陷修复方案**（三个根因、三处修复）。
+六份文档角度互补、互不重复：`AUDIT.md` 是一份**未修项待办清单**（修完即删），`fork-divergence.md` 审的是**与上游的关系**，`merge-conflict-convergence.md` 审的是**合并成本**，`i18n.md` 是一份**待执行的功能方案**，`doctor-migration-plan.md` 是一份**已部分执行的迁移方案**（阶段 0 与阶段 1 已落地）；`desktop-webview-media-permission-plan.md` 是一份**已全部落地的缺陷修复方案**（三个根因、三处修复）。
 
-> `AUDIT.md` 原先在启动器根目录，现已移入本目录并**保留原文件名**——因为仓库内多数引用是裸文件名（`AUDIT.md` N16／N19／N26 等），保名可让它们继续有意义；另 2 条 Agent Notes 曾写完整旧路径，已在 `bee1a78ff9` 一并修正。
+> `AUDIT.md` 原先在启动器根目录，现已移入本目录并**保留原文件名**——因为仓库内多数引用是裸文件名（`AUDIT.md` N16／N22／N26 等），保名可让它们继续有意义；另 2 条 Agent Notes 曾写完整旧路径，已在 `bee1a78ff9` 一并修正。
 
 > 本目录的索引**刻意不叫 `README.md`**：仓库的翻译配对闸门按**基名**收 `README.md`（`scripts/translation-pairing.ts:132` 的 `README_ARTIFACT`），叫这个名字会让一份内部单语索引背上双语配对义务，而本目录其余文档都是单语。闸门范围的完整判据见 `AUDIT.md` 开头第 5 行。
 
@@ -25,8 +25,8 @@
 2. **想知道每一项怎么办** → 同文档第七章「逐项处置建议与可行性证据」
 3. **想评估 doctor 迁移** → 同文档第十章（含三个 spike 的实测结论）
 4. **想评估客户端粘贴** → 同文档第十一章
-5. **想先看启动器还有哪些没修** → [AUDIT.md](./AUDIT.md) 开头的「条目总览」表（按状态排序：未修 → 部分修复 → 已修）
-6. **想知道某条结论的证据强度** → 同文档的「状态与验证等级」节，以及附录 H（2026-09-20 对全部 33 条未闭环条目的独立复核）与附录 I（2026-10-07 对全部 63 条的全量复核，含状态变更与过期叙述修正）
+5. **想先看启动器还有哪些没修** → [AUDIT.md](./AUDIT.md) 开头的「条目总览」表（按级别排序：高危 → 中危 → 低危）
+6. **想知道某条结论的证据强度** → 同文档的「状态与验证等级」节；已修条目的历史证据用 `git show c91f00f1ce:apps/desktop-launcher/docs/AUDIT.md` 取回（那是最后一份含全部条目与验证附录的版本）
 7. **想做外壳国际化** → [i18n.md](./i18n.md) 第五节（真源与数据流）与第七节（分期实施）；实施前先读第九节的已知边界与第十节的未决事项
 8. **想减少每次合并上游的冲突** → [merge-conflict-convergence.md](./merge-conflict-convergence.md) 第三节（最近两次合并的实测冲突面）与第六节（A–F 六档收敛方案）；动手前先读第九节的未决事项
 9. **想把 doctor 真正搬进启动器** → [doctor-migration-plan.md](./doctor-migration-plan.md) 第三节（关键技术决策）、第四~七节（分阶段任务）与文末「阶段 1 执行记录」；阶段 0 三条 spike 与阶段 1 的 Task 1–5 **已执行并验证**，阶段 2 开工前必须先定第九节的 D2
@@ -38,9 +38,9 @@
 
 | 文档 | 标注 | 含义 |
 |---|---|---|
-| `AUDIT.md` | ✅ 已复核／实测复核 | 审计者逐行读代码或实跑命令取得证据 |
+| `AUDIT.md` | 未修／部分修复 | 缺陷是否完整存在；「部分修复」在条目内列明剩余部分 |
+| `AUDIT.md` | ✅ 已复核／实测复核 | 逐行读代码或实跑命令取得证据 |
 | `AUDIT.md` | ⚠️ 静态审查 | 经代码阅读得出，未独立复跑 |
-| `AUDIT.md` | ⏳ 待生效 | 改动已完成，但需一次真实构建或发版才到达用户 |
 | `fork-divergence.md` | ✅ **已证实** | 有实跑输出或权威引用支撑 |
 | `fork-divergence.md` | ⚠️ **调研中** | 结论未出，**不作为决策依据** |
 | `fork-divergence.md` | 未标注 | 基于代码阅读的推断，需实施时验证 |
@@ -52,4 +52,4 @@
 | `desktop-webview-media-permission-plan.md` | 实测 | 探针结论由真实 Wails 窗口层级与包布局对照实验取得，命令与输出见 §0.2／§0.2.1／§0.7 |
 | `desktop-webview-media-permission-plan.md` | 已落地 | 7 个任务全部实现并合入 `linglong`（提交清单见文首横幅）；复选框未回头勾选，**不代表未完成** |
 
-**重要**：`fork-divergence.md`、`i18n.md` 与 `merge-conflict-convergence.md` 中的处置建议**均未执行**——它们记录的是审计结论与待批准方案，不代表任何代码已被改动。`AUDIT.md`、`doctor-migration-plan.md` 与 `desktop-webview-media-permission-plan.md` 则不同：`AUDIT.md` 的状态行同时记录「已修」与「未修」，其中 31 条已修项各自有对应提交与验证证据；`doctor-migration-plan.md` 的阶段 0 与阶段 1 Task 1–5 已落地，逐项附验证证据；`desktop-webview-media-permission-plan.md` 的三处修复已全部合入 `linglong`，逐处附提交号与验证证据。
+**重要**：`fork-divergence.md`、`i18n.md` 与 `merge-conflict-convergence.md` 中的处置建议**均未执行**——它们记录的是审计结论与待批准方案，不代表任何代码已被改动。`AUDIT.md`、`doctor-migration-plan.md` 与 `desktop-webview-media-permission-plan.md` 则不同：`AUDIT.md` 只列未修项，每条给出位置、影响、修复建议与验收，修完即从清单删除；`doctor-migration-plan.md` 的阶段 0 与阶段 1 Task 1–5 已落地，逐项附验证证据；`desktop-webview-media-permission-plan.md` 的三处修复已全部合入 `linglong`，逐处附提交号与验证证据。

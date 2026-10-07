@@ -23,3 +23,7 @@ Status: implemented
 ## Consequences
 
 二进制增大约 1.1 MB 的 TTF。终端字形按真实的 500/700 字重渲染 JetBrains Mono，不受宿主字体影响；字体加载失败或超时回退系统等宽字体，不阻塞终端创建，同时也让 DOM-stub 测试环境（没有 `document.fonts`）继续可用。字体只作用于页面：GTK 窗口框架不受影响，容器内 `fc-list` 也看不到它——可观察的验证对象是渲染出来的终端，而不是 fontconfig。
+
+## Related
+
+[Container fonts and fontconfig injection for the desktop launcher](2026-09-13-desktop-launcher-container-fonts.zh.md) 交付了上方第一条替代方案所否决的启动器侧 `FONTCONFIG_FILE` 叠加层。该否决对终端字体仍然成立——本条决策只作用于页面，不改变进程级的字体解析——但它「应用控制不到 WebKit 进程的 fontconfig 初始化」这一前提已不再成立：启动器在 `wails.Run` 之前设置 `FONTCONFIG_FILE`，且随包配置已被验证能改变容器内的族名解析。

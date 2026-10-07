@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-09-13-desktop-launcher-container-fonts.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-13-desktop-launcher-container-fonts.md
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher:
+  en: 3b7c5aad4bc0550a
+  zh: c8df53ab6949e3f8
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/problem:
+  en: 5714fe0cb5d97e2a
+  zh: fac0c4c882aec05d
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/decision:
+  en: 3536262f80094944
+  zh: c7b6e66f44349cbf
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/alternatives-considered:
+  en: 2bb55294758d7244
+  zh: 316d2825cf354c0e
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/consequences:
+  en: f565e50ea33928a4
+  zh: 5d65c59170ed54c7
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/testing:
+  en: e86db6b300da47bd
+  zh: caf00747e56d3c3c
+/agent-note-container-fonts-and-fontconfig-injection-for-the-desktop-launcher/related:
+  en: 48048a496b68bba0
+  zh: 17c4d4174b7f3276
