@@ -223,7 +223,8 @@ func TestReportClientBootFailure_EmptyReasonFallsBack(t *testing.T) {
 // 外置模式的页面没有注入桥：一条伪造或滞留的上报不能把壳从外部服务切到失败页。
 func TestReportClientBootFailure_IgnoredInExternalMode(t *testing.T) {
 	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		// 探针要求响应体含 harness 启动标记：这里回一份最小首页，证明"连上的是 harness"。
+		_, _ = w.Write([]byte(`<html><script>globalThis["__DSH_BOOT__"] = {}</script></html>`))
 	}))
 	defer ok.Close()
 

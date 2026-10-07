@@ -3,8 +3,10 @@
 package connector
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -35,7 +37,23 @@ func IsLoopbackHost(host string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// Probe 探测 rawURL 是否存活：HTTP GET，2xx/3xx 视为成功。
+// harnessBootMarker 是 harness Web 服务渲染首页时注入的启动标记。
+//
+// `dsh web` 把 `globalThis["__DSH_BOOT__"] = {...}` 写进首页 HTML（见
+// packages/host/webserver 的 injections），浏览器客户端也从同一标记取启动图。
+// 它同时是「这个地址后面确实是一个 harness」的可判定证据：仅凭 2xx 无法区分静态文件
+// 服务器、反向代理默认页或任意 HTTP 服务——那些地址会被判成「已连接」，随后连不上。
+const harnessBootMarker = "__DSH_BOOT__"
+
+// probeBodyLimit 是探测时最多读取的响应体字节数。首页只有几 KB，读到上限仍没有标记
+// 即可判定不是 harness；上限同时挡住超大响应（不能为了找标记无界读取）。
+const probeBodyLimit = 256 << 10
+
+// Probe 探测 rawURL 是否是一个可用的 harness：HTTP GET 返回 2xx/3xx，且响应体前
+// probeBodyLimit 字节内含 harness 启动标记。
+//
+// 错误文案保持英文技术细节（与既有的 `HTTP %d`、url.Parse 的错误一致）：领域包只报
+// 事实，界面文案由 app 层渲染，而本函数的错误经 Connector.LastError 原样送到错误弹框。
 func Probe(rawURL string, timeout time.Duration) error {
 	client := &http.Client{Timeout: timeout}
 	resp, err := client.Get(rawURL)
@@ -43,10 +61,17 @@ func Probe(rawURL string, timeout time.Duration) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 400 {
-		return nil
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return fmt.Errorf("HTTP %d", resp.StatusCode)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, probeBodyLimit))
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(body, []byte(harnessBootMarker)) {
+		return fmt.Errorf("not a harness web UI: response body has no %s marker", harnessBootMarker)
+	}
+	return nil
 }
 
 // LoadExternalURL 读取配置中的外部 URL；文件缺失或损坏返回空串。

@@ -29,13 +29,27 @@ func TestIsLoopbackHost(t *testing.T) {
 	}
 }
 
+// harnessIndex 模拟 harness 首页：真实服务把 `globalThis["__DSH_BOOT__"]` 注入 HTML。
+const harnessIndex = `<html><head><script>globalThis["__DSH_BOOT__"] = {"rev":"x"}</script></head></html>`
+
 func TestProbe(t *testing.T) {
 	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(harnessIndex))
 	}))
 	defer ok.Close()
 	if err := Probe(ok.URL, time.Second); err != nil {
-		t.Fatalf("probe 200 应成功,got %v", err)
+		t.Fatalf("probe 含启动标记的 200 应成功,got %v", err)
+	}
+
+	// 仅凭 2xx 判定的老行为会把静态文件服务器、反向代理默认页也当成 harness：
+	// 用户看到「已连接」，随后连不上。这条固定新判据。
+	plain := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("<html><body>hello</body></html>"))
+	}))
+	defer plain.Close()
+	err := Probe(plain.URL, time.Second)
+	if err == nil || !strings.Contains(err.Error(), harnessBootMarker) {
+		t.Fatalf("probe 无启动标记的 200 应失败并点明标记,got %v", err)
 	}
 
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +120,7 @@ func TestConnector_Confirmation(t *testing.T) {
 func TestConnector_BeginExternal(t *testing.T) {
 	c := New()
 	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(harnessIndex))
 	}))
 	defer ok.Close()
 
