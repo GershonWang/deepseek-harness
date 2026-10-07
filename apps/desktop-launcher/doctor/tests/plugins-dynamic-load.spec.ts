@@ -104,6 +104,34 @@ async function writeBundleFile(home: string, bundleName: string, fileName: strin
   )
 }
 
+/**
+ * 写出一对「单独都能加载、同时挂载必失败」的第三方 bundle。
+ *
+ * 为什么用对称计数，而不是「A 置标志、B 据此抛错」：Cordis loader 等待条目初始化任务用的是
+ * `Promise.allSettled`（`vendor/loader/src/config/tree.ts`），两个模块体的求值顺序没有保证。
+ * 非对称写法只在「A 先求值」时失败，另一半顺序下全量探测直接通过、检查如实报「全部正常」，
+ * 用例随即假失败（实测 9 次运行 3 次失败）。对称计数让后求值者必然看到计数大于 1：
+ * 两种顺序都失败，而任一子集（只挂一个）只自增一次、必然通过——「没有任何单个 bundle
+ * 是元凶」这一前提因此与求值顺序无关。每次探测是独立子进程，全局计数不会跨探测残留。
+ * @param home - fixture harness home。
+ */
+async function writeInteractingPair(home: string): Promise<void> {
+  const pairModule = [
+    'globalThis.__pairSeen = (globalThis.__pairSeen ?? 0) + 1',
+    "if (globalThis.__pairSeen > 1) { throw new Error('incompatible pair detected') }",
+    'export default function () { void 0 }',
+    '',
+  ].join('\n')
+  for (const name of ['pair-a', 'pair-b'] as const) {
+    await writeBundle(home, name, [
+      '- insert:',
+      `    - id: ${name}-plugin`,
+      `      name: ./${name}.js`,
+    ].join('\n') + '\n')
+    await writeBundleFile(home, name, `${name}.js`, pairModule)
+  }
+}
+
 describe('plugin-dynamic-load', () => {
   let home: string
 
@@ -172,24 +200,10 @@ describe('plugin-dynamic-load', () => {
 
   it('reports an unlocatable failure when only the pair of bundles breaks', async () => {
     home = await mkdtemp(join(tmpdir(), 'dsh-dyn-interact-'))
-    // trip-bundle evaluates first and sets the flag; partner-bundle throws
-    // because of it. Either alone loads fine, so no single bundle is the
-    // culprit and the bisection must stay inconclusive.
-    await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'trip-bundle', 'partner-bundle'])
-    await writeBundle(home, 'trip-bundle', [
-      '- insert:',
-      '    - id: trip-plugin',
-      '      name: ./trip.js',
-    ].join('\n') + '\n')
-    await writeBundleFile(home, 'trip-bundle', 'trip.js',
-      'globalThis.__tripLoaded = true\nexport default function () { void 0 }\n')
-    await writeBundle(home, 'partner-bundle', [
-      '- insert:',
-      '    - id: partner-plugin',
-      '      name: ./partner.js',
-    ].join('\n') + '\n')
-    await writeBundleFile(home, 'partner-bundle', 'partner.js',
-      "if (globalThis.__tripLoaded === true) { throw new Error('incompatible pair detected') }\nexport default function () { void 0 }\n")
+    // Either bundle alone loads fine; together the second one to evaluate throws.
+    // No single bundle is the culprit, so the bisection must stay inconclusive.
+    await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'pair-a', 'pair-b'])
+    await writeInteractingPair(home)
 
     const result = await pluginDynamicLoadCheck.check(home)
     expect(result.ok).toBe(false)
@@ -270,21 +284,8 @@ describe('plugin-dynamic-load', () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-dyn-fix-interact-'))
       // The same interacting pair as the unlocatable check case: either bundle
       // alone loads fine, so the repair cannot locate anything to disable.
-      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'trip-bundle', 'partner-bundle'])
-      await writeBundle(home, 'trip-bundle', [
-        '- insert:',
-        '    - id: trip-plugin',
-        '      name: ./trip.js',
-      ].join('\n') + '\n')
-      await writeBundleFile(home, 'trip-bundle', 'trip.js',
-        'globalThis.__tripLoaded = true\nexport default function () { void 0 }\n')
-      await writeBundle(home, 'partner-bundle', [
-        '- insert:',
-        '    - id: partner-plugin',
-        '      name: ./partner.js',
-      ].join('\n') + '\n')
-      await writeBundleFile(home, 'partner-bundle', 'partner.js',
-        "if (globalThis.__tripLoaded === true) { throw new Error('incompatible pair detected') }\nexport default function () { void 0 }\n")
+      await writeProfile(home, ['@deepseek-ai/dsh-sdk-minimal', 'pair-a', 'pair-b'])
+      await writeInteractingPair(home)
 
       const backupDir = join(home, 'backups', 'doctor-test')
       await mkdir(backupDir, { recursive: true })

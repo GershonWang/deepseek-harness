@@ -52,7 +52,6 @@
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
 | N31 | 低危 | `plugin-patch-composable` 一律标「可修复 L2」 | 未修 |
-| N34 | 低危 | `plugin-dynamic-load` 的「未能定位」用例偶发失败 | 未修 |
 | 22 | 低危 | `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 部分修复 |
 | 27 | 低危 | 窗口位置未记忆 | 部分修复 |
 | 28 | 低危 | 窗口背景色硬编码 | 部分修复 |
@@ -229,16 +228,6 @@
 - **影响**：用户按界面提示点「修复」必然失败；而真正的问题（补丁条目被整条跳过、用户配置静默不生效）只以一行英文告警呈现，没有指出「哪个文件、哪一行、该改成什么」。
 - **修复建议**：①让 `fixable` 与实际能力一致——收窄为「告警中至少有一条是 `removeOrphanedPatchEntries` 能处理的」，其余返回 `fixable:false`，并在 `message`／`detail` 里点名文件路径、条目 id、声明名与目标当前名；②（可选）对 name 不符增加一种修复——删掉该条目的 `name` 键、保留 id 与 config，代价是 id 被复用给另一插件时过期守卫消失，结果文案必须写明。不建议让 loader 对 name 不符硬失败（`vendor/` 上游代码，且会把「插件改名」升级为整树启动失败）。
 - **验收**：五类告警各自得到与实现能力一致的 `fixable` 取值，且有测试逐类固定。
-
-## N34 `plugin-dynamic-load` 的「未能定位」用例依赖条目求值顺序，测试偶发失败
-
-- **状态**：未修｜✅ 实测复核（2026-10-07）
-- **位置**：`doctor/tests/plugins-dynamic-load.spec.ts`（`reports an unlocatable failure when only the pair of bundles breaks`、`repair > reports it cannot fix when no single bundle reproduces the failure`）；被测分支 `doctor/src/checks/plugins.ts`（诚实分支与整体还原分支）
-- **问题**：两个用例都构造「两个 bundle 单独都能加载、只有同时挂载才失败」的交互故障（`trip-bundle` 的模块体把 `globalThis.__tripLoaded` 置真，`partner-bundle` 的模块体据此抛错），据此断言检查/修复走到「未能定位」。但这对 bundle 是否失败取决于**哪个模块体先求值**：Cordis loader 等待条目初始化任务用的是 `Promise.allSettled`（`vendor/loader/src/config/tree.ts`），条目求值并非严格按声明顺序串行；`partner` 先求值时两个模块都不抛错，全量探测直接通过，检查如实返回「所有 N 个选装插件加载正常」，用例随即失败。
-- **影响**：doctor 的测试套件偶发失败（本轮 9 次运行中 3 次失败，失败点在 check 用例与 fix 用例之间跳动），N32 唯一覆盖「未能定位」分支的用例不可信；把它接进 CI 会得到随机红灯，而按失败信息排查会指向并不存在的产品缺陷。
-- **修复建议**：把交互故障改成**对称**的，使两种求值顺序都必然失败——让两个模块体各自对同一个全局计数自增，后求值者看到计数大于 1 即抛错。这样「单独都能加载、同时必失败」不再依赖顺序，bisect 的单调性也成立（子集只挂一个时不抛错）。另一条路是把断言放宽成「要么定位到某个 bundle、要么诚实报告未能定位」，但那会丢掉本用例的判别力。
-- **收尾**：`make check` 目前**故意不接 doctor 套件**（`Makefile` 的 `check` 目标里留了注释与命令行），本用例稳定后要把它接回去，doctor 才算真正有汇总入口。
-- **验收**：`vitest run tests/plugins-dynamic-load.spec.ts` 连跑 10 次全过；随后把 doctor 套件接进 `make check`。
 
 ## 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp`
 
