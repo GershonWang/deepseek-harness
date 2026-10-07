@@ -75,6 +75,16 @@ if sh apps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/file
 else
   echo "==> ⚠ 工具清单校验有失败项，继续导出（不影响包功能）" >&2
 fi
+# 裁剪（lib/gcc、node/include）此前只有脚本自觉、没有断言：脚本因上游布局变化而空转时，
+# 产物凭空大几十 MB 而构建照常成功；lib/x86_64-linux-gnu 的膨胀也完全没有上限。
+# 这里把「不该有的、该有的、体积上限」写成导出前的硬条件（AUDIT 9/10）。
+echo "==> 校验导出树的体积与内容"
+if sh apps/desktop-launcher/linglong/verify-artifact-size.sh linglong/output/binary/files; then
+  echo "==> 体积与内容断言通过"
+else
+  echo "==> ✗ 体积与内容断言失败：产物与裁剪/组装预期不符，中止导出" >&2
+  exit 1
+fi
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
 ART="${LL_ID}_${LL_VERSION}_x86_64_main.uab"

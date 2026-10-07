@@ -13,7 +13,7 @@
 - **要上游 loader／服务端配合的**：插件树挂载复用（启动预热／按需加载）。
 - **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（接收侧已有 `event.source !== window.parent` 校验）。
 
-`9 / 10` 与 `N-extra2` 只保留能在 app 内完成的那一半（体积断言、`make` 汇总入口）；CI 与 pre-push 接线按上述约束不做。
+`9 / 10` 与 `N-extra2` 能在 app 内完成的那一半（体积断言、`make check` 汇总入口）已落地并移出清单；CI 与 pre-push 接线按上述约束不做。
 
 ## 复核基点
 
@@ -37,7 +37,6 @@
 |---|---|---|---|
 | N3 | 高危 | 工具索引来自个人 fork 的可变分支，且无签名 | 部分修复 |
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
-| 9 / 10 | 中危 | 无体积门禁（CI 按约束不做） | 未修 |
 | 11 | 中危 | `inject_workspace_pkg` 仍是黑名单模式 | 未修 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 32 | 中危 | 注入链路仍是三层补丁 | 未修 |
@@ -49,7 +48,6 @@
 | 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
 | 31 | 低危 | connector probe 非幂等 | 未修 |
-| N-extra2 | 低危 | 自动化测试无汇总入口（hook 接线按约束不做） | 未修 |
 | N24 | 低危 | `ToolVersion.LibRel` 无消费点 | 未修 |
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
@@ -88,15 +86,6 @@
 - **影响**：apt 默认 Recommends 带进了与嵌入式本地 Web 应用无关的栈——`gstreamer-1.0` 22 MB、`mfx` 12 MB、`lapack` 7 MB、`ImageMagick-6.9.13` 4.3 MB、`OpenNI2` 1.3 MB、`directfb-1.7-7` 1.2 MB、`perl5` 1.1 MB，另有 `blas`/`caca`/`enchant-2`，合计约 50 MB+。
 - **修复建议**：以 `depends.yaml` + `tools.yaml` 为准做一次依赖链比对，摘掉用不到的多媒体/图形栈；把 `skip_existing` 从注释变成显式配置或校验。
 - **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）落到 `build-linglong.sh`，超阈值即中止导出。
-
-## 9 / 10 无体积门禁（CI 按约束不做）
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`build-linglong.sh`（断言落点）；`.gitlab-ci.yml` 与 `.github/workflows/` 是上游未改动文件，按「收录范围」不动
-- **问题**：全仓无任何体积断言；`build-linglong.sh` 只在末尾用 `du -h` 打印一行产物体积，超阈值不会失败。GCC 工具链、Node 头文件、依赖链之类的回归因此不会被拦下。
-- **影响**：打包全靠手工 `sh apps/desktop-launcher/build-linglong.sh`，回归只能靠事后比对。
-- **修复建议**：在 `build-linglong.sh` 的 export 之前加体积断言：`lib/gcc` 与 `node/include` 必须不存在（现在由 `prune-gcc-toolchain.sh` 与 `prepare-offline.sh` 保证，但没有断言），`lib/x86_64-linux-gnu` 不超过阈值。与 `verify-merged-deps.sh` 同处调用，失败即中止导出。
-- **验收**：故意把 `lib/gcc` 造回来或把阈值调低时，`build-linglong.sh` 在导出前非零退出。
 
 ## 11 `inject_workspace_pkg` 仍是黑名单模式
 
@@ -204,16 +193,6 @@
 - **修复建议**：探测改为校验响应体确实是 harness 服务（例如命中随包 GUI 的标记或已知路由特征）。**不要**改成请求 `/api/health`——仓库里没有该端点（只有一处测试夹具），那会把改动推给上游。
 - **验收**：指向静态文件服务器或任意 2xx 页面时探测失败；指向真实 harness 时通过。
 
-## N-extra2 自动化测试无汇总入口（hook 接线按约束不做）
-
-- **状态**：未修｜✅ 实测复核（2026-10-07）
-- **位置**：`Makefile`（汇总入口落点）、`frontend/test-app.cjs`、`frontend/test-i18n.cjs`、`doctor`（`vitest.config.ts`）、`linglong/test-verify-tools.sh`；`lefthook.yml` 是上游文件（fork 已改 +13/−1），按「收录范围」不再追加
-- **问题**：这些测试都能跑，但没有任何单一入口把它们串起来——`Makefile` 的 `test` 只跑 `go test ./...`（且需 cgo 与 GTK 开发库），前端、doctor 与打包脚本自测各自为政。
-- **影响**：本轮实测 `go test ./internal/...`（13 个包）、`node --test frontend/test-app.cjs`（69 例）、`frontend/test-i18n.cjs`（20 例）、doctor 的 `vitest run`（11 文件 87 例）、`sh linglong/test-verify-tools.sh`（6 项）全部可跑，却没有任何出口自动执行它们。
-- **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则剥掉全部 `<script>`，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行；实测当时那批缺陷全部存在时它仍全数通过。
-- **修复建议**：在 `apps/desktop-launcher/Makefile` 增加一个 `check` 目标，串起 `CGO_ENABLED=0 go test ./internal/...`、两个前端用例、doctor 的 `vitest run` 与 `linglong/test-*.sh`。`Makefile` 在 app 内，不需要动上游。
-- **验收**：`make check` 一条命令跑完全部套件；故意改坏一处前端逻辑时它非零退出。
-
 ## N24 `ToolVersion.LibRel` 无消费点
 
 - **状态**：未修｜✅ 已复核
@@ -257,8 +236,9 @@
 - **位置**：`doctor/tests/plugins-dynamic-load.spec.ts`（`reports an unlocatable failure when only the pair of bundles breaks`、`repair > reports it cannot fix when no single bundle reproduces the failure`）；被测分支 `doctor/src/checks/plugins.ts`（诚实分支与整体还原分支）
 - **问题**：两个用例都构造「两个 bundle 单独都能加载、只有同时挂载才失败」的交互故障（`trip-bundle` 的模块体把 `globalThis.__tripLoaded` 置真，`partner-bundle` 的模块体据此抛错），据此断言检查/修复走到「未能定位」。但这对 bundle 是否失败取决于**哪个模块体先求值**：Cordis loader 等待条目初始化任务用的是 `Promise.allSettled`（`vendor/loader/src/config/tree.ts`），条目求值并非严格按声明顺序串行；`partner` 先求值时两个模块都不抛错，全量探测直接通过，检查如实返回「所有 N 个选装插件加载正常」，用例随即失败。
 - **影响**：doctor 的测试套件偶发失败（本轮 9 次运行中 3 次失败，失败点在 check 用例与 fix 用例之间跳动），N32 唯一覆盖「未能定位」分支的用例不可信；把它接进 CI 会得到随机红灯，而按失败信息排查会指向并不存在的产品缺陷。
-- **修复建议**：①把交互故障改成确定性的依赖关系（例如 `partner.js` 直接 `import` `trip.js` 的导出，或用 `top-level await` 建立顺序）；②若产品语义上交互故障本就无法稳定复现，则把断言从 `ok === false` 改为「要么定位到某个 bundle、要么诚实报告未能定位」，并把顺序依赖写进用例注释。
-- **验收**：`vitest run tests/plugins-dynamic-load.spec.ts` 连跑 10 次全过。
+- **修复建议**：把交互故障改成**对称**的，使两种求值顺序都必然失败——让两个模块体各自对同一个全局计数自增，后求值者看到计数大于 1 即抛错。这样「单独都能加载、同时必失败」不再依赖顺序，bisect 的单调性也成立（子集只挂一个时不抛错）。另一条路是把断言放宽成「要么定位到某个 bundle、要么诚实报告未能定位」，但那会丢掉本用例的判别力。
+- **收尾**：`make check` 目前**故意不接 doctor 套件**（`Makefile` 的 `check` 目标里留了注释与命令行），本用例稳定后要把它接回去，doctor 才算真正有汇总入口。
+- **验收**：`vitest run tests/plugins-dynamic-load.spec.ts` 连跑 10 次全过；随后把 doctor 套件接进 `make check`。
 
 ## 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp`
 
