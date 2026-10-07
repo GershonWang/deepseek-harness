@@ -4,6 +4,17 @@
 
 它不在文档闸门覆盖范围内：`verify-translation-pairing` 的语料范围由 `scripts/translation-pairing.ts:172-179` 的 `isTranslationScopeFile` 判定，只收 README 三件套、仓库根的 paired docs、`.agents/notes/**` 与仓库根的 `docs/**`／`python/**`；`verify-md-wrap` 与 `verify-md-links` 的 glob 也不含 `apps/`。因此**没有自动化手段保证本文与代码同步**：改动任一条目后请在同一次提交里更新本文，修完即删除该条。
 
+## 收录范围
+
+本清单只收**修复点落在 `apps/desktop-launcher/` 内**的缺陷。本 fork 的约束是与上游尽量一致：`apps/desktop-launcher/` 之外的文件一律不动，只有玲珑客户端真的无法工作时才最小量修改上游代码。因此下列缺陷**不入清单**（卡点写在括号里，避免重复提出）：
+
+- **要改上游配置文件的**：`.gitlab-ci.yml` 与 `.github/workflows/`（上游未改动，新增即是新增偏离）、`lefthook.yml`（上游文件，fork 已改 +13/−1，再加只会加重偏离）。
+- **根因或改动点在上游工具／产物的**：ll-builder 生成的 `buildext.sh`（`|| echo "$?"` 吞错）与根 `linglong/entry.sh`（`CFLAGS="-g"`）、ll-builder 把 `failed to copy` 降级为警告、上游 overlay 的写入不落盘、`WEBKIT_EXEC_PATH` 所需的 `DEVELOPER_MODE` webkit 发行物、上游基础镜像里坏掉的 `xdg-open`。
+- **要上游 loader／服务端配合的**：插件树挂载复用（启动预热／按需加载）。
+- **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（接收侧已有 `event.source !== window.parent` 校验）。
+
+`9 / 10` 与 `N-extra2` 只保留能在 app 内完成的那一半（体积断言、`make` 汇总入口）；CI 与 pre-push 接线按上述约束不做。
+
 ## 复核基点
 
 - 分支 `linglong`，HEAD `56dc9f3840`（2026-10-07），玲珑包 `0.1.5.1`。
@@ -20,31 +31,25 @@
 | ✅ 已复核 | 逐行读代码或实跑命令取得证据 |
 | ⚠️ 静态审查 | 经代码阅读得出，未独立复跑 |
 
-`3`、`12`、`34` 三条分别属「已决策保留」与「改动点/根因在上游」，不由本仓库动作驱动，列在表末供参考。
-
 ## 条目总览
 
 | # | 级别 | 条目 | 状态 |
 |---|---|---|---|
 | N3 | 高危 | 工具索引来自个人 fork 的可变分支，且无签名 | 部分修复 |
-| 33 | 高危 | WebKit helper 字节补丁与版本号硬编码 | 部分修复 |
-| N18 | 高危 | `buildext.apt.depends` 的安装命令吞掉错误 | 部分修复 |
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
-| 9 / 10 | 中危 | 无 CI 流水线与体积门禁 | 未修 |
+| 9 / 10 | 中危 | 无体积门禁（CI 按约束不做） | 未修 |
 | 11 | 中危 | `inject_workspace_pkg` 仍是黑名单模式 | 未修 |
-| 14 | 中危 | 启动预热 / 按需加载插件 | 未修 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 32 | 中危 | 注入链路仍是三层补丁 | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | S6 | 中危 | 项目配置 tool ID 未校验 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
 | N32 | 中危 | 探针把健康 bundle 指为元凶并据此给出 L2 修复 | 未修 |
-| 19 | 中危 | postMessage 的 `targetOrigin` | 部分修复 |
 | N16 | 中危 | `verify-tools.sh` 的一致性校验不覆盖多版本 | 部分修复 |
 | 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
 | 31 | 低危 | connector probe 非幂等 | 未修 |
-| N-extra2 | 低危 | 三套自动化测试无执行入口 | 未修 |
+| N-extra2 | 低危 | 自动化测试无汇总入口（hook 接线按约束不做） | 未修 |
 | N24 | 低危 | `ToolVersion.LibRel` 无消费点 | 未修 |
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
@@ -55,9 +60,6 @@
 | 28 | 低危 | 窗口背景色硬编码 | 部分修复 |
 | N-extra | 低危 | 前端异步错误兜底缺口 | 部分修复 |
 | N-extra3 | 低危 | 打包脚本中重复与漂移的事实 | 部分修复 |
-| 3 | 低危 | 精简 Node 闭包 | 未修（已决策保留） |
-| 12 | 低危 | 去掉 `CFLAGS="-g"` | 未修（改动点在上游 ll-builder） |
-| 34 | 中危 | 基础镜像的 `xdg-open` 是坏的 | 未修（上游镜像问题，workaround 已就位） |
 
 ---
 
@@ -74,28 +76,6 @@
 - **修复建议**：索引附 ed25519/minisign 签名，公钥编译进客户端；`docs/toolchain-index-release.md` 补签名与验证步骤。
 - **验收**：篡改索引内容后客户端拒绝加载（负例用例）；发布文档含签名流程。
 
-## 33 WebKit helper 字节补丁与版本号硬编码
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`linglong/patch-webkit-exec-path.sh`、`internal/packaging/webkit-exec-path.txt`（短路径单一来源）、`linglong/linglong.yaml`（`build:` 段的 webkit 块）、`internal/packaging/webkit_linux.go`
-- **问题**：交付仍靠对 `libwebkit2gtk-4.1.so` 做二进制字符串替换，再用短路径软链绕开原路径。
-- **影响**：webkit 小版本或发行物布局一变，补丁即失效。
-- **已修部分**：版本号不再硬编码（`linglong.yaml` 用 glob 解析构建容器内的唯一实体，命中 0 个或多个都硬失败）；补丁脚本在找不到路径、替代串比原串长、替换后仍残留原路径三种情况下均非零退出，写盘前完成全部自检；短路径单源化到 `internal/packaging/webkit-exec-path.txt`，打包与启动两侧读同一份，两条守卫测试固定契约。
-- **剩余问题**：两条长期方案都被实测否掉——`WEBKIT_EXEC_PATH` 在已发布包的 `.so` 里 `strings` 不存在（该代码路径未编入发行版构建，需 `DEVELOPER_MODE`）；让 layer 正确导出 `/usr/lib/...` 被上游 overlay 缺陷阻塞（构建容器内新装文件不落盘）。可行前提不在本仓库。
-- **修复建议**：向上游要 `DEVELOPER_MODE` 的 webkit 发行物，或等 overlay 缺陷修复后改走 layer 导出；届时只需改 `webkit-exec-path.txt` 一处。
-- **验收**：`sh linglong/test-patch-webkit-exec-path.sh` 4 项全过；产物 `.so` 内短路径计数 2、原路径计数 0；`go test ./internal/packaging` 全绿。
-
-## N18 `buildext.apt.depends` 的安装命令吞掉错误，依赖可能整段没装上
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`linglong/buildext.sh`（由 `linglong.yaml` 的 `buildext:` 段生成，每次构建覆盖）、`linglong/verify-container-deps.sh`、`linglong/verify-merged-deps.sh`、`build-linglong.sh`
-- **问题**：ll-builder 生成的两条命令都以 `|| echo "$?"` 结尾（`apt update` 与 `apt install …`），apt 失败（网络、锁、磁盘、文件系统错误）不中止构建，只打印一个数字；`README.zh.md` 声明的运行时依赖全部经由这一条路径拉入。
-- **影响**：依赖没装上时构建照常成功，产出「装得上、跑不起来」的包。
-- **已修部分**：`build:` 段开头调用 `verify-container-deps.sh` 校验 `build_depends`（dpkg 状态为 `install ok installed`、已装版本等于 apt 候选、`dpkg --verify` 无输出、实体是普通文件、`/usr` 下无 `*.dpkg-new` 残留，并放行基座裁剪的 `/usr/share/doc`、`/usr/share/man`）；`depends` 改由宿主侧 `verify-merged-deps.sh` 在合并产物树上校验，`build-linglong.sh` 在 export 前调用、失败即中止导出。
-- **剩余问题**：命令文本由 ll-builder 从包名列表生成，`linglong.yaml` 的 `buildext:` 段只有包名，本仓库改不掉那两行；当前真实构建的 `buildext.sh` 仍是那两行 `|| echo "$?"`。
-- **修复建议**：向上游反馈，让 buildext 生成 `set -e` 语义或暴露自定义安装命令。
-- **验收**：`sh linglong/test-verify-container-deps.sh` 10 项、`test-verify-merged-deps.sh` 7 项全过；真实合并树 `verify-merged-deps.sh` 退出码 0。
-
 ---
 
 # 二、中危
@@ -107,16 +87,16 @@
 - **问题**：去重结果没问题（单一实体 `libwebkit2gtk-4.1.so.0.19.7` 92.8 MB + 两条软链，补丁版胜出），但 `skip_existing` 在源码与生成物中都没有该配置键，去重完全依赖 ll-builder 默认行为，仓库既没声明也没校验。更关键的是**依赖链没有裁剪或比对**：`lib/x86_64-linux-gnu` 实测 **293 MB / 352 项**（180 个普通文件 + 172 条软链），而 `depends.yaml` 有 **175 条**，且没有任何受控文件消费它——`git grep depends.yaml` 唯一命中 `clean-linglong.sh` 的一句注释。
 - **影响**：apt 默认 Recommends 带进了与嵌入式本地 Web 应用无关的栈——`gstreamer-1.0` 22 MB、`mfx` 12 MB、`lapack` 7 MB、`ImageMagick-6.9.13` 4.3 MB、`OpenNI2` 1.3 MB、`directfb-1.7-7` 1.2 MB、`perl5` 1.1 MB，另有 `blas`/`caca`/`enchant-2`，合计约 50 MB+。
 - **修复建议**：以 `depends.yaml` + `tools.yaml` 为准做一次依赖链比对，摘掉用不到的多媒体/图形栈；把 `skip_existing` 从注释变成显式配置或校验。
-- **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）进 CI。
+- **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）落到 `build-linglong.sh`，超阈值即中止导出。
 
-## 9 / 10 无 CI 流水线与体积门禁
+## 9 / 10 无体积门禁（CI 按约束不做）
 
 - **状态**：未修｜✅ 已复核
-- **位置**：`.gitlab-ci.yml`、`.github/workflows/`、`build-linglong.sh`
-- **问题**：`.gitlab-ci.yml` 只有 `python-v*` 触发的 wheel 流水线；`.github/workflows/` 对 `desktop-launcher`／`linglong`／`ll-builder`／`go test` 零命中；`Makefile` 有 `go test ./...` 目标但无任何 CI 调用；全仓无体积断言。
-- **影响**：打包全靠手工 `sh apps/desktop-launcher/build-linglong.sh`；GCC 工具链、Node 头文件、依赖链之类的回归不会被拦下。
-- **修复建议**：一条流水线跑 `verify-tools.sh` + `pnpm run build` + `go test ./...` + 体积断言（`lib/gcc` 必须为 0、`node/include` 必须为 0、`lib/x86_64-linux-gnu` 不超过阈值）。
-- **验收**：故意引入 `lib/gcc` 或超阈值体积时流水线失败。
+- **位置**：`build-linglong.sh`（断言落点）；`.gitlab-ci.yml` 与 `.github/workflows/` 是上游未改动文件，按「收录范围」不动
+- **问题**：全仓无任何体积断言；`build-linglong.sh` 只在末尾用 `du -h` 打印一行产物体积，超阈值不会失败。GCC 工具链、Node 头文件、依赖链之类的回归因此不会被拦下。
+- **影响**：打包全靠手工 `sh apps/desktop-launcher/build-linglong.sh`，回归只能靠事后比对。
+- **修复建议**：在 `build-linglong.sh` 的 export 之前加体积断言：`lib/gcc` 与 `node/include` 必须不存在（现在由 `prune-gcc-toolchain.sh` 与 `prepare-offline.sh` 保证，但没有断言），`lib/x86_64-linux-gnu` 不超过阈值。与 `verify-merged-deps.sh` 同处调用，失败即中止导出。
+- **验收**：故意把 `lib/gcc` 造回来或把阈值调低时，`build-linglong.sh` 在导出前非零退出。
 
 ## 11 `inject_workspace_pkg` 仍是黑名单模式
 
@@ -126,15 +106,6 @@
 - **影响**：`packages/experimental/` 现已有 23 个包目录；黑名单模式下漏排一类就会静默进包，且不会有任何断言提示。
 - **修复建议**：改为显式白名单，只注入标准 preset 实际列出的包。
 - **验收**：新增一个 workspace 包后闭包内不出现它（除非显式加入白名单）。
-
-## 14 启动预热 / 按需加载插件
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/supervisor/supervisor.go`（监护循环与 `spawn`）
-- **问题**：每轮监护循环都 `spawn()` 全新进程，退避重启后回到同一路径 → **每轮重试全量重载插件树**。唯一相关机制是 `fatalLoadPattern` 的快速失败（避免坏插件下反复重载），不是预热。
-- **影响**：打包态启动实测 5–6 秒，其中约 4 秒花在插件挂载；崩溃重启会把这段重来一遍。
-- **修复建议**：预热或按需加载插件树（需先确认上游 loader 是否提供可复用的挂载缓存）。
-- **验收**：启动耗时下降且有记录；重启路径不再全量重载。
 
 ## 23 打包态与外部 harness 共享 `~/.dsh`
 
@@ -148,19 +119,21 @@
 ## 32 注入链路仍是三层补丁
 
 - **状态**：未修｜✅ 已复核
-- **位置**：`scripts/fix-deploy-closure.mjs`、`linglong/prepare-offline.sh`（`inject_workspace_pkg`）、`linglong/inject-link-bridge.sh`
-- **问题**：让打包态跑起来至少依赖三层对 `pnpm deploy` 与上游架构的补丁，三层齐在且仍被调用。
-- **影响**：上游迭代时任何一层都可能失效，而失效方式通常是静默的。
-- **修复建议**：上游把 desktop launcher 的闭包打成官方 preset／bundle，下游只做组装。
-- **验收**：三层补丁中至少一层可删，且打包态仍能启动。
+- **位置**：`scripts/fix-deploy-closure.mjs`（**fork 自有文件**，`83a153f124` 从 desktop fork 移植）、`linglong/prepare-offline.sh`（`inject_workspace_pkg`）、`linglong/inject-link-bridge.sh`
+- **问题**：让打包态跑起来至少依赖三层对 `pnpm deploy` 与上游架构的补丁，三层齐在且仍被调用；其中一层还停在 `apps/desktop-launcher/` 之外的仓库根 `scripts/`。
+- **影响**：上游迭代时任何一层都可能失效，而失效方式通常是静默的；散落在 app 之外的那一层还额外增加与上游的文件树差异。
+- **修复建议**：①把 `scripts/fix-deploy-closure.mjs` 移进 `apps/desktop-launcher/tools/`——它是 fork 自有文件，移动只会减少偏离，并把三层收敛到同一目录；②长期方向是上游把闭包打成官方 preset／bundle，下游只做组装。
+- **验收**：仓库根 `scripts/` 不再有 fork 自有的闭包补丁；三层补丁全部位于 `apps/desktop-launcher/` 内，且打包态仍能启动。
 
 ## 35 外链桥只在容器模式生效
 
 - **状态**：未修｜✅ 已复核
-- **位置**：`linglong/inject-link-bridge.sh`、`README.zh.md`（已知事项）
-- **问题**：桥在打包时注入 GUI dist，因此只覆盖容器内运行的 harness。连接外部服务时，外部 harness 服务的是未注入的 GUI，其中 `target="_blank"` 外链点击没有反应。README 已明确承认这一点。
-- **修复建议**：把外链桥做成官方插件或前端特性，不依赖打包时注入。
-- **验收**：连接外部服务时外链可点击。
+- **位置**：`linglong/inject-link-bridge.sh`（现状）、`internal/webviewperm/permission_linux.c`（可复用的 GTK 侧信号接管模式）、`README.zh.md`（已知事项）
+- **问题**：桥在打包时注入 GUI dist，因此只覆盖容器内运行的 harness。连接外部服务时，外部 harness 服务的是未注入的 GUI，其中 `target="_blank"` 外链点击没有反应。
+- **影响**：容器模式与外部服务模式行为不一致，外部模式下外链是死链。
+- **修复建议**：改为在 launcher 内从 GTK 侧接管 WebKit 信号——`internal/webviewperm/permission_linux.c` 已演示「遍历顶层窗口取回 `WebKitWebView` 并连信号」的成熟做法，同一条路可连 `create`／`decide-policy`，把新窗口请求交给 `BrowserOpenURL`。这样两种模式都覆盖，且完全落在 `apps/desktop-launcher/` 内，不需要动 `packages/client`。
+- **前置**：先做一次小 spike，确认该 Wails 版本下 `create` 与 `decide-policy` 的触发时机（Wails 自身是否已处理新窗口请求）。
+- **验收**：连接外部服务时 `target="_blank"` 外链可点击；容器模式下行为不变。
 
 ## S6 项目配置 tool ID 未校验
 
@@ -189,16 +162,6 @@
 - **复现**：把 `~/.dsh` 置于只读后跑全量诊断，探针以 `EROFS … open '/home/Jokul/.dsh/profiles/web/cordis.yml'` 退出；`plugin-dynamic-load` 却报「插件 dshmarket 导致启动失败（缺少运行依赖或损坏）」，并给出 `fixable: true`、`suggestedLevel: 2`。换成可写的影子 home 复跑，同一检查变为「所有 3 个第三方插件加载正常」。
 - **修复建议**：①给探针加一个能表达「只挂官方层」的入口（如 `--include none`），`locateCulprit` 在全量失败后先跑这个基线，基线**也**失败即返回 `culprit: null`，由检查走已有的诚实分支（`fixable:false`「未能定位」）且不提供 L2 修复；②`locateCulprit` 在二分前用该基线显式验证 `bisectBy` 的契约；③给探针退出码分档（插件加载失败 vs 环境/IO 失败），检查按档决定是否归因。
 - **验收**：home 不可写时报告不再点名任何 bundle，且不提供 L2 修复；有测试固定该分支。
-
-## 19 postMessage 的 `targetOrigin`
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`packages/client/ui-conversation/src/client/desktop-clipboard.ts:51`（发起侧）、`frontend/app.js`（回包侧）、`linglong/dsh-link-bridge.js`（注入桥）
-- **问题**：harness 侧发起剪贴板请求的方向仍是 `window.parent.postMessage({...}, '*')`。
-- **影响**：消息会被投递到任意来源的父窗口（接收侧已有 `event.source !== window.parent` 校验，风险有限，但不满足最小授权）。
-- **已修部分**：壳→iframe 的回包已改为 `new URL(frame.src).origin`（仅解析失败才回退 `'*'`）；注入的外链桥用 `window.location.ancestorOrigins[0]` 兜底。
-- **修复建议**：改 `packages/client` 那一处，并把 `tests/desktop-clipboard.client.spec.ts` 里明文期望 `'*'` 的断言一起改。
-- **验收**：该处不再出现 `'*'`，测试改为期望实际 origin。
 
 ## N16 `verify-tools.sh` 的一致性校验不覆盖多版本
 
@@ -236,20 +199,20 @@
 
 - **状态**：未修｜✅ 已复核
 - **位置**：`internal/connector/connector.go`（`Probe` 与其调用点）
-- **问题**：只判 `200 <= code < 400`，不校验响应体、不请求 `/api/health`；探测通过即切 `ModeExternal`。
+- **问题**：只判 `200 <= code < 400`，不校验响应体；探测通过即切 `ModeExternal`。
 - **影响**：填入任意返回 2xx/3xx 的地址都会显示「已连接」，随后客户端连不上。
-- **修复建议**：探测改为请求 `/api/health` 并校验响应体，或至少校验返回的是 harness 服务。
-- **验收**：指向静态文件服务器时探测失败。
+- **修复建议**：探测改为校验响应体确实是 harness 服务（例如命中随包 GUI 的标记或已知路由特征）。**不要**改成请求 `/api/health`——仓库里没有该端点（只有一处测试夹具），那会把改动推给上游。
+- **验收**：指向静态文件服务器或任意 2xx 页面时探测失败；指向真实 harness 时通过。
 
-## N-extra2 三套自动化测试无执行入口
+## N-extra2 自动化测试无汇总入口（hook 接线按约束不做）
 
 - **状态**：未修｜✅ 实测复核（2026-10-07）
-- **位置**：`lefthook.yml`（pre-push）、`apps/desktop-launcher/frontend/test-app.cjs`、`apps/desktop-launcher/frontend/test-i18n.cjs`、`apps/desktop-launcher/doctor`（`vitest.config.ts`）、`linglong/test-verify-tools.sh`
-- **问题**：这些测试都能跑，但都没有 CI 或 git hook 入口：pre-push 只跑 `pnpm run typecheck` 与 `preview.mjs verify`。
+- **位置**：`Makefile`（汇总入口落点）、`frontend/test-app.cjs`、`frontend/test-i18n.cjs`、`doctor`（`vitest.config.ts`）、`linglong/test-verify-tools.sh`；`lefthook.yml` 是上游文件（fork 已改 +13/−1），按「收录范围」不再追加
+- **问题**：这些测试都能跑，但没有任何单一入口把它们串起来——`Makefile` 的 `test` 只跑 `go test ./...`（且需 cgo 与 GTK 开发库），前端、doctor 与打包脚本自测各自为政。
 - **影响**：本轮实测 `go test ./internal/...`（13 个包）、`node --test frontend/test-app.cjs`（69 例）、`frontend/test-i18n.cjs`（20 例）、doctor 的 `vitest run`（11 文件 87 例）、`sh linglong/test-verify-tools.sh`（6 项）全部可跑，却没有任何出口自动执行它们。
 - **附加问题**：`preview.mjs verify` 在 `buildPreview` 里用正则剥掉全部 `<script>`，再用手写 fixture 重建弹框 DOM，因此它一行 `app.js` 都不执行；实测当时那批缺陷全部存在时它仍全数通过。
-- **修复建议**：把 `node --test apps/desktop-launcher/frontend/test-app.cjs`、doctor 的 `vitest run` 与 `go test ./internal/...` 加进 pre-push 或 CI。
-- **验收**：故意改坏一处前端逻辑时推送被拦下。
+- **修复建议**：在 `apps/desktop-launcher/Makefile` 增加一个 `check` 目标，串起 `CGO_ENABLED=0 go test ./internal/...`、两个前端用例、doctor 的 `vitest run` 与 `linglong/test-*.sh`。`Makefile` 在 app 内，不需要动上游。
+- **验收**：`make check` 一条命令跑完全部套件；故意改坏一处前端逻辑时它非零退出。
 
 ## N24 `ToolVersion.LibRel` 无消费点
 
@@ -345,29 +308,3 @@
 - **已修部分**：`prepare-offline.sh` 的 README glob 已锚定 `"$pkgdir"/README*` 并加 `-f` 守卫。
 - **修复建议**：把 Node 版本与包装器收敛为单一来源（由 `linglong.yaml` 生成，或脚本读取同一变量）。
 - **验收**：改一处即可同时改变 stage 与容器 fallback 的 Node 版本。
-
-## 3 精简 Node 闭包
-
-- **状态**：未修（已决策保留）｜✅ 已复核
-- **位置**：`linglong/prepare-offline.sh`
-- **说明**：`stage/node/lib/node_modules/` 为 `corepack`/`npm`/`pnpm`，`npm` 实测 **20 MB**（含 `node_modules` 16 MB、`node-gyp` 3.4 MB、`sigstore` 44 KB）。注释写明保留理由：lefthook 的 pre-push typecheck 走 `npm run`。收益仅 20 MB，已是有理由的既定取舍。
-- **若重启此议题**：先确认 pre-push 链路能否改用 pnpm 调用。
-
-## 12 去掉 `CFLAGS="-g"`
-
-- **状态**：未修（改动点在上游 ll-builder）｜✅ 已复核
-- **位置**：仓库根 `linglong/entry.sh`（由 ll-builder 生成，`linglong/` 被 `.gitignore` 忽略）
-- **问题**：`export CFLAGS="-g $CFLAGS"` 与末尾的 `symbols-strip.sh` 均由 builder 注入/追加；`apps/desktop-launcher/linglong/` 下 grep `CFLAGS` 零命中。原判断「注释写着 enable strip symbols、实际行为相反」成立。
-- **影响**：容器内编译产物带调试符号，随后又被 strip，属冗余。
-- **修复建议**：只能在 `linglong.yaml` 的 `build:` 段显式覆盖，或向 ll-builder 反馈。
-- **验收**：产物内不再注入 `-g`（或上游修复）。
-
-## 34 基础镜像的 `xdg-open` 是坏的
-
-- **状态**：未修（上游镜像问题，workaround 已就位）｜✅ 已复核
-- **位置**：`README.zh.md`（已知事项）、`linglong/linglong.yaml`、`linglong/tools.yaml`
-- **问题**：基础镜像的 `/bin/xdg-open` 只是 systemd-run 转发壳（75 字节），打不开任何东西。
-- **影响**：容器内打开外链/文件失效。
-- **已修部分**：随包合入真实 xdg-utils 盖过它（合并层 `bin/xdg-open` 为 32289 字节真实脚本），并由 `verify-tools.sh` 校验存在性。
-- **修复建议**：向基础镜像维护方反馈。
-- **验收**：基础镜像自带可用的 `xdg-open`。
