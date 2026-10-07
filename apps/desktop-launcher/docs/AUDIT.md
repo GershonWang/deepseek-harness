@@ -41,13 +41,10 @@
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 32 | 中危 | 注入链路仍是三层补丁 | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
-| S6 | 中危 | 项目配置 tool ID 未校验 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
 | N16 | 中危 | `verify-tools.sh` 的一致性校验不覆盖多版本 | 部分修复 |
 | 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
-| 31 | 低危 | connector probe 非幂等 | 未修 |
-| N24 | 低危 | `ToolVersion.LibRel` 无消费点 | 未修 |
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
 | 22 | 低危 | `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 部分修复 |
@@ -121,15 +118,6 @@
 - **前置**：先做一次小 spike，确认该 Wails 版本下 `create` 与 `decide-policy` 的触发时机（Wails 自身是否已处理新窗口请求）。
 - **验收**：连接外部服务时 `target="_blank"` 外链可点击；容器模式下行为不变。
 
-## S6 项目配置 tool ID 未校验
-
-- **状态**：未修｜⚠️ 静态审查
-- **位置**：`internal/toolchain/project.go`（`ResolveProject`／`ApplyProject`）、`internal/toolchain/catalog.go`（`currentLink`、`SetActiveVersion`）
-- **问题**：`.dsh-toolchain.yml` 的 `tools:` 键从不与清单比对，`id` 直接进入 `currentLink(dir, id)` 与 `versionDir(dir, id, version)`；带 `../` 的 ID 会让 `os.Remove(link)` 删除安装目录之外的同名文件。
-- **影响**：需前端直接调用 `ApplyProjectToolchain`（`internal/app/app.go`）才能触达；该能力后端已实现而前端未接，影响面受限。
-- **修复建议**：在 `ResolveProject` 里用 `LookupTool` 校验每个 ID，非法即报错跳过。
-- **验收**：含 `../` 的配置项被拒绝且有测试固定。
-
 ## N22 端到端审计只覆盖 `versions[0]`，新增版本没有实证防线
 
 - **状态**：未修｜✅ 已复核（2026-10-07）
@@ -170,24 +158,6 @@
 - **影响**：harness 跑长任务时关窗会中断。
 - **修复建议**：引入托盘（`OnBeforeClose` 返回 true 并隐藏窗口），托盘菜单提供退出。
 - **验收**：关窗后进程与 harness 继续运行，可从托盘退出。
-
-## 31 connector probe 非幂等
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/connector/connector.go`（`Probe` 与其调用点）
-- **问题**：只判 `200 <= code < 400`，不校验响应体；探测通过即切 `ModeExternal`。
-- **影响**：填入任意返回 2xx/3xx 的地址都会显示「已连接」，随后客户端连不上。
-- **修复建议**：探测改为校验响应体确实是 harness 服务（例如命中随包 GUI 的标记或已知路由特征）。**不要**改成请求 `/api/health`——仓库里没有该端点（只有一处测试夹具），那会把改动推给上游。
-- **验收**：指向静态文件服务器或任意 2xx 页面时探测失败；指向真实 harness 时通过。
-
-## N24 `ToolVersion.LibRel` 无消费点
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/toolchain/catalog.go`（字段声明、`ReconcileBinLinks`）、`internal/toolchain/install.go`（只写进 `tool.yml`）
-- **问题**：`lib_rel` 被声明、被解析、被写进安装目录的 `tool.yml`，但**没有任何读取点**：库目录绑定按 `root/lib`、`root/lib64` 是否存在决定，与清单声明的 `lib_rel` 无关。
-- **影响**：清单作者以为改 `lib_rel` 就能改变 `LD_LIBRARY_PATH` 注入的库目录；发行包布局与声明不符时不会报错，只会静默少绑或不绑。
-- **修复建议**：要么让 `ReconcileBinLinks` 真正消费该字段（未声明时保留现有探测作为回退），要么删掉字段与 `tool.yml` 里那一行。
-- **验收**：清单改 `lib_rel` 能改变绑定，或字段被删除。
 
 ## N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它
 
