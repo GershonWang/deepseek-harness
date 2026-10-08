@@ -77,8 +77,9 @@ func main() {
 	resolved := appenv.Resolve()
 	controller := app.New(resolved, home, app.ExternalConfigFilePath())
 
-	// 读取上次保存的窗口状态（尺寸、最大化等），读取失败时静默回退默认值。
-	windowState, _ := app.LoadWindowState(home)
+	// 读取上次保存的窗口几何与主题（尺寸、最大化、位置、主题），读取失败时静默回退默认值。
+	cfg, _ := app.LoadAppConfig(home)
+	windowState := cfg.Window
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	sigCh := make(chan os.Signal, 1)
@@ -95,6 +96,10 @@ func main() {
 		startState = options.Maximised
 	}
 
+	// 首帧窗口底色由上次记录的主题决定：窗口在页面绘制之前就存在，那一刻 Go 侧读不到
+	// 系统主题，只能沿用前端上次回推的值（见 app.FirstFrameBackground）。
+	frameR, frameG, frameB := app.FirstFrameBackground(cfg.Theme)
+
 	err := wails.Run(&options.App{
 		Title:     "DeepSeek Harness",
 		Width:     windowState.Width,
@@ -108,7 +113,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		BackgroundColour: &options.RGBA{R: 30, G: 30, B: 30, A: 255},
+		BackgroundColour: &options.RGBA{R: frameR, G: frameG, B: frameB, A: 255},
 		OnStartup:        controller.OnStartup,
 		// 内嵌 WebView 的麦克风权限只能在页面就绪后挂：此时 WebKit 已创建视图并把它
 		// 放进窗口，GTK 侧才遍历得到（见 internal/webviewperm）；挂早了找不到视图。

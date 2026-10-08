@@ -39,6 +39,11 @@ func DefaultWindowState() WindowState {
 type AppConfig struct {
 	ExternalURL string      `json:"externalUrl,omitempty"`
 	Window      WindowState `json:"window"`
+	// Theme 是前端回推的界面主题，取值 "dark"/"light"；空串表示尚未记录。
+	//
+	// 它只服务于**首帧**：窗口背景色必须在页面绘制之前定下来，而那时前端还没起来，
+	// Go 侧读不到 prefers-color-scheme，只能沿用上次记录的值（审计 28）。
+	Theme string `json:"theme,omitempty"`
 }
 
 // DefaultAppConfig 返回默认配置。

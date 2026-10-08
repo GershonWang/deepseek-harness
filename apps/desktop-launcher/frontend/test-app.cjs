@@ -474,6 +474,8 @@ function makeWails(runCalls, overrides = {}) {
   /* i18n 的语言回推（frontend/i18n.js → App.SetLocale）：单独记账而不混进 runCalls
    * ——初始化就会回推一次兜底语言，混进去会打乱既有用例对「壳侧动作」的断言。 */
   const localeCalls = [];
+  /* 主题回推（frontend/app.js → App.SetTheme）：壳首帧窗口底色用它决定（审计 28）。 */
+  const themeCalls = [];
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
@@ -523,6 +525,10 @@ function makeWails(runCalls, overrides = {}) {
     SetLocale: async (id) => {
       localeCalls.push(id);
     },
+    // 系统主题回推（frontend/app.js 的 reportTheme）：只影响下次启动的首帧底色。
+    SetTheme: async (dark) => {
+      themeCalls.push(dark);
+    },
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
     TerminalStart: async () => "pty-" + (++terminalSeq),
     TerminalWrite: async () => {},
@@ -534,6 +540,7 @@ function makeWails(runCalls, overrides = {}) {
     windowEvents,
     autoDisabled,
     localeCalls,
+    themeCalls,
     openedUrls,
     window: {
       go: { app: { App: app } },
@@ -551,6 +558,11 @@ function makeWails(runCalls, overrides = {}) {
         // 复制服务地址走这条通道（与终端复制同一实现）；文本记入 runCalls 供断言。
         ClipboardSetText: async (text) => { runCalls.push(`clipboard:${text}`); },
       },
+      // 系统主题：app.js 用 prefers-color-scheme 判定，用例经 prefersDark 覆盖。
+      matchMedia: () => ({
+        matches: overrides.prefersDark === true,
+        addEventListener() {},
+      }),
       addEventListener: (type, fn) => { (windowEvents[type] ||= []).push(fn); },
       localStorage: overrides.localStorage ?? makeStorage(),
     },
@@ -604,9 +616,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events, windowEvents, autoDisabled, localeCalls, openedUrls } = hasWails
+  const { window, events, windowEvents, autoDisabled, localeCalls, themeCalls, openedUrls } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], openedUrls: [] };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], themeCalls: [], openedUrls: [] };
 
   const sandbox = {
     console,
@@ -660,6 +672,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     storage: window.localStorage,
     i18n: window.DSHI18N,
     localeCalls,
+    themeCalls,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -877,6 +890,18 @@ test("桥上报 GUI 语言：壳切语言、同步文档语言并把生效语言
   assert.equal(h.i18n.current(), "en", "GUI 语言应覆盖兜底值");
   assert.equal(h.document.documentElement.lang, "en", "文档语言应跟随 GUI");
   assert.deepEqual(h.localeCalls, ["zh", "en"], "语言变化应回推给 Go");
+});
+
+test("启动时把系统主题回推给 Go（供下次启动的首帧底色使用）", async () => {
+  // 首帧窗口底色必须早于前端定下来，那一刻 Go 侧读不到 prefers-color-scheme，
+  // 只能沿用上次回推的值，所以启动时必须推一次（审计 28）。
+  const dark = loadApp({ overrides: { prefersDark: true } });
+  await flush();
+  assert.deepEqual(dark.themeCalls, [true], "深色系统应回推 dark");
+
+  const light = loadApp({ overrides: { prefersDark: false } });
+  await flush();
+  assert.deepEqual(light.themeCalls, [false], "浅色系统应回推 light");
 });
 
 test("语言消息校验：非法载荷不改语言也不回推", async () => {

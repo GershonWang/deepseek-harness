@@ -59,6 +59,32 @@ function api() {
   return window.go.app.App;
 }
 
+/**
+ * 把当前系统主题回推给 Go。
+ *
+ * 用途只有一个：**下次启动的首帧窗口底色**。窗口底色必须在页面绘制之前定下来，而那一刻
+ * 前端还没起来，Go 侧读不到 prefers-color-scheme，只能沿用上次记录的值（审计 28）。
+ * 本次的首帧由上次回推的值决定，本次的实际主题由页面自己的 color-scheme 决定，所以这里
+ * 不需要立刻重绘什么。系统主题变化时也重推一次：用户可能开着客户端就切了主题。
+ */
+function reportTheme() {
+  const app = window.go && window.go.app && window.go.app.App;
+  if (!app || typeof app.SetTheme !== "function") return;
+  const query = window.matchMedia("(prefers-color-scheme: dark)");
+  const push = () => {
+    try {
+      const pending = app.SetTheme(query.matches);
+      if (pending && typeof pending.catch === "function") pending.catch(() => {});
+    } catch (err) {
+      // 壳二进制可能比前端旧（方法不存在）时同步失败，不影响页面本身的行为。
+    }
+  };
+  push();
+  if (typeof query.addEventListener === "function") {
+    query.addEventListener("change", push);
+  }
+}
+
 
 
 function radioValue() {
@@ -1714,6 +1740,7 @@ function init() {
   $("#loading-hint").textContent = tr("loading.hint");
 
   bindUI();
+  reportTheme();
 
   if (!window.go || !window.go.app) {
     // 浏览器直接打开 index.html 的开发预览：无 Wails 运行时，仅展示引导页。
