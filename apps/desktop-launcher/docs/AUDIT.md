@@ -11,17 +11,17 @@
 - **要改上游配置文件的**：`.gitlab-ci.yml` 与 `.github/workflows/`（上游未改动，新增即是新增偏离）、`lefthook.yml`（上游文件，fork 已改 +13/−1，再加只会加重偏离）。
 - **根因或改动点在上游工具／产物的**：ll-builder 生成的 `buildext.sh`（`|| echo "$?"` 吞错）与根 `linglong/entry.sh`（`CFLAGS="-g"`）、ll-builder 把 `failed to copy` 降级为警告、上游 overlay 的写入不落盘、`WEBKIT_EXEC_PATH` 所需的 `DEVELOPER_MODE` webkit 发行物、上游基础镜像里坏掉的 `xdg-open`。
 - **要上游配合的**：打包态的三层注入补丁（`tools/fix-deploy-closure.mjs`、`prepare-offline.sh` 的 `inject_workspace_pkg`、`inject-link-bridge.sh`）已全部收敛进 `apps/desktop-launcher/` 内（见 git 历史），但"上游把 dsh 闭包打成官方 preset／bundle、下游只做组装"这一步只能由上游做。
-- **机制上做不到的**：`/tmp/dsh-webkit-4.1` 这个短路径无法按用户隔离——补丁脚本做的是构建期字节替换，新串必须是字面量且不长于原串（`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1`，42 字节），而 `$XDG_RUNTIME_DIR` 含 uid、只在运行期可知。现有的 `webkitHelperLinkUsable` 已挡住他人预置的链接、悬空链接与指向旧包的链接，残余的 TOCTOU 要根治只能换机制（每次启动在用户命名空间里把私有 tmpfs 挂到固定路径），不属最小改动。
+- **机制上做不到的**：`/tmp/dsh-webkit-4.1` 这个短路径无法按用户隔离——补丁脚本做的是构建期字节替换，新串必须是字面量且不长于原串（`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1` 40 字节，带 `injected-bundle/` 的 57 字节），而 `$XDG_RUNTIME_DIR` 含 uid、只在运行期可知。现有的 `webkitHelperLinkUsable` 已挡住他人预置的链接、悬空链接与指向旧包的链接，残余的 TOCTOU 要根治只能换机制（每次启动在用户命名空间里把私有 tmpfs 挂到固定路径），不属最小改动。
 - **要上游 loader／服务端配合的**：插件树挂载复用（启动预热／按需加载）。
-- **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（接收侧已有 `event.source !== window.parent` 校验）。
+- **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（壳的 `frontend/app.js` 接收侧已按 `e.source !== frame.contentWindow` 校验来源，且只接受 `dshDesktop === true` 的消息）。
 
 `9 / 10` 与 `N-extra2` 能在 app 内完成的那一半（体积断言、`make check` 汇总入口）已落地并移出清单；CI 与 pre-push 接线按上述约束不做。
 
 ## 复核基点
 
-- 分支 `linglong`，HEAD `56dc9f3840`（2026-10-07），玲珑包 `0.1.5.1`。
-- 产物证据取自当日交付层 `~/.cache/linglong-builder/merged/acbfe51b…/files`、仓库根 `linglong/` 的当日构建工作区与 `apps/desktop-launcher/linglong/stage/`。
-- **环境限制**：本机无 `ll-builder` 与玲珑容器、无 gcc；未跑真实构建与安装、GUI 启动、需外网的 `DSH_TC_E2E=1`。涉及容器与真机的结论都需在用户机器上闭环。
+- 分支 `linglong`，HEAD `220bb0610a`（2026-10-08），玲珑包 `0.1.5.2`。
+- 产物证据取自交付层 `~/.cache/linglong-builder/merged/8c11d079…/files`（2026-10-07）、仓库根 `linglong/` 的构建工作区与 `apps/desktop-launcher/linglong/stage/`。`8c11d079` 与上一版 `acbfe51b` 的 `lib/x86_64-linux-gnu` 体积与条目数一致（同为 304,866,155 B、180 个普通文件 + 172 条软链）。
+- **环境限制**：本次复核时宿主已提供 `ll-builder`／`ll-cli`（实测在 PATH，来自 `~/.dsh-linglong/bin` 的宿主透传），`make` 与 `gcc` 仍缺；本次仍只做静态复核，未跑真实构建与安装、GUI 启动、需外网的 `DSH_TC_E2E=1`。因此「必须先有玲珑构建器」不再是本机的执行阻塞（N26 的字体抽取、8/13 的裁剪实测、11 的基线生成都不用等外部机器）；涉及容器与真机行为的结论仍以本机闭环为准。
 - 行号以该基点为准，代码改动后会漂移；按函数名/符号名定位比按行号可靠。
 
 ## 状态与验证等级
@@ -69,10 +69,10 @@
 
 - **状态**：未修｜✅ 已复核（2026-10-07）
 - **位置**：`linglong/linglong.yaml`（webkit 段）、`linglong/verify-tools.sh`、构建产物 `linglong/depends.yaml`
-- **问题**：去重结果没问题（单一实体 `libwebkit2gtk-4.1.so.0.19.7` 92.8 MB + 两条软链，补丁版胜出），但 `skip_existing` 在源码与生成物中都没有该配置键，去重完全依赖 ll-builder 默认行为，仓库既没声明也没校验。更关键的是**依赖链没有裁剪或比对**：`lib/x86_64-linux-gnu` 实测 **293 MB / 352 项**（180 个普通文件 + 172 条软链），而 `depends.yaml` 有 **175 条**，且没有任何受控文件消费它——`git grep depends.yaml` 唯一命中 `clean-linglong.sh` 的一句注释。
+- **问题**：去重结果没问题（单一实体 `libwebkit2gtk-4.1.so.0.19.7` 92.8 MB + 两条软链，补丁版胜出），但 `skip_existing` 在源码与生成物中都没有该配置键，去重完全依赖 ll-builder 默认行为，仓库既没声明也没校验。更关键的是**依赖链没有裁剪或比对**：`lib/x86_64-linux-gnu` 实测 **304,866,155 B（约 291 MiB）/ 352 项**（180 个普通文件 + 172 条软链），而 `depends.yaml` 有 **175 条**，且没有任何受控文件消费它——`git grep depends.yaml` 唯一命中 `clean-linglong.sh` 的一句注释。
 - **影响**：apt 默认 Recommends 带进了与嵌入式本地 Web 应用无关的栈——`gstreamer-1.0` 22 MB、`mfx` 12 MB、`lapack` 7 MB、`ImageMagick-6.9.13` 4.3 MB、`OpenNI2` 1.3 MB、`directfb-1.7-7` 1.2 MB、`perl5` 1.1 MB，另有 `blas`/`caca`/`enchant-2`，合计约 50 MB+。
 - **修复建议**：以 `depends.yaml` + `tools.yaml` 为准做一次依赖链比对，摘掉用不到的多媒体/图形栈；把 `skip_existing` 从注释变成显式配置或校验。
-- **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）落到 `build-linglong.sh`，超阈值即中止导出。
+- **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）落到 `build-linglong.sh`，超阈值即中止导出——**这半已落地**（`linglong/verify-artifact-size.sh` 由 `build-linglong.sh` 在导出前调用并硬失败，上限 `340 MiB`／整棵 `1 GiB`，提交 `866648b81f`），本条只差依赖链的裁剪与比对。
 
 ## 11 注入集合的受审清单机制已落地，基线待建立
 
@@ -106,7 +106,7 @@
 
 - **状态**：未修｜✅ 已复核（2026-10-07）
 - **位置**：`internal/toolchain/e2e_install_test.go`、`internal/toolchain/install.go`（空 version 落到 `LatestVersion()`）
-- **问题**：`TestE2E_CatalogInstall` 是清单里「地址可达、归档与清单 sha256 一致、解压布局符合 `bin_rel`/`bin_names`、声明的命令都出现在 `bin/`」的唯一实证手段，但它对每个工具只装 `versions[0]`；`DSH_TC_E2E_IDS` 也只能按工具 ID 过滤。
+- **问题**：`TestE2E_CatalogInstall` 是清单里「地址可达、归档与清单 sha256 一致、解压布局符合 `bin_rel`/`bin_names`、声明的命令都出现在 `bin/`」的唯一实证手段，但它对每个工具只装 `versions[0]`；`DSH_TC_E2E_IDS` 也只能按工具 ID 过滤。`verify-tools.sh` 现已静态校验每个版本的 `url`/`sha256` 格式并与推荐版本对账（提交 `c51401b7d1`），因此非推荐版本的残余风险精确为「格式合法但地址已 404／sha 抄错一字符」。
 - **影响**：`jdk` 现有五条版本线（`21.0.12.1`/`8u504`/`25.0.4.1`/`17.0.20.1`/`11.0.32.1`），其中**四条非推荐版本**不在任何自动化覆盖内；镜像站轮换或 sha256 抄错一个字符，只会在用户点安装时暴露（grpcurl 的 sha256 抄错一字符就是由它首次跑出）。
 - **修复建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
 - **验收**：`DSH_TC_E2E=1` 跑过全部版本线，或至少可指定版本过滤并覆盖非推荐版本。
@@ -131,6 +131,7 @@
 - **问题**：壳的 CSS 字体栈把中文族交给运行时的 fontconfig，而容器里 `/usr/share/fonts` 被宿主目录整体挂载覆盖，随包的只有 `${PREFIX}/share/dsh-fonts` 下的拉丁与等宽字体。宿主没装中文字体时，界面里的中文会显示成豆腐块。
 - **已核实的事实**：① 曾经声明的 `fonts-wqy-microhei` 只进构建容器，`/usr` 不随 layer 导出，因此**从未随包**（三版产物层与基座层实测无任何 wqy 实体）——该假声明已删除、注释已更正，让人以为「中文族有人管」的误导没有了。② 字体在容器里真实可用：`/usr/share/fonts/truetype/wqy/wqy-microhei.ttc`，5,177,387 字节的真实 TTC。③ 它由 `depends` 阶段安装，而 `depends` 在 `build:` 段**之后**才装进容器——本段看不到它。
 - **影响**：中文能否显示取决于宿主。装有中文字体的机器上不可见（本机测试即如此），精简系统或非中文环境的机器上会暴露。
-- **修复建议**（两步）：①把 `fonts-wqy-microhei` 从 `depends` 移到 `build_depends`；②在 `build:` 段把 `/usr/share/fonts/truetype/wqy/wqy-microhei.ttc` 复制进 `${PREFIX}/share/dsh-fonts/`（该目录已被 fontconfig 注册，见 `install-container-fonts.sh`）。
-- **两个待确认项（需产品/真机决策）**：①产物增大约 5 MB，与 8/13 的裁剪目标相反；②`verify-container-deps.sh` 有一条对 `/usr` 下 `*.dpkg-new` 的全局扫描，移动该依赖后它会在本段之前被安装，是否会因此触发该扫描需要在真实构建里验证——本机无 ll-builder，无法预判。
+- **修复建议**（两步）：①在 `build:` 段复用 webkit 段的既有模式（`apt-get download fonts-wqy-microhei` + `dpkg-deb -x`，见 `linglong/linglong.yaml` 的 webkit 段）从 `.deb` 里取出 `wqy-microhei.ttc`；②把它复制进 `${PREFIX}/share/dsh-fonts/`（该目录已被 fontconfig 注册，见 `install-container-fonts.sh`）。
+- **为什么不用「把依赖移到 `build_depends` 再从 `/usr` 复制」**：那条路要向 `build_depends` 新增一个 apt 包，它会进 `verify-container-deps.sh` 的逐包校验与 `/usr` 下的 `*.dpkg-new` 全局扫描；更关键的是 AUDIT N19 的「apt 报告成功但写入不落盘」一旦复现，从 `/usr` 复制拿到的就是缺失实体或字符设备，正是本条要防的失败。从 `.deb` 抽取与 `depends`／`build_depends` 都无关，这两个问题一并消失。
+- **待确认项（需产品决策）**：产物增大约 5 MB，与 8/13 的裁剪目标相反。技术路径上已无未验证的未知项——旧方案里 `verify-container-deps.sh` 的扫描风险随 `.deb` 抽取方案消失，本机也已有 `ll-builder` 可闭环验证。
 - **验收**：产物含 `share/dsh-fonts/wqy-microhei.ttc`；在未装中文字体的机器上中文不显示豆腐块。
