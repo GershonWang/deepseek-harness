@@ -42,7 +42,6 @@
 | 11 | 中危 | 注入集合的受审清单机制已落地，基线待建立 | 部分修复 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
-| N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
 | N26 | 低危 | 中文字族不随包，无中文字体的机器上显示豆腐块 | 未修（待决策） |
 
@@ -101,17 +100,6 @@
 - **修复建议**：改为在 launcher 内从 GTK 侧接管 WebKit 信号——`internal/webviewperm/permission_linux.c` 已演示「遍历顶层窗口取回 `WebKitWebView` 并连信号」的成熟做法，同一条路可连 `create`／`decide-policy`，把新窗口请求交给 `BrowserOpenURL`。这样两种模式都覆盖，且完全落在 `apps/desktop-launcher/` 内，不需要动 `packages/client`。
 - **前置**：先做一次小 spike，确认该 Wails 版本下 `create` 与 `decide-policy` 的触发时机（Wails 自身是否已处理新窗口请求）。
 - **验收**：连接外部服务时 `target="_blank"` 外链可点击；容器模式下行为不变。
-
-## N22 端到端审计只覆盖 `versions[0]`，新增版本没有实证防线
-
-- **状态**：未修｜✅ 已复核（2026-10-07）
-- **位置**：`internal/toolchain/e2e_install_test.go`、`internal/toolchain/install.go`（空 version 落到 `LatestVersion()`）
-- **问题**：`TestE2E_CatalogInstall` 是清单里「地址可达、归档与清单 sha256 一致、解压布局符合 `bin_rel`/`bin_names`、声明的命令都出现在 `bin/`」的唯一实证手段，但它对每个工具只装 `versions[0]`；`DSH_TC_E2E_IDS` 也只能按工具 ID 过滤。`verify-tools.sh` 现已静态校验每个版本的 `url`/`sha256` 格式并与推荐版本对账（提交 `c51401b7d1`），因此非推荐版本的残余风险精确为「格式合法但地址已 404／sha 抄错一字符」。
-- **影响**：`jdk` 现有五条版本线（`21.0.12.1`/`8u504`/`25.0.4.1`/`17.0.20.1`/`11.0.32.1`），其中**四条非推荐版本**不在任何自动化覆盖内；镜像站轮换或 sha256 抄错一个字符，只会在用户点安装时暴露（grpcurl 的 sha256 抄错一字符就是由它首次跑出）。
-- **修复建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
-- **验收**：`DSH_TC_E2E=1` 跑过全部版本线，或至少可指定版本过滤并覆盖非推荐版本。
-
----
 
 # 三、低危
 
