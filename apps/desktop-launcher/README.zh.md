@@ -103,6 +103,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
+| `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于关掉 DMABUF 后 web 区域仍然花屏的机器（见已知事项） |
 | `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
 | `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
 
@@ -225,4 +226,4 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
-- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。再设 `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 会进一步彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），适用于关掉 DMABUF 后 web 区域仍然花屏的机器；代价是滚动与动画走 CPU。

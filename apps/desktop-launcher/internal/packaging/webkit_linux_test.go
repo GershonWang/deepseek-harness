@@ -140,3 +140,33 @@ func TestConfigureWebKitRenderingHonorsOptOut(t *testing.T) {
 		t.Error("逃生舱开启时应保留 DMABUF 渲染器")
 	}
 }
+
+// 关掉加速合成的逃生舱（AUDIT 17）：同一族 GPU 驱动故障里，关掉 DMABUF 仍然花屏的
+// 机器可以再关掉合成。默认不开——合成是正常路径；它与 NVIDIA 驱动探测无关，是显式的
+// 用户自救开关。
+func TestConfigureWebKitRenderingDisableCompositingOptIn(t *testing.T) {
+	savedProbe := nvidiaModulePath
+	nvidiaModulePath = filepath.Join(t.TempDir(), "no-nvidia") // 不命中驱动条件
+	t.Cleanup(func() { nvidiaModulePath = savedProbe })
+
+	saved, had := os.LookupEnv("WEBKIT_DISABLE_COMPOSITING_MODE")
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", saved)
+			return
+		}
+		_ = os.Unsetenv("WEBKIT_DISABLE_COMPOSITING_MODE")
+	})
+	_ = os.Unsetenv("WEBKIT_DISABLE_COMPOSITING_MODE")
+
+	ConfigureWebKitRendering()
+	if _, ok := os.LookupEnv("WEBKIT_DISABLE_COMPOSITING_MODE"); ok {
+		t.Error("未请求时不应关闭加速合成")
+	}
+
+	t.Setenv("DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING", "1")
+	ConfigureWebKitRendering()
+	if got := os.Getenv("WEBKIT_DISABLE_COMPOSITING_MODE"); got != "1" {
+		t.Errorf("请求后应关闭加速合成，得到 %q", got)
+	}
+}

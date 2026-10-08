@@ -68,8 +68,20 @@ func ConfigureWebKitHelperPath() {
 // 受影响的机器可以据此自救，上游修好后也不必等新版本。逃生舱不主动清除已有设置，
 // 只保证 launcher 自己不写。
 //
+// DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1 退到更彻底的共享内存路径
+// （WEBKIT_DISABLE_COMPOSITING_MODE=1）：同一族 GPU 驱动故障里，关掉 DMABUF 仍然
+// 花屏的机器可以再关掉加速合成。合成是正常路径，关掉会让滚动与动画走 CPU，因此
+// 默认不开。用环境变量而不是界面开关，是因为这类故障发生在窗口显示之前（起来就
+// 花屏或闪退），用户进不了界面去改配置；形式上与 DSH_DESKTOP_DMABUF_RENDERER 一致。
+//
+// 「单进程模式」不在可选项内：实测随包 webkit2gtk-4.1 的 .so 里没有
+// WEBKIT_USE_SINGLE_WEB_PROCESS 字符串，这个构建不认该开关（AUDIT 17）。
+//
 // 必须在 GTK/WebKit 初始化之前调用（main 的 wails.Run 之前），之后设置不生效。
 func ConfigureWebKitRendering() {
+	if os.Getenv("DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING") == "1" {
+		_ = os.Setenv("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+	}
 	if os.Getenv("DSH_DESKTOP_DMABUF_RENDERER") == "1" {
 		return
 	}
