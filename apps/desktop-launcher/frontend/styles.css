@@ -1253,7 +1253,7 @@ button, input, select, textarea { font: inherit; }
 .btn-link:hover { opacity: 0.8; }
 
 /* 修复完成/失败的右下角 toast 提醒 */
-.repair-toast {
+.toast {
   position: fixed;
   right: 16px; bottom: 48px;
   z-index: 2000;
@@ -1267,9 +1267,9 @@ button, input, select, textarea { font: inherit; }
   color: var(--fg-strong);
   animation: toast-in 0.25s ease-out;
 }
-.repair-toast.ok { border-color: var(--ok); }
-.repair-toast.warn { border-color: var(--warn); }
-.repair-toast.error { border-color: var(--danger); }
+.toast.ok { border-color: var(--ok); }
+.toast.warn { border-color: var(--warn); }
+.toast.error { border-color: var(--danger); }
 @keyframes toast-in {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }

@@ -308,7 +308,7 @@ function buildHtml(document) {
     "market-tabs",
     /* 宿主导入折叠：renderHostTools 写摘要、setupHostsToggle 绑标题 */
     "hosts-toggle", "hosts-body", "hosts-summary",
-    "repair-toast",
+    "toast",
     /* 终端：initTerminal 判空引用，补齐以贴近真实 DOM。
        弹框子树（#terminal-modal 内的卡片/头部/正文）按层级单独搭建，见下方。 */
     "btn-terminal", "terminal-modal",
@@ -514,6 +514,7 @@ function makeWails(runCalls, overrides = {}) {
     ConnectExternal: async () => "",
     DisconnectExternal: async () => baseStatus(),
     RefreshTools: async () => ({}),
+    RefreshToolIndex: overrides.RefreshToolIndex ?? (async () => ({})),
     InstallToolchain: async () => ({}),
     RemoveHostTool: async () => ({}),
     AddHostTool: overrides.AddHostTool ?? (async () => ({})),
@@ -677,6 +678,12 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
       events["harness:status"](s);
+    },
+    /* 驱动一条 window 事件（unhandledrejection 等）：壳的兜底监听挂在 window 上。 */
+    windowEvent: (type, ev) => {
+      const listeners = windowEvents[type] || [];
+      assert.ok(listeners.length > 0, "window 未注册 " + type + " 监听");
+      for (const fn of listeners) fn(ev);
     },
     /* 驱动一条 iframe 上来的 window message：注入桥（linglong/dsh-link-bridge.js）
      * 的外链转发与启动失败上报都走这条通道。e.source 固定为 #harness 的
@@ -890,6 +897,41 @@ test("桥上报 GUI 语言：壳切语言、同步文档语言并把生效语言
   assert.equal(h.i18n.current(), "en", "GUI 语言应覆盖兜底值");
   assert.equal(h.document.documentElement.lang, "en", "文档语言应跟随 GUI");
   assert.deepEqual(h.localeCalls, ["zh", "en"], "语言变化应回推给 Go");
+});
+
+test("按钮动作失败时复位按钮并提示，不留永久中间态", async () => {
+  // Go 侧 panic 或绑定缺失会让 await 抛错：此前按钮会永久停在「刷新中」且用户看不到
+  // 任何原因（审计 N-extra）。
+  const h = loadApp({ overrides: { RefreshToolIndex: async () => { throw new Error("boom"); } } });
+  await flush();
+  const btn = h.document.getElementById("market-refresh");
+  btn.fire("click");
+  await flush();
+  assert.equal(btn.disabled, false, "失败后按钮必须复位");
+  assert.equal(btn.textContent, "刷新索引", "失败后按钮文案必须复位");
+  const toast = h.document.getElementById("toast");
+  assert.ok(toast && !toast.classList.contains("hidden"), "失败必须给出可见反馈");
+  assert.ok(toast.textContent.includes("boom"), "提示应带失败原因");
+});
+
+test("关于弹框取数失败时不打开空弹框，并提示", async () => {
+  const h = loadApp({ overrides: { About: async () => { throw new Error("nope"); } } });
+  await flush();
+  h.document.getElementById("btn-about").fire("click");
+  await flush();
+  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
+    "取数失败不应打开内容空白的弹框");
+  const toast = h.document.getElementById("toast");
+  assert.ok(toast && toast.textContent.includes("nope"), "失败必须给出可见反馈");
+});
+
+test("未捕获的 Promise 拒绝会提示一次", async () => {
+  const h = loadApp();
+  await flush();
+  h.windowEvent("unhandledrejection", { reason: new Error("late failure") });
+  const toast = h.document.getElementById("toast");
+  assert.ok(toast && !toast.classList.contains("hidden"), "兜底提示应可见");
+  assert.ok(toast.textContent.includes("late failure"), "提示应带失败原因");
 });
 
 test("启动时把系统主题回推给 Go（供下次启动的首帧底色使用）", async () => {

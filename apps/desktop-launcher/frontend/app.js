@@ -628,19 +628,60 @@ function setRepairButtonsBusy(busy) {
   });
 }
 
-// 右下角 toast 提醒：修复完成/失败时短暂提示原因与处理方式，几秒后自动消失。
-function showRepairToast(text, kind) {
-  let toast = $("#repair-toast");
+// 右下角 toast 提醒：修复完成/失败、以及按钮动作失败时短暂提示原因，几秒后自动消失。
+//
+// 元素按需创建而不是写进 index.html：它不是任何页面结构的一部分，只有真出过事才存在。
+function showToast(text, kind) {
+  let toast = $("#toast");
   if (!toast) {
     toast = document.createElement("div");
-    toast.id = "repair-toast";
+    toast.id = "toast";
     document.body.appendChild(toast);
   }
   toast.textContent = text;
-  toast.className = "repair-toast " + (kind || "ok");
+  toast.className = "toast " + (kind || "ok");
   toast.classList.remove("hidden");
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => toast.classList.add("hidden"), 6000);
+}
+
+/** 把异常转成可读的一行：Error 取 message，其余原样字符串化。 */
+function errorText(err) {
+  if (err && typeof err.message === "string" && err.message) return err.message;
+  return String(err);
+}
+
+/**
+ * 跑一个按钮触发的异步动作：无论成功失败都复位按钮，失败时给出可见反馈。
+ *
+ * 为什么需要它：`await api().X()` 在 Go 侧 panic 或绑定缺失时会 reject，而按钮此前已经
+ * 进入「禁用 + 处理中」的中间态；没有兜底就永久停在那里，用户既等不到结果也看不到原因
+ * （审计 N-extra）。把「置忙 → 执行 → 复位 → 失败提示」收敛到一处，新增按钮动作直接
+ * 复用，不必各写一遍 try/finally。
+ *
+ * @param {?HTMLElement} btn 触发按钮；可为空（动作不涉及按钮状态）。
+ * @param {?string} busyKey 处理中时按钮上的文案键；为空表示不改按钮文案。
+ * @param {?string} idleKey 复位时的文案键；为空表示不改按钮文案。
+ * @param {() => Promise<any>} action 要执行的动作。
+ * @returns {Promise<any>} 动作的返回值；失败时为 undefined（已提示过）。
+ */
+async function runButtonAction(btn, busyKey, idleKey, action) {
+  const idle = idleKey ? tr(idleKey) : null;
+  if (btn) {
+    btn.disabled = true;
+    if (busyKey) btn.textContent = tr(busyKey);
+  }
+  try {
+    return await action();
+  } catch (err) {
+    showToast(tr("error.actionFailed", { error: errorText(err) }), "warn");
+    return undefined;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (idle !== null) btn.textContent = idle;
+    }
+  }
 }
 
 /* doctor 自动禁用提示：harness 启动成功后告诉用户"哪些插件被自动禁用了、怎么恢复"。
@@ -1603,7 +1644,8 @@ function bindUI() {
     api().RefreshTools();
   });
   $("#btn-about").addEventListener("click", async () => {
-    const info = await api().About();
+    const info = await runButtonAction($("#btn-about"), null, null, () => api().About());
+    if (!info) return; // 失败已提示，不再打开内容空白的弹框
     $("#about-package-version").textContent = info.PackageVersion;
     $("#about-harness-version").textContent = info.HarnessVersion;
     $("#about-packager").textContent = info.Packager;
@@ -1674,12 +1716,8 @@ function bindUI() {
 
   // 刷新远程索引：异步拉取，完成后推送一次状态。
   $("#market-refresh").addEventListener("click", async () => {
-    const btn = $("#market-refresh");
-    btn.disabled = true;
-    btn.textContent = tr("tools.refreshing");
-    await api().RefreshToolIndex();
-    btn.disabled = false;
-    btn.textContent = tr("tools.refreshIndex");
+    await runButtonAction($("#market-refresh"), "tools.refreshing", "tools.refreshIndex",
+      () => api().RefreshToolIndex());
   });
 
   // 宿主导入向导：扫描常见宿主工具链根目录。
@@ -1741,6 +1779,11 @@ function init() {
 
   bindUI();
   reportTheme();
+  // 未捕获的 Promise 拒绝兜底：按钮动作已各自兜底，这里覆盖其余路径（事件回调里的
+  // await、扩展注入的异步代码），避免失败只留在控制台（审计 N-extra）。
+  window.addEventListener("unhandledrejection", (ev) => {
+    showToast(tr("error.unhandled", { error: errorText(ev.reason) }), "warn");
+  });
 
   if (!window.go || !window.go.app) {
     // 浏览器直接打开 index.html 的开发预览：无 Wails 运行时，仅展示引导页。
@@ -1994,16 +2037,16 @@ function init() {
             : tr("doctor.repair.culpritFixed");
           setTimeout(() => {
             closeModal("doctor-modal");
-            showRepairToast(tr("doctor.repair.toastOk", { reason: reason }), "ok");
+            showToast(tr("doctor.repair.toastOk", { reason: reason }), "ok");
           }, 1500);
         } catch (e) {
-          showRepairToast(tr("doctor.repair.toastWarn"), "warn");
+          showToast(tr("doctor.repair.toastWarn"), "warn");
         }
       }
     } catch (e) {
       if (statusEl) { statusEl.textContent = tr("doctor.repair.failed"); statusEl.className = "repair-panel-status error"; }
       bodyEl.innerHTML = `<div class="rp-row error">${escapeHtml(e.message)}</div>`;
-      showRepairToast(tr("doctor.repair.failedDetail", { error: e.message }), "warn");
+      showToast(tr("doctor.repair.failedDetail", { error: e.message }), "warn");
     } finally {
       diagnosisState.repairing = false;
       setRepairButtonsBusy(false);

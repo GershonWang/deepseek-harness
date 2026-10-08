@@ -70,6 +70,8 @@ window.DSH_LOCALES.zh = {
   // 状态栏是「状态词 + 主机端口 + 修饰语」的组装：主机是数据、修饰语是独立的括号
   // 片段，拼接不涉及词序，因此按片段建键，而不是给每种组合各造一句。状态词与
   // 数值/片段之间由代码加一个空格分隔，故「带主机」的两种形态单独成键。
+  "error.actionFailed": "操作失败：{error}",
+  "error.unhandled": "后台操作出错：{error}",
   "status.external": "外部服务",
   "status.externalWithHost": "外部服务 {host}",
   "status.clientFailed": "界面插件加载失败",

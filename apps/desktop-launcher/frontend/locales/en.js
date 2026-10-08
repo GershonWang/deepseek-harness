@@ -66,6 +66,8 @@ window.DSH_LOCALES.en = {
 
   /* ---------- 状态栏 ---------- */
   // 状态栏各片段由代码首尾相接、不加分隔符，所以修饰语自带前导空格。
+  "error.actionFailed": "Action failed: {error}",
+  "error.unhandled": "Background operation failed: {error}",
   "status.external": "External service",
   "status.externalWithHost": "External service {host}",
   "status.clientFailed": "UI plugins failed to load",
