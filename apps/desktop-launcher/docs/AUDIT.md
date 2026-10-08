@@ -10,6 +10,7 @@
 
 - **要改上游配置文件的**：`.gitlab-ci.yml` 与 `.github/workflows/`（上游未改动，新增即是新增偏离）、`lefthook.yml`（上游文件，fork 已改 +13/−1，再加只会加重偏离）。
 - **根因或改动点在上游工具／产物的**：ll-builder 生成的 `buildext.sh`（`|| echo "$?"` 吞错）与根 `linglong/entry.sh`（`CFLAGS="-g"`）、ll-builder 把 `failed to copy` 降级为警告、上游 overlay 的写入不落盘、`WEBKIT_EXEC_PATH` 所需的 `DEVELOPER_MODE` webkit 发行物、上游基础镜像里坏掉的 `xdg-open`。
+- **要上游配合的**：打包态的三层注入补丁（`tools/fix-deploy-closure.mjs`、`prepare-offline.sh` 的 `inject_workspace_pkg`、`inject-link-bridge.sh`）已全部收敛进 `apps/desktop-launcher/` 内（见 git 历史），但"上游把 dsh 闭包打成官方 preset／bundle、下游只做组装"这一步只能由上游做。
 - **机制上做不到的**：`/tmp/dsh-webkit-4.1` 这个短路径无法按用户隔离——补丁脚本做的是构建期字节替换，新串必须是字面量且不长于原串（`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1`，42 字节），而 `$XDG_RUNTIME_DIR` 含 uid、只在运行期可知。现有的 `webkitHelperLinkUsable` 已挡住他人预置的链接、悬空链接与指向旧包的链接，残余的 TOCTOU 要根治只能换机制（每次启动在用户命名空间里把私有 tmpfs 挂到固定路径），不属最小改动。
 - **要上游 loader／服务端配合的**：插件树挂载复用（启动预热／按需加载）。
 - **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（接收侧已有 `event.source !== window.parent` 校验）。
@@ -40,7 +41,6 @@
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
 | 11 | 中危 | `inject_workspace_pkg` 仍是黑名单模式 | 未修 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
-| 32 | 中危 | 注入链路仍是三层补丁 | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
@@ -91,15 +91,6 @@
 - **影响**：`README.zh.md`「已知事项」已记录——不同版本的外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成内置 harness 无法解析的格式，导致启动即崩、进入重启循环。
 - **修复建议**：打包态改用独立 `DSH_HOME`（如 `~/.config/dsh-desktop/dsh/`），与 npx／外部安装彻底隔离。
 - **验收**：打包态与外部 harness 各自读写不同的 home；外部写入不影响的启动。
-
-## 32 注入链路仍是三层补丁
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`scripts/fix-deploy-closure.mjs`（**fork 自有文件**，`83a153f124` 从 desktop fork 移植）、`linglong/prepare-offline.sh`（`inject_workspace_pkg`）、`linglong/inject-link-bridge.sh`
-- **问题**：让打包态跑起来至少依赖三层对 `pnpm deploy` 与上游架构的补丁，三层齐在且仍被调用；其中一层还停在 `apps/desktop-launcher/` 之外的仓库根 `scripts/`。
-- **影响**：上游迭代时任何一层都可能失效，而失效方式通常是静默的；散落在 app 之外的那一层还额外增加与上游的文件树差异。
-- **修复建议**：①把 `scripts/fix-deploy-closure.mjs` 移进 `apps/desktop-launcher/tools/`——它是 fork 自有文件，移动只会减少偏离，并把三层收敛到同一目录；②长期方向是上游把闭包打成官方 preset／bundle，下游只做组装。
-- **验收**：仓库根 `scripts/` 不再有 fork 自有的闭包补丁；三层补丁全部位于 `apps/desktop-launcher/` 内，且打包态仍能启动。
 
 ## 35 外链桥只在容器模式生效
 
