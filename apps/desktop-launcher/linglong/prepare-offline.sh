@@ -88,11 +88,45 @@ if [ -d "$STAGE/harness/node_modules/typescript" ]; then
   echo "  - 已删除 typescript"
 fi
 
+# 本次注入的包名清单（供 assert_injected_inventory 比对；不写进 stage，避免混入产物）。
+INJECTED=$(mktemp)
+trap 'rm -f "$INJECTED" "$INJECTED.sorted"' EXIT
+
 # 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
 #     v0.1.2-alpha.1 起大量包改为 peerDependency + devDependency 模式，
 #     deploy --prod 闭包里缺失。遍历 packages/ 和 vendor/ 下所有已构建的
 #     包，将闭包里没有的从源码工作区直接复制进去。
 #     跳过 test-support 与 typert-generator（仅开发/构建期用）。
+# assert_injected_inventory <本次注入清单> <基线清单>
+#
+# 为什么需要它：注入此前是黑名单模式（遍历 packages/*/* 与 vendor/*，只排除
+# experimental、非 @deepseek-ai、test-support、typert/generator），因此**新增的 workspace
+# 包会默认进入生产闭包**——"遍历到就注入"（AUDIT 11）。改成白名单要先知道"哪些包该进"，
+# 而单看 package.json 依赖会漏掉 bundle：profile／preset 的补丁层用包名引用它们、不写
+# 依赖，naive 白名单会把 dsh-base 这类必需包挡在闭包外（实测 45 个未被任何 manifest 引用
+# 的包里含 dsh-base、dsh-client-web 等）。
+#
+# 因此这里不猜语义，改为**把注入集合当作受审清单**：基线缺失时写入并提示（首次建立），
+# 基线存在时逐行比对，多一个或少一个都失败并给出 diff——新增包要进闭包，必须先有人看过
+# 并更新这份清单。
+assert_injected_inventory() {
+  current=$1
+  baseline=$2
+  sort -u "$current" > "$current.sorted"
+  if [ ! -f "$baseline" ]; then
+    cp "$current.sorted" "$baseline"
+    echo "prepare-offline: 已建立注入基线 ${baseline}（$(wc -l < "$baseline") 个包）——请复核后提交；此后新增包会在此失败" >&2
+    return 0
+  fi
+  if diff_out=$(diff "$baseline" "$current.sorted"); then
+    echo "prepare-offline: 注入清单与基线一致（$(wc -l < "$baseline") 个包）"
+    return 0
+  fi
+  echo "prepare-offline: ✗ 注入清单与 ${baseline} 不一致——新增或移除的 workspace 包需要先评审再更新基线（AUDIT 11）：" >&2
+  printf '%s\n' "$diff_out" >&2
+  return 1
+}
+
 inject_workspace_pkg() {
   pkgdir=$1
   # 分支切换/回退后可能残留只有 node_modules、没有 package.json 的目录；
@@ -133,6 +167,7 @@ process.stdout.write([...new Set(list)].join('\n'));
   fi
   if [ "$inject" = "1" ] && [ -d "$pkgdir/lib" ]; then
     echo "prepare-offline: injecting $pkgname from $pkgdir"
+    printf '%s\n' "$pkgname" >> "$INJECTED"
     mkdir -p "$dest/lib"
     # 只拷运行时需要的：lib/ + bin/ + package.json + README*
     # 不拷 src/ tests/ tsconfig*.json tsdown.config.* 等开发文件（缩小闭包）
@@ -165,6 +200,11 @@ done
 for vendir in vendor/*/; do
   inject_workspace_pkg "${vendir%/}"
 done
+
+if ! assert_injected_inventory "$INJECTED" "$LL_DIR/injected-packages.txt"; then
+  echo "prepare-offline: 中止：注入清单需要人工确认（见上）" >&2
+  exit 1
+fi
 
 
 # 2.2 stage launcher 私有的 doctor。

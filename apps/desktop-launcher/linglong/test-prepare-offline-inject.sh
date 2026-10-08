@@ -18,6 +18,8 @@ if [ ! -s "$TMP/fn.sh" ]; then
 fi
 
 STAGE="$TMP/stage"
+INJECTED="$TMP/injected"
+: > "$INJECTED"
 cd "$TMP"
 # shellcheck disable=SC1090
 . "$TMP/fn.sh"
@@ -88,5 +90,35 @@ printf '%s' '{"name":"lodash"}' > pkgs/other/package.json
 inject_workspace_pkg pkgs/other
 [ ! -e "$NM/other" ] || fail "非 @deepseek-ai 域的包不应被注入"
 pass "非 @deepseek-ai 域被跳过"
+
+# 用例 7：注入清单断言（AUDIT 11）。
+# 注入此前是黑名单模式，新增的 workspace 包会默认进入生产闭包；改为把注入集合当作
+# 受审清单：基线缺失时建立，基线存在时逐行比对，多一个或少一个都失败。
+sed -n '/^assert_injected_inventory() {$/,/^}$/p' "$SCRIPT" > "$TMP/inv.sh"
+[ -s "$TMP/inv.sh" ] || fail "未能从 $SCRIPT 提取 assert_injected_inventory"
+# shellcheck disable=SC1090
+. "$TMP/inv.sh"
+BASE="$TMP/injected-packages.txt"
+CUR="$TMP/current-injected"
+
+printf 'a\nb\n' > "$CUR"
+assert_injected_inventory "$CUR" "$BASE" >/dev/null 2>&1 || fail "基线缺失时应建立基线并通过"
+[ -f "$BASE" ] || fail "基线缺失时应写出基线文件"
+pass "基线缺失时建立基线"
+
+assert_injected_inventory "$CUR" "$BASE" >/dev/null 2>&1 || fail "清单一致时应通过"
+pass "注入清单与基线一致时通过"
+
+printf 'a\nb\nc\n' > "$CUR"
+if assert_injected_inventory "$CUR" "$BASE" >/dev/null 2>&1; then
+  fail "出现新注入包时应失败"
+fi
+pass "出现新注入包时失败"
+
+printf 'a\n' > "$CUR"
+if assert_injected_inventory "$CUR" "$BASE" >/dev/null 2>&1; then
+  fail "注入包消失时应失败"
+fi
+pass "注入包消失时失败"
 
 echo "全部通过"
