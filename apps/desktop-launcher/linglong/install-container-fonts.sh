@@ -19,15 +19,20 @@
 #     当前环境宿主自带的 99-deepin.conf 以 prepend+strong 把 sans-serif 指向
 #     思源黑体，我们的别名只在其后生效；分发到没有该配置的机器上则由我们这条接管。
 #
-# 中文族不随包：运行时装的是宿主挂载的 /usr/share/fonts，是否显示中文取决于宿主
-# 是否装了中文字体。曾经以为它由构建容器的 apt 依赖提供，实测不成立（AUDIT N26）。
+# 中文族随包：fontconfig 配置早已把中文指到 WenQuanYi Micro Hei（见下面的 prefer
+# 列表），缺的只是字体实体——基础镜像清空了 /usr/share/fonts，运行容器该目录又被宿主
+# 挂载覆盖，宿主未必装了中文字体。实体由构建段从 fonts-wqy-microhei 的 .deb 里抽出后
+# 作为第 4 个参数传进来（可选；不传则只装拉丁与等宽）。曾经以为它由构建容器的 apt
+# 依赖提供，实测不成立——apt 装进来的字体在 /usr 下，而 /usr 不随 layer 导出
+# （AUDIT N26）。
 #
-# 用法：sh install-container-fonts.sh <PREFIX> <拉丁字体目录> <等宽字体目录>
+# 用法：sh install-container-fonts.sh <PREFIX> <拉丁字体目录> <等宽字体目录> [中文字体文件]
 set -eu
 
-PREFIX=${1:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录>}
-LATIN_SRC=${2:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录>}
-MONO_SRC=${3:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录>}
+PREFIX=${1:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录> [中文字体文件]}
+LATIN_SRC=${2:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录> [中文字体文件]}
+MONO_SRC=${3:?用法: install-container-fonts.sh <PREFIX> <拉丁目录> <等宽目录> [中文字体文件]}
+CJK_SRC=${4:-}
 [ -d "$LATIN_SRC" ] || { echo "install-container-fonts: 目录不存在: $LATIN_SRC" >&2; exit 1; }
 [ -d "$MONO_SRC" ] || { echo "install-container-fonts: 目录不存在: $MONO_SRC" >&2; exit 1; }
 
@@ -40,6 +45,13 @@ CACHEDIR=$PREFIX/var/cache/fontconfig
 install -d "$FONTDIR" "$CACHEDIR" "$(dirname "$LOADCONF")"
 install -m644 "$LATIN_SRC"/*.ttf "$FONTDIR/"
 install -m644 "$MONO_SRC"/*.ttf "$FONTDIR/"
+# 中文族：单个 .ttc（文泉驿微米黑），随包后由上面 prefer 列表里的族名命中。缺文件是
+# 构建配置错误（构建段应当已从 .deb 抽出），因此硬失败而不是静默跳过——静默跳过正是
+# 「以为中文族有人管、实际没有」的老毛病。
+if [ -n "$CJK_SRC" ]; then
+  [ -f "$CJK_SRC" ] || { echo "install-container-fonts: 中文字体文件不存在: $CJK_SRC" >&2; exit 1; }
+  install -m644 "$CJK_SRC" "$FONTDIR/"
+fi
 # 许可随字体一起分发，避免只在仓库里留存。
 for d in "$LATIN_SRC" "$MONO_SRC"; do
   [ -f "$d/OFL.txt" ] || continue

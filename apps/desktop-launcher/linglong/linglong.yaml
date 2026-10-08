@@ -171,12 +171,28 @@ build: |
   # 挂载覆盖（/share/fonts → /usr/share/fonts, ro），所以字体不能放进层内的
   # usr/share/fonts——实测层内 5 个文件、容器 fc-list 查不到，即被该挂载遮住。
   # 改落 ${PREFIX}/share/dsh-fonts：拉丁用 Noto Sans Display、等宽用 JetBrains Mono
-  # （都在仓库内）。中文族**不随包**：运行时装的是宿主挂载的 /usr/share/fonts，
-  # 因此中文能否显示取决于宿主是否装了中文字体（AUDIT N26）。
+  # （都在仓库内），中文用文泉驿微米黑（AUDIT N26）。
+  #
+  # 中文族从 fonts-wqy-microhei 的 .deb 里自行解出来，**不装进 build_depends、也不从
+  # 构建容器的 /usr 复制**：apt 装进来的字体在 /usr 下，而 /usr 不随 layer 导出（与
+  # webkit 当初是同一回事），且 apt 报成功而写入不落盘时复制到的是缺失实体或字符设备
+  # （AUDIT N19）。apt-get download + dpkg-deb -x 得到的是普通文件，两条路都绕开。
+  # 产物增大约 5 MB；族名与 install-container-fonts.sh 里 prefer 的
+  # WenQuanYi Micro Hei 一致（实测 fc-query 报的正是这个族名）。
+  CJK_PKG=fonts-wqy-microhei
+  CJK_TMP=$(mktemp -d)
+  ( cd "$CJK_TMP" && apt-get download "$CJK_PKG" ) \
+    || { echo "fonts: apt-get download $CJK_PKG 失败" >&2; exit 1; }
+  set -- "$CJK_TMP"/${CJK_PKG}_*.deb
+  [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "fonts: .deb 未唯一命中（$# 个: $*）" >&2; exit 1; }
+  dpkg-deb -x "$1" "$CJK_TMP/x"
+  CJK_TTC="$CJK_TMP/x/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+  [ -f "$CJK_TTC" ] || { echo "fonts: 解包后没有 $CJK_TTC（包布局变化？）" >&2; exit 1; }
   sh /project/apps/desktop-launcher/linglong/install-container-fonts.sh \
     "$PREFIX" \
     /project/apps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
-    /project/apps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono
+    /project/apps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono \
+    "$CJK_TTC"
 
 buildext:
   apt:
@@ -187,14 +203,10 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
-      # 中文族**不在这里**：曾经声明 fonts-wqy-microhei 作为容器中文字族来源，但实测
-      # 三版产物层与基座层都没有任何 wqy 实体——apt 装进来的字体在 /usr 下，而 /usr
-      # 不随 layer 导出，与 webkit 当初是同一回事（AUDIT N19/N26）。声明已删除，避免
-      # 让人以为中文族有人管。要真正随包需两步：①把该依赖移到 build_depends（depends
-      # 在 build 段之后才装，本段看不到它）；②在本段把 /usr/share/fonts/truetype/wqy/
-      # wqy-microhei.ttc 显式复制进 ${PREFIX}/share/dsh-fonts（该目录已被 fontconfig
-      # 注册，见 install-container-fonts.sh）。代价是产物增大约 5 MB，且需先确认该
-      # 依赖不会触发 verify-container-deps.sh 的 /usr `*.dpkg-new` 全局扫描。
+      # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
+      # /usr 不随 layer 导出；因此文泉驿微米黑由 build 段从 .deb 里自行解出后随包
+      # （见上面 CJK_PKG 段），既不新增 build_depends，也不触碰
+      # verify-container-deps.sh 的 /usr `*.dpkg-new` 全局扫描（AUDIT N26）。
       # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
       # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；

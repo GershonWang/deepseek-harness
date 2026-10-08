@@ -32,10 +32,11 @@ expect_fail() {
 # healthy_prefix <prefix>：造出一棵满足全部断言的导出树。
 healthy_prefix() {
   p=$1
-  mkdir -p "$p/bin" "$p/harness/lib" "$p/lib/x86_64-linux-gnu"
+  mkdir -p "$p/bin" "$p/harness/lib" "$p/lib/x86_64-linux-gnu" "$p/share/dsh-fonts"
   : > "$p/bin/node"
   : > "$p/harness/lib/bin.js"
   : > "$p/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+  : > "$p/share/dsh-fonts/wqy-microhei.ttc"
 }
 
 new_case() {
@@ -97,6 +98,15 @@ if run_case "$TMP/out-noentry"; then
   bad "harness 入口缺失时应失败"
 else
   expect_fail "harness 入口缺失非零退出并指名" "$TMP/out-noentry" "FAIL 体积断言" "harness/lib/bin.js"
+fi
+
+# --- 场景 5c：中文字体实体缺失（随包静默失效）→ 失败 ---
+new_case nocjkfont
+rm "$PREFIX/share/dsh-fonts/wqy-microhei.ttc"
+if run_case "$TMP/out-nocjkfont"; then
+  bad "中文字体缺失时应失败"
+else
+  expect_fail "中文字体缺失非零退出并指名" "$TMP/out-nocjkfont" "FAIL 体积断言" "share/dsh-fonts/wqy-microhei.ttc"
 fi
 
 # --- 场景 5b：构建中间态（*.tsbuildinfo）进产物 → 失败 ---

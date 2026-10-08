@@ -61,10 +61,14 @@ within() { # $1 相对路径（`.` 表示整棵） $2 上限字节
 must_be_absent lib/gcc
 must_be_absent node/include
 
-# 2. 该存在的：只补现有校验脚本未覆盖的两个入口。webkit 库与 bin/ 下的工具分别由
+# 2. 该存在的：只补现有校验脚本未覆盖的入口。webkit 库与 bin/ 下的工具分别由
 #    verify-merged-deps.sh 与 verify-tools.sh 负责，这里不重复。
 must_exist bin/node
 must_exist harness/lib/bin.js
+# 中文字体随包（AUDIT N26）：字族与 fontconfig 配置早已就位，唯一会静默丢的是这个实
+# 体——构建段抽取失败而断言不在时，产物照常导出，用户端只在缺中文字体的机器上看到
+# 豆腐块。这里把它钉进出品条件。
+must_exist share/dsh-fonts/wqy-microhei.ttc
 
 # 3. 构建中间态不得进产物：tsc 的增量编译元数据只在构建期有意义，运行时无人读取
 #    （AUDIT N29）。按后缀匹配，否则会漏掉 gaxios 的 tsconfig.cjs.tsbuildinfo。

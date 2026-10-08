@@ -21,7 +21,7 @@
 
 - 分支 `linglong`，HEAD `220bb0610a`（2026-10-08），玲珑包 `0.1.5.2`。
 - 产物证据取自交付层 `~/.cache/linglong-builder/merged/8c11d079…/files`（2026-10-07）、仓库根 `linglong/` 的构建工作区与 `apps/desktop-launcher/linglong/stage/`。`8c11d079` 与上一版 `acbfe51b` 的 `lib/x86_64-linux-gnu` 体积与条目数一致（同为 304,866,155 B、180 个普通文件 + 172 条软链）。
-- **环境限制**：本次复核时宿主已提供 `ll-builder`／`ll-cli`（实测在 PATH，来自 `~/.dsh-linglong/bin` 的宿主透传），`make` 与 `gcc` 仍缺；「必须先有玲珑构建器」不再是本机的执行阻塞，N26 的字体抽取与 8/13 的裁剪实测都不用等外部机器。除静态复核外，已在本机真跑：`DSH_TC_E2E=1` 的清单审计（php 全部 3 条、jdk 全部 5 条版本线，含全部非推荐版本）与两次 `prepare-offline.sh` 注入阶段（建立基线、比对一致）。未跑的是真实 `ll-builder build`／安装／GUI 启动，以及 launcher 二进制的 cgo 构建（需 gcc 与 GTK 开发库）——涉及容器与真机行为的结论仍以本机闭环为准。
+- **环境限制**：本次复核时宿主已提供 `ll-builder`／`ll-cli`（实测在 PATH，来自 `~/.dsh-linglong/bin` 的宿主透传），`make` 与 `gcc` 仍缺。除静态复核外，已在本机真跑：`DSH_TC_E2E=1` 的清单审计（php 全部 3 条、jdk 全部 5 条版本线，含全部非推荐版本）、两次 `prepare-offline.sh` 注入阶段（建立基线、比对一致）、以及字体随包用的 `dpkg-deb -x` 抽取与族名核验（用真实 `fonts-wqy-microhei_0.2.0-beta-3.1_all.deb`，解出的 5,177,387 字节实体与构建容器 overlay 里的逐字节一致）。未跑的是真实 `ll-builder build`／安装／GUI 启动（沙箱缺 gcc 与 GTK 开发库，launcher 二进制的 cgo 构建起不来）——涉及容器与真机行为的结论仍以本机闭环为准；8/13 的裁剪实测同样待真实构建。
 - 行号以该基点为准，代码改动后会漂移；按函数名/符号名定位比按行号可靠。
 
 ## 状态与验证等级
@@ -42,7 +42,6 @@
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
-| N26 | 低危 | 中文字族不随包，无中文字体的机器上显示豆腐块 | 未修（待决策） |
 
 ---
 
@@ -101,15 +100,3 @@
 - **影响**：harness 跑长任务时关窗会中断。
 - **修复建议**：引入托盘（`OnBeforeClose` 返回 true 并隐藏窗口），托盘菜单提供退出。
 - **验收**：关窗后进程与 harness 继续运行，可从托盘退出。
-
-## N26 中文字族不随包，分发到未装中文字体的机器上会显示豆腐块
-
-- **状态**：未修（待决策）｜✅ 实测复核（2026-10-08）
-- **位置**：`linglong/linglong.yaml`（`buildext.apt.depends` 与 `build:` 段的字体注释）、`linglong/install-container-fonts.sh`
-- **问题**：壳的 CSS 字体栈把中文族交给运行时的 fontconfig，而容器里 `/usr/share/fonts` 被宿主目录整体挂载覆盖，随包的只有 `${PREFIX}/share/dsh-fonts` 下的拉丁与等宽字体。宿主没装中文字体时，界面里的中文会显示成豆腐块。
-- **已核实的事实**：① 曾经声明的 `fonts-wqy-microhei` 只进构建容器，`/usr` 不随 layer 导出，因此**从未随包**（三版产物层与基座层实测无任何 wqy 实体）——该假声明已删除、注释已更正，让人以为「中文族有人管」的误导没有了。② 字体在容器里真实可用：`/usr/share/fonts/truetype/wqy/wqy-microhei.ttc`，5,177,387 字节的真实 TTC。③ 它由 `depends` 阶段安装，而 `depends` 在 `build:` 段**之后**才装进容器——本段看不到它。
-- **影响**：中文能否显示取决于宿主。装有中文字体的机器上不可见（本机测试即如此），精简系统或非中文环境的机器上会暴露。
-- **修复建议**（两步）：①在 `build:` 段复用 webkit 段的既有模式（`apt-get download fonts-wqy-microhei` + `dpkg-deb -x`，见 `linglong/linglong.yaml` 的 webkit 段）从 `.deb` 里取出 `wqy-microhei.ttc`；②把它复制进 `${PREFIX}/share/dsh-fonts/`（该目录已被 fontconfig 注册，见 `install-container-fonts.sh`）。
-- **为什么不用「把依赖移到 `build_depends` 再从 `/usr` 复制」**：那条路要向 `build_depends` 新增一个 apt 包，它会进 `verify-container-deps.sh` 的逐包校验与 `/usr` 下的 `*.dpkg-new` 全局扫描；更关键的是 AUDIT N19 的「apt 报告成功但写入不落盘」一旦复现，从 `/usr` 复制拿到的就是缺失实体或字符设备，正是本条要防的失败。从 `.deb` 抽取与 `depends`／`build_depends` 都无关，这两个问题一并消失。
-- **待确认项（需产品决策）**：产物增大约 5 MB，与 8/13 的裁剪目标相反。技术路径上已无未验证的未知项——旧方案里 `verify-container-deps.sh` 的扫描风险随 `.deb` 抽取方案消失，本机也已有 `ll-builder` 可闭环验证。
-- **验收**：产物含 `share/dsh-fonts/wqy-microhei.ttc`；在未装中文字体的机器上中文不显示豆腐块。
