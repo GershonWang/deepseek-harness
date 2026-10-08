@@ -50,7 +50,6 @@ ca-certificates|base:基础层已提供 /etc/ssl/certs/ca-certificates.crt（实
 python3|base:基础层已提供（tools.yaml 标 base: true）
 curl|base:基础层已提供（tools.yaml 标 base: true）
 unzip|base:基础层已提供（tools.yaml 标 base: true）
-fonts-wqy-microhei|none:实测三版产物层均无 wqy 字体，运行时 /usr/share/fonts 由宿主挂载覆盖（AUDIT N26）
 git|tool:git
 git-lfs|tool:git-lfs
 wget|tool:wget

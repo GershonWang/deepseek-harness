@@ -241,7 +241,7 @@ else
   expect_fail "真实 linglong.yaml 的 build_depends 被解析并报缺失" "$TMP/out-real" "FAIL libwebkit2gtk-4.1-0"
   # depends 包在本阶段不应被要求（它们由 ll-builder 在 build 段之后安装）
   expect_absent "真实 linglong.yaml 不再要求 depends 已装" "$TMP/out-real" \
-    "FAIL fonts-wqy-microhei" "FAIL git:" "FAIL xdg-utils" "FAIL jq" "FAIL xxd" "FAIL wget"
+    "FAIL git:" "FAIL xdg-utils" "FAIL jq" "FAIL xxd" "FAIL wget"
 fi
 
 echo

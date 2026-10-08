@@ -19,9 +19,9 @@ base: org.deepin.base/25.2.2
 # 源码改动后需重新运行 prepare-offline.sh。
 build: |
   STAGE=/project/apps/desktop-launcher/linglong/stage
-  # 捆绑的 Node 版本（与 prepare-offline.sh 保持一致；
+  # 捆绑的 Node 版本与 pnpm 包装器都读同一份单一来源（与 prepare-offline.sh 共用；
   # 正常构建走 prepare-offline，这里只是 stage 缺失时的 fallback）。
-  NODE_VERSION="24.9.0"
+  NODE_VERSION=$(tr -d '[:space:]' < /project/apps/desktop-launcher/linglong/node-version.txt)
   if [ ! -x "$STAGE/bin/dsh-desktop-launcher" ]; then
     echo "stage 缺失：先在仓库根运行 sh apps/desktop-launcher/linglong/prepare-offline.sh" >&2
     exit 1
@@ -38,7 +38,7 @@ build: |
   # Promise.withResolvers、node:module.stripTypeScriptTypes），
   # beige 的 nodejs 只有 20.15.1，必须捆绑 Node 24。
   # 复用宿主机 prepare 阶段下载的 Node 二进制（npmmirror 镜像）。
-  if [ ! -d "$STAGE/node" ]; then
+  if [ ! -x "$STAGE/node/bin/node" ]; then
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
     wget -q -O /tmp/node24.tar.gz "https://registry.npmmirror.com/-/binary/node/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.gz"
     mkdir -p "$STAGE/node"
@@ -48,21 +48,16 @@ build: |
   # stage/node/lib/node_modules/pnpm（版本取 package.json 的 packageManager）；
   # stage 缺失时才在构建容器内下载。corepack 首启需联网且缓存落 $HOME/.cache，
   # 容器内只读 HOME 下不可靠，故不依赖 corepack。
-  if [ ! -d "$STAGE/node/lib/node_modules/pnpm" ]; then
+  if [ ! -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.mjs" ]; then
     PNPM_V=$(node -e "console.log(require('/project/package.json').packageManager.split('@')[1])")
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
     wget -q -O /tmp/pnpm.tgz "https://registry.npmmirror.com/pnpm/-/pnpm-$PNPM_V.tgz"
     mkdir -p "$STAGE/node/lib/node_modules/pnpm"
     tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
   fi
-  # 薄包装：readlink -f 解析 $0 真实位置（可能经 bin/pnpm 软链调用），
-  # pnpm 装在 <node>/lib/node_modules/pnpm，入口用 bin/pnpm.mjs（pnpm 11 的
-  # bin/pnpm.cjs 只是 import('./pnpm.mjs') 兼容存根；真正 CLI 由 pnpm.mjs
-  # 加载 ../dist/pnpm.mjs）。
+  # 薄包装：内容见 pnpm-wrapper.sh（与宿主侧 prepare-offline.sh 共用同一份）。
   if [ -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.mjs" ]; then
-    printf '%s\n' '#!/bin/sh' 'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
-      'DIR=$(dirname "$SELF")' \
-      'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' > "$STAGE/node/bin/pnpm"
+    cp /project/apps/desktop-launcher/linglong/pnpm-wrapper.sh "$STAGE/node/bin/pnpm"
     chmod +x "$STAGE/node/bin/pnpm"
   fi
   # Node 运行时瘦身：删掉运行时不需要的头文件，strip 二进制剥符号。
@@ -176,7 +171,8 @@ build: |
   # 挂载覆盖（/share/fonts → /usr/share/fonts, ro），所以字体不能放进层内的
   # usr/share/fonts——实测层内 5 个文件、容器 fc-list 查不到，即被该挂载遮住。
   # 改落 ${PREFIX}/share/dsh-fonts：拉丁用 Noto Sans Display、等宽用 JetBrains Mono
-  # （都在仓库内），中文族由下面的 apt 依赖 fonts-wqy-microhei 提供。
+  # （都在仓库内）。中文族**不随包**：运行时装的是宿主挂载的 /usr/share/fonts，
+  # 因此中文能否显示取决于宿主是否装了中文字体（AUDIT N26）。
   sh /project/apps/desktop-launcher/linglong/install-container-fonts.sh \
     "$PREFIX" \
     /project/apps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
@@ -191,10 +187,14 @@ buildext:
       - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
       - libglib2.0-0
-      # 中文族：容器 base 清空了 /usr/share/fonts，不随包则分发到未装中文字体的
-      # 机器上会退化成豆腐块。仅装字体文件，family 解析由 install-container-fonts.sh
-      # 生成的别名配置负责（指向 WenQuanYi Micro Hei）。
-      - fonts-wqy-microhei
+      # 中文族**不在这里**：曾经声明 fonts-wqy-microhei 作为容器中文字族来源，但实测
+      # 三版产物层与基座层都没有任何 wqy 实体——apt 装进来的字体在 /usr 下，而 /usr
+      # 不随 layer 导出，与 webkit 当初是同一回事（AUDIT N19/N26）。声明已删除，避免
+      # 让人以为中文族有人管。要真正随包需两步：①把该依赖移到 build_depends（depends
+      # 在 build 段之后才装，本段看不到它）；②在本段把 /usr/share/fonts/truetype/wqy/
+      # wqy-microhei.ttc 显式复制进 ${PREFIX}/share/dsh-fonts（该目录已被 fontconfig
+      # 注册，见 install-container-fonts.sh）。代价是产物增大约 5 MB，且需先确认该
+      # 依赖不会触发 verify-container-deps.sh 的 /usr `*.dpkg-new` 全局扫描。
       # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
       # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
       # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；

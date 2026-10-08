@@ -66,7 +66,19 @@ must_be_absent node/include
 must_exist bin/node
 must_exist harness/lib/bin.js
 
-# 3. 体积上限：先单项再整棵，单项超限时先给出更具体的路径。
+# 3. 构建中间态不得进产物：tsc 的增量编译元数据只在构建期有意义，运行时无人读取
+#    （AUDIT N29）。按后缀匹配，否则会漏掉 gaxios 的 tsconfig.cjs.tsbuildinfo。
+# 用 -print -quit 取第一个命中就停：不接管道，避免 head/grep 提前退出时
+# find 收到 SIGPIPE 打出无意义的报错。
+TSBUILD=$(find "$PREFIX" -name '*.tsbuildinfo' -print -quit)
+if [ -n "$TSBUILD" ]; then
+  echo "FAIL 体积断言: 产物里出现 *.tsbuildinfo（构建中间态）: $TSBUILD" >&2
+  fail=1
+else
+  echo "OK   无 *.tsbuildinfo"
+fi
+
+# 4. 体积上限：先单项再整棵，单项超限时先给出更具体的路径。
 within lib/x86_64-linux-gnu "$MAX_LIB_X86"
 within . "$MAX_TREE"
 

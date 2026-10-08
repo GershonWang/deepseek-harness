@@ -8,12 +8,15 @@
 # 用法：在仓库根运行
 #   sh apps/desktop-launcher/linglong/prepare-offline.sh
 set -eu
+# 先把脚本所在目录解析成绝对路径再切仓库根：$0 可能是裸文件名或相对路径，
+# 切目录之后再取 dirname 就会指错地方。
+LL_DIR=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(pwd)
-cd "$(dirname "$0")/../../.."   # 仓库根
+cd "$LL_DIR/../../.."   # 仓库根
 
-# 捆绑的 Node 版本（唯一事实来源，全脚本引用此变量）。
-# 升级版本只需改这里 + linglong.yaml 的 fallback 下载 URL（两者保持一致）。
-NODE_VERSION="24.9.0"
+# 捆绑的 Node 版本与 pnpm 包装器都以本目录下的文件为单一来源：容器内的 fallback
+# 路径（linglong.yaml 的 build 段）读同一份，升级时不会只改一处（AUDIT N-extra3）。
+NODE_VERSION=$(tr -d '[:space:]' < "$LL_DIR/node-version.txt")
 
 STAGE=apps/desktop-launcher/linglong/stage
 rm -rf "$STAGE"
@@ -163,6 +166,7 @@ for vendir in vendor/*/; do
   inject_workspace_pkg "${vendir%/}"
 done
 
+
 # 2.2 stage launcher 私有的 doctor。
 #     doctor 已迁到 apps/desktop-launcher/doctor，不再是 pnpm workspace 成员
 #     （pnpm-workspace.yaml 的 apps/* 只匹配一级），也不在 @deepseek-ai/dsh 的
@@ -194,6 +198,13 @@ done
 sh apps/desktop-launcher/linglong/inject-link-bridge.sh \
   "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
 
+# 2.6 清掉随各包 lib/ 一起拷进来的 tsc 增量编译元数据（AUDIT N29）。
+#     它记录的是构建机上的文件清单与编译设置，运行时无人读取，属把构建中间态当交付物；
+#     实测 0.1.5.1 交付层有 52 个 / 2.9 MB。放在所有 staging 之后、Go 构建之前，
+#     是为了让将来新增的 staging 步骤也自动被覆盖；按后缀匹配而不是文件名前缀，
+#     否则会漏掉 gaxios 的 tsconfig.cjs.tsbuildinfo。
+find "$STAGE" -name '*.tsbuildinfo' -delete
+
 # 3. Go 启动器（wails，webkit2gtk-4.1；用 -tags webkit2_41 显式选 4.1）
 #    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
 #    "cannot find main module"
@@ -220,22 +231,15 @@ fi
 #     落 $HOME/.cache（容器内可能只读）；改为出厂直连捆绑 CLI。版本取
 #     package.json 的 packageManager 字段，保证与仓库锁定的 pnpm 一致。
 PNPM_V=$(node -e "console.log(require('./package.json').packageManager.split('@')[1])")
-if [ ! -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.cjs" ]; then
+if [ ! -f "$STAGE/node/lib/node_modules/pnpm/bin/pnpm.mjs" ]; then
   echo "prepare-offline: 下载 pnpm $PNPM_V..."
   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY all_proxy ALL_PROXY
   wget -q -O /tmp/pnpm.tgz "https://registry.npmmirror.com/pnpm/-/pnpm-$PNPM_V.tgz"
   mkdir -p "$STAGE/node/lib/node_modules/pnpm"
   tar -xzf /tmp/pnpm.tgz -C "$STAGE/node/lib/node_modules/pnpm" --strip-components=1
 fi
-# node/bin/pnpm 薄包装（路径由脚本位置推导，任意机器一致）。
-# 注意：$0 可能经 $PREFIX/bin/pnpm 的软链调用（dirname 只拿到软链目录），
-# 先用 readlink -f 解析真实位置（<node>/bin）；pnpm 装在
-# <node>/lib/node_modules/pnpm，入口用 bin/pnpm.mjs（pnpm 11 的 bin/pnpm.cjs
-# 只是 import('./pnpm.mjs') 兼容存根，真正 CLI 由 pnpm.mjs 加载 ../dist/pnpm.mjs）。
-printf '%s\n' '#!/bin/sh' 'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
-  'DIR=$(dirname "$SELF")' \
-  'exec "$DIR/node" "$DIR/../lib/node_modules/pnpm/bin/pnpm.mjs" "$@"' \
-  > "$STAGE/node/bin/pnpm"
+# node/bin/pnpm 薄包装：内容见 pnpm-wrapper.sh（与容器 fallback 共用同一份）。
+cp "$LL_DIR/pnpm-wrapper.sh" "$STAGE/node/bin/pnpm"
 chmod +x "$STAGE/node/bin/pnpm"
 
 # 5. 用捆绑 Node 24 在宿主机预编译 node-pty（运行时沙箱无 gcc/make，

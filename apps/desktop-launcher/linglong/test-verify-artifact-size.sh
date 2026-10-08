@@ -99,6 +99,16 @@ else
   expect_fail "harness 入口缺失非零退出并指名" "$TMP/out-noentry" "FAIL 体积断言" "harness/lib/bin.js"
 fi
 
+# --- 场景 5b：构建中间态（*.tsbuildinfo）进产物 → 失败 ---
+new_case tsbuild
+mkdir -p "$PREFIX/harness/node_modules/@deepseek-ai/dsh-x/lib"
+: > "$PREFIX/harness/node_modules/@deepseek-ai/dsh-x/lib/tsconfig.tsbuildinfo"
+if run_case "$TMP/out-tsbuild"; then
+  bad "产物含 *.tsbuildinfo 时应失败"
+else
+  expect_fail "构建中间态进产物非零退出并指名" "$TMP/out-tsbuild" "FAIL 体积断言" "tsbuildinfo"
+fi
+
 # --- 场景 6/7：体积超限 → 失败（用稀疏文件造出表观体积，不占磁盘） ---
 if command -v truncate >/dev/null 2>&1; then
   # 单项超限：lib/x86_64-linux-gnu 造到 400 MiB（上限 340 MiB）

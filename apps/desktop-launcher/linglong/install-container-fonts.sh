@@ -19,7 +19,8 @@
 #     当前环境宿主自带的 99-deepin.conf 以 prepend+strong 把 sans-serif 指向
 #     思源黑体，我们的别名只在其后生效；分发到没有该配置的机器上则由我们这条接管。
 #
-# 中文族不随包：由构建容器的 apt 依赖提供（fonts-wqy-microhei），与 webkit 同一机制。
+# 中文族不随包：运行时装的是宿主挂载的 /usr/share/fonts，是否显示中文取决于宿主
+# 是否装了中文字体。曾经以为它由构建容器的 apt 依赖提供，实测不成立（AUDIT N26）。
 #
 # 用法：sh install-container-fonts.sh <PREFIX> <拉丁字体目录> <等宽字体目录>
 set -eu
