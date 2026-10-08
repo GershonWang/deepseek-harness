@@ -17,13 +17,14 @@ git log --oneline origin/linglong-dev..HEAD
 git rev-list --count origin/linglong-dev..HEAD
 ```
 
-预期看到 4 笔提交（顺序从新到旧）：
+预期看到 4 笔提交（顺序从新到旧）。按**提交主题**核对，不按哈希——哈希随分支移动，
+写进文档只会过期：
 
 ```
-c039c5c8c3 test(toolchain): 补工具 ID 改名迁移的用例
-6f50940fdf feat(toolchain): 卡片版本选择改为大版本与小版本两级联动
-631b06af1b refactor(toolchain): 工具 ID jdk21 改名为 jdk，并迁移既有安装
-54823291f0 feat(toolchain): 工具版本按大版本线分组，更新只在同线内提示
+test(toolchain): 补工具 ID 改名迁移的用例
+feat(toolchain): 卡片版本选择改为大版本与小版本两级联动
+refactor(toolchain): 工具 ID jdk21 改名为 jdk，并迁移既有安装
+feat(toolchain): 工具版本按大版本线分组，更新只在同线内提示
 ```
 
 **若数量不是 4，先停下核对**——多出来的提交会被一起带进发布。
@@ -208,13 +209,13 @@ java -version                             # 应能执行（PATH 里 ~/.dsh-tools
 
 已发布版本（`0.1.3.3` 及所有未升级的）**不受本次改动影响**，有两层保障：
 
-1. **它们拉的是各自钉死的索引。** `0.1.3.3` 的地址指向不可变提交 `ff0b924d…`，Git
-   提交哈希是内容指纹，该提交的内容在数学上不可能被改动。本次改的是工作区文件，
-   未推送、也不指向 `ff0b924d`。
+1. **它们拉的是各自钉死的索引。** `0.1.3.3` 的地址指向一个不可变提交（完整哈希在该
+   版本的 `remote.go` 里，本文不复制），Git 提交哈希是内容指纹，该提交的内容在数学上
+   不可能被改动。本次改的是工作区文件，未推送、也不指向那个提交。
 2. **即使拿到新索引也不会崩。** 实测新旧索引的唯一结构差异是多出 `major` 字段；
    `version` 仍是 `1`（`ParseIndex` 只校验这一项），Go 的 `encoding/json` 对未知字段
    静默忽略，`jdk21` 消失只是让老客户端「按 ID 查不到该工具就跳过」。
 
-需要注意的是 `linglong` 与 `linglong-dev` 是**双向分叉**（分叉点 `a8b925f97e`，
-`linglong` 比 `linglong-dev` 少 3635 个提交），发布时按既有做法把 `linglong-dev`
-合并进 `linglong`。
+需要注意的是 `linglong` 与 `linglong-dev` 是**双向分叉**（分叉点用
+`git merge-base linglong linglong-dev` 现取，本文不写死哈希），发布时按既有做法把
+`linglong-dev` 合并进 `linglong`。
