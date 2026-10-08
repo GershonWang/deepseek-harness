@@ -46,9 +46,7 @@
 | N16 | 中危 | `verify-tools.sh` 的一致性校验不覆盖多版本 | 部分修复 |
 | 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
-| N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
-| N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
-| N-extra3 | 低危 | 打包脚本中重复与漂移的事实 | 部分修复 |
+| N26 | 低危 | 中文字族不随包，无中文字体的机器上显示豆腐块 | 未修（待决策） |
 
 ---
 
@@ -156,31 +154,13 @@
 - **修复建议**：引入托盘（`OnBeforeClose` 返回 true 并隐藏窗口），托盘菜单提供退出。
 - **验收**：关窗后进程与 harness 继续运行，可从托盘退出。
 
-## N26 `fonts-wqy-microhei` 声明为容器中文字族来源，但产物与运行时都看不到它
+## N26 中文字族不随包，分发到未装中文字体的机器上会显示豆腐块
 
-- **状态**：未修（待查）｜✅ 实测复核
-- **位置**：`linglong/linglong.yaml`（`buildext.apt.depends` 里的 `fonts-wqy-microhei`，以及 `build:` 段「中文族由下面的 apt 依赖提供」的注释）
-- **问题**：该依赖被声明为容器里中文字体的来源，但实测已导出产物层与基座层里**没有任何 wqy／微米黑字体**（`find -iname '*wqy*' -o -iname '*microhei*' -o -iname '*.ttc'` 为空），`share/` 下只有 `applications`、`dsh-fonts`、`icons`；`0.1.5.1` 交付层同结论。
-- **影响**：中文回退字体实际不来自这个依赖；运行时 `/usr/share/fonts` 又被宿主目录整体挂载覆盖，所以该依赖既进不了包、也改变不了运行时——注释描述的链路与事实不符，排查中文显示问题时会把人引向错误方向。产物侧已由 `verify-merged-deps.sh` 显式记为 `none:` 认领（不阻塞构建）。
-- **证据边界**：未在真实容器里跑 `fc-list` 确认最终渲染走的是哪一路字体。
-- **修复建议**：确认运行时中文来源（宿主挂载 vs 随包字体）后二选一——删掉该依赖并更正注释，或让中文字体随包落到 `${PREFIX}/share/dsh-fonts`（`install-container-fonts.sh` 已在该目录装配拉丁与等宽字体，可复用同一路径）。
-- **验收**：注释与产物、运行时三者一致。
-
-## N29 `*.tsbuildinfo` 随包交付
-
-- **状态**：未修｜✅ 实测复核（2026-10-07）
-- **位置**：`harness/node_modules/@deepseek-ai/**`、`harness/node_modules/gaxios/**`；来源是 `linglong/prepare-offline.sh` 整目录复制各包的 `lib/`
-- **问题**：`0.1.5.1` 交付层与当日 stage 各有 **52 个 / 2,908,124 B** 的 tsc 增量编译元数据进产物（`@deepseek-ai` 侧 50 个 + gaxios 2 个），属「把构建中间态当交付物」。
-- **影响**：体积少量增加；`.tsbuildinfo` 记录编译机上的文件清单与编译设置。
-- **修复建议**：`prepare-offline.sh` 在复制后统一删除 `*.tsbuildinfo`（按文件名前缀删会漏掉 gaxios 的两个）。取舍：它只服务于增量编译，运行时无人读取。
-- **验收**：产物内 `find -name '*.tsbuildinfo'` 为空。
-
-## N-extra3 打包脚本中重复与漂移的事实
-
-- **状态**：部分修复｜✅ 实测复核
-- **位置**：`linglong/prepare-offline.sh` ↔ `linglong/linglong.yaml`
-- **问题**：捆绑 Node 版本硬编码两处（均为 `24.9.0`）；pnpm「是否已下载」的守卫一处查 `bin/pnpm.cjs`、一处查目录存在 + `bin/pnpm.mjs`；三行包装器在两地逐字重复。升级 Node 时只改一处会让 stage 与容器 fallback 下载不同版本。
-- **影响**：两处漂移不会报错，只会产出不一致的构建。
-- **已修部分**：`prepare-offline.sh` 的 README glob 已锚定 `"$pkgdir"/README*` 并加 `-f` 守卫。
-- **修复建议**：把 Node 版本与包装器收敛为单一来源（由 `linglong.yaml` 生成，或脚本读取同一变量）。
-- **验收**：改一处即可同时改变 stage 与容器 fallback 的 Node 版本。
+- **状态**：未修（待决策）｜✅ 实测复核（2026-10-08）
+- **位置**：`linglong/linglong.yaml`（`buildext.apt.depends` 与 `build:` 段的字体注释）、`linglong/install-container-fonts.sh`
+- **问题**：壳的 CSS 字体栈把中文族交给运行时的 fontconfig，而容器里 `/usr/share/fonts` 被宿主目录整体挂载覆盖，随包的只有 `${PREFIX}/share/dsh-fonts` 下的拉丁与等宽字体。宿主没装中文字体时，界面里的中文会显示成豆腐块。
+- **已核实的事实**：① 曾经声明的 `fonts-wqy-microhei` 只进构建容器，`/usr` 不随 layer 导出，因此**从未随包**（三版产物层与基座层实测无任何 wqy 实体）——该假声明已删除、注释已更正，让人以为「中文族有人管」的误导没有了。② 字体在容器里真实可用：`/usr/share/fonts/truetype/wqy/wqy-microhei.ttc`，5,177,387 字节的真实 TTC。③ 它由 `depends` 阶段安装，而 `depends` 在 `build:` 段**之后**才装进容器——本段看不到它。
+- **影响**：中文能否显示取决于宿主。装有中文字体的机器上不可见（本机测试即如此），精简系统或非中文环境的机器上会暴露。
+- **修复建议**（两步）：①把 `fonts-wqy-microhei` 从 `depends` 移到 `build_depends`；②在 `build:` 段把 `/usr/share/fonts/truetype/wqy/wqy-microhei.ttc` 复制进 `${PREFIX}/share/dsh-fonts/`（该目录已被 fontconfig 注册，见 `install-container-fonts.sh`）。
+- **两个待确认项（需产品/真机决策）**：①产物增大约 5 MB，与 8/13 的裁剪目标相反；②`verify-container-deps.sh` 有一条对 `/usr` 下 `*.dpkg-new` 的全局扫描，移动该依赖后它会在本段之前被安装，是否会因此触发该扫描需要在真实构建里验证——本机无 ll-builder，无法预判。
+- **验收**：产物含 `share/dsh-fonts/wqy-microhei.ttc`；在未装中文字体的机器上中文不显示豆腐块。
