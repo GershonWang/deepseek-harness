@@ -39,7 +39,7 @@
 |---|---|---|---|
 | N3 | 高危 | 工具索引来自个人 fork 的可变分支，且无签名 | 部分修复 |
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
-| 11 | 中危 | `inject_workspace_pkg` 仍是黑名单模式 | 未修 |
+| 11 | 中危 | 注入集合的受审清单机制已落地，基线待建立 | 部分修复 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
@@ -74,15 +74,15 @@
 - **修复建议**：以 `depends.yaml` + `tools.yaml` 为准做一次依赖链比对，摘掉用不到的多媒体/图形栈；把 `skip_existing` 从注释变成显式配置或校验。
 - **验收**：比对脚本对当前清单输出可裁清单；体积断言（`lib/x86_64-linux-gnu` 不超过阈值）落到 `build-linglong.sh`，超阈值即中止导出。
 
-## 11 `inject_workspace_pkg` 仍是黑名单模式
+## 11 注入集合的受审清单机制已落地，基线待建立
 
-- **状态**：未修｜✅ 已复核
-- **位置**：`linglong/prepare-offline.sh`（`inject_workspace_pkg` 及其调用循环）
-- **问题**：遍历 `packages/*/*/` 后在循环内排除 `test-support`／`typert/generator`；函数内另有 experimental 与非 `@deepseek-ai/*` 两条黑名单。**没有任何显式白名单**，因此任何新增的 workspace 包都会默认进入生产闭包。
-- **影响**：`packages/experimental/` 现已有 23 个包目录；黑名单模式下漏排一类就会静默进包，且不会有任何断言提示。
-- **修复建议**：改为显式白名单，只注入标准 preset 实际列出的包。
-- **验收**：新增一个 workspace 包后闭包内不出现它（除非显式加入白名单）。
-
+- **状态**：部分修复｜✅ 已复核（2026-10-08）
+- **位置**：`linglong/prepare-offline.sh`（`inject_workspace_pkg`、`assert_injected_inventory`、调用循环）、`linglong/injected-packages.txt`（基线，尚未生成）、`linglong/test-prepare-offline-inject.sh`
+- **问题**：注入是黑名单模式（遍历 `packages/*/*/` 与 `vendor/*/`，只排除 experimental、非 `@deepseek-ai/*`、`test-support`、`typert/generator`），**没有任何显式白名单**，因此任何新增的 workspace 包都会默认进入生产闭包，且不会有任何断言提示。
+- **已修部分**：每次 prepare 记录本次注入的包名，与仓库内的基线 `linglong/injected-packages.txt` 逐行比对——基线缺失时写入并提示（首次建立），存在时多一个或少一个都失败并打印 diff。于是"新增包进闭包"必须先经人工评审并更新基线，达到本条要的验收口径。4 条自测覆盖建立基线／一致通过／新增失败／移除失败。
+- **为什么不是"只注入 preset 列出的包"的白名单**：实测会挡掉必需包。按 package.json 的 dependencies／peer／optional 统计，闭包里 317 个工作区 `@deepseek-ai` 包中有 **45 个未被任何 manifest 引用**，其中含 `dsh-base`、`dsh-client-web`、`dsh-browser-use`、`dsh-acp-app` 等 **bundle**——bundle 由 profile／preset 的补丁层按包名引用、不写依赖，因此"按依赖判定"的白名单会把它们挡在闭包外，直接破坏打包。
+- **剩余问题**：基线文件只在一次真实 `prepare-offline.sh` 运行后才会生成，那之前该断言只建立基线、不拦截。生成后需复核包清单并提交。
+- **验收**：`linglong/injected-packages.txt` 已提交且与真实注入集合一致；此后新增一个 workspace 包（被注入）时 `prepare-offline.sh` 非零退出并列出 diff。
 ## 23 打包态与外部 harness 共享 `~/.dsh`
 
 - **状态**：未修｜✅ 已复核
