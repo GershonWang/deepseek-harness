@@ -10,6 +10,7 @@
 
 - **要改上游配置文件的**：`.gitlab-ci.yml` 与 `.github/workflows/`（上游未改动，新增即是新增偏离）、`lefthook.yml`（上游文件，fork 已改 +13/−1，再加只会加重偏离）。
 - **根因或改动点在上游工具／产物的**：ll-builder 生成的 `buildext.sh`（`|| echo "$?"` 吞错）与根 `linglong/entry.sh`（`CFLAGS="-g"`）、ll-builder 把 `failed to copy` 降级为警告、上游 overlay 的写入不落盘、`WEBKIT_EXEC_PATH` 所需的 `DEVELOPER_MODE` webkit 发行物、上游基础镜像里坏掉的 `xdg-open`。
+- **机制上做不到的**：`/tmp/dsh-webkit-4.1` 这个短路径无法按用户隔离——补丁脚本做的是构建期字节替换，新串必须是字面量且不长于原串（`/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1`，42 字节），而 `$XDG_RUNTIME_DIR` 含 uid、只在运行期可知。现有的 `webkitHelperLinkUsable` 已挡住他人预置的链接、悬空链接与指向旧包的链接，残余的 TOCTOU 要根治只能换机制（每次启动在用户命名空间里把私有 tmpfs 挂到固定路径），不属最小改动。
 - **要上游 loader／服务端配合的**：插件树挂载复用（启动预热／按需加载）。
 - **在 app 之外的上游包里、且属加固而非功能缺陷的**：`packages/client` 侧发起的 `postMessage(..., '*')`（接收侧已有 `event.source !== window.parent` 校验）。
 
@@ -47,10 +48,6 @@
 | 25 | 低危 | 系统托盘 | 未修 |
 | N26 | 低危 | `fonts-wqy-microhei` 声明的中文字族看不到 | 未修（待查） |
 | N29 | 低危 | `*.tsbuildinfo` 随包交付 | 未修 |
-| 22 | 低危 | `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp` | 部分修复 |
-| 27 | 低危 | 窗口位置未记忆 | 部分修复 |
-| 28 | 低危 | 窗口背景色硬编码 | 部分修复 |
-| N-extra | 低危 | 前端异步错误兜底缺口 | 部分修复 |
 | N-extra3 | 低危 | 打包脚本中重复与漂移的事实 | 部分修复 |
 
 ---
@@ -177,45 +174,6 @@
 - **影响**：体积少量增加；`.tsbuildinfo` 记录编译机上的文件清单与编译设置。
 - **修复建议**：`prepare-offline.sh` 在复制后统一删除 `*.tsbuildinfo`（按文件名前缀删会漏掉 gaxios 的两个）。取舍：它只服务于增量编译，运行时无人读取。
 - **验收**：产物内 `find -name '*.tsbuildinfo'` 为空。
-
-## 22 `/tmp/dsh-webkit-4.1` 符号链接仍建在 `/tmp`
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`internal/packaging/webkit-exec-path.txt`（该路径字面量的唯一来源，由 `webkit_linux.go` 的 `//go:embed` 读入）、`internal/packaging/webkit_linux.go`
-- **问题**：路径常量仍是 `/tmp/dsh-webkit-4.1`，Go 源码内 grep `XDG_RUNTIME_DIR` 零命中。
-- **影响**：多用户主机上 `/tmp` 内的路径可被其他用户预置，属 TOCTOU 面。
-- **已修部分**：`webkitHelperLinkUsable()` 校验读回链接并确认 `WebKitNetworkProcess` 可访问，能防悬空或指向旧包。
-- **修复建议**：改用 `$XDG_RUNTIME_DIR`（只需改单源文件一处，打包与启动两侧同步生效）。
-- **验收**：产物内不再出现 `/tmp/dsh-webkit-4.1`。
-
-## 27 窗口位置未记忆
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`internal/app/appconfig.go`、`main.go`
-- **问题**：尺寸与最大化状态已记忆，**位置 X/Y 没有**（`WindowState` 无该字段）。
-- **影响**：每次启动都回到默认位置。
-- **修复建议**：`WindowState` 增加位置字段，启动时经 Wails 选项恢复，关闭时保存。
-- **验收**：移动窗口后重启回到原位置。
-
-## 28 窗口背景色硬编码
-
-- **状态**：部分修复｜✅ 已复核
-- **位置**：`main.go`（`BackgroundColour`）、`frontend/styles.css`
-- **问题**：`BackgroundColour` 仍硬编码 `{30, 30, 30, 255}`，Go 侧无任何 WebKitGTK 主题设置。
-- **影响**：系统浅色主题下窗口底色与页面不一致（首帧闪烁）。
-- **已修部分**：前端已跟随系统（`color-scheme: light dark` + `prefers-color-scheme: light` 整套浅色变量）。
-- **修复建议**：把背景色接入同一套主题判定（GTK 侧读系统偏好或由前端上报）。
-- **验收**：浅色主题下窗口底色与页面一致。
-
-## N-extra 前端异步错误兜底缺口
-
-- **状态**：部分修复｜✅ 实测复核
-- **位置**：`frontend/app.js`（`#btn-about`、`#market-refresh` 的 `api()` 调用）
-- **问题**：两处 `await api().X()` 无 try/catch，Go 侧 panic 时按钮卡在中间态且无反馈；全仓无 `unhandledrejection` 兜底。
-- **影响**：失败时界面停在「刷新中」等中间态，用户得不到任何提示。
-- **已修部分**：转义、样式选择器与开发态提示三处已修（`setDoctorSummaryHtml`／`setDoctorSummaryText` 拆分、进度条改用 `dataset.toolId`、提示条收敛到 `renderTools` 单点写入）。
-- **修复建议**：给这两处（及同类调用）补 try/catch 或加全局 `unhandledrejection` 兜底，失败时复位按钮并提示。
-- **验收**：模拟 Go 侧失败时按钮复位且有提示。
 
 ## N-extra3 打包脚本中重复与漂移的事实
 
