@@ -204,11 +204,15 @@ type App struct {
 
 	// 窗口状态跟踪（受 winMu 保护）。OnBeforeClose 是唯一可靠的保存时机
 	// （Wails 在窗口销毁之后才调用 OnShutdown，届时 WindowGetSize 只能取
-	// 到 0）。tick 每秒轮询记录最近一次非最大化的尺寸，最大化关闭时用它
-	// 作为还原尺寸，避免把全屏尺寸写进配置。
+	// 到 0）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
+	// 作为还原基准，避免把全屏尺寸写进配置。
 	winMu             sync.Mutex
 	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
 	winRestoredHeight int // 最近一次非最大化时的窗口高度
+	winRestoredX      int // 最近一次非最大化时的窗口左上角坐标（还原位置基准）
+	winRestoredY      int
+	// winHasPosition 表示上面两个坐标已记录过：0,0 是合法位置，不能拿零值当「没有」。
+	winHasPosition bool
 
 	// 上一次推送给前端的状态快照，用于变化检测：
 	// 仅当快照真正变化时才推送事件，避免每秒一次的无意义重渲染。
@@ -288,13 +292,27 @@ func (a *App) stopDoctor() {
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
 
-	// 窗口还原尺寸的初值取配置里保存的尺寸：若用户全程最大化使用并直接
-	// 关闭，还原尺寸仍是他上次主动调整过的窗口大小，而非程序默认值。
+	// 窗口还原几何的初值取配置里保存的值：若用户全程最大化使用并直接关闭，
+	// 还原基准仍是他上次主动调整过的窗口大小与位置，而非程序默认值。
 	if cfg, err := LoadAppConfig(a.home); err == nil && cfg.Window.Width >= 400 && cfg.Window.Height >= 300 {
 		a.winMu.Lock()
 		a.winRestoredWidth = cfg.Window.Width
 		a.winRestoredHeight = cfg.Window.Height
+		hasPos := cfg.Window.X != 0 || cfg.Window.Y != 0
+		if hasPos {
+			a.winRestoredX, a.winRestoredY = cfg.Window.X, cfg.Window.Y
+			a.winHasPosition = true
+		}
 		a.winMu.Unlock()
+		// 位置只能在窗口建好之后经 runtime 恢复：Wails v2.15 的 options.App 没有
+		// X/Y 字段。保存的位置明显越界时居中，避免窗口出现在用户看不到的地方。
+		if hasPos {
+			if windowPositionPlausible(ctx, cfg.Window.X, cfg.Window.Y) {
+				runtime.WindowSetPosition(ctx, cfg.Window.X, cfg.Window.Y)
+			} else {
+				runtime.WindowCenter(ctx)
+			}
+		}
 	}
 
 	// 注册终端事件回调：把终端输出和状态变更推送到前端
@@ -346,10 +364,10 @@ func (a *App) OnShutdown(_ context.Context) {
 	a.Shutdown()
 }
 
-// trackWindowSize 每秒记录一次窗口的非最大化尺寸。
-// 关闭时若窗口处于最大化，配置里写入的是这个"还原尺寸"而非全屏尺寸，
-// 否则下次启动取消最大化后窗口会是铺满屏幕的大小。
-func (a *App) trackWindowSize() {
+// trackWindowGeometry 每秒记录一次窗口的非最大化尺寸与位置。
+// 关闭时若窗口处于最大化，配置里写入的是这份"还原基准"而非全屏几何，
+// 否则下次启动取消最大化后窗口会铺满屏幕，也不再是用户放它的地方。
+func (a *App) trackWindowGeometry() {
 	if a.ctx == nil {
 		return
 	}
@@ -360,31 +378,71 @@ func (a *App) trackWindowSize() {
 	if w < 400 || h < 300 {
 		return
 	}
+	x, y := runtime.WindowGetPosition(a.ctx)
 	a.winMu.Lock()
 	a.winRestoredWidth = w
 	a.winRestoredHeight = h
+	a.winRestoredX = x
+	a.winRestoredY = y
+	a.winHasPosition = true
 	a.winMu.Unlock()
 }
 
+// windowPositionPlausible 判断保存的窗口位置是否还值得恢复。
+//
+// Wails v2.15 的 Screen 只给尺寸、不给原点（internal/frontend.Screen 没有 X/Y），
+// 因此无法精确判断某个点落在哪块屏幕上。这里用「不超出所有屏幕拼起来的外接框」做保守
+// 判断：主屏左侧/上方的副屏会出现负坐标，按一块屏幕的尺寸放宽；右侧副屏按各屏宽度
+// 之和放宽。明显越界（副屏被拔掉、分辨率变小）时不恢复位置、改由调用方居中——
+// 让窗口出现在屏幕外、用户看不到也点不着，比不恢复位置严重得多。
+func windowPositionPlausible(ctx context.Context, x, y int) bool {
+	screens, err := runtime.ScreenGetAll(ctx)
+	if err != nil || len(screens) == 0 {
+		return true // 取不到屏幕信息时不阻挠恢复
+	}
+	return positionWithinScreens(screens, x, y)
+}
+
+// positionWithinScreens 是 windowPositionPlausible 的纯函数部分，便于直接断言。
+func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
+	totalW, maxW, maxH := 0, 0, 0
+	for _, s := range screens {
+		totalW += s.Size.Width
+		maxW = max(maxW, s.Size.Width)
+		maxH = max(maxH, s.Size.Height)
+	}
+	return x > -maxW && x < totalW && y > -maxH && y < maxH
+}
+
 // saveWindowState 读取当前窗口状态并写入配置文件。
-// 最大化时用 tick 记录的还原尺寸代替全屏尺寸；窗口已不可读（SIGTERM 等
+// 最大化时用 tick 记录的还原几何代替全屏几何；窗口已不可读（SIGTERM 等
 // 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
 func (a *App) saveWindowState() {
 	if a.ctx == nil {
 		return
 	}
 	w, h := runtime.WindowGetSize(a.ctx)
+	x, y := runtime.WindowGetPosition(a.ctx)
 	maximized := runtime.WindowIsMaximised(a.ctx)
 	if maximized {
 		a.winMu.Lock()
 		rw, rh := a.winRestoredWidth, a.winRestoredHeight
+		rx, ry, recorded := a.winRestoredX, a.winRestoredY, a.winHasPosition
 		a.winMu.Unlock()
-		// 还原尺寸尚无记录（进程刚启动就最大化关闭）时放弃本次保存，
+		// 还原几何尚无记录（进程刚启动就最大化关闭）时放弃本次保存，
 		// 保留配置里已有的有效值。
 		if rw < 400 || rh < 300 {
 			return
 		}
 		w, h = rw, rh
+		if recorded {
+			x, y = rx, ry
+		} else {
+			// 最大化状态读到的坐标不是用户放它的地方；没有还原基准时保留配置里已有的值。
+			if prev, err := LoadWindowState(a.home); err == nil {
+				x, y = prev.X, prev.Y
+			}
+		}
 	}
 	if w < 400 || h < 300 {
 		return
@@ -393,6 +451,8 @@ func (a *App) saveWindowState() {
 		Width:     w,
 		Height:    h,
 		Maximized: maximized,
+		X:         x,
+		Y:         y,
 	})
 }
 
@@ -409,7 +469,7 @@ func (a *App) tick(ctx context.Context) {
 			curState := a.sup.Status().State
 			a.trackStartupDoctor(prevState, curState)
 			prevState = curState
-			a.trackWindowSize()
+			a.trackWindowGeometry()
 			// 仅在状态快照真正变化时推送事件，避免每秒一次的无意义重渲染。
 			// 窗口尺寸跟踪不受影响（它不需要推送给前端）。
 			a.emitStatusIfChanged()

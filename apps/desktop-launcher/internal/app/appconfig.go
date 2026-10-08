@@ -19,6 +19,10 @@ type WindowState struct {
 	Width     int  `json:"width"`
 	Height    int  `json:"height"`
 	Maximized bool `json:"maximized"`
+	// X、Y 是窗口左上角坐标；同时为 0 表示「没有记录」，因此用 omitempty 省略。
+	// 坐标本身可以是负的（副屏在主屏左侧），所以不能用「小于 0 即未记录」来判断。
+	X int `json:"x,omitempty"`
+	Y int `json:"y,omitempty"`
 }
 
 // DefaultWindowState 返回默认窗口状态。
