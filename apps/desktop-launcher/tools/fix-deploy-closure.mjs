@@ -7,7 +7,7 @@
  * 2. link: 覆盖的 workspace 包变成符号链接回源码
  * 3. legacy deploy 把部分直接依赖 hoist 到源码旁而非目标
  *
- * 用法：node scripts/fix-deploy-closure.mjs <harness-dir>
+ * 用法：node apps/desktop-launcher/tools/fix-deploy-closure.mjs <harness-dir>
  *
  * 移植自 deepseek-harness-desktop/apps/desktop/scripts/prepare-runtime.mjs
  */
@@ -16,7 +16,7 @@ import { dirname, join, sep } from 'node:path'
 
 const harnessDir = process.argv[2]
 if (!harnessDir) {
-  console.error('用法: node fix-deploy-closure.mjs <harness-dir>')
+  console.error('用法: node apps/desktop-launcher/tools/fix-deploy-closure.mjs <harness-dir>')
   process.exit(1)
 }
 

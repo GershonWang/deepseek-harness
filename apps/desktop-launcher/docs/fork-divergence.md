@@ -148,7 +148,7 @@ git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort
 
 | 行数 | 文件 | 说明 |
 |---:|---|---|
-| 152 | `scripts/fix-deploy-closure.mjs` | `pnpm deploy --legacy` 缺陷绕行脚本；**唯一调用方是 `apps/desktop-launcher/linglong/prepare-offline.sh`**，可直接搬进启动器 |
+| 152 | `apps/desktop-launcher/tools/fix-deploy-closure.mjs` | `pnpm deploy --legacy` 缺陷绕行脚本；**已搬进启动器**（2026-10-08，`scripts/` 下不再有该文件），唯一调用方是 `apps/desktop-launcher/linglong/prepare-offline.sh` |
 | 140 | `packages/client/ui-conversation/tests/desktop-clipboard.client.spec.ts` | 壳内剪贴板桥接测试 |
 | 118 | `packages/client/ui-conversation/src/client/desktop-clipboard.ts` | 与宿主壳的剪贴板桥接 |
 | 88 | `packages/boot/app-boot/tests/safe-mode.spec.ts` | 安全模式测试 |
@@ -184,7 +184,7 @@ git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort
 | 8 | `ui-theme/base.css`（+16 −4） | 启动器已用 `FONTCONFIG_FILE` 注册字体，改为在**启动器自己的 fontconfig** 里做 alias | 中 | 该文件上游改动次数为 **0**，风险极低，可最后处理 |
 | 9 | `ui-conversation/InputBar.tsx` + `desktop-clipboard.ts`（+59 +118 +140） | **无法等价外移**，见 §十一 | ✅ 调研已完成 | 缺少 `File → DraftAttachmentId` 的公开接口 |
 | 10 | `ui-attachment/*`（5 文件，+56 −6） | 给灯箱加"加载中/加载失败"状态；两处 i18n key **上游已存在**，属纯增量通用改进，建议**上游化** | 高 | `image.loading`/`image.loadFailed` 上游 `ui-conversation/src/client/locales.ts:40-41` 已定义，`locales.ts` **未被 fork 修改** |
-| 11 | `scripts/fix-deploy-closure.mjs`（152） | 搬进 `apps/desktop-launcher/`，同步改 `prepare-offline.sh:38` 的路径 | ✅ 高 | 调用方只有启动器 |
+| 11 | `scripts/fix-deploy-closure.mjs`（152） | 搬进 `apps/desktop-launcher/`，同步改 `prepare-offline.sh` 的路径 | ✅ 已完成（2026-10-08） | 调用方只有启动器；落在 `apps/desktop-launcher/tools/` |
 | 12 | `lefthook.yml`（+13 −1） | 布局门禁移到启动器自己的脚本；`npm` 换法可用 `.npmrc` 替代 | 中 | 注释已说明是为规避玲珑容器内 `pnpm` 的 deps 检查 |
 | 13 | `tsconfig.host.json`（+1） | doctor 并入启动器后自动消失 | 取决于 §10 | — |
 | 14 | `pnpm-lock.yaml`（+167 −65） | **不可消除** | ❌ | workspace 只要增删包就必然变化，且上游改动 447 次，是全仓最热的文件 |
@@ -321,7 +321,7 @@ args := []string{dshScript, "doctor", ...extra}     // preflight.go:141 DoctorAr
 ```sh
 # prepare-offline.sh:34
 pnpm --filter @deepseek-ai/dsh deploy --legacy --prod ... "$STAGE/harness"
-node scripts/fix-deploy-closure.mjs "$STAGE/harness"
+node apps/desktop-launcher/tools/fix-deploy-closure.mjs "$STAGE/harness"
 # :49   删除 typescript
 # :60+  inject_workspace_pkg 遍历 packages/*/* 与 vendor/*，把闭包缺失的包补进去
 # :133  inject-link-bridge.sh 往 web-frontend/dist 注入脚本

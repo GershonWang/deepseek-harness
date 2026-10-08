@@ -173,7 +173,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 - `base: org.deepin.base/25.2.2`（3 段式模糊匹配 stable 仓库的 25.2.2.6；base 不接受 4 段完整版本号）
 - 运行时依赖（webkit2gtk-4.1/gtk3/libsoup3）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
-- 闭包修复（`scripts/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
+- 闭包修复（`apps/desktop-launcher/tools/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
 - Go 启动器用 Wails 构建，须带 `-tags "production webkit2_41"`（wails 在该标签下选用 webkit2gtk-4.1）；旧的 webkit2gtk-4.0 pkg-config shim 不再需要
 - 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
 - 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging.Version=...`）。关于弹框的事实——两个版本号、玲珑封装作者、玲珑封装（fork）与上游 DSH 两个仓库地址——统一由 `internal/packaging` 的常量与解析函数给出，`app.About()` 聚合成 `AboutInfo`，前端只负责渲染，不另写一份

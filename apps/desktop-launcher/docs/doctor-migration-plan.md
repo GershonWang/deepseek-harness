@@ -107,7 +107,7 @@ Go 壳
 | 2 | `packages/boot/app-boot/tests/safe-mode.spec.ts`（+88） | 删除 | B |
 | 2 | `packages/support/doctor/src/bisect.ts`（阶段 1 后位于 launcher 内） | 改造 | — |
 | 2 | `packages/support/doctor/src/checks/env.ts`（同上） | 改造 | — |
-| 3 | `scripts/fix-deploy-closure.mjs`（152 行） | 下沉 | B |
+| 3 | `scripts/fix-deploy-closure.mjs`（152 行） | 下沉 | ✅ 已完成（2026-10-08，落在 `apps/desktop-launcher/tools/`） |
 | 3 | `scripts/verify-client-ui-i18n.ts`（+85） | 下沉 | A |
 | 3 | `scripts/verify-package-readme-model-experience.ts`（+1） | 回退 | A |
 | 3 | `scripts/doc-standard.spec.ts`（+1） | 回退 | A |
@@ -825,14 +825,14 @@ git commit -m "refactor(app-boot): 回退安全模式与私有导出，doctor �
 ### Task 9: 下沉 fork 自有工具与门禁
 
 **Files:**
-- Move: `scripts/fix-deploy-closure.mjs` → `apps/desktop-launcher/tools/fix-deploy-closure.mjs`
+- ✅ Move 已完成（2026-10-08）：`scripts/fix-deploy-closure.mjs` → `apps/desktop-launcher/tools/fix-deploy-closure.mjs`
 - Move: `scripts/verify-client-ui-i18n.ts` 的 launcher 部分 → `apps/desktop-launcher/tools/verify-launcher-i18n.mjs`
 - Modify: `lefthook.yml`, `apps/desktop-launcher/linglong/prepare-offline.sh`, `scripts/run-gates.ts`
 - Modify: `scripts/verify-package-readme-model-experience.ts`, `scripts/doc-standard.spec.ts`
 
 - [ ] **Step 9.1：迁移 `fix-deploy-closure.mjs` 并改引用**
 
-`git mv` 后，把 `prepare-offline.sh` 里的 `node scripts/fix-deploy-closure.mjs` 改为新路径。**先 grep 全仓确认没有第二处引用**（预计只有 `prepare-offline.sh`）。
+已按此执行：`git mv` → 改 `prepare-offline.sh` 的路径 → 全仓 grep 确认没有第二处引用（只有 `prepare-offline.sh`、两处 README 与本文档自身）。
 
 - [ ] **Step 9.2：下沉 i18n 门禁**
 

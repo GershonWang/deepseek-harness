@@ -67,7 +67,7 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   --config.node-linker=hoisted \
   --config.allowUnusedPatches=true \
   "$STAGE/harness"
-node scripts/fix-deploy-closure.mjs "$STAGE/harness"
+node apps/desktop-launcher/tools/fix-deploy-closure.mjs "$STAGE/harness"
 
 if [ -n "$STATE_BACKUP" ]; then
   cp -p "$STATE_BACKUP" "$WORKSPACE_STATE"
