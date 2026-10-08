@@ -114,7 +114,10 @@ if [ ! -f "$INDEX_JSON" ]; then
 else
   TOOLS_YAML_IDS=$(mktemp)
   INDEX_IDS=$(mktemp)
-  trap 'rm -f "$TOOLS_YAML_IDS" "$INDEX_IDS"' EXIT
+  TOOLS_YAML_RECOMMENDED=$(mktemp)
+  INDEX_RECOMMENDED=$(mktemp)
+  INDEX_PROBLEMS=$(mktemp)
+  trap 'rm -f "$TOOLS_YAML_IDS" "$INDEX_IDS" "$TOOLS_YAML_RECOMMENDED" "$INDEX_RECOMMENDED" "$INDEX_PROBLEMS"' EXIT
   awk '
     /^[a-zA-Z0-9_-]+:$/ {
       sec = $1; sub(/:$/, "", sec);
@@ -126,26 +129,85 @@ else
       print name;
     }
   ' "$YAML" | sort > "$TOOLS_YAML_IDS"
-  # 用 python 提取 JSON 里的 tools[].id
+  # tools.yaml 每个工具只声明一组 version/sha256（即推荐版本）。取出来与 index.json 的
+  # versions[0] 对账：两份文件漂移时要在这里红，而不是等用户点安装才发现。
+  awk '
+    /^[a-zA-Z0-9_-]+:$/ {
+      sec = $1; sub(/:$/, "", sec);
+      in_inst = (sec == "installable") ? 1 : 0;
+      next;
+    }
+    in_inst && /^  [a-zA-Z0-9_-]+:$/ {
+      if (name != "") emit();
+      name = $1; sub(/:$/, "", name);
+      version = ""; sha = "";
+      next;
+    }
+    in_inst && /^    version: / { v = $0; sub(/^    version: /, "", v); gsub(/"/, "", v); version = v; next; }
+    in_inst && /^    sha256: / { s = $0; sub(/^    sha256: /, "", s); gsub(/"/, "", s); sha = s; next; }
+    END { if (name != "") emit(); }
+    function emit() { printf "%s|%s|%s\n", name, version, sha; name = ""; }
+  ' "$YAML" | sort > "$TOOLS_YAML_RECOMMENDED"
   if ! command -v python3 >/dev/null 2>&1; then
     # 不能只打印 SKIP 就走：跳过等于这条防线不存在，而构建仍然成功。python3 是
     # 打包链路的既有依赖（见 tools.yaml 的 installable 段说明与 verify-container-deps.sh）。
     echo "FAIL installable/index: 找不到 python3，无法比对 tools.yaml 与 index.json 的工具列表" >&2
     fail=1
   else
-    python3 -c "
-import json, sys
+    # 逐版本校验 index.json（运行时唯一事实来源），并导出工具 ID 与推荐版本三元组。
+    # 只比对 ID 集合会漏掉多版本清单：jdk 有五条版本线，而 tools.yaml 的 installable
+    # 每个工具只有一组 sha256，占位符检查因此只覆盖推荐版本，其余四条写成占位符也能
+    # 通过构建（AUDIT N16）。逐版本校验 index.json 才拦得住。
+    python3 - "$INDEX_JSON" "$INDEX_IDS" "$INDEX_RECOMMENDED" > "$INDEX_PROBLEMS" <<'PY'
+import json, re, sys
+
 data = json.load(open(sys.argv[1]))
-for t in sorted(t['id'] for t in data['tools']):
-    print(t)
-" "$INDEX_JSON" > "$INDEX_IDS"
-    diff_out=$(diff "$TOOLS_YAML_IDS" "$INDEX_IDS" || true)
-    if [ -n "$diff_out" ]; then
+ids = open(sys.argv[2], 'w')
+recommended = open(sys.argv[3], 'w')
+# 按 id 排序输出：下面用 diff 与 tools.yaml 的排序结果对账，顺序不一致会假报漂移。
+for tool in sorted(data['tools'], key=lambda t: t['id']):
+    versions = tool.get('versions') or []
+    if not versions:
+        print(f"{tool['id']}: 没有任何版本")
+        continue
+    for v in versions:
+        label = f"{tool['id']}@{v.get('version', '?')}"
+        if not str(v.get('version', '')).strip():
+            print(f"{label}: version 为空")
+        url = str(v.get('url', ''))
+        if not url.startswith('https://'):
+            print(f"{label}: url 必须是 https 地址（得到 {url!r}）")
+        sha = str(v.get('sha256', ''))
+        if not re.fullmatch(r'[0-9a-f]{64}', sha):
+            print(f"{label}: sha256 必须是 64 位小写十六进制（得到 {sha!r}）")
+    first = versions[0]
+    recommended.write(f"{tool['id']}|{first.get('version', '')}|{first.get('sha256', '')}\n")
+    ids.write(tool['id'] + "\n")
+ids.close()
+recommended.close()
+PY
+    if [ -s "$INDEX_PROBLEMS" ]; then
+      echo "FAIL installable/index: index.json 里有版本的 url/sha256 不合规（含非推荐版本）" >&2
+      sed 's/^/       /' "$INDEX_PROBLEMS" >&2
+      fail=1
+    else
+      echo "OK   index.json 全部版本（含非推荐版本）url/sha256 均合规"
+    fi
+    diff_ids=$(diff "$TOOLS_YAML_IDS" "$INDEX_IDS" || true)
+    if [ -n "$diff_ids" ]; then
       echo "FAIL installable/index 不一致：tools.yaml vs index.json 工具列表不同" >&2
-      echo "$diff_out" >&2
+      echo "$diff_ids" >&2
       fail=1
     else
       echo "OK   installable 与 index.json 工具列表一致"
+    fi
+    diff_rec=$(diff "$TOOLS_YAML_RECOMMENDED" "$INDEX_RECOMMENDED" || true)
+    if [ -n "$diff_rec" ]; then
+      echo "FAIL installable/index 漂移：tools.yaml 的推荐版本与 index.json 的 versions[0] 不一致" >&2
+      echo "$diff_rec" >&2
+      fail=1
+    else
+      echo "OK   installable 的推荐版本与 index.json 一致"
     fi
   fi
 fi

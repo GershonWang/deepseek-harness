@@ -83,3 +83,48 @@ case "$out" in
   *) echo "FAIL: 缺 python3 时的报错未点明原因: $out" >&2; exit 1 ;;
 esac
 echo "PASS: 缺 python3 时退出非零并点明原因"
+
+# 失败路径：index.json 的**非推荐版本** sha256 未填实（AUDIT N16）。
+# 旧版只校验 tools.yaml 里那一组（推荐版本），jdk 其余四条写成占位符也能过。
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$SHADOW_INDEX_DIR/index.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+for tool in data['tools']:
+    if tool['id'] == 'jdk' and len(tool['versions']) > 1:
+        tool['versions'][1]['sha256'] = '<TBD>'
+json.dump(data, open(path, 'w'), ensure_ascii=False)
+PY
+  out=$(sh "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+    echo "FAIL: 非推荐版本 sha256 占位应失败（旧版只校验推荐版本）" >&2; exit 1; }
+  case "$out" in
+    *"jdk@"*sha256*) ;;
+    *) echo "FAIL: 非推荐版本占位时的报错未点明版本与字段: $out" >&2; exit 1 ;;
+  esac
+  echo "PASS: 非推荐版本 sha256 占位时退出非零并点明版本"
+  cp "$ROOT/apps/desktop-launcher/internal/toolchain/tools/index.json" "$SHADOW_INDEX_DIR/index.json"
+
+  # 失败路径：tools.yaml 的推荐版本与 index.json 的 versions[0] 漂移。
+  # 两份文件各自"看起来都对"时，只有对账能发现它们说的不是同一份东西。
+  python3 - "$SHADOW/tools.yaml" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+# 只改 installable 段里 go 的 sha256，其它工具与 tools 段不动。
+head, sep, tail = text.partition('\ninstallable:\n')
+assert sep, 'tools.yaml 缺少 installable 段'
+tail = re.sub(r'((?:^|\n)  go:\n(?:    .*\n)*?    sha256: )"[0-9a-f]{64}"',
+              r'\g<1>"' + '0' * 64 + '"', tail, count=1)
+open(path, 'w').write(head + sep + tail)
+PY
+  out=$(sh "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+    echo "FAIL: tools.yaml 与 index.json 漂移应失败" >&2; exit 1; }
+  case "$out" in
+    *漂移*) ;;
+    *) echo "FAIL: 漂移时的报错未点明原因: $out" >&2; exit 1 ;;
+  esac
+  echo "PASS: 推荐版本漂移时退出非零并点明原因"
+else
+  echo "SKIP: 无 python3，跳过非推荐版本与漂移两条失败路径"
+fi
