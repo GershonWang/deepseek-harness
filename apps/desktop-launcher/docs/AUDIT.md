@@ -43,8 +43,6 @@
 | 32 | 中危 | 注入链路仍是三层补丁 | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
 | N22 | 中危 | 端到端审计只覆盖 `versions[0]` | 未修 |
-| N16 | 中危 | `verify-tools.sh` 的一致性校验不覆盖多版本 | 部分修复 |
-| 17 | 低危 | WebKit 单进程模式 | 未修 |
 | 25 | 低危 | 系统托盘 | 未修 |
 | N26 | 低危 | 中文字族不随包，无中文字体的机器上显示豆腐块 | 未修（待决策） |
 
@@ -122,28 +120,9 @@
 - **修复建议**：让该用例遍历每个工具的 `versions`，或增加一个按版本过滤的环境变量。
 - **验收**：`DSH_TC_E2E=1` 跑过全部版本线，或至少可指定版本过滤并覆盖非推荐版本。
 
-## N16 `verify-tools.sh` 的一致性校验不覆盖多版本
-
-- **状态**：部分修复｜✅ 实测复核（2026-10-07）
-- **位置**：`linglong/verify-tools.sh`、`linglong/tools.yaml`（`installable` 段）
-- **问题**：`installable` 每个工具只有一组 `version`/`url`/`sha256`，因此「sha256 含占位符即失败」这条检查只覆盖**推荐版本**；校验也只 `diff` ID 集合，不比对 `version`/`url`/`sha256`。
-- **影响**：`jdk` 在 `index.json` 里有五条版本线，而 `tools.yaml` 的 `installable.jdk` 只有 `21.0.12.1` 一组——其余**四条**即便写成占位符也能通过构建。
-- **已修部分**：缺 `index.json` 与缺 `python3` 均已改为硬失败并点明原因，不再静默跳过。
-- **修复建议**：把 `installable` 段扩展为多版本格式，让脚本逐版本比对 `index.json`。
-- **验收**：任一版本的 sha256 写成占位符时构建失败。
-
 ---
 
 # 三、低危
-
-## 17 WebKit 单进程模式
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`internal/packaging/webkit_linux.go`
-- **问题**：只设 `WEBKIT_INJECTED_BUNDLE_PATH` 与 `WEBKIT_DISABLE_DMABUF_RENDERER`（NVIDIA 兜底），无 `WEBKIT_DISABLE_COMPOSITING_MODE` 或单进程开关。
-- **影响**：容器内 WebKit 多进程渲染在部分宿主上不稳定，缺可回退的开关。
-- **修复建议**：提供可配置的单进程/禁用合成开关（放进 `Config` 而非硬编码）。
-- **验收**：开关可经配置打开且生效。
 
 ## 25 系统托盘
 
