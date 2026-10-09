@@ -145,7 +145,7 @@ func (s *Switchboard) Switch() error {
 	s.cfg.DefaultMode = next
 	if err := s.saveLocked(); err != nil {
 		// 配置写不进去不影响本次切换，只留痕。
-		s.lastError = fmt.Sprintf("默认模式未保存: %v", err)
+		s.lastError = fmt.Sprintf("default mode not saved: %v", err)
 	}
 	return nil
 }
@@ -155,7 +155,7 @@ func (s *Switchboard) Switch() error {
 // @returns 参数非法或写入失败的原因。
 func (s *Switchboard) SetDefault(mode Mode) error {
 	if mode != ModeShell && mode != ModeOfficial {
-		return fmt.Errorf("switchboard: 未知的客户端形态 %q", mode)
+		return fmt.Errorf("switchboard: unknown client mode %q", mode)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,7 +225,7 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("启动 %s 客户端失败: %w", mode, err)
+		return fmt.Errorf("starting the %s client: %w", mode, err)
 	}
 	s.child = cmd
 	s.current = mode
@@ -291,7 +291,7 @@ func (s *Switchboard) saveLocked() error {
 func clientCommand(mode Mode) (string, []string, error) {
 	exe, err := os.Executable()
 	if err != nil {
-		return "", nil, fmt.Errorf("定位自身可执行文件失败: %w", err)
+		return "", nil, fmt.Errorf("locating the launcher executable: %w", err)
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved
@@ -303,10 +303,10 @@ func clientCommand(mode Mode) (string, []string, error) {
 		prefix := filepath.Dir(filepath.Dir(exe))
 		official := filepath.Join(prefix, "electron", officialExecutable)
 		if _, err := os.Stat(official); err != nil {
-			return "", nil, fmt.Errorf("官方客户端主程序不可用（%s）: %w", official, err)
+			return "", nil, fmt.Errorf("official client executable unavailable (%s): %w", official, err)
 		}
 		return official, []string{"--no-sandbox"}, nil
 	default:
-		return "", nil, fmt.Errorf("switchboard: 未知的客户端形态 %q", mode)
+		return "", nil, fmt.Errorf("switchboard: unknown client mode %q", mode)
 	}
 }

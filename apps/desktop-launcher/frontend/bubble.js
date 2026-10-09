@@ -39,7 +39,8 @@
     // aria-label 带上当前形态，读屏用户也能听出跑的是哪个客户端。
     bubbleEl.setAttribute("aria-label", DSHI18N.t("bubble.switch") + "：" + modeLabel(status.mode));
     if (status.error) {
-      errorEl.textContent = status.error;
+      // Go 侧给的是技术原因（英文诊断），用户可见的提示框架在这里本地化。
+      errorEl.textContent = DSHI18N.t("bubble.switchFailed") + "：" + status.error;
       errorEl.hidden = false;
     } else {
       errorEl.hidden = true;

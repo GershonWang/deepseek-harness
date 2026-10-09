@@ -340,4 +340,5 @@ window.DSH_LOCALES.zh = {
   "bubble.defaultShell": "默认启动薄壳版",
   "bubble.defaultOfficial": "默认启动官方版",
   "bubble.quit": "退出切换器",
+  "bubble.switchFailed": "切换失败",
 };

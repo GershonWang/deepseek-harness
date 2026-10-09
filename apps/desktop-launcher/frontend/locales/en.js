@@ -305,4 +305,5 @@ window.DSH_LOCALES.en = {
   "bubble.defaultShell": "Start the thin shell by default",
   "bubble.defaultOfficial": "Start the official client by default",
   "bubble.quit": "Quit the switchboard",
+  "bubble.switchFailed": "Switch failed",
 };

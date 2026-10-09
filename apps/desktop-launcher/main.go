@@ -199,7 +199,7 @@ func runBubble() {
 	}()
 
 	err := wails.Run(&options.App{
-		Title:            "DeepSeek Harness 切换器",
+		Title:            "DeepSeek Harness",
 		Width:            bubbleSize,
 		Height:           bubbleSize,
 		MinWidth:         bubbleSize,
