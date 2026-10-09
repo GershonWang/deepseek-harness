@@ -15,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/app"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
@@ -210,6 +211,11 @@ func runBubble() {
 		Frameless:        true,
 		AlwaysOnTop:      true,
 		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
+		// Linux 后端只有在 WindowIsTranslucent 打开时才把窗口背景的 alpha 归零
+		// （Wails 的 window.c：windowIsTranslucent 为真时 colour.alpha = 0）。只设
+		// BackgroundColour 的 alpha 不够——那样窗口仍画成不透明黑底，悬浮球会顶着一个
+		// 黑色方块，而 CSS 的圆角只在方块内部生效。
+		Linux: &linux.Options{WindowIsTranslucent: true},
 		AssetServer: &assetserver.Options{
 			Assets:     assets,
 			Middleware: bubbleEntrypoint,
