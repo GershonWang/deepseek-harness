@@ -26,6 +26,8 @@ ll-builder export --ref com.deepseek.dsh-desktop-official
 
 `prepare-offline.sh` 会构建仓库、打包 dsh 与 vendor 包集、准备 Electron 运行时与主运行时、准备 dsh 树，并用 `electron-builder --linux --x64 --dir` 产出到 `apps/desktop-linglong/stage/`。容器构建只复制该目录树、安装图标与桌面入口、写入启动包装脚本。
 
+`prepare-offline.sh` 会经 `@electron/get` 从 GitHub 下载 Electron 二进制，而它不读 `http_proxy`/`https_proxy`（Node 的 `fetch` 不认这两个变量）。在到不了 GitHub 的网络里，先设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`，或在已导出代理时设 `NODE_USE_ENV_PROXY=1`。
+
 ## 本模块依赖的上游改动
 
 同一次改动给 `apps/desktop` 补上了 Linux 平台路径。

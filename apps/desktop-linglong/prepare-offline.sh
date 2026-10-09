@@ -56,6 +56,13 @@ mkdir -p "$PATHS_packedLandlock"
 pnpm --dir native/system/packages/entry pack --pack-destination "$PATHS_packedLandlock"
 
 echo "==> 6/9 准备 Electron 与主运行时"
+# @electron/get 默认直连 GitHub 下载 Electron 二进制。Node 的 fetch 不读 http_proxy /
+# https_proxy 这类环境变量，所以「机器上有代理」并不等于这里能下下来——国内网络下的
+# 典型表现就是一句 TypeError: fetch failed。两条出路：设 ELECTRON_MIRROR 走镜像，或设
+# NODE_USE_ENV_PROXY=1 让 fetch 认代理。这里只提示，不替用户挑，也不硬编码镜像地址。
+if [ -z "${ELECTRON_MIRROR:-}" ] && [ -z "${NODE_USE_ENV_PROXY:-}" ]; then
+  echo "    提示: 若此步报 fetch failed，先设 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ 再重试" >&2
+fi
 (cd apps/desktop && pnpm run prepare:runtime)
 
 echo "==> 7/9 准备包集"

@@ -26,6 +26,8 @@ ll-builder export --ref com.deepseek.dsh-desktop-official
 
 `prepare-offline.sh` builds the repository, packs the dsh and vendor package sets, prepares the Electron runtime and the primary runtime, prepares the dsh tree, and runs `electron-builder --linux --x64 --dir` into `apps/desktop-linglong/stage/`. The container build only copies that tree, installs the icons and desktop entry, and writes the launcher wrapper.
 
+`prepare-offline.sh` downloads the Electron binary through `@electron/get`, which fetches from GitHub and ignores `http_proxy`/`https_proxy` (Node's `fetch` does not read them). On a network that cannot reach GitHub, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`, or `NODE_USE_ENV_PROXY=1` when a proxy is already exported.
+
 ## Upstream changes this module depends on
 
 `apps/desktop` gained a Linux platform path in the same change.
