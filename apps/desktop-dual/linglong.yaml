@@ -30,12 +30,18 @@ build: |
     exit 1
   fi
 
-  mkdir -p ${PREFIX}/bin
-  cp -a "$STAGE/." ${PREFIX}/
+  # 薄壳客户端：容器内处理与单客户端包完全一致，走同一份脚本。其中 webkit 的实体
+  # 搬运与 exec-path 字节补丁尤其关键——漏掉它，包能装上、进程能起来，但 WebKit 的
+  # helper 进程路径指向容器内不存在的 /usr/lib/...，窗口一创建就崩，且构建期毫无报错。
+  sh /project/apps/desktop-launcher/linglong/install-shell-runtime.sh "$STAGE"
 
-  # 官方客户端主程序名由 electron-builder 依 productName 生成（实测形如
-  # `@deepseek-aidsh-desktop`，含 @ 与连字符）。切换器按固定名查找，因此这里
-  # 把名字收敛掉，避免切换器依赖上游的命名规则。
+  # 官方 Electron 客户端：stage/electron 是完整的可运行目录树，直接铺开。
+  mkdir -p ${PREFIX}/electron
+  cp -a "$STAGE/electron/." ${PREFIX}/electron/
+
+  # 主程序名由 electron-builder 依 productName 生成（实测形如 @deepseek-aidsh-desktop），
+  # 切换器按固定名查找。prepare-offline.sh 已改名，这里再确认一次，避免打出「悬浮球
+  # 点不动」的包——那种包能装上，但切换时才发现官方客户端根本不存在。
   OFFICIAL=${PREFIX}/electron/dsh-desktop-official
   if [ ! -x "$OFFICIAL" ]; then
     echo "官方客户端主程序缺失：$OFFICIAL（prepare-offline.sh 的改名步骤未生效）" >&2
@@ -52,11 +58,50 @@ build: |
 
 buildext:
   apt:
-    build_depends: []
-    # 运行期库由基础层提供；这里的 depends 只保证构建期可解析。
-    # 官方 Electron 客户端需要的那一组与 apps/desktop-linglong/linglong.yaml 一致。
+    build_depends:
+      - libwebkit2gtk-4.1-0
     depends:
+      - libwebkit2gtk-4.1-0
+      - libjavascriptcoregtk-4.1-0
       - libgtk-3-0
+      - libglib2.0-0
+      # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
+      # /usr 不随 layer 导出；因此文泉驿微米黑由 build 段从 .deb 里自行解出后随包
+      # （见上面 CJK_PKG 段），既不新增 build_depends，也不触碰
+      # verify-container-deps.sh 的 /usr `*.dpkg-new` 全局扫描（AUDIT N26）。
+      # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
+      # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
+      # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
+      # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
+      - git
+      # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
+      # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
+      - git-lfs
+      # 层1 工具链自包含:随包工具与其运行时依赖。
+      # 注意：不带 python3-pip —— pip 的 Recommends(build-essential + python3-dev)
+      # 会经 apt 拉进完整 gcc-12 编译器（cc1/cc1plus/lto1 + 静态库，约 121 MB）
+      # 与 python3-dev 头文件/静态库（约 46 MB）。运行时不需要编译能力，pip 由
+      # L2 工具链（~/.dsh-tools 热插拔 python，自带 pip）提供，避免 ~167 MB 浪费。
+      - python3
+      - curl
+      - wget
+      - unzip
+      - zip
+      - jq
+      - xxd   # 独立二进制包;beige/noble 的 vim-common 已不含 xxd
+      - ca-certificates   # git/https/python 校验
+      # 打开外部链接需要真实的 xdg-open：基础运行时的 /bin/xdg-open 只是个
+      # systemd-run 转发壳（实测递归失败，打不开任何东西）。随包合并真实的
+      # xdg-utils（deepin fork）到 ${PREFIX}/bin（容器 PATH 首位，盖过该壳），
+      # 由其在 XDG_CURRENT_DESKTOP=DDE 下经宿主 portal 打开本机默认浏览器。
+      - xdg-utils
+      # Wayland 会话下的粘贴图片只能经 Wayland 剪贴板拿到：实测 XWayland 不把
+      # Wayland 侧的 image/png 暴露成 X11 selection（同一张 12420 字节 PNG，
+      # wl-paste 读到 12453 字节，X11 CLIPBOARD/PRIMARY 读到 0 字节）。宿主、
+      # 基础运行时与产物层三处都没有 wl-clipboard，不随包则 readWaylandImage
+      # 找不到 wl-paste，截图粘贴静默失效。合并进 ${PREFIX}/bin（容器 PATH 上）。
+      - wl-clipboard
+      # 官方 Electron 客户端需要的运行期库（基础层通常已提供，这里只保证构建期可解析）。
       - libnss3
       - libgbm1
       - libasound2
@@ -71,5 +116,3 @@ buildext:
       - libpango-1.0-0
       - libcairo2
       - libxshmfence1
-      - libwebkit2gtk-4.1-0
-      - libjavascriptcoregtk-4.1-0
