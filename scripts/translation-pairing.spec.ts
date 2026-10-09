@@ -344,6 +344,7 @@ describe('translation scope discovery', () => {
     'linglong/overlay/build_base/upperdir/usr/share/doc/jq/README.md',
     'linglong/output/binary/files/node/README.md',
     'apps/desktop-launcher/linglong/stage/node/README.md',
+    'apps/desktop-linglong/stage/resources/runtime/pnpm/README.md',
     'apps/desktop-launcher/linglong/linglong/output/binary/files/node/README.md',
   ])('excludes non-source or non-README path %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(false)

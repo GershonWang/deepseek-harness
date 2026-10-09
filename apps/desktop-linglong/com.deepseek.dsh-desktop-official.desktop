@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=DeepSeek Harness
+Name[zh_CN]=DeepSeek Harness 官方版
+Comment=DeepSeek Harness desktop client (Electron)
+Comment[zh_CN]=DeepSeek Harness 桌面客户端（Electron 官方版）
+Exec=/opt/apps/com.deepseek.dsh-desktop-official/files/bin/dsh-desktop-official
+Icon=dsh-desktop-official
+# Electron 在 Linux 上的 WM_CLASS 取 productName（"DeepSeek Harness"）。此值未经真机
+# 验证：dock 图标关联失败时用 xprop 读实际 WM_CLASS 再修正。
+StartupWMClass=DeepSeek Harness
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=false

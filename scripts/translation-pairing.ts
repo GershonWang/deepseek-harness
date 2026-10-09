@@ -164,6 +164,7 @@ function isTranslationSourceExcluded(file: string): boolean {
     || file.startsWith('apps/web/dist/')
     || file.startsWith('apps/desktop-launcher/linglong/linglong/')
     || file.startsWith('apps/desktop-launcher/linglong/stage/')
+    || file.startsWith('apps/desktop-linglong/stage/')
     || file.startsWith('linglong/')
     || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/')
 }

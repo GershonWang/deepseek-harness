@@ -1,0 +1,93 @@
+version: "1"
+package:
+  id: com.deepseek.dsh-desktop-official
+  name: deepseek-harness-desktop-official
+  version: 0.1.0.1
+  kind: app
+  description: |
+    DeepSeek Harness 官方桌面客户端（Electron）。
+    以玲珑包分发上游 Electron Desktop 客户端，与 Go + Wails 薄壳版
+    （com.deepseek.dsh-desktop）并列，两者互不依赖。
+
+command:
+  - /opt/apps/com.deepseek.dsh-desktop-official/files/bin/dsh-desktop-official
+
+base: org.deepin.base/25.2.2
+
+# 组装式构建：重工具链（pnpm/tsc/tsdown/electron-builder/Electron 下载）全部在宿主机跑，
+# 先在仓库根运行 sh apps/desktop-linglong/prepare-offline.sh 生成 stage/ 产物，
+# 本段只在容器内复制组装。
+#
+# 与薄壳版的关键差异：Electron Desktop 自带 Electron 运行时与 dsh 树
+# （resources/app.asar/dsh），因此本包**不再随包 Node 与 harness 树**——那是薄壳版
+# 体积的主要来源，Electron 版不需要第二份。
+build: |
+  STAGE=/project/apps/desktop-linglong/stage
+  if [ ! -d "$STAGE" ]; then
+    echo "stage 缺失：先在仓库根运行 sh apps/desktop-linglong/prepare-offline.sh" >&2
+    exit 1
+  fi
+
+  mkdir -p ${PREFIX}/bin ${PREFIX}/electron
+  cp -a "$STAGE/." ${PREFIX}/electron/
+
+  # Electron 主程序名由 electron-builder 依 productName/name 生成（上游改名时不该
+  # 连带改这里）：在暂存目录顶层找唯一的可执行 ELF，排除 chrome-sandbox（它需要
+  # setuid，而玲珑禁止提权，用不了）与共享库。
+  MAIN_EXE=
+  for candidate in "$STAGE"/*; do
+    [ -f "$candidate" ] || continue
+    [ -x "$candidate" ] || continue
+    case "$candidate" in
+      */chrome-sandbox|*.so|*.so.*) continue ;;
+    esac
+    MAIN_EXE=$(basename "$candidate")
+    break
+  done
+  if [ -z "$MAIN_EXE" ]; then
+    echo "未在暂存目录找到 Electron 主程序" >&2
+    exit 1
+  fi
+  echo "Electron 主程序: $MAIN_EXE"
+
+  # 启动包装：玲珑容器内 SUID 不可用，Chromium 沙箱无法工作，必须 --no-sandbox
+  # （玲珑化的 Electron 应用通行做法）。用绝对路径解析自身，避免依赖调用方 cwd。
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
+    'DIR=$(dirname "$SELF")' \
+    "exec \"\$DIR/../electron/$MAIN_EXE\" --no-sandbox \"\$@\"" \
+    > ${PREFIX}/bin/dsh-desktop-official
+  chmod +x ${PREFIX}/bin/dsh-desktop-official
+
+  for s in 16 22 24 32 48 64 128 256 512; do
+    install -Dm644 /project/apps/desktop-linglong/icons/hicolor/${s}x${s}/apps/dsh-desktop-official.png \
+      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop-official.png
+  done
+
+  install -Dm644 /project/apps/desktop-linglong/com.deepseek.dsh-desktop-official.desktop \
+    ${PREFIX}/share/applications/com.deepseek.dsh-desktop-official.desktop
+
+buildext:
+  apt:
+    build_depends: []
+    # 说明：这里的 depends 在 build 段之后才装进容器，且 /usr 不随 layer 导出
+    # （薄壳版在 webkit 上实测过同一现象）。因此下面这些库只保证**构建期**可解析，
+    # 运行期依赖基础层 org.deepin.base 提供；实测若缺库，需按薄壳版 webkit 的做法
+    # 用 apt-get download + dpkg-deb -x 显式搬进 ${PREFIX}。
+    depends:
+      - libgtk-3-0
+      - libnss3
+      - libgbm1
+      - libasound2
+      - libatk-bridge2.0-0
+      - libatspi2.0-0
+      - libcups2
+      - libxkbcommon0
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libdrm2
+      - libpango-1.0-0
+      - libcairo2
+      - libxshmfence1
