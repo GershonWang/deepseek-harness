@@ -43,4 +43,4 @@ ll-builder export --ref com.deepseek.dsh-desktop-official
 
 - 本包没有代码签名、公证与应用内更新，因为玲珑容器禁止提权。Electron 沙箱因此用 `--no-sandbox` 关闭。
 - Linux 上 Office 转换选用 WASM 引擎，因为锁定的 `libreoffice-kit` 只为 macOS 与 Windows 声明了原生包。
-- Electron 在容器内需要的运行期库集合尚未在真机验证：[`linglong.yaml`](linglong.yaml) 的 `depends` 只保证构建期可解析，运行期库由基础层提供。
+- 运行期库由基础层提供：[`linglong.yaml`](linglong.yaml) 的 `depends` 只保证构建期可解析。已在 Deepin 25 上用 0.1.0.2 验证：包可安装并启动。
