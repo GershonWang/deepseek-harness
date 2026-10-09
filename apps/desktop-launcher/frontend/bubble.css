@@ -85,32 +85,30 @@ body[data-switching="1"] #bubble {
   }
 }
 
-#glyph {
+/* 球内布局：品牌 mark 在上、形态标记在下，整体居中。 */
+#bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand {
   width: 30px;
   height: 30px;
   display: block;
-  margin: 0 auto;
-  fill: none;
-  stroke: #ffffff;
-  stroke-width: 2.1;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  /* 图标压在渐变上，加一层细投影才不会糊进底色。 */
+  /* 白色 mark 压在渐变上，加一层细投影才不会糊进底色。 */
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.32));
 }
 
-#glyph-shell,
-#glyph-official {
-  display: none;
-}
-
-body[data-mode="shell"] #glyph-shell,
-body[data-mode=""] #glyph-shell {
-  display: block;
-}
-
-body[data-mode="official"] #glyph-official {
-  display: block;
+#marker {
+  margin-top: 1px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
 }
 
 #menu {

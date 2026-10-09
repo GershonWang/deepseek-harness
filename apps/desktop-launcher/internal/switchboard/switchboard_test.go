@@ -44,6 +44,17 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
+// TestModeMarkerNamesEachMode 覆盖形态标记：它是技术标识（web / desktop），由 Go 侧
+// 给出而不是前端硬编码，也不进字典（两种语言写法相同）。
+func TestModeMarkerNamesEachMode(t *testing.T) {
+	cases := map[Mode]string{ModeShell: "web", ModeOfficial: "desktop", "": ""}
+	for mode, want := range cases {
+		if got := modeMarker(mode); got != want {
+			t.Errorf("modeMarker(%q) = %q，期望 %q", mode, got, want)
+		}
+	}
+}
+
 // TestBubblePositionUnsetByDefault 覆盖「从未拖拽过」：此时 Set 必须为假，
 // 否则启动会去还原一个并不存在的原点位置，把悬浮球钉在左上角。
 func TestBubblePositionUnsetByDefault(t *testing.T) {

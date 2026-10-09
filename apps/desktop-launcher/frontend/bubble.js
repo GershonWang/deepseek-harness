@@ -26,6 +26,7 @@
   var bubbleEl = document.getElementById("bubble");
   var menuEl = document.getElementById("menu");
   var errorEl = document.getElementById("error");
+  var markerEl = document.getElementById("marker");
   var expanded = false;
   /** 当前这一次按住的状态；未按住时为 null。winX/winY 在异步取回窗口位置前为 null。 */
   var drag = null;
@@ -71,6 +72,7 @@
     document.body.dataset.switching = status.switching ? "1" : "0";
     // aria-label 带上当前形态，读屏用户也能听出跑的是哪个客户端。
     bubbleEl.setAttribute("aria-label", DSHI18N.t("bubble.switch") + "：" + modeLabel(status.mode));
+    markerEl.textContent = status.marker || "";
     if (status.error) {
       // Go 侧给的是技术原因（英文诊断），用户可见的提示框架在这里本地化。
       errorEl.textContent = DSHI18N.t("bubble.switchFailed") + "：" + status.error;

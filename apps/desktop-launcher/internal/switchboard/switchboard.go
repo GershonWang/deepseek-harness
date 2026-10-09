@@ -70,6 +70,10 @@ type Status struct {
 	Mode Mode `json:"mode"`
 	// DefaultMode 是下次启动时使用的形态。
 	DefaultMode Mode `json:"defaultMode"`
+	// Marker 是悬浮球下方那行形态标记（web / desktop）。它是技术标识而不是需要翻译的
+	// 文案——两种语言下写法相同，进字典反而会被「中英逐字相同」判成漏翻；由 Go 侧给出，
+	// 前端也不硬编码。
+	Marker string `json:"marker"`
 	// Switching 表示一次切换正在进行，前端据此禁用重复点击。
 	Switching bool `json:"switching"`
 	// Error 保留最近一次失败的原因，成功后清空。
@@ -194,6 +198,7 @@ func (s *Switchboard) Status() Status {
 	defer s.mu.Unlock()
 	return Status{
 		Mode:        s.current,
+		Marker:      modeMarker(s.current),
 		DefaultMode: s.cfg.DefaultMode,
 		Switching:   s.switching,
 		Error:       s.lastError,
@@ -227,6 +232,20 @@ func (s *Switchboard) Shutdown() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopLocked()
+}
+
+// modeMarker 给出一种客户端形态在悬浮球上显示的标记文字。
+// @param mode - 客户端形态；空串表示当前没有客户端在运行。
+// @returns 标记文字，未运行时为空串。
+func modeMarker(mode Mode) string {
+	switch mode {
+	case ModeShell:
+		return "web"
+	case ModeOfficial:
+		return "desktop"
+	default:
+		return ""
+	}
 }
 
 // launchLocked 启动一个客户端进程并记录形态。调用方必须持有 s.mu。
