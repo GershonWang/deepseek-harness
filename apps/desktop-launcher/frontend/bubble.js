@@ -13,14 +13,26 @@
   var POLL_MS = 1000;
   /** 悬浮球窗口的边长，与 main.go 的 bubbleSize 一致。 */
   var BUBBLE_SIZE = 72;
-  /** 菜单展开时的窗口尺寸：要容下最长的一条菜单项，并给球留出上方空间。 */
-  var MENU_SIZE = { width: 220, height: 220 };
+  /** 菜单或错误展开时的窗口尺寸：要容下最长的一条菜单项，并给球留出上方空间。 */
+  var EXPANDED = { width: 220, height: 220 };
 
   var bubbleEl = document.getElementById("bubble");
   var menuEl = document.getElementById("menu");
   var errorEl = document.getElementById("error");
+  var expanded = false;
 
-  /** 形态的可读名，供 aria-label 与错误提示使用。
+  /**
+   * 取 Wails 绑定。命名规则是 <Go 包名>.<结构体名>，本结构体在 internal/switchboard
+   * 包，因此是 window.go.switchboard.Switchboard——不是 main.Switchboard（薄壳客户端
+   * 用的是 window.go.app.App，同一条规则）。绑定在页面加载后才注入，取不到时返回
+   * undefined，调用方按「尚未就绪」处理，而不是抛异常把整个事件处理器打断。
+   * @returns {object|undefined} 绑定对象。
+   */
+  function bindings() {
+    return window.go && window.go.switchboard && window.go.switchboard.Switchboard;
+  }
+
+  /** 形态的可读名，供 aria-label 使用。
    * @param {string} mode - Go 侧返回的形态标识。
    * @returns {string} 当前语言下的形态名。
    */
@@ -28,6 +40,15 @@
     if (mode === "shell") return DSHI18N.t("bubble.modeShell");
     if (mode === "official") return DSHI18N.t("bubble.modeOfficial");
     return DSHI18N.t("bubble.noClient");
+  }
+
+  /** 展开或收回窗口。菜单与错误提示都放不进 72×72，必须借窗口尺寸。
+   * @param {boolean} want - 是否展开。
+   */
+  function setExpanded(want) {
+    if (expanded === want) return;
+    expanded = want;
+    window.runtime.WindowSetSize(want ? EXPANDED.width : BUBBLE_SIZE, want ? EXPANDED.height : BUBBLE_SIZE);
   }
 
   /** 用一份 Go 侧状态快照重绘悬浮球。
@@ -42,38 +63,37 @@
       // Go 侧给的是技术原因（英文诊断），用户可见的提示框架在这里本地化。
       errorEl.textContent = DSHI18N.t("bubble.switchFailed") + "：" + status.error;
       errorEl.hidden = false;
+      // 错误提示排在球下方，72×72 的窗口装不下；不展开就等于没有提示。
+      if (menuEl.hidden) setExpanded(true);
     } else {
       errorEl.hidden = true;
+      if (menuEl.hidden) setExpanded(false);
     }
   }
 
   /** 拉取一次状态；失败（例如 Go 侧还没就绪）时保持上一帧，不闪回默认值。 */
   function poll() {
-    window.go.main.Switchboard.Status().then(render).catch(function () {});
-  }
-
-  /** 调整窗口尺寸；菜单要在窗口内展开，而窗口只有球那么大。
-   * @param {number} width - 目标宽度。
-   * @param {number} height - 目标高度。
-   */
-  function resize(width, height) {
-    window.runtime.WindowSetSize(width, height);
+    var api = bindings();
+    if (!api) return;
+    api.Status().then(render).catch(function () {});
   }
 
   function openMenu() {
     menuEl.hidden = false;
-    resize(MENU_SIZE.width, MENU_SIZE.height);
+    setExpanded(true);
   }
 
   function closeMenu() {
     menuEl.hidden = true;
-    resize(BUBBLE_SIZE, BUBBLE_SIZE);
+    setExpanded(false);
   }
 
   bubbleEl.addEventListener("click", function () {
+    var api = bindings();
+    if (!api) return;
     // 切换进行中再点会排队成第二次切换，这里直接忽略。
     if (document.body.dataset.switching === "1") return;
-    window.go.main.Switchboard.Switch().catch(function () {});
+    api.Switch().catch(function () {});
   });
 
   bubbleEl.addEventListener("contextmenu", function (event) {
@@ -85,8 +105,9 @@
   menuEl.addEventListener("click", function (event) {
     var button = event.target.closest("button");
     if (!button) return;
+    var api = bindings();
     if (button.dataset.default) {
-      window.go.main.Switchboard.SetDefault(button.dataset.default).catch(function () {});
+      if (api) api.SetDefault(button.dataset.default).catch(function () {});
       closeMenu();
     } else if (button.dataset.action === "quit") {
       window.runtime.Quit();

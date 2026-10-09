@@ -70,8 +70,12 @@ type Switchboard struct {
 	cfg        Config
 	current    Mode
 	child      *exec.Cmd
-	switching  bool
-	lastError  string
+	// exited 在当前客户端进程结束时关闭。切换必须等它，而不是等 s.child 变 nil——
+	// 后者由 reap 在拿到锁之后才设置，而切换自己正持着锁，会白等到强杀超时：实测每次
+	// 切换都要卡满 stopGrace（5 秒），表现为「点了没反应」。
+	exited    chan struct{}
+	switching bool
+	lastError string
 }
 
 // New 构造切换器并读取持久化配置。配置文件缺失或损坏时回退默认值，
@@ -227,23 +231,28 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting the %s client: %w", mode, err)
 	}
+	exited := make(chan struct{})
 	s.child = cmd
 	s.current = mode
+	s.exited = exited
 	// 回收子进程，避免僵尸；客户端被用户直接关窗时这里也会醒来，
 	// 把状态复位成「没有客户端在跑」，悬浮球随之等待下一次点击。
-	go s.reap(cmd)
+	go s.reap(cmd, exited)
 	return nil
 }
 
 // reap 等待子进程结束并复位状态。
 // @param cmd - 由 launchLocked 启动的进程。
-func (s *Switchboard) reap(cmd *exec.Cmd) {
+func (s *Switchboard) reap(cmd *exec.Cmd, exited chan struct{}) {
 	_ = cmd.Wait()
+	// 先发退出信号再抢锁：stopLocked 等在 channel 上，不该被这里的加锁顺序拖住。
+	close(exited)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.child == cmd {
 		s.child = nil
 		s.current = ""
+		s.exited = nil
 	}
 }
 
@@ -252,18 +261,24 @@ func (s *Switchboard) stopLocked() {
 	if s.child == nil || s.child.Process == nil {
 		return
 	}
-	pid := s.child.Process.Pid
+	cmd, exited := s.child, s.exited
+	// 先摘掉引用：紧接着的 launchLocked 要挂上新进程，而 reap 只在 s.child 仍是自己时
+	// 才复位状态，所以这里清空不会与旧进程的回收互相干扰。
+	s.child = nil
+	s.current = ""
+	s.exited = nil
+	if exited == nil {
+		return
+	}
+	pid := cmd.Process.Pid
 	// 负号表示整个进程组：客户端会派生 harness 与 Electron 辅助进程。
 	_ = syscall.Kill(-pid, syscall.SIGTERM)
-	deadline := time.Now().Add(stopGrace)
-	for time.Now().Before(deadline) {
-		if s.child == nil {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if s.child != nil {
+	select {
+	case <-exited:
+	case <-time.After(stopGrace):
+		// 优雅退出超时，整组强杀后再等回收收尾，避免留下僵尸。
 		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		<-exited
 	}
 }
 
