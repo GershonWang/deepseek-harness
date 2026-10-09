@@ -119,9 +119,9 @@ export function createElectronBuilderConfig(
     electronDist: buildPaths.electron,
     electronFuses: { runAsNode: true },
     beforeBuild: async () => {
-      // The Linux target receives its complete dsh tree through `files`, so electron-builder's
-      // own production node_modules handling has nothing to add and is skipped.
-      if (packagesLinux) return false
+      // Every target keeps electron-builder's production node_modules handling: the packaged
+      // main process imports its runtime dependencies (semver, electron-updater, ws) from
+      // app.asar, and the dsh tree is an additional payload rather than a replacement.
       if (resolvedPlatform !== 'win32') return true
       await promisify(execFile)('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
         fileURLToPath(new URL('./prepare-windows-installer.ps1', import.meta.url)),

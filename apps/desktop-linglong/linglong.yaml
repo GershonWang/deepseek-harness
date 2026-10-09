@@ -2,7 +2,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop-official
   name: deepseek-harness-desktop-official
-  version: 0.1.0.1
+  version: 0.1.0.2
   kind: app
   description: |
     DeepSeek Harness 官方桌面客户端（Electron）。
