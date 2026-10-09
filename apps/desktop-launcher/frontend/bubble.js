@@ -1,8 +1,12 @@
-/* 切换器悬浮球的前端逻辑：轮询 Go 侧状态、单击切换形态、右键开菜单。
+/* 切换器悬浮球的前端逻辑：轮询 Go 侧状态、单击切换形态、右键开菜单、拖拽移动。
  *
  * 为什么用轮询而不是事件推送：客户端可能在切换器之外结束（用户直接关掉客户端窗口），
  * 事件推送需要在 Go 侧挂子进程回收钩子再跨窗口广播；而这里的状态量极小，固定间隔
  * 轮询更简单，也不会漏掉任何一种变化。
+ *
+ * 拖拽为什么手写而不用 CSS 的 --wails-draggable：那个属性把整块区域交给窗口管理器，
+ * 拖拽期间点击事件不再派发，于是「单击切换」直接失效。这里自己实现，并用位移阈值把
+ * 一次拖拽与一次点击区分开。
  *
  * 本文件不含产品文案：文案一律来自 locales/ 字典（仓库闸门按路径认定字典所有者）。
  */
@@ -15,11 +19,18 @@
   var BUBBLE_SIZE = 72;
   /** 菜单或错误展开时的窗口尺寸：要容下最长的一条菜单项，并给球留出上方空间。 */
   var EXPANDED = { width: 220, height: 220 };
+  /** 位移超过这个像素数才算拖拽；低于它按点击处理，避免手抖把单击吃掉。 */
+  var DRAG_THRESHOLD = 4;
 
   var bubbleEl = document.getElementById("bubble");
   var menuEl = document.getElementById("menu");
   var errorEl = document.getElementById("error");
   var expanded = false;
+  /** 当前这一次按住的状态；未按住时为 null。winX/winY 在异步取回窗口位置前为 null。 */
+  var drag = null;
+  /** 刚刚结束的是一次拖拽：紧接着的那次 click 不该被当成切换。 */
+  var justDragged = false;
+  var positionRestored = false;
 
   /**
    * 取 Wails 绑定。命名规则是 <Go 包名>.<结构体名>，本结构体在 internal/switchboard
@@ -71,10 +82,24 @@
     }
   }
 
+  /** 还原上次拖拽留下的位置。只做一次：之后位置由本次拖拽维护，重复设置会让
+   *  用户刚拖到的地方被旧值拽回去。 */
+  function restorePosition() {
+    var api = bindings();
+    if (!api) return;
+    api.BubblePosition().then(function (pos) {
+      if (pos && pos.set) window.runtime.WindowSetPosition(pos.x, pos.y);
+    }).catch(function () {});
+  }
+
   /** 拉取一次状态；失败（例如 Go 侧还没就绪）时保持上一帧，不闪回默认值。 */
   function poll() {
     var api = bindings();
     if (!api) return;
+    if (!positionRestored) {
+      positionRestored = true;
+      restorePosition();
+    }
     api.Status().then(render).catch(function () {});
   }
 
@@ -88,7 +113,45 @@
     setExpanded(false);
   }
 
+  // 拖拽：按下时先记鼠标位置，窗口位置异步取回后再开始跟随，避免用过期坐标把球拽飞。
+  bubbleEl.addEventListener("mousedown", function (event) {
+    if (event.button !== 0) return;
+    drag = { mouseX: event.screenX, mouseY: event.screenY, winX: null, winY: null, moved: false };
+    window.runtime.WindowGetPosition().then(function (pos) {
+      if (!drag) return;
+      drag.winX = pos.x;
+      drag.winY = pos.y;
+    }).catch(function () {});
+  });
+
+  document.addEventListener("mousemove", function (event) {
+    if (!drag || drag.winX === null) return;
+    var dx = event.screenX - drag.mouseX;
+    var dy = event.screenY - drag.mouseY;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+    drag.moved = true;
+    window.runtime.WindowSetPosition(drag.winX + dx, drag.winY + dy);
+  });
+
+  document.addEventListener("mouseup", function () {
+    if (!drag) return;
+    var wasDragged = drag.moved;
+    drag = null;
+    justDragged = wasDragged;
+    if (!wasDragged) return;
+    // 落定后再记一次真实位置：拖拽过程中的坐标是本地推算的，以窗口自己的读数为准。
+    window.runtime.WindowGetPosition().then(function (pos) {
+      var api = bindings();
+      if (api) api.SaveBubblePosition(pos.x, pos.y).catch(function () {});
+    }).catch(function () {});
+  });
+
   bubbleEl.addEventListener("click", function () {
+    // 拖拽结束的那次 click 不是切换意图。
+    if (justDragged) {
+      justDragged = false;
+      return;
+    }
     var api = bindings();
     if (!api) return;
     // 切换进行中再点会排队成第二次切换，这里直接忽略。

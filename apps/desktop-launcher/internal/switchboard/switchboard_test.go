@@ -36,11 +36,19 @@ func TestConfigRoundTrip(t *testing.T) {
 	if got := reopened.Status().DefaultMode; got != ModeOfficial {
 		t.Fatalf("默认形态未持久化: %q", got)
 	}
-	if x, y := reopened.BubblePosition(); x != 120 || y != 240 {
-		t.Fatalf("悬浮球位置未持久化: %d,%d", x, y)
+	if pos := reopened.BubblePosition(); !pos.Set || pos.X != 120 || pos.Y != 240 {
+		t.Fatalf("悬浮球位置未持久化: %+v", pos)
 	}
 	if want := filepath.Join(home, ".config", "dsh-desktop", "switch.json"); reopened.ConfigPath() != want {
 		t.Fatalf("配置路径 = %q，期望 %q", reopened.ConfigPath(), want)
+	}
+}
+
+// TestBubblePositionUnsetByDefault 覆盖「从未拖拽过」：此时 Set 必须为假，
+// 否则启动会去还原一个并不存在的原点位置，把悬浮球钉在左上角。
+func TestBubblePositionUnsetByDefault(t *testing.T) {
+	if pos := New(t.TempDir()).BubblePosition(); pos.Set {
+		t.Fatalf("初始不应有位置记录: %+v", pos)
 	}
 }
 

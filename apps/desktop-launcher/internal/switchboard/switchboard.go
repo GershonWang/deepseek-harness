@@ -44,9 +44,24 @@ const stopGrace = 5 * time.Second
 type Config struct {
 	// DefaultMode 是切换器启动时自动拉起的客户端形态。
 	DefaultMode Mode `json:"defaultMode"`
-	// BubbleX/BubbleY 是悬浮球左上角在屏幕上的位置；为 0 表示交给窗口管理器。
+	// BubbleX/BubbleY 是悬浮球左上角在屏幕上的位置。
 	BubbleX int `json:"bubbleX"`
 	BubbleY int `json:"bubbleY"`
+	// BubbleSet 区分「从未记录位置」与「记录在原点」：只看坐标是否为零的话，用户真的
+	// 把悬浮球拖到左上角这件事会被当成没记录过，下次启动又跳回默认位置。
+	BubbleSet bool `json:"bubbleSet"`
+}
+
+// BubblePosition 是悬浮球在屏幕上的位置快照，直接交给前端。
+//
+// 用结构体而不是 (int, int)：Wails 对多返回值的映射不如单值可预期，而这里要额外带
+// 一个「有没有记录过」的布尔。
+type BubblePosition struct {
+	// X/Y 是悬浮球左上角的屏幕坐标。
+	X int `json:"x"`
+	Y int `json:"y"`
+	// Set 表示这两个坐标来自一次真实拖拽。
+	Set bool `json:"set"`
 }
 
 // Status 是暴露给悬浮球前端的快照。
@@ -185,12 +200,12 @@ func (s *Switchboard) Status() Status {
 	}
 }
 
-// BubblePosition 返回上次记录的悬浮球位置。
-// @returns 屏幕坐标；两个分量为 0 表示尚无记录。
-func (s *Switchboard) BubblePosition() (int, int) {
+// BubblePosition 返回上次记录的悬浮球位置，供悬浮球启动时还原。
+// @returns 屏幕坐标与「是否记录过」标志。
+func (s *Switchboard) BubblePosition() BubblePosition {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cfg.BubbleX, s.cfg.BubbleY
+	return BubblePosition{X: s.cfg.BubbleX, Y: s.cfg.BubbleY, Set: s.cfg.BubbleSet}
 }
 
 // SaveBubblePosition 记录悬浮球位置，供下次启动还原。写失败只留痕：
@@ -200,7 +215,7 @@ func (s *Switchboard) BubblePosition() (int, int) {
 func (s *Switchboard) SaveBubblePosition(x, y int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.cfg.BubbleX, s.cfg.BubbleY = x, y
+	s.cfg.BubbleX, s.cfg.BubbleY, s.cfg.BubbleSet = x, y, true
 	if err := s.saveLocked(); err != nil {
 		s.lastError = err.Error()
 	}
