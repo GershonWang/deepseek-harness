@@ -331,4 +331,13 @@ window.DSH_LOCALES.zh = {
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",
+
+  /* ---------- 切换器悬浮球 ---------- */
+  "bubble.switch": "切换客户端",
+  "bubble.modeShell": "薄壳版",
+  "bubble.modeOfficial": "官方版",
+  "bubble.noClient": "客户端未运行",
+  "bubble.defaultShell": "默认启动薄壳版",
+  "bubble.defaultOfficial": "默认启动官方版",
+  "bubble.quit": "退出切换器",
 };

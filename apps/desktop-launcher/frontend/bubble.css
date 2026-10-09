@@ -1,0 +1,142 @@
+/* 切换器悬浮球样式。
+ *
+ * 窗口是 72×72 的固定尺寸（main.go 的 bubbleSize），且背景透明：这里画出来的
+ * 圆形就是用户看到并点击的全部。右键菜单在窗口内展开——打开菜单时由 bubble.js
+ * 把窗口临时放大到 MENU_WINDOW 尺寸，因此菜单必须贴着左上角排布，不能依赖居中，
+ * 否则窗口放大的瞬间菜单会跳位。
+ */
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  font-family: system-ui, -apple-system, "Noto Sans Display", "Source Han Sans SC", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+#bubble {
+  width: 72px;
+  height: 72px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: radial-gradient(circle at 32% 28%, #4b5563, #1f2937 70%);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  transition: background 160ms ease, transform 120ms ease;
+}
+
+#bubble:active {
+  transform: scale(0.94);
+}
+
+/* 形态配色：薄壳版偏青，官方版偏紫，一眼能看出当前跑的是哪个客户端。 */
+body[data-mode="shell"] #bubble {
+  background: radial-gradient(circle at 32% 28%, #38bdf8, #0369a1 70%);
+}
+
+body[data-mode="official"] #bubble {
+  background: radial-gradient(circle at 32% 28%, #c084fc, #6d28d9 70%);
+}
+
+/* 没有客户端在跑时降饱和度，提示点击即可拉起。 */
+body[data-mode=""] #bubble {
+  background: radial-gradient(circle at 32% 28%, #9ca3af, #4b5563 70%);
+}
+
+body[data-switching="1"] #bubble {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+#glyph {
+  width: 36px;
+  height: 36px;
+  display: block;
+  margin: 0 auto;
+  fill: none;
+  stroke: #f9fafb;
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+#glyph-shell,
+#glyph-official {
+  display: none;
+}
+
+body[data-mode="shell"] #glyph-shell,
+body[data-mode=""] #glyph-shell {
+  display: block;
+}
+
+body[data-mode="official"] #glyph-official {
+  display: block;
+}
+
+#menu {
+  margin-top: 8px;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#menu[hidden] {
+  display: none;
+}
+
+#menu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #111827;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#menu button:hover {
+  background: #f3f4f6;
+}
+
+#menu .sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: #e5e7eb;
+}
+
+/* 错误提示：切换失败时贴在球下方，用户能读到原因而不是无声无息。 */
+#error {
+  margin-top: 6px;
+  max-width: 200px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(127, 29, 29, 0.92);
+  color: #fef2f2;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+#error[hidden] {
+  display: none;
+}

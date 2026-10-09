@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>DeepSeek Harness</title>
+  <link rel="stylesheet" href="bubble.css" />
+</head>
+<body>
+  <!-- 悬浮球：单击切换客户端形态，右键打开菜单。
+       窗口本身无边框且背景透明（见 main.go 的 runBubble），圆形的观感完全由 CSS 决定。
+       两种形态各有一个 SVG 图形，靠 body 上的 data-mode 决定显示哪个。 -->
+  <button id="bubble" type="button" data-i18n-aria-label="bubble.switch">
+    <svg id="glyph" viewBox="0 0 32 32" aria-hidden="true">
+      <rect id="glyph-shell" x="6" y="8" width="20" height="16" rx="3" />
+      <g id="glyph-official">
+        <circle cx="16" cy="16" r="5" />
+        <ellipse cx="16" cy="16" rx="13" ry="5.5" />
+        <ellipse cx="16" cy="16" rx="13" ry="5.5" transform="rotate(60 16 16)" />
+      </g>
+    </svg>
+  </button>
+
+  <!-- 菜单在窗口内展开：右键时由 bubble.js 把窗口临时放大，选完再收回，
+       这样无需系统级弹窗，也不必让窗口长期占着透明的可点击区域。 -->
+  <div id="menu" hidden>
+    <button type="button" data-default="shell" data-i18n="bubble.defaultShell"></button>
+    <button type="button" data-default="official" data-i18n="bubble.defaultOfficial"></button>
+    <div class="sep"></div>
+    <button type="button" data-action="quit" data-i18n="bubble.quit"></button>
+  </div>
+
+  <!-- 切换失败时贴在球下方，用户能读到原因而不是无声无息。 -->
+  <div id="error" hidden></div>
+
+  <script src="locales/zh.js"></script>
+  <script src="locales/en.js"></script>
+  <script src="i18n.js"></script>
+  <script src="bubble.js"></script>
+</body>
+</html>

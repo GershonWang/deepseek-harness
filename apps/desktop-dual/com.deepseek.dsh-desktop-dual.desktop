@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=DeepSeek Harness
+Name[zh_CN]=DeepSeek Harness 双客户端
+Comment=DeepSeek Harness desktop client with switchable official and thin-shell modes
+Comment[zh_CN]=DeepSeek Harness 桌面客户端（官方版与薄壳版可切换）
+Exec=/opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-launcher --mode=bubble
+Icon=dsh-desktop-dual
+# 实际显示的窗口是客户端窗口，其 WM_CLASS 与薄壳版一致（同一个二进制）；
+# 悬浮球窗口只提供切换入口，不参与 dock 图标关联。
+StartupWMClass=dsh-desktop-launcher
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=false

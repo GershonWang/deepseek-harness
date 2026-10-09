@@ -1,0 +1,75 @@
+version: "1"
+package:
+  id: com.deepseek.dsh-desktop-dual
+  name: deepseek-harness-desktop-dual
+  version: 0.1.0.1
+  kind: app
+  description: |
+    DeepSeek Harness 双客户端桌面应用。
+    同一个包内含官方 Electron 客户端与 Go + Wails 薄壳客户端，由常驻悬浮球
+    互斥切换：单击换客户端，右键菜单设默认形态。
+
+# 入口是切换器（悬浮球）。客户端是它的子进程：Wails v2 只有单窗口 API，
+# 常驻悬浮球与客户端主窗口无法共存于一个进程，因此两者各自成进程。
+command:
+  - /opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-launcher
+  - --mode=bubble
+
+base: org.deepin.base/25.2.2
+
+# 组装式构建：两个客户端的重工具链都在宿主机跑（各自的 prepare-offline.sh），
+# 本模块只把它们合并暂存，容器内做复制组装。
+#
+# 为什么不再带一份运行时：薄壳版的 harness 树与 Node 由本包复用（客户端就是同一个
+# 二进制），官方 Electron 客户端自带 Electron 与它自己的 dsh 树。两者合起来约 2.1 GB，
+# 这是「一个包内可切换」的代价。
+build: |
+  STAGE=/project/apps/desktop-dual/stage
+  if [ ! -d "$STAGE" ]; then
+    echo "stage 缺失：先在仓库根运行 sh apps/desktop-dual/prepare-offline.sh" >&2
+    exit 1
+  fi
+
+  mkdir -p ${PREFIX}/bin
+  cp -a "$STAGE/." ${PREFIX}/
+
+  # 官方客户端主程序名由 electron-builder 依 productName 生成（实测形如
+  # `@deepseek-aidsh-desktop`，含 @ 与连字符）。切换器按固定名查找，因此这里
+  # 把名字收敛掉，避免切换器依赖上游的命名规则。
+  OFFICIAL=${PREFIX}/electron/dsh-desktop-official
+  if [ ! -x "$OFFICIAL" ]; then
+    echo "官方客户端主程序缺失：$OFFICIAL（prepare-offline.sh 的改名步骤未生效）" >&2
+    exit 1
+  fi
+
+  for s in 16 22 24 32 48 64 128 256 512; do
+    install -Dm644 /project/apps/desktop-launcher/icons/hicolor/${s}x${s}/apps/dsh-desktop.png \
+      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop-dual.png
+  done
+
+  install -Dm644 /project/apps/desktop-dual/com.deepseek.dsh-desktop-dual.desktop \
+    ${PREFIX}/share/applications/com.deepseek.dsh-desktop-dual.desktop
+
+buildext:
+  apt:
+    build_depends: []
+    # 运行期库由基础层提供；这里的 depends 只保证构建期可解析。
+    # 官方 Electron 客户端需要的那一组与 apps/desktop-linglong/linglong.yaml 一致。
+    depends:
+      - libgtk-3-0
+      - libnss3
+      - libgbm1
+      - libasound2
+      - libatk-bridge2.0-0
+      - libatspi2.0-0
+      - libcups2
+      - libxkbcommon0
+      - libxcomposite1
+      - libxdamage1
+      - libxrandr2
+      - libdrm2
+      - libpango-1.0-0
+      - libcairo2
+      - libxshmfence1
+      - libwebkit2gtk-4.1-0
+      - libjavascriptcoregtk-4.1-0

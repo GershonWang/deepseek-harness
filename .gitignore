@@ -41,6 +41,7 @@ apps/desktop-launcher/dsh-desktop-launcher
 apps/desktop-launcher/linglong/linglong/
 apps/desktop-launcher/linglong/stage/
 apps/desktop-linglong/stage/
+apps/desktop-dual/stage/
 /linglong/
 # 玲珑打包导出产物（ll-builder export）
 com.deepseek.dsh-desktop_*.uab

@@ -6,8 +6,10 @@ import (
 	"context"
 	"embed"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/wailsapp/wails/v2"
@@ -18,6 +20,7 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/linglonghost"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/packaging"
+	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/switchboard"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/toolchain"
 	"github.com/deepseek-ai/deepseek-harness/apps/desktop-launcher/internal/webviewperm"
 )
@@ -33,10 +36,22 @@ import (
 // frontend/tools/preview.mjs 的产物守卫）。新增 frontend/ 下的顶层资源要在此登记，
 // 漏登记由 main_test.go 断言点名。
 //
-//go:embed frontend/index.html frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor
+//go:embed frontend/index.html frontend/app.js frontend/styles.css frontend/i18n.js frontend/bubble.html frontend/bubble.js frontend/bubble.css frontend/locales frontend/vendor
 var assets embed.FS
 
+// 运行模式：无参数或 --mode=shell 是客户端窗口（薄壳版包的既有行为），
+// --mode=bubble 是切换器悬浮球（双客户端包的唯一入口）。两者必须是独立进程：
+// Wails v2 只提供单窗口 API，常驻的悬浮球与客户端主窗口无法共存于一个进程。
 func main() {
+	if runMode(os.Args[1:]) == modeBubble {
+		runBubble()
+		return
+	}
+	runClient()
+}
+
+// runClient 启动客户端窗口：内嵌 dsh web 的 Go + Wails 薄壳客户端。
+func runClient() {
 	home, _ := os.UserHomeDir()
 	// 改名工具的历史安装先搬到新 ID，再走下面的软链自愈：否则旧 ID 名下的目录与
 	// current 软链会成为新清单里查不到的孤儿，用户既看不到也用不上那份安装。
@@ -129,4 +144,93 @@ func main() {
 	if err != nil {
 		log.Fatalf("dsh-desktop: %v", err)
 	}
+}
+
+// 两种运行模式。客户端模式是薄壳版包的既有行为（command 不带参数即落到这里），
+// 悬浮球模式只由双客户端包使用。
+const (
+	// modeClient 是客户端窗口模式。
+	modeClient = "client"
+	// modeBubble 是切换器悬浮球模式。
+	modeBubble = "bubble"
+)
+
+// bubbleSize 是悬浮球窗口的边长（像素）。窗口不可缩放，边长即命中区域。
+const bubbleSize = 72
+
+// runMode 解析命令行里的运行模式。只认 --mode=bubble，其余一律按客户端处理，
+// 因此薄壳版包不带参数的启动行为与改动前完全一致。
+// @param args - 不含程序名的命令行参数。
+// @returns 要启动的运行模式。
+func runMode(args []string) string {
+	for _, arg := range args {
+		if value, ok := strings.CutPrefix(arg, "--mode="); ok && value == modeBubble {
+			return modeBubble
+		}
+	}
+	return modeClient
+}
+
+// runBubble 启动切换器：一个常驻的置顶悬浮球，单击切换客户端形态，
+// 右键菜单设置默认形态。
+//
+// 窗口无边框且背景透明：悬浮球自己画成圆形，窗口矩形不该可见。
+func runBubble() {
+	home, _ := os.UserHomeDir()
+	// 悬浮球也是 webkit 窗口，需要与客户端相同的三项渲染期配置。
+	packaging.ConfigureWebKitHelperPath()
+	packaging.ConfigureWebKitRendering()
+	packaging.ConfigureFontConfig()
+
+	board := switchboard.New(home)
+	if err := board.Start(); err != nil {
+		// 默认客户端拉不起来时切换器仍然启动：悬浮球会显示错误，用户点一下即可重试，
+		// 直接退出反而让人无从下手。
+		log.Printf("切换器: 默认客户端启动失败: %v", err)
+	}
+
+	// 外部终止时先停客户端：切换器没了，用户就再也管不到那个后台客户端。
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		board.Shutdown()
+		os.Exit(0)
+	}()
+
+	err := wails.Run(&options.App{
+		Title:            "DeepSeek Harness 切换器",
+		Width:            bubbleSize,
+		Height:           bubbleSize,
+		MinWidth:         bubbleSize,
+		MinHeight:        bubbleSize,
+		MaxWidth:         bubbleSize,
+		MaxHeight:        bubbleSize,
+		DisableResize:    true,
+		Frameless:        true,
+		AlwaysOnTop:      true,
+		BackgroundColour: &options.RGBA{R: 0, G: 0, B: 0, A: 0},
+		AssetServer: &assetserver.Options{
+			Assets:     assets,
+			Middleware: bubbleEntrypoint,
+		},
+		OnShutdown: func(context.Context) { board.Shutdown() },
+		Bind:       []interface{}{board},
+	})
+	if err != nil {
+		log.Fatalf("dsh-desktop switchboard: %v", err)
+	}
+}
+
+// bubbleEntrypoint 把悬浮球窗口的根请求改写到 bubble.html，其余请求保持默认链。
+// 悬浮球与客户端共用同一份 embed.FS，靠这一层区分入口，不必把两套界面塞进一个页面。
+// @param next - AssetServer 的默认处理器。
+// @returns 完成路由改写的处理器。
+func bubbleEntrypoint(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			r.URL.Path = "/bubble.html"
+		}
+		next.ServeHTTP(w, r)
+	})
 }

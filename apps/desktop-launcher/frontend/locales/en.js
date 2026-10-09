@@ -296,4 +296,13 @@ window.DSH_LOCALES.en = {
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "Wails runtime not detected (browser preview mode)",
+
+  /* ---------- 切换器悬浮球 ---------- */
+  "bubble.switch": "Switch client",
+  "bubble.modeShell": "Thin shell",
+  "bubble.modeOfficial": "Official client",
+  "bubble.noClient": "No client running",
+  "bubble.defaultShell": "Start the thin shell by default",
+  "bubble.defaultOfficial": "Start the official client by default",
+  "bubble.quit": "Quit the switchboard",
 };
