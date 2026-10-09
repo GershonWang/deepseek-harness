@@ -156,8 +156,11 @@ const (
 	modeBubble = "bubble"
 )
 
-// bubbleSize 是悬浮球窗口的边长（像素）。窗口不可缩放，边长即命中区域。
-const bubbleSize = 72
+// bubbleSize 是悬浮球窗口的边长（像素）。窗口不可缩放，尺寸即命中区域。
+//
+// 它比球本身大一圈（球 64、四周各留 12 的 padding，见 bubble.css）：球的投影要向
+// 外扩散，窗口若与球等大，阴影会被窗口边界切掉，观感上就是球边缘一圈生硬的裁切。
+const bubbleSize = 88
 
 // runMode 解析命令行里的运行模式。只认 --mode=bubble，其余一律按客户端处理，
 // 因此薄壳版包不带参数的启动行为与改动前完全一致。

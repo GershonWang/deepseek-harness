@@ -1,9 +1,11 @@
 /* 切换器悬浮球样式。
  *
- * 窗口是 72×72 的固定尺寸（main.go 的 bubbleSize），且背景透明：这里画出来的
- * 圆形就是用户看到并点击的全部。右键菜单在窗口内展开——打开菜单时由 bubble.js
- * 把窗口临时放大到 MENU_WINDOW 尺寸，因此菜单必须贴着左上角排布，不能依赖居中，
- * 否则窗口放大的瞬间菜单会跳位。
+ * 窗口是 88×88 的固定尺寸（main.go 的 bubbleSize），球本身 64×64，四周各留 12：
+ * 球的外投影需要向外扩散，窗口与球等大时阴影会被窗口边界切掉，观感上就是球边缘有
+ * 一圈生硬的裁切。
+ *
+ * 右键菜单在窗口内展开——打开菜单时由 bubble.js 把窗口临时放大到 EXPANDED 尺寸，
+ * 因此菜单必须贴着左上角排布、不能依赖居中，否则窗口放大的瞬间菜单会跳位。
  */
 html,
 body {
@@ -20,37 +22,57 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  padding: 12px;
+  box-sizing: border-box;
 }
 
 #bubble {
-  width: 72px;
-  height: 72px;
+  width: 64px;
+  height: 64px;
   flex: none;
   padding: 0;
   border: 0;
   border-radius: 50%;
   cursor: pointer;
-  background: radial-gradient(circle at 32% 28%, #4b5563, #1f2937 70%);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-  transition: background 160ms ease, transform 120ms ease;
+  /* 三层叠出体积：贴地的一层收紧轮廓、扩散的一层给悬浮感、内描边把球从深色桌面上
+     托起来。单层 box-shadow 在这个尺寸的圆上会显得又平又脏。 */
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    0 8px 18px rgba(0, 0, 0, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  transition: transform 120ms ease, box-shadow 160ms ease;
+}
+
+#bubble:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 10px 22px rgba(0, 0, 0, 0.38),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
 }
 
 #bubble:active {
   transform: scale(0.94);
 }
 
-/* 形态配色：薄壳版偏青，官方版偏紫，一眼能看出当前跑的是哪个客户端。 */
+/* 形态配色：薄壳版偏青、官方版偏紫、未运行灰。每档都是「顶部高光 + 斜向主色 +
+   底部暗边」三层，单层渐变在这个尺寸的圆上会显得扁平。 */
 body[data-mode="shell"] #bubble {
-  background: radial-gradient(circle at 32% 28%, #38bdf8, #0369a1 70%);
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(160deg, #4cc9f8 0%, #0ea5e9 46%, #0369a1 100%);
 }
 
 body[data-mode="official"] #bubble {
-  background: radial-gradient(circle at 32% 28%, #c084fc, #6d28d9 70%);
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(160deg, #c084fc 0%, #8b5cf6 46%, #5b21b6 100%);
 }
 
-/* 没有客户端在跑时降饱和度，提示点击即可拉起。 */
 body[data-mode=""] #bubble {
-  background: radial-gradient(circle at 32% 28%, #9ca3af, #4b5563 70%);
+  background:
+    radial-gradient(circle at 32% 24%, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(160deg, #9ca3af 0%, #6b7280 46%, #374151 100%);
 }
 
 body[data-switching="1"] #bubble {
@@ -64,14 +86,17 @@ body[data-switching="1"] #bubble {
 }
 
 #glyph {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   display: block;
   margin: 0 auto;
   fill: none;
-  stroke: #f9fafb;
-  stroke-width: 2;
+  stroke: #ffffff;
+  stroke-width: 2.1;
   stroke-linejoin: round;
+  stroke-linecap: round;
+  /* 图标压在渐变上，加一层细投影才不会糊进底色。 */
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.32));
 }
 
 #glyph-shell,
@@ -92,9 +117,9 @@ body[data-mode="official"] #glyph-official {
   margin-top: 8px;
   min-width: 168px;
   padding: 6px;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -107,7 +132,7 @@ body[data-mode="official"] #glyph-official {
 #menu button {
   padding: 7px 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: #111827;
   font-size: 13px;
@@ -127,14 +152,15 @@ body[data-mode="official"] #glyph-official {
 
 /* 错误提示：切换失败时贴在球下方，用户能读到原因而不是无声无息。 */
 #error {
-  margin-top: 6px;
+  margin-top: 8px;
   max-width: 200px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  background: rgba(127, 29, 29, 0.92);
+  padding: 6px 9px;
+  border-radius: 10px;
+  background: rgba(153, 27, 27, 0.95);
   color: #fef2f2;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 
 #error[hidden] {
