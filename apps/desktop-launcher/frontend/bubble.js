@@ -15,11 +15,11 @@
 (function () {
   /** 状态轮询间隔：客户端退出到悬浮球反映出来，最多差这一拍。 */
   var POLL_MS = 1000;
-  /** 悬浮球窗口的边长，与 main.go 的 bubbleSize 一致（球 64 + 四周 12 的阴影留白）。 */
-  var BUBBLE_SIZE = 88;
+  /** 悬浮球窗口的边长，与 main.go 的 bubbleSize 一致（球 64 + 四周 4 的留白）。 */
+  var BUBBLE_SIZE = 72;
   /** 菜单或错误展开时的窗口尺寸：要容下最长的一条菜单项（min-width 168），
    *  并给球与阴影留出空间。 */
-  var EXPANDED = { width: 232, height: 236 };
+  var EXPANDED = { width: 216, height: 220 };
   /** 位移超过这个像素数才算拖拽；低于它按点击处理，避免手抖把单击吃掉。 */
   var DRAG_THRESHOLD = 4;
 

@@ -2,7 +2,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop-dual
   name: deepseek-harness-desktop-dual
-  version: 0.1.0.7
+  version: 0.1.0.8
   kind: app
   description: |
     DeepSeek Harness 双客户端桌面应用。

@@ -1,8 +1,8 @@
 /* 切换器悬浮球样式。
  *
- * 窗口是 88×88 的固定尺寸（main.go 的 bubbleSize），球本身 64×64，四周各留 12：
- * 球的外投影需要向外扩散，窗口与球等大时阴影会被窗口边界切掉，观感上就是球边缘有
- * 一圈生硬的裁切。
+ * 窗口是 72×72 的固定尺寸（main.go 的 bubbleSize），球本身 64×64，四周各留 4：
+ * 球不做外投影（透明窗口里它会被渲染成一片黑，见 #bubble 的说明），留白只用来防止
+ * 圆角被窗口边缘啃掉。
  *
  * 右键菜单在窗口内展开——打开菜单时由 bubble.js 把窗口临时放大到 EXPANDED 尺寸，
  * 因此菜单必须贴着左上角排布、不能依赖居中，否则窗口放大的瞬间菜单会跳位。
@@ -22,7 +22,7 @@ body {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 12px;
+  padding: 4px;
   box-sizing: border-box;
 }
 
@@ -34,21 +34,16 @@ body {
   border: 0;
   border-radius: 50%;
   cursor: pointer;
-  /* 三层叠出体积：贴地的一层收紧轮廓、扩散的一层给悬浮感、内描边把球从深色桌面上
-     托起来。单层 box-shadow 在这个尺寸的圆上会显得又平又脏。 */
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 8px 18px rgba(0, 0, 0, 0.34),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.14);
-  transition: transform 120ms ease, box-shadow 160ms ease;
+  /* 刻意不用 box-shadow 做投影：窗口是透明的，投影会落在窗口自己的 alpha 层上，
+     WebKit 不把它与桌面混合，而是渲染成一片不透明黑——实测鼠标移入后球外整块变黑、
+     移开也不复原。立体感因此改由内描边与渐变承担。 */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+  transition: transform 120ms ease, filter 160ms ease;
 }
 
 #bubble:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.3),
-    0 10px 22px rgba(0, 0, 0, 0.38),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transform: scale(1.04);
+  filter: brightness(1.08);
 }
 
 #bubble:active {
@@ -97,8 +92,6 @@ body[data-switching="1"] #bubble {
   width: 30px;
   height: 30px;
   display: block;
-  /* 白色 mark 压在渐变上，加一层细投影才不会糊进底色。 */
-  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.32));
 }
 
 #marker {
@@ -116,8 +109,8 @@ body[data-switching="1"] #bubble {
   min-width: 168px;
   padding: 6px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.97);
-  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.12);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -154,11 +147,10 @@ body[data-switching="1"] #bubble {
   max-width: 200px;
   padding: 6px 9px;
   border-radius: 10px;
-  background: rgba(153, 27, 27, 0.95);
+  background: #991b1b;
   color: #fef2f2;
   font-size: 12px;
   line-height: 1.4;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 
 #error[hidden] {
