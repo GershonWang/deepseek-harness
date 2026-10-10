@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-10-10-dual-client-tray-switcher.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-10-dual-client-tray-switcher.md
+/agent-note-a-tray-switcher-as-its-own-module-for-the-dual-client-bundle:
+  en: ea8bfb658b61d344
+  zh: ebca7015ea3182a2
+/agent-note-a-tray-switcher-as-its-own-module-for-the-dual-client-bundle/problem:
+  en: 8468f48607e3785c
+  zh: 83249c667d7137f6
+/agent-note-a-tray-switcher-as-its-own-module-for-the-dual-client-bundle/decision:
+  en: 1243cca431f08d40
+  zh: 131c3fea42f07374
+/agent-note-a-tray-switcher-as-its-own-module-for-the-dual-client-bundle/alternatives-considered:
+  en: 625e544a91933fd5
+  zh: 55a8d17d8a61fd5d
+/agent-note-a-tray-switcher-as-its-own-module-for-the-dual-client-bundle/consequences:
+  en: 3d3fd203b35dd8e8
+  zh: e4a4aebe76489e12
