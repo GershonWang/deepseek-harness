@@ -101,10 +101,73 @@ type dbusmenuLayout struct {
 	Children []dbus.Variant
 }
 
-// dbusmenuProperty 是 dbusmenu 的 (ia{sv})，用于 GetGroupProperties。
+// dbusmenuProperty 是 dbusmenu 的 (ia{sv})，用于 GetGroupProperties 与
+// ItemsPropertiesUpdated。
 type dbusmenuProperty struct {
 	ID    int32
 	Props map[string]dbus.Variant
+}
+
+// dbusmenuRemoved 是 ItemsPropertiesUpdated 第二个参数 (ias) 的项：被移除的属性名。
+// 本实现从不移除属性（只有值在变），因此始终传空列表，类型仍需存在以对齐签名。
+type dbusmenuRemoved struct {
+	ID    int32
+	Props []string
+}
+
+// menuChange 是一次菜单变化的通知内容。
+type menuChange struct {
+	// StructureChanged 为真表示菜单形状变了（增删项、改层级），宿主必须重取整树。
+	StructureChanged bool
+	// Updated 是属性发生变化（文案、可用性、勾选态）的项及其新属性。
+	Updated []dbusmenuProperty
+}
+
+// diffEntries 比较两份菜单内容，决定该发哪种通知。
+//
+// 为什么区分两种通知：属性变化若发整树 LayoutUpdated，宿主会重建整个弹窗；用户正在交互
+// 的弹窗被销毁重建，实测会把 DDE 的托盘弹窗打进「读到 null 的 x/y」的坏状态，此后所有
+// 应用的托盘菜单都弹不出来（只能重启 dde-shell 恢复）。dbusmenu 为此提供了
+// ItemsPropertiesUpdated：只报告变化的项，宿主原地更新即可。
+// @param previous - 变更前的菜单内容。
+// @param current - 变更后的菜单内容。
+// @returns 需要发出的通知；两者皆空表示无需通知。
+func diffEntries(previous, current []menuEntry) menuChange {
+	if !sameStructure(previous, current) {
+		return menuChange{StructureChanged: true}
+	}
+	var updated []dbusmenuProperty
+	for _, entry := range flattenEntries(current) {
+		old, ok := findEntry(previous, entry.ID)
+		if !ok {
+			continue
+		}
+		if old.Label == entry.Label && old.Enabled == entry.Enabled && old.Toggle == entry.Toggle {
+			continue
+		}
+		updated = append(updated, dbusmenuProperty{ID: entry.ID, Props: entryLayout(entry).Props})
+	}
+	return menuChange{Updated: updated}
+}
+
+// sameStructure 比较两份菜单的形状：项 ID、分隔线、子项层级与顺序。
+// 形状相同意味着宿主不必重建弹窗，只更新变化的属性即可。
+// @param a - 旧内容。
+// @param b - 新内容。
+// @returns 形状一致为真。
+func sameStructure(a, b []menuEntry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Separator != b[i].Separator {
+			return false
+		}
+		if !sameStructure(a[i].Children, b[i].Children) {
+			return false
+		}
+	}
+	return true
 }
 
 // menuObject 实现 com.canonical.dbusmenu。宿主在展开菜单时按需调用它，因此这里始终以
@@ -142,43 +205,23 @@ func (m *menuObject) properties() prop.Map {
 	}
 }
 
-// setState 更新菜单内容并通知宿主重取布局。
+// setState 更新菜单内容，并按变化的种类通知宿主。
 // @param state - 当前状态。
 func (m *menuObject) setState(state trayState) {
 	entries := menuEntries(state)
 	m.mu.Lock()
-	changed := !sameEntries(m.entries, entries)
+	previous := m.entries
 	m.entries = entries
 	m.mu.Unlock()
-	if !changed {
-		// 内容没变就不发信号：宿主每收到一次 LayoutUpdated 都会重新拉取整棵树。
-		return
-	}
-	_ = m.parent.client.conn.Emit(menuPath, menuInterface+".LayoutUpdated", uint32(0), int32(0))
-}
 
-// sameEntries 递归比较两份菜单内容是否一致（标签、可用性、勾选态与子项）。
-//
-// 勾选态必须参与比较：宿主只在收到 LayoutUpdated 时重取布局，漏掉勾选态就会出现
-// 「配置改了、菜单里的圆点没动」。
-// @param a - 旧内容。
-// @param b - 新内容。
-// @returns 完全一致为真。
-func sameEntries(a, b []menuEntry) bool {
-	if len(a) != len(b) {
-		return false
+	change := diffEntries(previous, entries)
+	switch {
+	case change.StructureChanged:
+		_ = m.parent.client.conn.Emit(menuPath, menuInterface+".LayoutUpdated", uint32(0), int32(0))
+	case len(change.Updated) > 0:
+		_ = m.parent.client.conn.Emit(menuPath, menuInterface+".ItemsPropertiesUpdated",
+			change.Updated, []dbusmenuRemoved{})
 	}
-	for i := range a {
-		if a[i].ID != b[i].ID || a[i].Label != b[i].Label ||
-			a[i].Enabled != b[i].Enabled || a[i].Separator != b[i].Separator ||
-			a[i].Toggle != b[i].Toggle {
-			return false
-		}
-		if !sameEntries(a[i].Children, b[i].Children) {
-			return false
-		}
-	}
-	return true
 }
 
 // findEntry 在菜单树里按 ID 找一项（含子项）。

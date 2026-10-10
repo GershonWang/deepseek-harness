@@ -144,16 +144,54 @@ func TestMenuEntriesFollowRunningMode(t *testing.T) {
 	}
 }
 
-// TestSameEntriesSeesToggleChange 覆盖勾选态参与变更比较：宿主只在收到 LayoutUpdated 时
-// 重取布局，漏掉勾选态就会出现「配置改了、菜单里的圆点没动」。
-func TestSameEntriesSeesToggleChange(t *testing.T) {
+// TestDiffEntriesReportsPropertyChange 覆盖通知种类的选择：只有勾选态变化时发
+// ItemsPropertiesUpdated（宿主原地更新那两项），形状变化才发 LayoutUpdated（宿主重建整树）。
+// 分错种类会出两种事故：发整树会重建用户正在交互的弹窗（实测能把 DDE 的托盘弹窗打进
+// 坏状态），漏发则出现「配置改了、菜单里的圆点没动」。
+func TestDiffEntriesReportsPropertyChange(t *testing.T) {
 	shell := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})
 	official := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeOfficial})
-	if sameEntries(shell, official) {
-		t.Fatal("只有默认形态不同时，菜单内容应判定为已变化")
+
+	change := diffEntries(shell, official)
+	if change.StructureChanged {
+		t.Fatal("只有默认形态变化时不应判定为形状变化（那会让宿主重建弹窗）")
 	}
-	if !sameEntries(shell, menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})) {
-		t.Fatal("状态相同时应判定为未变化")
+	// 三项：切换项的文案跟着翻转，两个单选项的勾选态对调。
+	if len(change.Updated) != 3 {
+		t.Fatalf("应报告三项变化，得到 %d 项", len(change.Updated))
+	}
+	states := make(map[int32]int32, 2)
+	for _, item := range change.Updated {
+		if item.ID == idSwitch {
+			if label, _ := item.Props["label"].Value().(string); label != "切换到薄壳版" {
+				t.Fatalf("切换项文案 = %q，期望「切换到薄壳版」", label)
+			}
+			continue
+		}
+		state, ok := item.Props["toggle-state"].Value().(int32)
+		if !ok {
+			t.Fatalf("toggle-state 类型不是 int32: %v", item.Props["toggle-state"].Value())
+		}
+		states[item.ID] = state
+	}
+	if states[idDefaultShell] != 0 || states[idDefaultOfficial] != 1 {
+		t.Fatalf("报告的状态 = %v，期望薄壳版 0、官方版 1", states)
+	}
+
+	if same := diffEntries(shell, shell); same.StructureChanged || len(same.Updated) != 0 {
+		t.Fatalf("内容相同时不应产生任何通知: %+v", same)
+	}
+}
+
+// TestDiffEntriesSeesStructureChange 覆盖形状变化：项数或层级变了必须让宿主重取整树，
+// 否则宿主会继续用旧的那棵树。
+func TestDiffEntriesSeesStructureChange(t *testing.T) {
+	full := menuEntries(trayState{locale: i18n.Zh})
+	if change := diffEntries(full, full[:2]); !change.StructureChanged {
+		t.Fatal("项数变化应判定为形状变化")
+	}
+	if change := diffEntries(full, full); change.StructureChanged {
+		t.Fatal("形状未变时不应判定为形状变化")
 	}
 }
 
