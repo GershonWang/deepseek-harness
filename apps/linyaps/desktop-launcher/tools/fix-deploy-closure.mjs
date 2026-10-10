@@ -21,9 +21,11 @@ if (!harnessDir) {
 }
 
 // workspace 成员 apps/cli 的 node_modules（deploy root 的依赖来源）。
-// 必须从本文件位置爬到仓库根再进 apps/cli：写成 '..' 一层会落到模块自己的目录里，
-// 那条路径永远不存在，只在「目的地里缺依赖」这条罕见分支上才暴露。
-const cliNodeModules = join(import.meta.dirname, '..', '..', '..', 'apps', 'cli', 'node_modules')
+// 必须从本文件位置爬到仓库根再进 apps/cli：本文件在
+// <root>/apps/linyaps/desktop-launcher/tools，因此是四级 '..'。少写一级就会落到
+// 模块自己的目录里或 apps/ 下，那条路径永远不存在，只在「目的地里缺依赖」这条
+// 罕见分支上才暴露。
+const cliNodeModules = join(import.meta.dirname, '..', '..', '..', '..', 'apps', 'cli', 'node_modules')
 
 /**
  * 递归查找 node_modules/<scope>/<name> 目录。
