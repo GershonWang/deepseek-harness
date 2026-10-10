@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/about"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/switchboard"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/tray"
@@ -53,10 +54,14 @@ func main() {
 	quit := make(chan struct{})
 	requestQuit := func() { quitOnce.Do(func() { close(quit) }) }
 
+	// 安装前缀只解析一次：托盘图标与「关于」助手都按它定位，两处必须看到同一个值。
+	prefix := installPrefix()
 	client, err := tray.Connect(mutexName, tray.Options{
 		Board:      board,
 		Locale:     i18n.FromEnv(),
-		IconPrefix: installPrefix(),
+		IconPrefix: prefix,
+		Version:    version,
+		About:      about.New(prefix, version).Show,
 		Quit:       requestQuit,
 		Logf:       log.Printf,
 	})

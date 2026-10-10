@@ -8,7 +8,7 @@ English | [中文](README.zh.md)
 
 One `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-switcher`, a tray process with no window. It starts the client selected as default, exposes switching on the system tray, and terminates the client's whole process group when it exits, so no client is left running without a visible control point.
 
-The bundle carries no third runtime: the thin shell's harness tree and Node come from the launcher stage, the Electron client brings its own Electron runtime and dsh tree.
+The bundle carries no third runtime: the thin shell's harness tree and Node come from the launcher stage, the Electron client brings its own Electron runtime and dsh tree. The one extra binary the switcher needs is `dsh-desktop-about`, a small GTK3 helper that draws the About dialog, because the switcher itself carries no window toolkit.
 
 ## Why the switcher is its own module
 
@@ -22,9 +22,9 @@ A tray process needs no window toolkit. `desktop-dual` therefore builds with `CG
 
 Switching is mutually exclusive and destructive by design: the switcher stops the current client's process group, waits for it to exit, then starts the other one. Any session running in the stopped client is interrupted. That is a product decision, not a defect.
 
-The tray item reports the running mode through a corner badge, a tooltip, and the first menu entry, which always names the other mode. The menu also sets the default mode (shown greyed out when it is already the default) and quits the switcher, which stops the client with it.
+The tray item reports the running mode through a corner badge, a tooltip, and the first menu entry, which always names the other mode. A left click shows the client instead of switching: it starts the default client when none runs, and asks the official client to bring back its hidden window when one is already running, so a client closed by mistake is one click away. The right-click menu carries the switch entry, a Settings submenu that sets the default mode (shown greyed out when it is already the default), About, and Quit; quitting stops the client with it.
 
-A switch failure raises a desktop notification and marks the item as needing attention; the error also reaches the tooltip, so the reason is never silent.
+A failed action raises a desktop notification naming what failed and marks the item as needing attention; the error also reaches the tooltip, so the reason is never silent.
 
 ## Building
 
@@ -35,7 +35,7 @@ sh apps/linyaps/desktop-dual/prepare-offline.sh
 ll-builder build -f apps/linyaps/desktop-dual/linglong.yaml
 ```
 
-`prepare-offline.sh` calls the two client modules' own preparation scripts and then builds the switcher into `stage/bin/`. The launcher stage requires GTK and WebKit development files on the host, exactly as the thin-shell bundle does.
+`prepare-offline.sh` calls the two client modules' own preparation scripts, then builds the switcher and the About dialog helper into `stage/bin/`. The launcher stage requires GTK and WebKit development files on the host, exactly as the thin-shell bundle does; the helper is compiled against the same GTK development files, so it adds no new host requirement.
 
 The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.sh dual`.
 
@@ -44,3 +44,5 @@ The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.
 The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and checks again every five seconds, so the entry point returns when the desktop shell does. The check also compares the watcher's unique bus name with the one recorded at registration, so a shell that crashes and is replaced gets the entry point back within five seconds instead of leaving the clients unreachable. Until a host is present, the clients cannot be switched.
 
 Switching is only available through the tray while a switcher process runs. A second launch exits immediately instead of starting a second client.
+
+A left click can only show a client that still runs: the thin-shell client quits when its window closes, so a click restarts it, while the official client hides its window and a click brings that window back. A thin-shell window that is merely minimized is not raised.

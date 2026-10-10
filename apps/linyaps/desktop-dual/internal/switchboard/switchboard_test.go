@@ -2,7 +2,9 @@ package switchboard
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +105,73 @@ func TestShutdownWithoutClientIsSafe(t *testing.T) {
 	board := New(t.TempDir())
 	board.Shutdown()
 	board.Shutdown()
+}
+
+// TestRunningLockedUsesExitedChannel 覆盖「是否真在跑」的判据：进程结束后 reap 要先关
+// exited、再抢锁复位字段，两者之间 s.child 仍非 nil。只看 s.child 会把一个僵尸当成在跑，
+// 于是 Present 走「唤回」分支，真的再起一个实例却不进入状态跟踪。
+func TestRunningLockedUsesExitedChannel(t *testing.T) {
+	board := New(t.TempDir())
+	if board.runningLocked() {
+		t.Fatal("没有子进程时不应算在跑")
+	}
+	exited := make(chan struct{})
+	board.child = &exec.Cmd{}
+	board.exited = exited
+	if !board.runningLocked() {
+		t.Fatal("子进程仍在运行时应算在跑")
+	}
+	close(exited)
+	if board.runningLocked() {
+		t.Fatal("子进程已结束（exited 已关闭）时不应算在跑")
+	}
+}
+
+// TestPresentStartsDefaultClientWhenNoneRuns 覆盖「客户端关闭后点击显示」的主场景：
+// 没有客户端时按默认形态启动。这里用缺失的安装布局触发解析错误，从而断言它确实走了
+// 启动分支（错误里是薄壳客户端的路径），而不是唤回分支。
+func TestPresentStartsDefaultClientWhenNoneRuns(t *testing.T) {
+	err := New(t.TempDir()).Present()
+	if err == nil {
+		t.Fatal("客户端缺失时应报错")
+	}
+	if !strings.Contains(err.Error(), shellExecutable) {
+		t.Fatalf("应尝试启动默认形态的薄壳客户端，错误为 %v", err)
+	}
+}
+
+// TestPresentFocusesRunningOfficialClient 覆盖官方版「关窗只是隐藏」的情形：客户端仍在
+// 运行时不再启动新进程，而是走唤回分支（错误里是官方客户端的路径），且不得改动正在跟踪
+// 的那个子进程。
+func TestPresentFocusesRunningOfficialClient(t *testing.T) {
+	board := New(t.TempDir())
+	board.child = &exec.Cmd{}
+	board.exited = make(chan struct{})
+	board.current = ModeOfficial
+
+	err := board.Present()
+	if err == nil {
+		t.Fatal("官方客户端缺失时应报错")
+	}
+	if !strings.Contains(err.Error(), officialExecutable) {
+		t.Fatalf("应走唤回官方客户端的分支，错误为 %v", err)
+	}
+	if board.current != ModeOfficial || board.child == nil {
+		t.Fatal("唤回不应改动正在跟踪的客户端状态")
+	}
+}
+
+// TestPresentIsNoOpForRunningShellClient 覆盖薄壳版：它关窗即退出，运行中说明窗口就在
+// 桌面上，没有可唤回的状态；此时再启动一个会撞 dsh 端口，因此必须是空操作。
+func TestPresentIsNoOpForRunningShellClient(t *testing.T) {
+	board := New(t.TempDir())
+	board.child = &exec.Cmd{}
+	board.exited = make(chan struct{})
+	board.current = ModeShell
+
+	if err := board.Present(); err != nil {
+		t.Fatalf("薄壳版运行中 Present 应为空操作，得到 %v", err)
+	}
 }
 
 // TestClientCommandRejectsUnknownMode 覆盖未知形态不会退化成「启动自己」：

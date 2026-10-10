@@ -5,6 +5,9 @@ package i18n
 // 为什么形态名（薄壳版／官方版）进字典而不再像悬浮球那样用 `web`／`desktop` 标记：
 // 标记当年是给球下方的技术标识用的，两种语言写法相同因而不进字典；托盘只有菜单与提示，
 // 这里显示的是给用户看的名字，必须本地化。
+//
+// 失败标题按动作分开（显示／切换／设默认／关于）：托盘形态没有窗口，桌面通知是唯一能
+// 说明「刚才那一下为什么没成」的渠道，笼统的一句「操作失败」会让用户不知道是哪一步。
 var messages = map[Locale]map[string]string{
 	Zh: {
 		"tray.switchToShell":    "切换到薄壳版",
@@ -12,11 +15,18 @@ var messages = map[Locale]map[string]string{
 		"tray.modeShell":        "薄壳版",
 		"tray.modeOfficial":     "官方版",
 		"tray.noClient":         "客户端未运行",
+		"tray.settings":         "设置",
 		"tray.defaultShell":     "默认启动薄壳版",
 		"tray.defaultOfficial":  "默认启动官方版",
+		"tray.about":            "关于",
 		"tray.quit":             "退出切换器",
+		"tray.showFailed":       "显示客户端失败",
 		"tray.switchFailed":     "切换客户端失败",
+		"tray.setDefaultFailed": "设置默认形态失败",
+		"tray.aboutFailed":      "打开「关于」失败",
 		"tray.tooltip":          "DeepSeek Harness 切换器",
+		"about.mode":            "当前形态",
+		"about.package":         "包 ID",
 	},
 	En: {
 		"tray.switchToShell":    "Switch to thin shell",
@@ -24,10 +34,17 @@ var messages = map[Locale]map[string]string{
 		"tray.modeShell":        "Thin shell",
 		"tray.modeOfficial":     "Official client",
 		"tray.noClient":         "No client running",
+		"tray.settings":         "Settings",
 		"tray.defaultShell":     "Start the thin shell by default",
 		"tray.defaultOfficial":  "Start the official client by default",
+		"tray.about":            "About",
 		"tray.quit":             "Quit the switcher",
+		"tray.showFailed":       "Showing the client failed",
 		"tray.switchFailed":     "Switching the client failed",
+		"tray.setDefaultFailed": "Setting the default client failed",
+		"tray.aboutFailed":      "Opening the about dialog failed",
 		"tray.tooltip":          "DeepSeek Harness switcher",
+		"about.mode":            "Current client",
+		"about.package":         "Package ID",
 	},
 }

@@ -130,6 +130,42 @@ func (s *Switchboard) Start() error {
 	return s.launchLocked(s.cfg.DefaultMode)
 }
 
+// Present 把客户端显示给用户，是托盘左键的唯一入口。
+//
+// 三种情形对应两种客户端各自的关闭语义：薄壳客户端关窗即退出进程，官方客户端关窗只是
+// 隐藏窗口、进程仍在（Linux 上它没有自己的托盘，唯一回得来的方式就是再被叫一次）。
+// 因此「显示」在官方版上等于唤回已隐藏的窗口，在薄壳版上等于重新启动。
+// @returns 启动或唤回失败的原因；薄壳客户端已在运行时为空操作并返回 nil。
+func (s *Switchboard) Present() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runningLocked() {
+		if s.current == ModeOfficial {
+			return s.focusOfficialLocked()
+		}
+		return nil
+	}
+	return s.launchLocked(s.cfg.DefaultMode)
+}
+
+// runningLocked 报告当前是否真有一个客户端在跑。调用方必须持有 s.mu。
+//
+// 不能只看 s.child：进程结束后 reap 先关 exited、再抢锁复位字段，两者之间 s.child 仍非
+// nil，而那个进程已经是僵尸。此时若走「唤回」分支，官方版会真的再起一个实例，却不进入
+// 状态跟踪（用户关掉切换器后它还在跑）。exited 关闭才是「进程确实已结束」的精确信号。
+// @returns 有客户端在运行为真。
+func (s *Switchboard) runningLocked() bool {
+	if s.child == nil || s.exited == nil {
+		return false
+	}
+	select {
+	case <-s.exited:
+		return false
+	default:
+		return true
+	}
+}
+
 // Switch 切换到另一个客户端形态。互斥语义由「先停后起」保证：只有当前客户端的
 // 进程组确认退出后才拉起新的，否则两者会同时占用 dsh 端口与 ~/.dsh 状态。
 // @returns 切换失败的原因；失败时保留错误供托盘展示，并尽量回到可用状态。
@@ -204,12 +240,9 @@ func (s *Switchboard) Shutdown() {
 // @param mode - 要拉起的客户端形态。
 // @returns 路径解析或启动失败的原因。
 func (s *Switchboard) launchLocked(mode Mode) error {
-	exe, err := os.Executable()
+	exe, err := switcherExecutable()
 	if err != nil {
-		return fmt.Errorf("locating the switcher executable: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
+		return err
 	}
 	path, args, err := clientCommand(exe, mode)
 	if err != nil {
@@ -232,6 +265,50 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 	// 把状态复位成「没有客户端在跑」，托盘随之反映未运行态。
 	go s.reap(cmd, exited)
 	return nil
+}
+
+// focusOfficialLocked 让已在运行的官方客户端把窗口显示出来。调用方必须持有 s.mu。
+//
+// 官方客户端自带 Electron 单实例锁：再启动一次它的二进制，新进程会把激活请求转交给已
+// 运行的实例（focusPrimaryWindow 做 restore/show/focus）后立刻退出。这里因此既不能走
+// launchLocked（它会覆盖正在跟踪的子进程，让状态与实际运行的两个进程脱节），也不等待
+// 结果——唤回是否成功由已运行实例决定，切换器无从得知。
+// @returns 解析或启动转发进程失败的原因。
+func (s *Switchboard) focusOfficialLocked() error {
+	exe, err := switcherExecutable()
+	if err != nil {
+		return err
+	}
+	path, args, err := clientCommand(exe, ModeOfficial)
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(path, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("focusing the %s client: %w", ModeOfficial, err)
+	}
+	// 转发进程会在交出激活请求后立刻退出，这里只负责回收，避免僵尸。
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+// switcherExecutable 返回解析过符号链接的切换器自身路径。
+//
+// 客户端可执行文件的位置由切换器的安装位置推出，因此这里读 os.Executable 而不是接受
+// 调用方传入：只有真正要启动进程的路径才需要它，纯解析规则由 clientCommand 单独承载
+// 并被单测覆盖。
+// @returns 可执行文件绝对路径。
+func switcherExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("locating the switcher executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		return resolved, nil
+	}
+	return exe, nil
 }
 
 // reap 等待子进程结束并复位状态。

@@ -72,6 +72,10 @@ type Options struct {
 	Locale i18n.Locale
 	// IconPrefix 是安装前缀（<PREFIX>），用于定位随包图标；缺失时回退到内置图形。
 	IconPrefix string
+	// Version 是玲珑包版本，展示在「关于」里。
+	Version string
+	// About 弹出「关于」对话框，入参是本地化的附加信息；为 nil 时该菜单项不做事。
+	About func(comments string) error
 	// Quit 是菜单「退出切换器」的回调。
 	Quit func()
 	// Logf 记录降级与失败，便于真机排查；为 nil 时不记录。

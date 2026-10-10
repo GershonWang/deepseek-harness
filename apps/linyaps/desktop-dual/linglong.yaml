@@ -44,6 +44,15 @@ build: |
   SWITCHER=${PREFIX}/bin/dsh-desktop-switcher
   install -m755 "$STAGE/bin/dsh-desktop-switcher" "$SWITCHER"
 
+  # 「关于」对话框助手：切换器不带窗口工具链，这个几十行的 GTK3 小助手由
+  # prepare-offline.sh 在宿主机编译。它同样按兄弟节点定位，因此也放 <PREFIX>/bin。
+  ABOUT=${PREFIX}/bin/dsh-desktop-about
+  install -m755 "$STAGE/bin/dsh-desktop-about" "$ABOUT"
+  if [ ! -x "$ABOUT" ]; then
+    echo "「关于」对话框助手缺失：$ABOUT（prepare-offline.sh 的编译步骤未生效）" >&2
+    exit 1
+  fi
+
   # 官方 Electron 客户端：stage/electron 是完整的可运行目录树，直接铺开。
   mkdir -p ${PREFIX}/electron
   cp -a "$STAGE/electron/." ${PREFIX}/electron/

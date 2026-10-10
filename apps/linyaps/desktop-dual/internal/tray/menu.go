@@ -6,6 +6,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/about"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/switchboard"
 )
@@ -15,21 +16,28 @@ import (
 const (
 	idSwitch          int32 = 1
 	idSeparatorTop    int32 = 2
-	idDefaultShell    int32 = 3
-	idDefaultOfficial int32 = 4
-	idSeparatorBottom int32 = 5
-	idQuit            int32 = 6
+	idSettings        int32 = 3
+	idDefaultShell    int32 = 4
+	idDefaultOfficial int32 = 5
+	idSeparatorBottom int32 = 6
+	idAbout           int32 = 7
+	idQuit            int32 = 8
 )
 
-// menuEntry 是菜单中的一项（与 D-Bus 无关的纯数据）。
+// menuEntry 是菜单中的一项（与 D-Bus 无关的纯数据）。Children 非空表示这一项是子菜单
+// 入口：它自身不带动作，宿主展开后显示子项。
 type menuEntry struct {
 	ID        int32
 	Label     string
 	Enabled   bool
 	Separator bool
+	Children  []menuEntry
 }
 
 // menuEntries 按当前状态生成菜单。
+//
+// 结构固定为「切换 / 设置▸ / 关于 / 退出」：切换是破坏性动作，保留在首项但必须显式点；
+// 默认形态属于设置而不是常用动作，收进设置子菜单；关于与退出各自独立成项。
 //
 // 「默认启动」两项在已经是默认形态时置灰：托盘菜单没有勾选框，置灰是唯一不额外引入
 // dbusmenu 单选语义就能表达「当前就是这个」的手段，而单选语义在不同宿主上的表现并不一致。
@@ -39,11 +47,14 @@ func menuEntries(state trayState) []menuEntry {
 	return []menuEntry{
 		{ID: idSwitch, Label: i18n.T(state.locale, switchLabelKey(state.nextMode())), Enabled: !state.switching},
 		{ID: idSeparatorTop, Separator: true},
-		{ID: idDefaultShell, Label: i18n.T(state.locale, "tray.defaultShell"),
-			Enabled: state.defaultMode != switchboard.ModeShell},
-		{ID: idDefaultOfficial, Label: i18n.T(state.locale, "tray.defaultOfficial"),
-			Enabled: state.defaultMode != switchboard.ModeOfficial},
+		{ID: idSettings, Label: i18n.T(state.locale, "tray.settings"), Enabled: true, Children: []menuEntry{
+			{ID: idDefaultShell, Label: i18n.T(state.locale, "tray.defaultShell"),
+				Enabled: state.defaultMode != switchboard.ModeShell},
+			{ID: idDefaultOfficial, Label: i18n.T(state.locale, "tray.defaultOfficial"),
+				Enabled: state.defaultMode != switchboard.ModeOfficial},
+		}},
 		{ID: idSeparatorBottom, Separator: true},
+		{ID: idAbout, Label: i18n.T(state.locale, "tray.about"), Enabled: true},
 		{ID: idQuit, Label: i18n.T(state.locale, "tray.quit"), Enabled: true},
 	}
 }
@@ -121,7 +132,7 @@ func (m *menuObject) setState(state trayState) {
 	_ = m.parent.client.conn.Emit(menuPath, menuInterface+".LayoutUpdated", uint32(0), int32(0))
 }
 
-// sameEntries 比较两份菜单内容是否一致（标签与可用性）。
+// sameEntries 递归比较两份菜单内容是否一致（标签、可用性与子项）。
 // @param a - 旧内容。
 // @param b - 新内容。
 // @returns 完全一致为真。
@@ -130,36 +141,76 @@ func sameEntries(a, b []menuEntry) bool {
 		return false
 	}
 	for i := range a {
-		if a[i] != b[i] {
+		if a[i].ID != b[i].ID || a[i].Label != b[i].Label ||
+			a[i].Enabled != b[i].Enabled || a[i].Separator != b[i].Separator {
+			return false
+		}
+		if !sameEntries(a[i].Children, b[i].Children) {
 			return false
 		}
 	}
 	return true
 }
 
-// GetLayout 返回菜单树。dbusmenu 要求根项 ID 为 0，子项挂在它下面。
-// @param parentID - 请求的父项 ID；本实现只有一层菜单，非 0 一律按空树回答。
+// findEntry 在菜单树里按 ID 找一项（含子项）。
+// @param entries - 待搜索的层级。
+// @param id - 目标 ID。
+// @returns 找到的项与是否找到。
+func findEntry(entries []menuEntry, id int32) (menuEntry, bool) {
+	for _, entry := range entries {
+		if entry.ID == id {
+			return entry, true
+		}
+		if found, ok := findEntry(entry.Children, id); ok {
+			return found, true
+		}
+	}
+	return menuEntry{}, false
+}
+
+// flattenEntries 把菜单树摊平成一层，供按 ID 查询属性的调用使用。
+// @param entries - 待摊平的层级。
+// @returns 摊平后的项，顺序为父项先于其子项。
+func flattenEntries(entries []menuEntry) []menuEntry {
+	out := make([]menuEntry, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry)
+		out = append(out, flattenEntries(entry.Children)...)
+	}
+	return out
+}
+
+// GetLayout 返回菜单树。dbusmenu 要求根项 ID 为 0，子项挂在它下面；子菜单通过
+// parentID 再取一次，因此这里按 parentID 在树里定位层级，而不是只支持一层。
+// @param parentID - 请求的父项 ID；0 表示根。
 // @param recursionDepth - 递归深度；-1 表示取全部。
 // @param propertyNames - 需要的属性名；为空表示全部。
 // @returns 修订号、布局与错误。
 func (m *menuObject) GetLayout(parentID int32, recursionDepth int32, propertyNames []string) (uint32, dbusmenuLayout, *dbus.Error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	entries := m.entries
 	if parentID != 0 {
-		return 0, dbusmenuLayout{ID: parentID, Props: map[string]dbus.Variant{}}, nil
+		parent, ok := findEntry(m.entries, parentID)
+		if !ok {
+			// 未知父项按空树回答：dbusmenu 约定未知 ID 给空布局而不是错误。
+			return 0, dbusmenuLayout{ID: parentID, Props: map[string]dbus.Variant{}}, nil
+		}
+		entries = parent.Children
 	}
-	children := make([]dbus.Variant, 0, len(m.entries))
-	for _, entry := range m.entries {
+	children := make([]dbus.Variant, 0, len(entries))
+	for _, entry := range entries {
 		children = append(children, dbus.MakeVariant(entryLayout(entry)))
 	}
 	return 0, dbusmenuLayout{
-		ID:       0,
+		ID:       parentID,
 		Props:    map[string]dbus.Variant{"children-display": dbus.MakeVariant("submenu")},
 		Children: children,
 	}, nil
 }
 
-// GetGroupProperties 返回若干项的属性。
+// GetGroupProperties 返回若干项的属性。子项与父项共用同一套 ID 空间，因此查询前先把
+// 菜单树摊平，否则宿主问子项属性时会得到空结果、子菜单显示为空白。
 // @param ids - 请求的项 ID。
 // @param propertyNames - 需要的属性名；本实现忽略它，始终返回全部属性。
 // @returns 每项的属性集合与错误。
@@ -171,7 +222,7 @@ func (m *menuObject) GetGroupProperties(ids []int32, propertyNames []string) ([]
 		wanted[id] = true
 	}
 	var out []dbusmenuProperty
-	for _, entry := range m.entries {
+	for _, entry := range flattenEntries(m.entries) {
 		// 空 ids 按 dbusmenu 约定表示「全部」。
 		if len(ids) > 0 && !wanted[entry.ID] {
 			continue
@@ -194,11 +245,18 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 	board := m.parent.client.opts.Board
 	switch id {
 	case idSwitch:
-		m.parent.client.perform(board.Switch)
+		m.parent.client.perform("tray.switchFailed", board.Switch)
 	case idDefaultShell:
-		m.parent.client.perform(func() error { return board.SetDefault(switchboard.ModeShell) })
+		m.parent.client.perform("tray.setDefaultFailed", func() error { return board.SetDefault(switchboard.ModeShell) })
 	case idDefaultOfficial:
-		m.parent.client.perform(func() error { return board.SetDefault(switchboard.ModeOfficial) })
+		m.parent.client.perform("tray.setDefaultFailed", func() error { return board.SetDefault(switchboard.ModeOfficial) })
+	case idAbout:
+		// 关于只负责起一个弹窗进程，不等待用户关闭，因此可以同步做；失败由 perform
+		// 统一记录并发通知。idSettings 是子菜单入口，宿主不会给它发 clicked。
+		if show := m.parent.client.opts.About; show != nil {
+			comments := aboutComments(m.parent.client.opts.Locale, board.Status().Mode)
+			m.parent.client.perform("tray.aboutFailed", func() error { return show(comments) })
+		}
 	case idQuit:
 		// 退出走独立 goroutine：回调要停客户端并可能等优雅退出（最长 stopGrace），
 		// 在 D-Bus 方法里同步做会把宿主的调用一起堵住。
@@ -207,6 +265,15 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 		}
 	}
 	return nil
+}
+
+// aboutComments 组织「关于」对话框里的本地化信息。
+// @param locale - 语言。
+// @param mode - 当前在跑的客户端形态；空串表示没有客户端在运行。
+// @returns 多行文本。
+func aboutComments(locale i18n.Locale, mode switchboard.Mode) string {
+	return i18n.T(locale, "about.mode") + ": " + modeName(locale, mode) + "\n" +
+		i18n.T(locale, "about.package") + ": " + about.PackageID
 }
 
 // AboutToShow 是宿主展开菜单前的询问。菜单内容始终是最新的，无需延迟构建。
@@ -230,9 +297,14 @@ func entryLayout(entry menuEntry) dbusmenuLayout {
 		"enabled": dbus.MakeVariant(entry.Enabled),
 		"visible": dbus.MakeVariant(true),
 	}
-	if entry.Separator {
+	switch {
+	case entry.Separator:
 		props["type"] = dbus.MakeVariant("separator")
-	} else {
+	case len(entry.Children) > 0:
+		// 子菜单入口：宿主据此画出展开箭头并在展开时用本项 ID 再取一次布局。
+		props["type"] = dbus.MakeVariant("standard")
+		props["children-display"] = dbus.MakeVariant("submenu")
+	default:
 		props["type"] = dbus.MakeVariant("standard")
 	}
 	return dbusmenuLayout{ID: entry.ID, Props: props}

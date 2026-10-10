@@ -1,8 +1,12 @@
 package tray
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/godbus/dbus/v5"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/about"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/switchboard"
 )
@@ -84,14 +88,15 @@ func TestNextModeIsAlwaysTheOther(t *testing.T) {
 	}
 }
 
-// TestMenuEntriesReflectState 覆盖菜单内容：条目顺序、分隔线位置，以及「默认启动」
-// 两项在已是默认形态时置灰——托盘菜单没有勾选框，置灰是表达当前默认形态的手段。
+// TestMenuEntriesReflectState 覆盖菜单结构：条目顺序、分隔线位置，以及收进「设置」
+// 子菜单的「默认启动」两项在已是默认形态时置灰——托盘菜单没有勾选框，置灰是表达当前
+// 默认形态的手段。
 func TestMenuEntriesReflectState(t *testing.T) {
 	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeShell, defaultMode: switchboard.ModeShell})
 	if len(entries) != 6 {
 		t.Fatalf("菜单项数 = %d，期望 6", len(entries))
 	}
-	wantLabels := []string{"切换到官方版", "", "默认启动薄壳版", "默认启动官方版", "", "退出切换器"}
+	wantLabels := []string{"切换到官方版", "", "设置", "", "关于", "退出切换器"}
 	for i, want := range wantLabels {
 		if entries[i].Separator {
 			continue
@@ -100,13 +105,23 @@ func TestMenuEntriesReflectState(t *testing.T) {
 			t.Errorf("第 %d 项标签 = %q，期望 %q", i, entries[i].Label, want)
 		}
 	}
-	if !entries[1].Separator || !entries[4].Separator {
+	if !entries[1].Separator || !entries[3].Separator {
 		t.Error("分隔线位置不符")
 	}
-	if entries[2].Enabled {
+	if entries[0].Children != nil {
+		t.Error("「切换到」应是可点项，不是子菜单")
+	}
+	settings := entries[2]
+	if len(settings.Children) != 2 {
+		t.Fatalf("「设置」子项数 = %d，期望 2", len(settings.Children))
+	}
+	if settings.Children[0].Label != "默认启动薄壳版" || settings.Children[1].Label != "默认启动官方版" {
+		t.Errorf("「设置」子项标签 = %q/%q", settings.Children[0].Label, settings.Children[1].Label)
+	}
+	if settings.Children[0].Enabled {
 		t.Error("已是默认形态的「默认启动薄壳版」应置灰")
 	}
-	if !entries[3].Enabled {
+	if !settings.Children[1].Enabled {
 		t.Error("非默认形态的「默认启动官方版」应可点")
 	}
 }
@@ -117,6 +132,12 @@ func TestMenuEntriesFollowRunningMode(t *testing.T) {
 	if entries[0].Label != "切换到薄壳版" {
 		t.Fatalf("当前跑官方版时首项 = %q，期望「切换到薄壳版」", entries[0].Label)
 	}
+	if !entries[2].Children[0].Enabled {
+		t.Error("默认形态是官方版时「默认启动薄壳版」应可点")
+	}
+	if entries[2].Children[1].Enabled {
+		t.Error("已是默认形态的「默认启动官方版」应置灰")
+	}
 }
 
 // TestMenuEntriesDisableSwitchWhileSwitching 覆盖防重复触发：切换期间禁用首项，
@@ -125,5 +146,76 @@ func TestMenuEntriesDisableSwitchWhileSwitching(t *testing.T) {
 	entries := menuEntries(trayState{locale: i18n.Zh, switching: true})
 	if entries[0].Enabled {
 		t.Fatal("切换进行中首项应置灰")
+	}
+}
+
+// TestMenuLayoutServesSubmenu 覆盖子菜单的 dbusmenu 协议面：父项标成 submenu，宿主用
+// 父项 ID 再取一次布局时返回它的子项，子项属性也要能按 ID 查到（否则子菜单显示为空白）。
+func TestMenuLayoutServesSubmenu(t *testing.T) {
+	m := &menuObject{entries: menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})}
+
+	_, root, dbusErr := m.GetLayout(0, -1, nil)
+	if dbusErr != nil {
+		t.Fatalf("取根布局失败: %v", dbusErr)
+	}
+	if len(root.Children) != 6 {
+		t.Fatalf("根层子项数 = %d，期望 6", len(root.Children))
+	}
+	settings := childLayout(t, root.Children[2])
+	if got := settings.Props["children-display"].Value(); got != "submenu" {
+		t.Fatalf("「设置」的 children-display = %v，期望 submenu", got)
+	}
+
+	_, sub, dbusErr := m.GetLayout(idSettings, -1, nil)
+	if dbusErr != nil {
+		t.Fatalf("取子菜单布局失败: %v", dbusErr)
+	}
+	if len(sub.Children) != 2 {
+		t.Fatalf("子菜单项数 = %d，期望 2", len(sub.Children))
+	}
+	if label := childLayout(t, sub.Children[0]).Props["label"].Value(); label != "默认启动薄壳版" {
+		t.Fatalf("子菜单首项标签 = %v", label)
+	}
+
+	props, dbusErr := m.GetGroupProperties([]int32{idDefaultOfficial}, nil)
+	if dbusErr != nil {
+		t.Fatalf("按 ID 查子项属性失败: %v", dbusErr)
+	}
+	if len(props) != 1 || props[0].ID != idDefaultOfficial {
+		t.Fatalf("子项属性查询结果 = %+v，期望只含 idDefaultOfficial", props)
+	}
+
+	_, unknown, dbusErr := m.GetLayout(4242, -1, nil)
+	if dbusErr != nil {
+		t.Fatalf("未知父项应返回空布局而不是错误: %v", dbusErr)
+	}
+	if len(unknown.Children) != 0 {
+		t.Fatalf("未知父项的子项数 = %d，期望 0", len(unknown.Children))
+	}
+}
+
+// childLayout 把 dbusmenu 布局里的一个子项还原成结构体。
+// @param t - 测试上下文。
+// @param variant - 布局里的子项。
+// @returns 还原出的布局。
+func childLayout(t *testing.T, variant dbus.Variant) dbusmenuLayout {
+	t.Helper()
+	var layout dbusmenuLayout
+	if err := variant.Store(&layout); err != nil {
+		t.Fatalf("解析子项布局失败: %v", err)
+	}
+	return layout
+}
+
+// TestAboutCommentsCarryModeAndPackage 覆盖「关于」里的本地化信息：当前形态随语言与
+// 运行状态变化，包 ID 固定——用户报问题时这两项决定了排查从哪里开始。
+func TestAboutCommentsCarryModeAndPackage(t *testing.T) {
+	zh := aboutComments(i18n.Zh, switchboard.ModeOfficial)
+	if !strings.Contains(zh, "官方版") || !strings.Contains(zh, about.PackageID) {
+		t.Fatalf("中文关于信息 = %q，应含形态名与包 ID", zh)
+	}
+	en := aboutComments(i18n.En, "")
+	if !strings.Contains(en, "No client running") || !strings.Contains(en, about.PackageID) {
+		t.Fatalf("英文关于信息 = %q，应含未运行态与包 ID", en)
 	}
 }

@@ -1,16 +1,19 @@
 // 托盘项注册生命周期的测试：覆盖「宿主重启后图标自己回来」这条真实失效路径。
 //
-// 这些用例需要一个会话总线，因此默认跳过，用私有总线显式运行：
-//
-//	dbus-run-session -- go test ./internal/tray
+// 用例自己拉起一条私有会话总线（dbus-daemon），因此既不需要外部运行器，也不会碰到开发者
+// 桌面上那条真实总线——直接跑 go test 时若连到真实会话，第一步「会话里还没有宿主」就不
+// 成立，而且会在用户的托盘里留下一个探针图标。
 //
 // 桩宿主与切换器客户端都在测试进程内，宿主「重启」就是换一条总线连接——与真实宿主的
 // 崩溃重启等价：唯一名变了、已注册项丢了，而 SNI 不会通知客户端。
 package tray
 
 import (
+	"bufio"
 	"errors"
-	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +26,35 @@ import (
 
 // testMutexName 是测试客户端的单实例名，与真实入口区分开，避免在同一台机器上误判。
 const testMutexName = "org.deepseek.dsh.DesktopDualSwitcherTest"
+
+// startPrivateBus 拉起一条只属于本次测试的会话总线，并把地址写进环境变量，之后的
+// dbus.SessionBus 与 SessionBusPrivate 都连到它。
+// @param t - 测试上下文。
+func startPrivateBus(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("dbus-daemon"); err != nil {
+		t.Skip("需要 dbus-daemon 才能拉起私有会话总线")
+	}
+	socket := filepath.Join(t.TempDir(), "bus")
+	cmd := exec.Command("dbus-daemon", "--session", "--nofork",
+		"--print-address=1", "--address=unix:path="+socket)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("读取 dbus-daemon 地址失败: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("启动 dbus-daemon 失败: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	address, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil {
+		t.Fatalf("读取会话总线地址失败: %v", err)
+	}
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", strings.TrimSpace(address))
+}
 
 // fakeWatcher 是测试用的 SNI 宿主：用独立的总线连接持有 org.kde.StatusNotifierWatcher，
 // 并记录收到的每一个注册请求。
@@ -103,9 +135,7 @@ func startFakeWatcher(t *testing.T) *fakeWatcher {
 // 最后一条是本次修复的目标：宿主重启后若不再注册，用户会同时失去托盘图标与切换入口，
 // 而重新点桌面入口又会被单实例规则挡掉。
 func TestEnsureRegisteredFollowsTheWatcher(t *testing.T) {
-	if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" {
-		t.Skip("需要会话总线，请用 dbus-run-session 运行本用例")
-	}
+	startPrivateBus(t)
 
 	client, err := Connect(testMutexName, Options{
 		Board:  switchboard.New(t.TempDir()),
