@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/linyaps/desktop-dual/README.md
+/deepseek-harness-dual-client-linglong-bundle:
+  en: 72025af17edd6cad
+  zh: 99edcc38c5ea2e08
+/deepseek-harness-dual-client-linglong-bundle/what-this-module-produces:
+  en: e395cc88bc7ee76c
+  zh: fba3c2d5f373fe22
+/deepseek-harness-dual-client-linglong-bundle/why-the-switcher-is-its-own-module:
+  en: b048608b59090f65
+  zh: a9394c4f4a43421f
+/deepseek-harness-dual-client-linglong-bundle/how-switching-behaves:
+  en: a8a3fd0c335b2c69
+  zh: 57871996e85d77d5
+/deepseek-harness-dual-client-linglong-bundle/building:
+  en: 87a79102a4703441
+  zh: 07bfffea26959148
+/deepseek-harness-dual-client-linglong-bundle/known-limits:
+  en: 31ad8879afb5dc54
+  zh: 2d98cf8dbed23fa7

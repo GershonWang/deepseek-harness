@@ -1,10 +1,10 @@
 // Package switchboard 实现双客户端切换器：在同一个玲珑包内的两种客户端形态
 // ——随包的 Go + Wails 薄壳客户端与官方 Electron 客户端——之间互斥切换，
-// 并记录默认形态与悬浮球位置。
+// 并记录默认形态。
 //
-// 为什么必须分成进程：Wails v2 只暴露单窗口 API（runtime.Window* 全部作用于
-// 当前窗口），常驻的悬浮球窗口与客户端主窗口无法共存于一个进程。因此切换器
-// （悬浮球）与客户端各自成进程，本包只负责客户端的启动、整组终止与状态持久化。
+// 为什么必须分成进程：切换器是常驻的托盘进程，客户端是它拉起的子进程。切换器要能在
+// 客户端自行退出后继续存活（否则用户再无入口管理后台客户端），而客户端有自己完整的
+// 优雅退出路径，两者不能共用一个进程。
 //
 // 互斥语义：任一时刻至多一个客户端在运行。切换即「停掉当前客户端的整棵进程组，
 // 再拉起另一个」，因此正在进行的会话会被中断——这是产品选择，不是缺陷。
@@ -36,51 +36,39 @@ const (
 // 已重命名，切换器因此不依赖上游的命名规则。
 const officialExecutable = "dsh-desktop-official"
 
+// shellExecutable 是薄壳客户端的主程序名。切换器与它同处 ${PREFIX}/bin，按自身
+// 可执行文件所在目录解析：容器内 PATH 不保证含该目录，经 PATH 查找会把「装在哪」
+// 变成运行期才知道的事。
+const shellExecutable = "dsh-desktop-launcher"
+
 // stopGrace 是终止客户端进程组时等待优雅退出的时长；超时后整组强杀。
 // 客户端自身已有较长的优雅退出路径（保存窗口状态、停 harness），过短会留下残留。
 const stopGrace = 5 * time.Second
 
-// Config 是切换器的持久化配置。字段缺失时取零值，由 Default 补全。
+// Config 是切换器的持久化配置。字段缺失时取零值，由 normalize 补全。
+//
+// 只保留默认形态：托盘形态没有窗口，原先随悬浮球一起持久化的屏幕坐标已随悬浮球
+// 一并移除。旧配置文件里的额外字段会被 JSON 解码忽略，不影响升级。
 type Config struct {
 	// DefaultMode 是切换器启动时自动拉起的客户端形态。
 	DefaultMode Mode `json:"defaultMode"`
-	// BubbleX/BubbleY 是悬浮球左上角在屏幕上的位置。
-	BubbleX int `json:"bubbleX"`
-	BubbleY int `json:"bubbleY"`
-	// BubbleSet 区分「从未记录位置」与「记录在原点」：只看坐标是否为零的话，用户真的
-	// 把悬浮球拖到左上角这件事会被当成没记录过，下次启动又跳回默认位置。
-	BubbleSet bool `json:"bubbleSet"`
 }
 
-// BubblePosition 是悬浮球在屏幕上的位置快照，直接交给前端。
-//
-// 用结构体而不是 (int, int)：Wails 对多返回值的映射不如单值可预期，而这里要额外带
-// 一个「有没有记录过」的布尔。
-type BubblePosition struct {
-	// X/Y 是悬浮球左上角的屏幕坐标。
-	X int `json:"x"`
-	Y int `json:"y"`
-	// Set 表示这两个坐标来自一次真实拖拽。
-	Set bool `json:"set"`
-}
-
-// Status 是暴露给悬浮球前端的快照。
+// Status 是切换器对外的状态快照。托盘按固定间隔读取它并据此重绘图标、提示与菜单，
+// 因此这里不做事件推送——状态量极小，轮询不会漏掉任何一种变化（包括客户端被用户
+// 直接关窗这类在切换器之外发生的变化）。
 type Status struct {
 	// Mode 是当前正在运行的客户端形态；没有客户端在跑时为空串。
 	Mode Mode `json:"mode"`
 	// DefaultMode 是下次启动时使用的形态。
 	DefaultMode Mode `json:"defaultMode"`
-	// Marker 是悬浮球下方那行形态标记（web / desktop）。它是技术标识而不是需要翻译的
-	// 文案——两种语言下写法相同，进字典反而会被「中英逐字相同」判成漏翻；由 Go 侧给出，
-	// 前端也不硬编码。
-	Marker string `json:"marker"`
-	// Switching 表示一次切换正在进行，前端据此禁用重复点击。
+	// Switching 表示一次切换正在进行，菜单据此禁用重复触发。
 	Switching bool `json:"switching"`
 	// Error 保留最近一次失败的原因，成功后清空。
 	Error string `json:"error"`
 }
 
-// Switchboard 管理客户端进程与切换状态。所有导出方法都可由 Wails 前端并发调用，
+// Switchboard 管理客户端进程与切换状态。所有导出方法都可能被托盘回调并发调用，
 // 内部用互斥锁串行化。
 type Switchboard struct {
 	mu         sync.Mutex
@@ -132,7 +120,7 @@ func (s *Switchboard) ConfigPath() string { return s.configPath }
 
 // Start 拉起默认形态的客户端。已经有一个客户端在运行时不做任何事，避免切换器
 // 重启后叠出第二个客户端。
-// @returns 启动失败的原因；失败时切换器仍在运行，用户可再次点击切换重试。
+// @returns 启动失败的原因；失败时切换器仍在运行，用户可再从托盘菜单触发一次。
 func (s *Switchboard) Start() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -142,9 +130,9 @@ func (s *Switchboard) Start() error {
 	return s.launchLocked(s.cfg.DefaultMode)
 }
 
-// Switch 切换到另一个客户端形态。互斥语义由「先停后起」保证：只有当前客户端
-// 的进程组确认退出后才拉起新的，否则两者会同时占用 dsh 端口与 ~/.dsh 状态。
-// @returns 切换失败的原因；失败时保留错误供前端展示，并尽量回到可用状态。
+// Switch 切换到另一个客户端形态。互斥语义由「先停后起」保证：只有当前客户端的
+// 进程组确认退出后才拉起新的，否则两者会同时占用 dsh 端口与 ~/.dsh 状态。
+// @returns 切换失败的原因；失败时保留错误供托盘展示，并尽量回到可用状态。
 func (s *Switchboard) Switch() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -173,7 +161,7 @@ func (s *Switchboard) Switch() error {
 	return nil
 }
 
-// SetDefault 只修改默认形态，不立即切换。悬浮球右键菜单用它。
+// SetDefault 只修改默认形态，不立即切换。托盘菜单用它。
 // @param mode - 目标客户端形态。
 // @returns 参数非法或写入失败的原因。
 func (s *Switchboard) SetDefault(mode Mode) error {
@@ -191,68 +179,39 @@ func (s *Switchboard) SetDefault(mode Mode) error {
 	return nil
 }
 
-// Status 返回当前快照。前端按固定间隔轮询它，因此这里不做事件推送。
+// Status 返回当前快照，供托盘按固定间隔刷新。
 // @returns 客户端形态、默认形态、切换中标志与最近的错误。
 func (s *Switchboard) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return Status{
 		Mode:        s.current,
-		Marker:      modeMarker(s.current),
 		DefaultMode: s.cfg.DefaultMode,
 		Switching:   s.switching,
 		Error:       s.lastError,
 	}
 }
 
-// BubblePosition 返回上次记录的悬浮球位置，供悬浮球启动时还原。
-// @returns 屏幕坐标与「是否记录过」标志。
-func (s *Switchboard) BubblePosition() BubblePosition {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return BubblePosition{X: s.cfg.BubbleX, Y: s.cfg.BubbleY, Set: s.cfg.BubbleSet}
-}
-
-// SaveBubblePosition 记录悬浮球位置，供下次启动还原。写失败只留痕：
-// 位置丢失不该影响切换器本身。
-// @param x - 屏幕横坐标。
-// @param y - 屏幕纵坐标。
-func (s *Switchboard) SaveBubblePosition(x, y int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cfg.BubbleX, s.cfg.BubbleY, s.cfg.BubbleSet = x, y, true
-	if err := s.saveLocked(); err != nil {
-		s.lastError = err.Error()
-	}
-}
-
 // Shutdown 停掉客户端并退出。切换器退出后客户端不应继续留在后台：
-// 用户看不到悬浮球时就无法再管理它。
+// 用户看不到托盘图标时就无法再管理它。
 func (s *Switchboard) Shutdown() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopLocked()
 }
 
-// modeMarker 给出一种客户端形态在悬浮球上显示的标记文字。
-// @param mode - 客户端形态；空串表示当前没有客户端在运行。
-// @returns 标记文字，未运行时为空串。
-func modeMarker(mode Mode) string {
-	switch mode {
-	case ModeShell:
-		return "web"
-	case ModeOfficial:
-		return "desktop"
-	default:
-		return ""
-	}
-}
-
 // launchLocked 启动一个客户端进程并记录形态。调用方必须持有 s.mu。
 // @param mode - 要拉起的客户端形态。
 // @returns 路径解析或启动失败的原因。
 func (s *Switchboard) launchLocked(mode Mode) error {
-	path, args, err := clientCommand(mode)
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("locating the switcher executable: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	path, args, err := clientCommand(exe, mode)
 	if err != nil {
 		return err
 	}
@@ -270,13 +229,14 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 	s.current = mode
 	s.exited = exited
 	// 回收子进程，避免僵尸；客户端被用户直接关窗时这里也会醒来，
-	// 把状态复位成「没有客户端在跑」，悬浮球随之等待下一次点击。
+	// 把状态复位成「没有客户端在跑」，托盘随之反映未运行态。
 	go s.reap(cmd, exited)
 	return nil
 }
 
 // reap 等待子进程结束并复位状态。
 // @param cmd - 由 launchLocked 启动的进程。
+// @param exited - 本进程对应的退出信号通道，关闭后 stopLocked 即可返回。
 func (s *Switchboard) reap(cmd *exec.Cmd, exited chan struct{}) {
 	_ = cmd.Wait()
 	// 先发退出信号再抢锁：stopLocked 等在 channel 上，不该被这里的加锁顺序拖住。
@@ -331,25 +291,26 @@ func (s *Switchboard) saveLocked() error {
 
 // clientCommand 解析一种客户端形态的可执行文件与参数。
 //
-// 薄壳客户端就是本二进制自身，以 --mode=shell 运行；官方客户端是随包的 Electron
-// 主程序，位置由玲珑包布局决定（<PREFIX>/electron/<name>，而本二进制在
-// <PREFIX>/bin/ 下）。Electron 主程序需要 --no-sandbox：玲珑容器禁止提权，
-// Chromium 沙箱用不了。
+// 薄壳客户端与切换器同处 ${PREFIX}/bin，按切换器自身路径的兄弟节点解析；官方客户端
+// 是随包的 Electron 主程序，位置由玲珑包布局决定（<PREFIX>/electron/<name>，而
+// ${PREFIX}/bin 的上一级就是 <PREFIX>）。Electron 主程序需要 --no-sandbox：玲珑
+// 容器禁止提权，Chromium 沙箱用不了。
+//
+// 切换器自身的可执行文件路径由调用方传入而不是在这里读 os.Executable()：解析规则
+// 因此可以脱离真实安装布局被测试，而不必在测试里伪造一份 ${PREFIX} 目录树。
+// @param switcherExe - 切换器自身的可执行文件路径（符号链接已解析）。
 // @param mode - 客户端形态。
 // @returns 可执行文件绝对路径、启动参数，或解析失败的原因。
-func clientCommand(mode Mode) (string, []string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", nil, fmt.Errorf("locating the launcher executable: %w", err)
-	}
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
+func clientCommand(switcherExe string, mode Mode) (string, []string, error) {
 	switch mode {
 	case ModeShell:
-		return exe, []string{"--mode=shell"}, nil
+		shell := filepath.Join(filepath.Dir(switcherExe), shellExecutable)
+		if _, err := os.Stat(shell); err != nil {
+			return "", nil, fmt.Errorf("shell client executable unavailable (%s): %w", shell, err)
+		}
+		return shell, nil, nil
 	case ModeOfficial:
-		prefix := filepath.Dir(filepath.Dir(exe))
+		prefix := filepath.Dir(filepath.Dir(switcherExe))
 		official := filepath.Join(prefix, "electron", officialExecutable)
 		if _, err := os.Stat(official); err != nil {
 			return "", nil, fmt.Errorf("official client executable unavailable (%s): %w", official, err)

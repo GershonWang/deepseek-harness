@@ -6,14 +6,12 @@ package:
   kind: app
   description: |
     DeepSeek Harness 双客户端桌面应用。
-    同一个包内含官方 Electron 客户端与 Go + Wails 薄壳客户端，由常驻悬浮球
-    互斥切换：单击换客户端，右键菜单设默认形态。
+    同一个包内含官方 Electron 客户端与 Go + Wails 薄壳客户端，由常驻托盘切换器
+    互斥切换：左键单击换客户端，菜单里可设默认形态或退出。
 
-# 入口是切换器（悬浮球）。客户端是它的子进程：Wails v2 只有单窗口 API，
-# 常驻悬浮球与客户端主窗口无法共存于一个进程，因此两者各自成进程。
+# 入口是切换器（常驻托盘进程，无窗口）。两个客户端都是它的子进程。
 command:
-  - /opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-launcher
-  - --mode=bubble
+  - /opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-switcher
 
 base: org.deepin.base/25.2.2
 
@@ -35,16 +33,31 @@ build: |
   # helper 进程路径指向容器内不存在的 /usr/lib/...，窗口一创建就崩，且构建期毫无报错。
   sh /project/apps/linyaps/desktop-launcher/linglong/install-shell-runtime.sh "$STAGE"
 
+  # 本包只暴露切换器一个入口。上面那份脚本会为薄壳版单独装一份
+  # com.deepseek.dsh-desktop.desktop，那条入口绕过切换器：用户点它就会在切换器之外
+  # 再拉起一个客户端，破坏「任一时刻至多一个客户端」这条互斥语义（两者会同时占用
+  # dsh 端口与 ~/.dsh 状态）。
+  rm -f ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
+
+  # 切换器：纯 Go、无 cgo，与薄壳客户端同处 <PREFIX>/bin——它按自身路径的兄弟节点
+  # 定位两个客户端，因此两者必须同目录。
+  SWITCHER=${PREFIX}/bin/dsh-desktop-switcher
+  install -m755 "$STAGE/bin/dsh-desktop-switcher" "$SWITCHER"
+
   # 官方 Electron 客户端：stage/electron 是完整的可运行目录树，直接铺开。
   mkdir -p ${PREFIX}/electron
   cp -a "$STAGE/electron/." ${PREFIX}/electron/
 
   # 主程序名由 electron-builder 依 productName 生成（实测形如 @deepseek-aidsh-desktop），
-  # 切换器按固定名查找。prepare-offline.sh 已改名，这里再确认一次，避免打出「悬浮球
+  # 切换器按固定名查找。prepare-offline.sh 已改名，这里再确认一次，避免打出「托盘里
   # 点不动」的包——那种包能装上，但切换时才发现官方客户端根本不存在。
   OFFICIAL=${PREFIX}/electron/dsh-desktop-official
   if [ ! -x "$OFFICIAL" ]; then
     echo "官方客户端主程序缺失：$OFFICIAL（prepare-offline.sh 的改名步骤未生效）" >&2
+    exit 1
+  fi
+  if [ ! -x "$SWITCHER" ]; then
+    echo "切换器缺失：$SWITCHER（stage 里的产物未生成）" >&2
     exit 1
   fi
 
