@@ -1,4 +1,4 @@
-/* dsh 桌面壳桥：外链转发 + 客户端启动失败上报 + 语言上报。
+/* dsh 桌面壳桥：外链转发 + 客户端启动失败上报 + 语言上报 + GUI 内容存活性上报。
  *
  * 由打包流程（inject-link-bridge.sh）注入到桌面版 harness Web GUI 的 dist，
  * 与页面同源加载，并先于 <head> 里的 module 入口执行（module 脚本延迟）。
@@ -29,6 +29,13 @@
  * 该属性），因此以 { dshDesktop: true, type: "locale", id } 上报该值即可，壳不需要
  * 读 settings.yaml、也不需要在 GUI 里再开一个入口。真源选型的取舍见
  * apps/desktop-launcher/docs/i18n.md 第五节。
+ *
+ * 职责四：GUI 内容存活性上报。白屏的另一种形态是"文档还在、客户端内容整个不见了"
+ * ——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空。此时壳只看得到
+ * iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。本桥按周期检查挂载点还有
+ * 没有内容，确认消失后以 { dshDesktop: true, type: "boot-stalled", message } 上报，
+ * 由壳重载 iframe（不重启 harness）。与职责二的边界：职责二判"上游自己报了失败"，
+ * 这里判"上游没有报错、内容只是不出现"。
  */
 (function () {
   "use strict";
@@ -124,6 +131,55 @@
     }
   });
   bootWatcher.observe(container, { childList: true, subtree: true });
+
+  /* ---------- GUI 内容存活性 ---------- */
+
+  // 判据只有两条，且都只在"正常态不可能出现"时成立：挂载点连续为空；引导页存在超过
+  // 阈值仍未消失。因此失效方向是"不报"（上游改了挂载点 id 或引导页标记），不会误伤
+  // 正常界面。周期检查只读 childElementCount 与一个选择器，不挂 MutationObserver，
+  // 运行期开销可忽略。
+  var LIVENESS_TICK_MS = 5000;
+  var LIVENESS_EMPTY_STRIKES = 2; // 连续两次空容器（≈10s）才算内容消失
+  var LIVENESS_BOOT_STALL_TICKS = 6; // 引导页存在 ≈30s 仍未挂载
+
+  var stalledReported = false;
+  var emptyStrikes = 0;
+  var bootPageTicks = 0;
+
+  /** 上报"内容消失"；本次页面生命周期内只上报一次，之后停止周期检查。 */
+  function reportBootStalled(message) {
+    if (stalledReported) return;
+    stalledReported = true;
+    clearInterval(livenessTimer);
+    window.parent.postMessage({ dshDesktop: true, type: "boot-stalled", message: message }, targetOrigin());
+  }
+
+  var livenessTimer = setInterval(function () {
+    if (stalledReported) return;
+    if (container === null) {
+      // 桥可能在 <body> 之前执行：当时取不到挂载点，这一轮补一次解析。
+      container = document.getElementById("root") || document.body;
+      return;
+    }
+    if (container.childElementCount === 0) {
+      emptyStrikes += 1;
+      if (emptyStrikes >= LIVENESS_EMPTY_STRIKES) {
+        reportBootStalled("客户端界面内容为空（挂载点里没有内容）");
+      }
+      return;
+    }
+    emptyStrikes = 0;
+    if (container.querySelector("[data-dsh-boot]") !== null) {
+      bootPageTicks += 1;
+      if (bootPageTicks >= LIVENESS_BOOT_STALL_TICKS) {
+        reportBootStalled(
+          "客户端界面在 " + String((LIVENESS_BOOT_STALL_TICKS * LIVENESS_TICK_MS) / 1000) + " 秒内未完成挂载（引导页仍在）"
+        );
+      }
+    } else {
+      bootPageTicks = 0;
+    }
+  }, LIVENESS_TICK_MS);
 
   /* ---------- 语言上报 ---------- */
 

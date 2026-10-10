@@ -256,6 +256,7 @@ window.DSH_LOCALES.en = {
   "doctor.autoHint.done": "Diagnosis complete",
   "doctor.autoHint.running": "Diagnosing the problem automatically…",
   "failed.clientFailureReason": "UI plugins failed to load (the harness service process is still running)",
+  "failed.guiStallReason": "The interface timed out while loading: automatic reloads did not complete the mount (the harness service process is still running)",
   "doctor.repairPanel.incomplete": "⚠ Incomplete",
   "doctor.repairPanel.noop": "— Nothing to do",
   "doctor.repairPanel.badgeApplied": "Applied",

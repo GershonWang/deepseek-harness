@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false };
+const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false, _gui: { target: "", mounted: false, ticks: 0, reloads: 0, reported: false, reason: "" } };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
 // 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
@@ -154,8 +154,12 @@ function bindExternalLinks() {
     // iframe 内 harness GUI 的生效语言（桥观察它的 <html lang> 后上报）：壳的
     // 全部文案跟随这一个真源，因此壳不设自己的语言开关。GUI 起来之前壳按
     // navigator 兜底，见 i18n.js 的 init 与 docs/i18n.md 第五节。
+    //
+    // 这条消息同时是"GUI 挂载完成"的握手：桥在应用挂载后必然补报一次语言，因此
+    // 挂载看门狗（watchGuiMount）以它作为唯一完成信号，不再另开通道。
     if (d.type === "locale") {
       if (typeof d.id !== "string") return;
+      state._gui.mounted = true;
       window.DSHI18N.applyFromGui(d.id);
       return;
     }
@@ -170,6 +174,15 @@ function bindExternalLinks() {
         // 方法不存在也不会影响页面本身的行为。
         window.go.app.App.ReportClientBootFailure(d.message).then(applyStatus).catch(() => {});
       }
+      return;
+    }
+
+    // iframe 里客户端内容整个不见了（桥的存活性检查上报，见 dsh-link-bridge.js
+    // 职责四）：文档还在、壳看得到 iframe，但里面已经没有界面。先按同一套预算重载
+    // iframe，重载用尽后 reloadHarnessFrame 会带上桥给的原因走失败页链路。
+    if (d.type === "boot-stalled") {
+      if (typeof d.message === "string" && d.message) state._gui.reason = d.message;
+      reloadHarnessFrame();
       return;
     }
 
@@ -362,6 +375,93 @@ function renderDynamicCopy() {
   renderStartup(state.startupView);
 }
 
+/* ---------- harness GUI 挂载看门狗 ---------- */
+
+// 容器内 harness 的 GUI 是 iframe 里的另一份文档：它可能整块空白（文档没加载出来、
+// 客户端模块入口没跑、或应用 DOM 被清空），而壳自己的标题栏/状态栏照常渲染——用户
+// 看到的就是"只有 harness 区域白"。此时壳没有任何判据，只能靠重启 harness 换 token
+// 触发整页重载来恢复；这里把这件事自动化：按状态快照计数，超过阈值就重载 iframe。
+// 重载只动壳自己的 iframe，不重启 harness 进程，因此不会打断正在跑的任务。
+//
+// 为什么按快照计数而不是 setTimeout/Date：Go 侧每秒推一次 harness:status（见
+// internal/app 的 1s ticker），用快照计数既不需要计时器，也让 DOM 桩测试能直接驱动
+// 阈值，不必等待真实时间。
+const GUI_MOUNT_STALL_TICKS = 25; // ≈25 秒仍未收到挂载握手即视为卡住
+const GUI_MOUNT_MAX_RELOADS = 2; // 连续重载上限，用尽后交给既有失败页链路
+
+/**
+ * 当前快照是否处于"应当已挂载"的容器内 harness 状态。
+ *
+ * 外部服务模式没有注入桥（没有挂载握手），因此看门狗只对容器内 harness 生效；
+ * 失败页/停止态下 Target 为空或已由失败链路接管，同样不看。
+ * @param {Object} s - Go 侧状态快照。
+ * @returns {boolean} 是否需要（继续）等待 GUI 挂载。
+ */
+function guiMountExpected(s) {
+  return !!s && s.Mode !== "external" && !!s.Target && s.State === "running" && !s.ClientFailure;
+}
+
+/**
+ * 由每次状态快照驱动的挂载看门狗：同一 Target 内累计"未挂载"的快照数，达到阈值
+ * 就重载 iframe。Target 变化（harness 重启换了 token、用户切了外部服务）视为新一代，
+ * 计数器与重载预算一起复位。
+ * @param {Object} s - Go 侧状态快照。
+ */
+function watchGuiMount(s) {
+  const gui = state._gui;
+  if (!guiMountExpected(s)) {
+    gui.target = "";
+    gui.mounted = false;
+    gui.ticks = 0;
+    gui.reloads = 0;
+    gui.reported = false;
+    gui.reason = "";
+    return;
+  }
+  if (gui.target !== s.Target) {
+    gui.target = s.Target;
+    gui.mounted = false;
+    gui.ticks = 0;
+    gui.reloads = 0;
+    gui.reported = false;
+    gui.reason = "";
+    return;
+  }
+  if (gui.mounted || gui.reported) return;
+  gui.ticks += 1;
+  if (gui.ticks < GUI_MOUNT_STALL_TICKS) return;
+  gui.ticks = 0;
+  reloadHarnessFrame();
+}
+
+/**
+ * 重载 harness iframe：先移除再重设 src，强制一次真正的文档加载。
+ *
+ * 只重设同一个 src 值在部分引擎里不触发新的加载，而这里要的正是"把整页重走一遍"
+ * ——与用户手动重启 harness 后壳做的事等价，但不重启 harness 进程。重载预算用尽后
+ * 交给既有的客户端失败链路（Go 侧记录 + 自动诊断 + 安全模式入口），而不是无限重载：
+ * 真的持续起不来时，用户需要的是诊断入口而不是循环。
+ */
+function reloadHarnessFrame() {
+  const gui = state._gui;
+  const frame = $("#harness");
+  const target = state.status ? state.status.Target : "";
+  if (!frame || !target || gui.reported) return;
+  if (gui.reloads >= GUI_MOUNT_MAX_RELOADS) {
+    gui.reported = true;
+    if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReportClientBootFailure) {
+      // 桥若给出了具体原因（如引导页仍在、挂载点为空），一并带上；壳二进制比前端旧时
+      // 方法不存在也不影响页面本身的行为。
+      const reason = tr("failed.guiStallReason") + (gui.reason ? "\n" + gui.reason : "");
+      window.go.app.App.ReportClientBootFailure(reason).then(applyStatus).catch(() => {});
+    }
+    return;
+  }
+  gui.reloads += 1;
+  frame.removeAttribute("src");
+  frame.setAttribute("src", target);
+}
+
 function applyStatus(s) {
   state.status = s;
   renderHarnessStatusbar(s);
@@ -415,6 +515,7 @@ function applyStatus(s) {
   maybeNotifyAutoDisabled(s);
   renderStartup(s.Startup);
   renderServerDialog(s);
+  watchGuiMount(s);
 }
 
 /* ---------- 启动前预检 ---------- */
@@ -1797,6 +1898,12 @@ function init() {
   // 启动进度单独走事件：条目激活在数秒内产生上百次计数变化，1s 状态轮询只能
   // 采到一两个点，进度条会跳变。两条通道共用同一份视图与渲染函数。
   window.runtime.EventsOn("startup:progress", (v) => renderStartup(v));
+
+  // iframe 文档本身加载失败（连接被拒、响应中断）时浏览器不会给出别的信号：补一条
+  // error 通道，与挂载看门狗共用同一套重载预算。桥的 boot-stalled 上报覆盖"文档在、
+  // 内容没了"，这一条覆盖"文档都没加载出来"。
+  $("#harness").addEventListener("error", () => reloadHarnessFrame());
+
   setupBuiltinToggle();
   setupHostsToggle();
 

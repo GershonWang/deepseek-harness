@@ -113,12 +113,16 @@ class El {
   }
   setAttribute(k, v) {
     this.attrs[k] = v;
+    // 属性变更留痕：挂载看门狗的重载表现为"移除 src 再重设"，两者在最终属性上
+    // 看不出区别，用例只能靠变更序列判断是否真的重载过。
+    (this.attrLog ||= []).push("set:" + k);
   }
   getAttribute(k) {
     return k in this.attrs ? this.attrs[k] : null;
   }
   removeAttribute(k) {
     delete this.attrs[k];
+    (this.attrLog ||= []).push("remove:" + k);
   }
   addEventListener(type, fn) {
     (this.events[type] ||= []).push(fn);
@@ -880,6 +884,144 @@ test("客户端失败消息校验：非法类型不上报，非 iframe 来源不
   await flush();
 
   assert.deepEqual(h.runCalls, [], "非法载荷不应触发任何壳侧动作");
+});
+
+/* ---------- harness GUI 挂载看门狗（白屏自愈，见 frontend/app.js 的"挂载看门狗"） ---------- */
+
+// Go 侧每秒推一次 harness:status，看门狗按快照计数（≈25 秒），因此用例直接推快照
+// 即可跨过阈值，不必等待真实时间。
+const GUI_MOUNT_TICKS = 25;
+
+function runningStatus(over = {}) {
+  return baseStatus({
+    State: "running",
+    URL: "http://127.0.0.1:3456",
+    Target: "http://127.0.0.1:3456/?token=t",
+    ...over,
+  });
+}
+
+/** 统计 #harness 上 src 被设置的次数：初载 1 次，之后每次重载 +1。
+ * 不用"移除次数"：失败页接管时也会移除 src，那是状态切换而不是重载。 */
+function srcSets(h) {
+  return (h.document.getElementById("harness").attrLog || []).filter((e) => e === "set:src").length;
+}
+
+/** 清掉 init 首个快照留下的属性变更（停止态会移除 src），只统计用例自己触发的动作。 */
+function resetFrameLog(h) {
+  h.document.getElementById("harness").attrLog = [];
+}
+
+test("GUI 未挂载：到阈值重载 iframe，预算用尽后转交 Go 的失败链路", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+
+  h.status(runningStatus());
+  await flush();
+  assert.equal(
+    h.document.getElementById("harness").getAttribute("src"),
+    "http://127.0.0.1:3456/?token=t",
+    "运行态应加载 iframe");
+
+  for (let i = 0; i < GUI_MOUNT_TICKS - 1; i++) h.status(runningStatus());
+  await flush();
+  assert.equal(srcSets(h), 1, "未到阈值不应重载");
+  assert.deepEqual(h.runCalls, [], "未到阈值不应上报");
+
+  h.status(runningStatus()); // 第 25 次快照：第一次重载
+  await flush();
+  assert.equal(srcSets(h), 2, "到阈值应重载 iframe");
+  assert.equal(
+    h.document.getElementById("harness").getAttribute("src"),
+    "http://127.0.0.1:3456/?token=t",
+    "重载后仍指向同一地址");
+  assert.deepEqual(h.runCalls, [], "第一次重载不立即上报");
+
+  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
+  await flush();
+  assert.equal(srcSets(h), 3, "预算内应再重载一次");
+
+  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
+  await flush();
+  assert.equal(srcSets(h), 3, "预算用尽后不再重载");
+  assert.equal(h.runCalls.length, 1, "预算用尽后应上报一次");
+  assert.match(h.runCalls[0], /^client-fail:界面加载超时/);
+});
+
+test("GUI 挂载握手（桥补报语言）到达后不再重载", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+  h.status(runningStatus());
+  await flush();
+
+  h.message({ dshDesktop: true, type: "locale", id: "zh-CN" });
+  await flush();
+
+  for (let i = 0; i < GUI_MOUNT_TICKS * 3; i++) h.status(runningStatus());
+  await flush();
+  assert.equal(srcSets(h), 1, "已挂载不应重载");
+  assert.deepEqual(h.runCalls, [], "已挂载不应上报失败");
+});
+
+test("桥上报内容消失：立即重载，预算用尽后带上桥给的原因上报", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+  h.status(runningStatus());
+  await flush();
+
+  const reason = "客户端界面内容为空（挂载点里没有内容）";
+  h.message({ dshDesktop: true, type: "boot-stalled", message: reason });
+  await flush();
+  assert.equal(srcSets(h), 2, "上报后应立即重载");
+  assert.deepEqual(h.runCalls, [], "首次重载不立即上报");
+
+  h.message({ dshDesktop: true, type: "boot-stalled", message: reason });
+  await flush();
+  assert.equal(srcSets(h), 3, "预算内再重载一次");
+
+  h.message({ dshDesktop: true, type: "boot-stalled", message: reason });
+  await flush();
+  assert.equal(srcSets(h), 3, "预算用尽后不再重载");
+  assert.equal(h.runCalls.length, 1, "预算用尽后应上报一次");
+  assert.match(h.runCalls[0], /^client-fail:界面加载超时[\s\S]*挂载点里没有内容/);
+});
+
+test("Target 换代（harness 重启换 token）重置计数与重载预算", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+
+  h.status(runningStatus());
+  await flush();
+  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
+  await flush();
+  assert.equal(srcSets(h), 2, "第一代到阈值应重载一次");
+
+  const next = { Target: "http://127.0.0.1:3456/?token=t2", URL: "http://127.0.0.1:3456" };
+  h.status(runningStatus(next));
+  await flush();
+  for (let i = 0; i < GUI_MOUNT_TICKS - 1; i++) h.status(runningStatus(next));
+  await flush();
+  assert.equal(srcSets(h), 3, "新一代未到阈值不应重载（换 token 本身会导航一次）");
+  assert.deepEqual(h.runCalls, [], "换代后预算复位，不应上报");
+});
+
+test("外部服务模式没有注入桥：挂载看门狗不介入", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+
+  const target = "http://192.168.1.20:3456/";
+  for (let i = 0; i < GUI_MOUNT_TICKS * 2; i++) {
+    h.status(baseStatus({ Mode: "external", State: "running", ExternalURL: target, Target: target }));
+  }
+  await flush();
+
+  assert.equal(srcSets(h), 1, "外部服务不应被看门狗重载");
+  assert.deepEqual(h.runCalls, [], "外部服务不应上报失败");
 });
 
 /* ---------- 语言跟随（iframe 内 GUI 的 <html lang>，见 linglong/dsh-link-bridge.js） ---------- */

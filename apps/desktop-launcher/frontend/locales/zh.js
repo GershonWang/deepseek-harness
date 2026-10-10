@@ -284,6 +284,8 @@ window.DSH_LOCALES.zh = {
   "doctor.autoHint.done": "诊断完成",
   "doctor.autoHint.running": "正在自动诊断问题…",
   "failed.clientFailureReason": "界面插件加载失败（harness 服务进程仍在运行）",
+  // 挂载看门狗自动重载用尽后的原因：与上面那条一样，用于说明"进程还在、只是界面起不来"。
+  "failed.guiStallReason": "界面加载超时：已自动重载仍未完成挂载（harness 服务进程仍在运行）",
   // 修复结果面板：状态徽章、汇总行与逐条徽标、备份目录。
   "doctor.repairPanel.incomplete": "⚠ 未完成",
   "doctor.repairPanel.noop": "— 无操作",

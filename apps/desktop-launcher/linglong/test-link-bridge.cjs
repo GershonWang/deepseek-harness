@@ -1,15 +1,17 @@
-/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的三条职责。
+/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的四条职责。
  *
  * 桥由打包流程注入到桌面版 GUI 的 dist，在真实的 Wails WebKitGTK 里只与
- * window.parent / document / console / MutationObserver 打交道，因此这里用
- * vm 上下文加最小桩加载它，断言它往上发的消息：
+ * window.parent / document / console / MutationObserver / setInterval 打交道，
+ * 因此这里用 vm 上下文加最小桩加载它，断言它往上发的消息：
  *   - 外链转发：target="_blank" 的 HTTP(S) 点击 → { type: "open-external" }，
  *     非 http(s)、已 preventDefault、非左键、带 download 的都不转发；
  *   - 启动失败上报：console.error 收到 "web boot:" 文案，或引导页出现
  *     "Failed to load plugins" → { type: "boot-failed" }，只上报一次；
  *   - 语言上报：<html lang> 变化 → { type: "locale", id }，未变化不重复上报，
  *     应用挂载完成时补报一次（服务端默认 lang 恰好等于生效语言时属性不会变化，
- *     只靠属性观察会漏掉这种组合）。
+ *     只靠属性观察会漏掉这种组合）；
+ *   - 内容存活性：挂载点连续为空、或引导页长时间不消失 → { type: "boot-stalled" }，
+ *     只上报一次；正常挂载（有内容、无引导页）不上报。
  * 运行：node --test linglong/test-link-bridge.cjs（工作目录 apps/desktop-launcher）
  *
  * 为什么用桩而不是真实浏览器：桥的判据都落在它自己发出的消息上，桩能精确控制
@@ -66,10 +68,12 @@ function makeObservers() {
   return { instances, FakeMutationObserver };
 }
 
-/* 引导页 / 挂载点桩：querySelector 只认引导页标记，与真实 DOM 的用法一致。 */
+/* 引导页 / 挂载点桩：querySelector 只认引导页标记，与真实 DOM 的用法一致。
+ * childElementCount 默认 1：正常态挂载点里总有内容（引导页或应用 DOM）。 */
 function makeRoot() {
   return {
     bootPage: null,
+    childElementCount: 1,
     querySelector(selector) {
       return selector === "[data-dsh-boot]" ? this.bootPage : null;
     },
@@ -112,6 +116,9 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
   };
 
   const consoleStub = { calls: [], error(...args) { this.calls.push(args); } };
+  // 周期检查的定时器桩：桥用 setInterval 做内容存活性检查（真实浏览器里由计时器
+  // 驱动），这里只记录回调，用例按 tick 数精确推进，不等待真实时间。
+  const timers = [];
   const sandbox = {
     window,
     document,
@@ -119,11 +126,23 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
     Element: FakeElement,
     MutationObserver: FakeMutationObserver,
     console: consoleStub,
+    setInterval(fn, ms) {
+      timers.push({ fn, ms, cleared: false });
+      return timers.length - 1;
+    },
+    clearInterval(id) {
+      if (timers[id]) timers[id].cleared = true;
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext(BRIDGE_CODE, sandbox, { filename: "dsh-link-bridge.js" });
 
-  return { messages, docListeners, root, document, observers: instances, console: consoleStub };
+  /** 推进一次存活性检查；已清除的定时器不再触发。 */
+  function tick() {
+    for (const timer of timers) if (!timer.cleared) timer.fn();
+  }
+
+  return { messages, docListeners, root, document, observers: instances, console: consoleStub, timers, tick };
 }
 
 /** 造一次左键点击事件；返回的事件对象可断言 defaultPrevented。 */
@@ -279,4 +298,60 @@ test("父窗口不支持 ancestorOrigins 时回退为 *", () => {
   h.console.error(new Error("web boot: 1 entry did not activate"));
 
   assert.equal(h.messages[0].targetOrigin, "*");
+});
+
+/* ---------- 内容存活性（职责四） ---------- */
+
+test("内容存活性：挂载点连续为空 → 上报 boot-stalled 且只上报一次", () => {
+  const h = loadBridge();
+  h.root.childElementCount = 0;
+
+  h.tick();
+  assert.deepEqual(sentMessages(h), [], "单次空挂载点还可能是渲染间隙，不应立即上报");
+
+  h.tick();
+  const sent = sentMessages(h);
+  assert.equal(sent.length, 1, "连续两次空挂载点应上报一次");
+  assert.equal(sent[0].message.type, "boot-stalled");
+  assert.equal(sent[0].message.dshDesktop, true);
+  assert.match(sent[0].message.message, /内容为空/);
+
+  h.tick();
+  h.tick();
+  assert.equal(sentMessages(h).length, 1, "已上报后不再重复");
+});
+
+test("内容存活性：引导页长时间不消失 → 上报 boot-stalled", () => {
+  const h = loadBridge();
+  h.root.bootPage = { textContent: "Loading plugins…" };
+
+  for (let i = 0; i < 5; i++) h.tick();
+  assert.deepEqual(sentMessages(h), [], "未到阈值不上报");
+
+  h.tick();
+  const sent = sentMessages(h);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].message.type, "boot-stalled");
+  assert.match(sent[0].message.message, /引导页仍在/);
+});
+
+test("内容存活性：正常挂载（有内容、无引导页）不上报", () => {
+  const h = loadBridge();
+
+  for (let i = 0; i < 12; i++) h.tick();
+
+  assert.deepEqual(sentMessages(h), [], "有应用内容时不应上报");
+});
+
+test("内容存活性：空挂载点恢复后计数复位", () => {
+  const h = loadBridge();
+  h.root.childElementCount = 0;
+  h.tick();
+
+  h.root.childElementCount = 1;
+  h.tick();
+  h.root.childElementCount = 0;
+  h.tick();
+
+  assert.deepEqual(sentMessages(h), [], "中断过的空计数不应累计到阈值");
 });

@@ -142,7 +142,7 @@ cd apps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
-node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报）
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_PREVIEW_LOCALE=en node frontend/tools/preview.mjs verify  # 同一组不变量按英文文案再量一遍（英文更长）
@@ -183,6 +183,8 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 同一个桥还负责第二件事：把 iframe 内的**客户端插件加载失败**上报给壳。宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张 `Failed to load plugins` 死路页，壳却以为一切正常，用户既看不到原因也看不到诊断与安全模式入口。桥在两条通道上侦测该状态并只上报一次（`console.error` 收到以 `web boot:` 开头的文案；引导页节点出现 `Failed to load plugins` 文案），消息为 `{ dshDesktop: true, type: "boot-failed", message }`；`frontend/app.js` 转交 `ReportClientBootFailure`，Go 侧记录为快照里的 `ClientFailure`，前端据此切到自己的启动失败页（清空 iframe 地址、状态栏改「界面插件加载失败」）并复用既有的自动诊断、分级修复与安全模式链路，用户重启、停止、切安全模式或连接外部服务时清除该标记并复位诊断周期。两处上游文案因此成为判据：本包的 `linglong/test-link-bridge.cjs` 会先在这里暴露变化，真机再回归一次。
 
 桥还负责第三件事：把 GUI 的生效语言上报给壳。壳渲染的每一处文案都跟随 iframe 内 harness GUI 的语言，而 GUI 的语言由它自己的 `<html lang>` 表达（客户端 locale 服务在每次语言快照变化时同步该属性），因此桥在属性变化时、以及应用挂载完成时各上报一次 `{ dshDesktop: true, type: "locale", id }`；`frontend/app.js` 转交 `frontend/i18n.js`，壳据此切换文案并把语言回推给 Go 侧（`App.SetLocale`）。挂载后的补报不可省略：服务端 `index.html` 的默认 `lang` 恰好等于生效语言时（中文系统 + 用户在 GUI 里选英文），属性自始至终不变，只观察变化会漏掉这种组合。真源选型与分期实施见 `docs/i18n.md`。
+
+桥还负责第四件事：判断 GUI 的内容还在不在。白屏的另一种形态是文档还在、客户端内容整个不见了——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空——此时壳只看得到 iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。桥按周期检查挂载点里还有没有内容（连续为空，或引导页长时间不消失），确认后上报 `{ dshDesktop: true, type: "boot-stalled", message }`；`frontend/app.js` 收到后重载 iframe（最多两次），仍不成功才带上原因走上面的失败页链路。与第二件事的边界：第二件判"上游自己报了失败"，这一件判"上游没有报错、内容只是不出现"。
 
 ## 容器可用性（工具链/挂载）
 
@@ -227,3 +229,4 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
 - **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。再设 `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 会进一步彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），适用于关掉 DMABUF 后 web 区域仍然花屏的机器；代价是滚动与动画走 CPU。
+- **GUI 整块空白时壳自动重载 iframe**：容器内 harness 的 GUI 是 iframe 里的另一份文档，它可能整块变白，而壳自己的标题栏与状态栏照常渲染——用户看到的就是「只有 harness 区域白」。壳按每秒状态快照计数：约 25 秒收不到桥的挂载握手（或桥发现挂载点连续为空、引导页长时间不消失）就自动重载 iframe，最多两次；仍不成功则切到既有失败页并触发诊断。重载只动 iframe、不重启 harness，因此不会打断正在跑的任务；手动恢复入口仍是服务器弹框里的「重启服务」。
