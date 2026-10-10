@@ -35,13 +35,15 @@ func TestShowSkipsWhileDialogIsOpen(t *testing.T) {
 func TestShowPassesVersionCommentsAndLogo(t *testing.T) {
 	prefix := t.TempDir()
 	binDir := filepath.Join(prefix, "bin")
-	logoDir := filepath.Join(prefix, "share", "icons", "hicolor", logoSize, "apps")
+	// 目录层级与尺寸都用打包时的真实取值（而不是常量）：常量一旦与 linglong.yaml 的安装
+	// 布局漂移，这里就会失败——图标找不到不会报错，只有这条断言能挡住。
+	logoDir := filepath.Join(prefix, "share", "icons", "hicolor", "256x256", "apps")
 	for _, dir := range []string{binDir, logoDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("准备目录失败: %v", err)
 		}
 	}
-	logo := filepath.Join(logoDir, PackageID+".png")
+	logo := filepath.Join(logoDir, "dsh-desktop-dual.png")
 	if err := os.WriteFile(logo, []byte("not a real png"), 0o644); err != nil {
 		t.Fatalf("准备图标失败: %v", err)
 	}

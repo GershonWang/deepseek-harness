@@ -26,6 +26,9 @@ const (
 	helperName = "dsh-desktop-about"
 	// logoSize 是「关于」里使用的随包图标尺寸：对话框按需缩放，取最大的一张最清晰。
 	logoSize = "256x256"
+	// logoFile 是随包图标的文件名，与 linglong.yaml 的安装名、.desktop 的 Icon= 以及托盘
+	// 图标读取的是同一份文件。图标缺失只少一张图，因此路径写错不会报错——用名字对齐来防它。
+	logoFile = "dsh-desktop-dual.png"
 )
 
 // Presenter 弹出「关于」对话框。同一个实例同时只允许一个对话框，避免连点叠窗。
@@ -64,7 +67,7 @@ func (p *Presenter) Show(comments string) error {
 		"--comments", comments,
 	}
 	// 图标缺失不算失败：没有它只是少一张图，对话框本身照常显示。
-	logo := filepath.Join(p.prefix, "share", "icons", "hicolor", logoSize, "apps", PackageID+".png")
+	logo := filepath.Join(p.prefix, "share", "icons", "hicolor", logoSize, "apps", logoFile)
 	if info, err := os.Stat(logo); err == nil && info.Mode().IsRegular() {
 		args = append(args, "--logo", logo)
 	}
