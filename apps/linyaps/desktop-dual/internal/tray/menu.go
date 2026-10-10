@@ -24,6 +24,18 @@ const (
 	idQuit            int32 = 8
 )
 
+// toggle 是菜单项的勾选形态。零值表示该项不是单选项，宿主不会画标记。
+type toggle int
+
+const (
+	// toggleNone 表示该项没有勾选标记。
+	toggleNone toggle = iota
+	// toggleOff 表示该项是未选中的单选项。
+	toggleOff
+	// toggleOn 表示该项是已选中的单选项。
+	toggleOn
+)
+
 // menuEntry 是菜单中的一项（与 D-Bus 无关的纯数据）。Children 非空表示这一项是子菜单
 // 入口：它自身不带动作，宿主展开后显示子项。
 type menuEntry struct {
@@ -31,6 +43,7 @@ type menuEntry struct {
 	Label     string
 	Enabled   bool
 	Separator bool
+	Toggle    toggle
 	Children  []menuEntry
 }
 
@@ -39,8 +52,9 @@ type menuEntry struct {
 // 结构固定为「切换 / 设置▸ / 关于 / 退出」：切换是破坏性动作，保留在首项但必须显式点；
 // 默认形态属于设置而不是常用动作，收进设置子菜单；关于与退出各自独立成项。
 //
-// 「默认启动」两项在已经是默认形态时置灰：托盘菜单没有勾选框，置灰是唯一不额外引入
-// dbusmenu 单选语义就能表达「当前就是这个」的手段，而单选语义在不同宿主上的表现并不一致。
+// 「默认启动」两项是单选项（dbusmenu 的 toggle-type=radio）：当前默认那一项带勾选标记、
+// 另一项空白，两项都保持可点。为什么不用「当前项置灰」：置灰看起来像功能不可用，而它
+// 表达的只是一个状态；单选标记既说清状态，又不牺牲可点性。
 // @param state - 当前状态。
 // @returns 菜单项，顺序即显示顺序。
 func menuEntries(state trayState) []menuEntry {
@@ -49,14 +63,25 @@ func menuEntries(state trayState) []menuEntry {
 		{ID: idSeparatorTop, Separator: true},
 		{ID: idSettings, Label: i18n.T(state.locale, "tray.settings"), Enabled: true, Children: []menuEntry{
 			{ID: idDefaultShell, Label: i18n.T(state.locale, "tray.defaultShell"),
-				Enabled: state.defaultMode != switchboard.ModeShell},
+				Enabled: true, Toggle: toggleFor(state.defaultMode, switchboard.ModeShell)},
 			{ID: idDefaultOfficial, Label: i18n.T(state.locale, "tray.defaultOfficial"),
-				Enabled: state.defaultMode != switchboard.ModeOfficial},
+				Enabled: true, Toggle: toggleFor(state.defaultMode, switchboard.ModeOfficial)},
 		}},
 		{ID: idSeparatorBottom, Separator: true},
 		{ID: idAbout, Label: i18n.T(state.locale, "tray.about"), Enabled: true},
 		{ID: idQuit, Label: i18n.T(state.locale, "tray.quit"), Enabled: true},
 	}
+}
+
+// toggleFor 给出某一形态在「默认启动」里的勾选态。
+// @param defaultMode - 当前默认形态。
+// @param mode - 本项代表的形态。
+// @returns 已选中或未选中。
+func toggleFor(defaultMode, mode switchboard.Mode) toggle {
+	if defaultMode == mode {
+		return toggleOn
+	}
+	return toggleOff
 }
 
 // switchLabelKey 给出「切换」菜单项在目标形态下该用的字典键。
@@ -132,7 +157,10 @@ func (m *menuObject) setState(state trayState) {
 	_ = m.parent.client.conn.Emit(menuPath, menuInterface+".LayoutUpdated", uint32(0), int32(0))
 }
 
-// sameEntries 递归比较两份菜单内容是否一致（标签、可用性与子项）。
+// sameEntries 递归比较两份菜单内容是否一致（标签、可用性、勾选态与子项）。
+//
+// 勾选态必须参与比较：宿主只在收到 LayoutUpdated 时重取布局，漏掉勾选态就会出现
+// 「配置改了、菜单里的圆点没动」。
 // @param a - 旧内容。
 // @param b - 新内容。
 // @returns 完全一致为真。
@@ -142,7 +170,8 @@ func sameEntries(a, b []menuEntry) bool {
 	}
 	for i := range a {
 		if a[i].ID != b[i].ID || a[i].Label != b[i].Label ||
-			a[i].Enabled != b[i].Enabled || a[i].Separator != b[i].Separator {
+			a[i].Enabled != b[i].Enabled || a[i].Separator != b[i].Separator ||
+			a[i].Toggle != b[i].Toggle {
 			return false
 		}
 		if !sameEntries(a[i].Children, b[i].Children) {
@@ -306,6 +335,15 @@ func entryLayout(entry menuEntry) dbusmenuLayout {
 		props["children-display"] = dbus.MakeVariant("submenu")
 	default:
 		props["type"] = dbus.MakeVariant("standard")
+	}
+	// 单选项：toggle-type 决定标记样式（radio 画圆点），toggle-state 决定是否勾上。
+	switch entry.Toggle {
+	case toggleOn:
+		props["toggle-type"] = dbus.MakeVariant("radio")
+		props["toggle-state"] = dbus.MakeVariant(int32(1))
+	case toggleOff:
+		props["toggle-type"] = dbus.MakeVariant("radio")
+		props["toggle-state"] = dbus.MakeVariant(int32(0))
 	}
 	return dbusmenuLayout{ID: entry.ID, Props: props}
 }

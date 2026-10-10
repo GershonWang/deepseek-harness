@@ -23,6 +23,34 @@ static const gchar *text_or_empty(const gchar *value) {
     return value != NULL ? value : "";
 }
 
+/* 按给定尺寸把窗口摆到所在显示器工作区的正中。
+   为什么不能只靠 gtk_window_set_position：位置提示只是给窗口管理器的建议，实测 DDE
+   （kwin）按自己的策略摆放，弹框落在偏左上约 (175, 67) 的位置。 */
+static void center_with_size(GtkWindow *window, gint width, gint height) {
+    GdkDisplay *display = gtk_widget_get_display(GTK_WIDGET(window));
+    GdkMonitor *monitor = gdk_display_get_primary_monitor(display);
+    if (monitor == NULL) {
+        monitor = gdk_display_get_monitor(display, 0);
+    }
+    if (monitor == NULL) {
+        return;
+    }
+    GdkRectangle area;
+    gdk_monitor_get_workarea(monitor, &area);
+    gtk_window_move(window,
+                    area.x + (area.width - width) / 2,
+                    area.y + (area.height - height) / 2);
+}
+
+/* 尺寸分配完成后摆正。
+   两个要点：一是不能只在显示后摆一次，窗口显示瞬间的尺寸还不是最终值；二是这里必须用
+   分配到的尺寸而不是 gtk_window_get_size——回调里后者仍是旧值（实测比最终高度小 80
+   像素），照它居中会往下溢出。gtk_window_move 只改位置、不触发本回调，因此不会自激。 */
+static void on_size_allocate(GtkWidget *widget, GdkRectangle *allocation, gpointer data) {
+    (void)data;
+    center_with_size(GTK_WINDOW(widget), allocation->width, allocation->height);
+}
+
 int main(int argc, char **argv) {
     static GOptionEntry entries[] = {
         {"program-name", 0, 0, G_OPTION_ARG_STRING, &option_program, "Product name", NULL},
@@ -68,6 +96,9 @@ int main(int argc, char **argv) {
     /* 标准收尾：响应（关闭按钮、Esc）先销毁对话框，销毁再退出主循环。 */
     g_signal_connect_swapped(dialog, "response", G_CALLBACK(gtk_widget_destroy), dialog);
     g_signal_connect(dialog, "destroy", G_CALLBACK(gtk_main_quit), NULL);
+    /* 位置提示先给一次，真正的居中在每次尺寸分配后按工作区摆。 */
+    gtk_window_set_position(GTK_WINDOW(dialog), GTK_WIN_POS_CENTER);
+    g_signal_connect(dialog, "size-allocate", G_CALLBACK(on_size_allocate), NULL);
     gtk_widget_show(dialog);
     gtk_main();
     return 0;

@@ -88,9 +88,8 @@ func TestNextModeIsAlwaysTheOther(t *testing.T) {
 	}
 }
 
-// TestMenuEntriesReflectState 覆盖菜单结构：条目顺序、分隔线位置，以及收进「设置」
-// 子菜单的「默认启动」两项在已是默认形态时置灰——托盘菜单没有勾选框，置灰是表达当前
-// 默认形态的手段。
+// TestMenuEntriesReflectState 覆盖菜单结构：条目顺序、分隔线位置，以及收进「设置」子菜单
+// 的「默认启动」两项用单选标记表达当前默认形态、且两项都保持可点。
 func TestMenuEntriesReflectState(t *testing.T) {
 	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeShell, defaultMode: switchboard.ModeShell})
 	if len(entries) != 6 {
@@ -118,25 +117,43 @@ func TestMenuEntriesReflectState(t *testing.T) {
 	if settings.Children[0].Label != "默认启动薄壳版" || settings.Children[1].Label != "默认启动官方版" {
 		t.Errorf("「设置」子项标签 = %q/%q", settings.Children[0].Label, settings.Children[1].Label)
 	}
-	if settings.Children[0].Enabled {
-		t.Error("已是默认形态的「默认启动薄壳版」应置灰")
+	// 两项都可点：当前默认由单选标记表达，不用置灰——置灰看起来像功能不可用。
+	for i, child := range settings.Children {
+		if !child.Enabled {
+			t.Errorf("「设置」第 %d 项应保持可点（状态改用单选标记表达）", i)
+		}
 	}
-	if !settings.Children[1].Enabled {
-		t.Error("非默认形态的「默认启动官方版」应可点")
+	if settings.Children[0].Toggle != toggleOn || settings.Children[1].Toggle != toggleOff {
+		t.Errorf("默认是薄壳版时勾选态 = %v/%v，期望 on/off",
+			settings.Children[0].Toggle, settings.Children[1].Toggle)
 	}
 }
 
-// TestMenuEntriesFollowRunningMode 覆盖「切换到」的文案随当前形态翻转。
+// TestMenuEntriesFollowRunningMode 覆盖「切换到」的文案随当前形态翻转，以及单选标记
+// 跟着默认形态走。
 func TestMenuEntriesFollowRunningMode(t *testing.T) {
 	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeOfficial, defaultMode: switchboard.ModeOfficial})
 	if entries[0].Label != "切换到薄壳版" {
 		t.Fatalf("当前跑官方版时首项 = %q，期望「切换到薄壳版」", entries[0].Label)
 	}
-	if !entries[2].Children[0].Enabled {
-		t.Error("默认形态是官方版时「默认启动薄壳版」应可点")
+	if entries[2].Children[0].Toggle != toggleOff {
+		t.Error("默认形态是官方版时「默认启动薄壳版」应未勾选")
 	}
-	if entries[2].Children[1].Enabled {
-		t.Error("已是默认形态的「默认启动官方版」应置灰")
+	if entries[2].Children[1].Toggle != toggleOn {
+		t.Error("默认形态是官方版时「默认启动官方版」应勾选")
+	}
+}
+
+// TestSameEntriesSeesToggleChange 覆盖勾选态参与变更比较：宿主只在收到 LayoutUpdated 时
+// 重取布局，漏掉勾选态就会出现「配置改了、菜单里的圆点没动」。
+func TestSameEntriesSeesToggleChange(t *testing.T) {
+	shell := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})
+	official := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeOfficial})
+	if sameEntries(shell, official) {
+		t.Fatal("只有默认形态不同时，菜单内容应判定为已变化")
+	}
+	if !sameEntries(shell, menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})) {
+		t.Fatal("状态相同时应判定为未变化")
 	}
 }
 
@@ -173,8 +190,20 @@ func TestMenuLayoutServesSubmenu(t *testing.T) {
 	if len(sub.Children) != 2 {
 		t.Fatalf("子菜单项数 = %d，期望 2", len(sub.Children))
 	}
-	if label := childLayout(t, sub.Children[0]).Props["label"].Value(); label != "默认启动薄壳版" {
+	shellItem := childLayout(t, sub.Children[0])
+	if label := shellItem.Props["label"].Value(); label != "默认启动薄壳版" {
 		t.Fatalf("子菜单首项标签 = %v", label)
+	}
+	// 单选标记走 dbusmenu 协议面：toggle-type 决定样式，toggle-state 决定勾没勾上。
+	if got := shellItem.Props["toggle-type"].Value(); got != "radio" {
+		t.Fatalf("子菜单首项 toggle-type = %v，期望 radio", got)
+	}
+	if got := shellItem.Props["toggle-state"].Value(); got != int32(1) {
+		t.Fatalf("当前默认项的 toggle-state = %v，期望 1", got)
+	}
+	officialItem := childLayout(t, sub.Children[1])
+	if got := officialItem.Props["toggle-state"].Value(); got != int32(0) {
+		t.Fatalf("非默认项的 toggle-state = %v，期望 0", got)
 	}
 
 	props, dbusErr := m.GetGroupProperties([]int32{idDefaultOfficial}, nil)

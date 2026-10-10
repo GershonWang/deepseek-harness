@@ -22,7 +22,7 @@ A tray process needs no window toolkit. `desktop-dual` therefore builds with `CG
 
 Switching is mutually exclusive and destructive by design: the switcher stops the current client's process group, waits for it to exit, then starts the other one. Any session running in the stopped client is interrupted. That is a product decision, not a defect.
 
-The tray item reports the running mode through a corner badge, a tooltip, and the first menu entry, which always names the other mode. A left click shows the client instead of switching: it starts the default client when none runs, and asks the official client to bring back its hidden window when one is already running, so a client closed by mistake is one click away. The right-click menu carries the switch entry, a Settings submenu that sets the default mode (shown greyed out when it is already the default), About, and Quit; quitting stops the client with it.
+The tray item reports the running mode through a corner badge, a tooltip, and the first menu entry, which always names the other mode. A left click shows the client instead of switching: it starts the default client when none runs, and asks the official client to bring back its hidden window when one is already running, so a client closed by mistake is one click away. The right-click menu carries the switch entry, a Settings submenu whose two entries are radio items marking the current default (both stay clickable), About, and Quit; quitting stops the client with it. About is drawn by the bundled GTK3 helper, centered on the monitor work area.
 
 A failed action raises a desktop notification naming what failed and marks the item as needing attention; the error also reaches the tooltip, so the reason is never silent.
 
