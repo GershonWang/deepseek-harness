@@ -41,6 +41,6 @@ The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.
 
 ## Known limits
 
-The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and retries registration every five seconds, so the entry point returns when the desktop shell does; until then the clients cannot be switched.
+The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and checks again every five seconds, so the entry point returns when the desktop shell does. The check also compares the watcher's unique bus name with the one recorded at registration, so a shell that crashes and is replaced gets the entry point back within five seconds instead of leaving the clients unreachable. Until a host is present, the clients cannot be switched.
 
 Switching is only available through the tray while a switcher process runs. A second launch exits immediately instead of starting a second client.

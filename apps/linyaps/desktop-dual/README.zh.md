@@ -41,6 +41,6 @@ ll-builder build -f apps/linyaps/desktop-dual/linglong.yaml
 
 ## 已知边界
 
-切换器以 StatusNotifierItem 注册。会话里没有 `org.kde.StatusNotifierWatcher` 时，它按默认形态启动客户端、记录原因，并每五秒重试注册，桌面外壳回来后入口自动恢复；在那之前无法切换客户端。
+切换器以 StatusNotifierItem 注册。会话里没有 `org.kde.StatusNotifierWatcher` 时，它按默认形态启动客户端、记录原因，并每五秒核对一次，桌面外壳回来后入口自动恢复。核对还会把宿主的连接唯一名与注册时记下的那个比对，因此外壳崩溃后被新进程接管时，入口会在五秒内回来，而不是让客户端一直够不到。宿主不在时无法切换客户端。
 
 只有切换器进程在跑时，托盘才提供切换入口。再次启动会立即退出，而不是叠出第二个客户端。

@@ -31,8 +31,9 @@ const mutexName = "org.deepseek.dsh.DesktopDualSwitcher"
 // 窗口），轮询是发现这件事最省事的方式，而状态量极小。
 const refreshInterval = time.Second
 
-// retryInterval 是托盘注册的重试间隔：桌面外壳可能比切换器晚启动，也可能中途重启，
-// 入口应当自己回来而不是要求用户重开应用。
+// retryInterval 是托盘状态的核对间隔：桌面外壳可能比切换器晚启动，也可能中途重启，
+// 入口应当自己回来而不是要求用户重开应用。核对同时覆盖「还没注册上」与「注册到的宿主
+// 已经换人」两种情况（见 tray.EnsureRegistered）。
 const retryInterval = 5 * time.Second
 
 // version 是玲珑包版本，打包时由 prepare-offline.sh 通过 -ldflags 注入。
@@ -68,9 +69,9 @@ func main() {
 	}
 	defer client.Close()
 
-	// 托盘注册失败不阻止启动客户端：用户至少能进客户端。切换器继续驻留并周期性重试，
+	// 托盘注册失败不阻止启动客户端：用户至少能进客户端。切换器继续驻留并周期性核对，
 	// 桌面外壳回来时入口自动恢复。
-	if err := client.Register(); err != nil {
+	if err := client.EnsureRegistered(); err != nil {
 		log.Printf("switcher: tray registration failed (%v); starting the default client and retrying", err)
 	}
 	if err := board.Start(); err != nil {
@@ -97,10 +98,10 @@ func main() {
 		case <-refresh.C:
 			client.Refresh()
 		case <-retry.C:
-			if !client.Registered() {
-				if err := client.Register(); err == nil {
-					log.Print("switcher: tray registered; the entry point is available again")
-				}
+			// 每次都用当前宿主核对一遍：宿主不在是预期状态（外壳可能比我们晚启动），
+			// 不必刷日志；其余失败说明连接或导出出了问题，要留下记录。
+			if err := client.EnsureRegistered(); err != nil && !errors.Is(err, tray.ErrWatcherUnavailable) {
+				log.Printf("switcher: tray registration failed: %v", err)
 			}
 		}
 	}

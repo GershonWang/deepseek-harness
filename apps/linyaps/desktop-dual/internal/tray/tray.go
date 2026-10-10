@@ -81,13 +81,18 @@ type Options struct {
 // Client 持有会话总线连接与单实例名，并按需注册/注销托盘项。
 //
 // 单实例名在 Connect 时申请并一直持有到进程结束；托盘项则可能在宿主缺失时注册失败，
-// 之后由调用方重试（宿主重启是真实场景：DDE 崩溃重启后托盘应当自动回来）。
+// 之后由调用方周期调用 EnsureRegistered 收敛（宿主重启是真实场景：DDE 崩溃重启后托盘
+// 应当自动回来）。
 type Client struct {
 	mu        sync.Mutex
 	conn      *dbus.Conn
 	mutexName string
 	item      *item
 	opts      Options
+
+	// watcherOwner 是注册成功时宿主的连接唯一名（形如 :1.30），未注册时为空串。
+	// 宿主每次重启都会换唯一名，因此它同时是「我们注册到的那个宿主还在不在」的判据。
+	watcherOwner string
 }
 
 // item 是一次已注册的托盘项。
@@ -113,7 +118,7 @@ type trayState struct {
 
 // Connect 连接会话总线并申请单实例名。
 // @param mutexName - 单实例用的 well-known name。
-// @param opts - 注册所需的依赖；可在 Register 时再补，但这里先存下来供重试使用。
+// @param opts - 注册与渲染所需的依赖；这里先存下来，供 EnsureRegistered 与刷新使用。
 // @returns 已持有单实例名的客户端；名字已被占用时返回 ErrAlreadyRunning。
 func Connect(mutexName string, opts Options) (*Client, error) {
 	conn, err := dbus.SessionBus()
@@ -130,28 +135,47 @@ func Connect(mutexName string, opts Options) (*Client, error) {
 	return &Client{conn: conn, mutexName: mutexName, opts: opts}, nil
 }
 
-// Registered 报告托盘项是否已注册。
-// @returns 已注册为真。
-func (c *Client) Registered() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.item != nil
-}
-
-// Register 注册托盘项（SNI + dbusmenu）。重复调用在已注册时直接返回成功，因此可以
-// 在重试循环里无脑调用。
-// @returns 宿主缺失时返回 ErrWatcherUnavailable；其余为连接或导出失败的原因。
-func (c *Client) Register() error {
+// EnsureRegistered 让托盘项与当前宿主保持一致，是注册的唯一入口：未注册时注册；
+// 已注册但宿主已经换过（崩溃重启后由新进程接管这个名字）时，释放旧项并按新宿主重新
+// 注册；宿主没变时无副作用。因此可以在重试循环里无脑调用。
+//
+// 为什么以宿主的连接唯一名作为判据，而不是读宿主的 RegisteredStatusNotifierItems：
+// 宿主重启会丢掉全部已注册项，而 SNI 没有「项已被遗忘」的信号，唯一名则必然变化；
+// 并且唯一名不依赖宿主如何规范化列表项字符串——本机实测同一个宿主的列表里既有
+// well-known-name/path 也有 :1.x/path 两种写法，按字符串匹配有可能把自己误判成未注册，
+// 从而每五秒重注册一次、图标反复闪烁。已注册项被同一进程内的 watcher 重建丢掉这种
+// 情况检测不到，代价是那种宿主只能靠重启进程让图标回来。
+// @returns 注册或重新注册失败的原因；会话里没有宿主时为 ErrWatcherUnavailable。
+func (c *Client) EnsureRegistered() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.item != nil {
-		return nil
+		owner, err := c.watcherOwnerLocked()
+		if err != nil {
+			return fmt.Errorf("tray: probing %s: %w", watcherName, err)
+		}
+		if owner == c.watcherOwner {
+			return nil
+		}
+		if owner == "" {
+			c.logf("tray: %s is gone; dropping the item until a host returns", watcherName)
+		} else {
+			c.logf("tray: %s moved to %s; re-registering the item", watcherName, owner)
+		}
+		c.releaseLocked()
 	}
-	hasWatcher, err := c.hasWatcher()
+	return c.registerLocked()
+}
+
+// registerLocked 执行一次完整的注册：申请 SNI 名、导出对象、向宿主登记。
+// 调用方必须持有 c.mu，并保证当前处于未注册状态。
+// @returns 宿主缺失时返回 ErrWatcherUnavailable；其余为连接或导出失败的原因。
+func (c *Client) registerLocked() error {
+	owner, err := c.watcherOwnerLocked()
 	if err != nil {
 		return fmt.Errorf("tray: probing %s: %w", watcherName, err)
 	}
-	if !hasWatcher {
+	if owner == "" {
 		return ErrWatcherUnavailable
 	}
 
@@ -198,7 +222,10 @@ func (c *Client) Register() error {
 		c.releaseLocked()
 		return fmt.Errorf("tray: registering with %s: %w", watcherName, call.Err)
 	}
-	c.logf("tray item registered as %s", name)
+	// 记下这次登记到的是哪个宿主。登记前后宿主若又换了人，下一轮 EnsureRegistered
+	// 会因为唯一名不同而重注册，因此这里不需要额外的竞态处理。
+	c.watcherOwner = owner
+	c.logf("tray item registered as %s with %s", name, owner)
 	return nil
 }
 
@@ -223,13 +250,38 @@ func (c *Client) Close() {
 	}
 }
 
-// releaseLocked 注销托盘项并释放 SNI 名。调用方必须持有 c.mu。
+// releaseLocked 注销托盘项并释放 SNI 名，同时清掉记录的宿主：未注册状态与
+// 「已登记到某个宿主」必须一起成立或一起失效，否则 EnsureRegistered 会拿一个
+// 过期的宿主唯一名做判断。调用方必须持有 c.mu。
 func (c *Client) releaseLocked() {
 	if c.item == nil {
 		return
 	}
 	_, _ = c.conn.ReleaseName(c.item.name)
 	c.item = nil
+	c.watcherOwner = ""
+}
+
+// watcherOwnerLocked 返回当前登记 org.kde.StatusNotifierWatcher 的连接唯一名。
+//
+// 分两步（先 NameHasOwner 再 GetNameOwner）而不是直接调 GetNameOwner：宿主不在时后者
+// 返回 D-Bus 错误，而 NameHasOwner 正常回答 false；这样调用方不必解析错误名就能区分
+// 「宿主不在」与「总线故障」，后者必须上报而不是被当成宿主缺失反复重注册。
+// 调用方必须持有 c.mu。
+// @returns 宿主的唯一名；会话里没有宿主时为空串。
+func (c *Client) watcherOwnerLocked() (string, error) {
+	hasWatcher, err := c.hasWatcher()
+	if err != nil {
+		return "", err
+	}
+	if !hasWatcher {
+		return "", nil
+	}
+	var owner string
+	if err := c.conn.BusObject().Call("org.freedesktop.DBus.GetNameOwner", 0, watcherName).Store(&owner); err != nil {
+		return "", err
+	}
+	return owner, nil
 }
 
 // hasWatcher 询问会话总线上是否有 SNI 宿主。
