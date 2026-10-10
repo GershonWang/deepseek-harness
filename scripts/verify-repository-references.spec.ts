@@ -174,12 +174,12 @@ describe('maintained repository reference policy', () => {
   })
 
   it('exempts exactly the listed fork files and keeps their neighbours inspected', () => {
-    expect(findRepositoryReferences('apps/desktop-launcher/internal/toolchain/remote.go', organizationUrl, new Set()))
+    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/internal/toolchain/remote.go', organizationUrl, new Set()))
       .toEqual([])
-    expect(findRepositoryReferences('apps/desktop-launcher/docs/AUDIT.md', organizationUrl, new Set())).toEqual([])
-    expect(findRepositoryReferences('apps/desktop-launcher/docs/AUDIT.md.bak', organizationUrl, new Set()))
-      .toEqual([{ file: 'apps/desktop-launcher/docs/AUDIT.md.bak', line: 1, kind: 'organization-url' }])
-    expect(findRepositoryReferences('apps/desktop-launcher/internal/toolchain/remote_extra.go', organizationUrl, new Set()))
-      .toEqual([{ file: 'apps/desktop-launcher/internal/toolchain/remote_extra.go', line: 1, kind: 'organization-url' }])
+    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/docs/AUDIT.md', organizationUrl, new Set())).toEqual([])
+    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/docs/AUDIT.md.bak', organizationUrl, new Set()))
+      .toEqual([{ file: 'apps/linyaps/desktop-launcher/docs/AUDIT.md.bak', line: 1, kind: 'organization-url' }])
+    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/internal/toolchain/remote_extra.go', organizationUrl, new Set()))
+      .toEqual([{ file: 'apps/linyaps/desktop-launcher/internal/toolchain/remote_extra.go', line: 1, kind: 'organization-url' }])
   })
 })

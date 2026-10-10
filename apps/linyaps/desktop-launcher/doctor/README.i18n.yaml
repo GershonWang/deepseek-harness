@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/linyaps/desktop-launcher/doctor/README.md
+/:
+  en: 6d535666858bef93
+  zh: 1959798556e140bc
+/dsh-desktop-doctor:
+  en: c90b35a9054e327e
+  zh: 00704c6f1f8bf4c7
+/dsh-desktop-doctor/summary:
+  en: 3901a236efe8d9c9
+  zh: 8fec2f2d7ac37b76
+/dsh-desktop-doctor/table-of-contents:
+  en: 80b31a934611cb4a
+  zh: 6195f049e8537637
+/dsh-desktop-doctor/use-this-package:
+  en: bbff250eba0f1b89
+  zh: 0a618f05cc88ee2b
+/dsh-desktop-doctor/use-this-package/when-to-use-it:
+  en: cd8efcdc0a9bb022
+  zh: 7d4632a8c32b95da
+/dsh-desktop-doctor/use-this-package/entry-point:
+  en: 217f18651e7c3d38
+  zh: 7a19bd3702268856
+/dsh-desktop-doctor/understand-the-implementation:
+  en: 38d43774e332eea5
+  zh: 039098a3e2c2c3ef
+/dsh-desktop-doctor/understand-the-implementation/source-map:
+  en: 4d98102a15af43c0
+  zh: 0613c97a9772d9be
+/dsh-desktop-doctor/understand-the-implementation/check-set:
+  en: 564bc65268d70f30
+  zh: 0806c9f50c6998c1
+/dsh-desktop-doctor/understand-the-implementation/repair:
+  en: ff09b6d4da21cb16
+  zh: fdfb54d57b5a11f9
+/dsh-desktop-doctor/further-exploration:
+  en: b0ab0d2963936fbf
+  zh: 5d5111993a24ea4b
+/dsh-desktop-doctor/known-limitations-and-deferred-work:
+  en: 5acb88d2f7254708
+  zh: 14cbeae06e418d76
+/dsh-desktop-doctor/known-limitations-and-deferred-work/dev-note:
+  en: 056da267098205af
+  zh: 15dae82a01d58ada

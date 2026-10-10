@@ -143,8 +143,10 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   '**/.pytest_cache/**',
   'apps/web/dist/**',
   '.artifacts/**',
-  'apps/desktop-launcher/linglong/linglong/**',
-  'apps/desktop-launcher/linglong/stage/**',
+  'apps/linyaps/desktop-launcher/linglong/linglong/**',
+  'apps/linyaps/desktop-launcher/linglong/stage/**',
+  'apps/linyaps/desktop-linglong/stage/**',
+  'apps/linyaps/desktop-dual/stage/**',
   'linglong/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/**',
   'vendor/**',
@@ -162,9 +164,10 @@ function isTranslationSourceExcluded(file: string): boolean {
       || segment.startsWith('.doc-typecheck-')
     || segment.startsWith('.node-next-types-'))
     || file.startsWith('apps/web/dist/')
-    || file.startsWith('apps/desktop-launcher/linglong/linglong/')
-    || file.startsWith('apps/desktop-launcher/linglong/stage/')
-    || file.startsWith('apps/desktop-linglong/stage/')
+    || file.startsWith('apps/linyaps/desktop-launcher/linglong/linglong/')
+    || file.startsWith('apps/linyaps/desktop-launcher/linglong/stage/')
+    || file.startsWith('apps/linyaps/desktop-linglong/stage/')
+    || file.startsWith('apps/linyaps/desktop-dual/stage/')
     || file.startsWith('linglong/')
     || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/')
 }

@@ -1,0 +1,130 @@
+#!/bin/sh
+set -eu
+# test-verify-tools.sh:verify-tools.sh 的通过/失败路径
+# 用法: sh apps/linyaps/desktop-launcher/linglong/test-verify-tools.sh
+ROOT=$(cd "$(dirname "$0")/../../../../" && pwd)   # 仓库根
+VERIFY="$ROOT/apps/linyaps/desktop-launcher/linglong/verify-tools.sh"
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+mkbin() { mkdir -p "$(dirname "$TMP/$1")"; : > "$TMP/$1"; chmod +x "$TMP/$1"; }
+
+# 通过路径:齐全的产物树（git-core helper 随包，launcher 以 GIT_EXEC_PATH 指回）
+mkbin bin/git; mkbin bin/git-lfs; mkbin bin/python3; mkbin bin/curl; mkbin bin/wget
+mkbin bin/jq; mkbin bin/unzip; mkbin bin/xxd; mkbin bin/node; mkbin bin/dsh
+mkbin bin/xdg-open; mkbin bin/wl-paste
+mkdir -p "$TMP/lib/git-core"; : > "$TMP/lib/git-core/git-remote-https"; chmod +x "$TMP/lib/git-core/git-remote-https"
+mkdir -p "$TMP/node/bin"; : > "$TMP/node/bin/corepack"; chmod +x "$TMP/node/bin/corepack"
+if "$VERIFY" "$TMP" >/dev/null 2>&1; then
+  echo "PASS: 齐全产物树应通过"
+else
+  echo "FAIL: 齐全产物树未通过" >&2; exit 1
+fi
+
+# base 已标记的工具缺位也应通过(由基础运行时 org.deepin.base 提供,不进 $PREFIX)
+rm "$TMP/bin/python3" "$TMP/bin/curl" "$TMP/bin/unzip"
+if "$VERIFY" "$TMP" >/dev/null 2>&1; then
+  echo "PASS: base 工具缺位应通过(基础运行时提供)"
+else
+  echo "FAIL: base 工具缺位未通过" >&2; exit 1
+fi
+# 恢复齐全树,供后续失败路径使用
+mkbin bin/python3; mkbin bin/curl; mkbin bin/unzip
+
+# 失败路径:git-core helper 缺失(launcher 的 GIT_EXEC_PATH 指向它,缺失即远程操作必挂)
+rm "$TMP/lib/git-core/git-remote-https"
+if "$VERIFY" "$TMP" >/dev/null 2>&1; then
+  echo "FAIL: git-core helper 缺失应失败" >&2; exit 1
+fi
+echo "PASS: git-core helper 缺失时退出非零"
+: > "$TMP/lib/git-core/git-remote-https"; chmod +x "$TMP/lib/git-core/git-remote-https"
+
+# 失败路径:删 git
+rm "$TMP/bin/git"
+if "$VERIFY" "$TMP" >/dev/null 2>&1; then
+  echo "FAIL: git 缺失应失败" >&2; exit 1
+fi
+echo "PASS: git 缺失时退出非零"
+
+# installable/index 一致性校验的参照物缺失路径。
+# 影子树把脚本与 tools.yaml 放到别处，让 $(dirname $0)/../internal/.../index.json
+# 解析到不存在的路径：旧版这一段没有 else，校验与失败判定会一起静默消失。
+SHADOW="$TMP/shadow/bin"
+SH="$(command -v sh)"
+mkdir -p "$SHADOW"
+cp "$VERIFY" "$SHADOW/verify-tools.sh"
+cp "$ROOT/apps/linyaps/desktop-launcher/linglong/tools.yaml" "$SHADOW/tools.yaml"
+: > "$TMP/bin/git"; chmod +x "$TMP/bin/git"   # 先恢复齐全树，隔离出单一失败源
+
+out=$(sh "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+  echo "FAIL: index.json 缺失应失败（旧版会静默跳过一致性校验）" >&2; exit 1; }
+case "$out" in
+  *index.json*) ;;
+  *) echo "FAIL: index.json 缺失时的报错未点明参照物: $out" >&2; exit 1 ;;
+esac
+echo "PASS: index.json 缺失时退出非零并点明原因"
+
+# 失败路径：PATH 上取不到 python3。旧版只打印 SKIP 就继续，校验等于不存在。
+# 影子树里补一份真实 index.json，把"参照物缺失"这条失败源消掉，剩下的只可能是
+# python3；断言同时要求 FAIL 与 python3，避免把清单里那行 `OK python3` 当成命中。
+SHADOW_INDEX_DIR="$TMP/shadow/internal/toolchain/tools"
+mkdir -p "$SHADOW_INDEX_DIR"
+cp "$ROOT/apps/linyaps/desktop-launcher/internal/toolchain/tools/index.json" "$SHADOW_INDEX_DIR/index.json"
+NOPY="$TMP/nopy"
+mkdir -p "$NOPY"
+for c in awk mktemp rm dirname diff sort cat head sed grep sh; do
+  p=$(command -v "$c" 2>/dev/null || true)
+  [ -n "$p" ] && ln -sf "$p" "$NOPY/$c"
+done
+out=$(PATH="$NOPY" "$SH" "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+  echo "FAIL: 缺 python3 应失败（旧版只打印 SKIP）" >&2; exit 1; }
+case "$out" in
+  *"FAIL installable/index"*python3*) ;;
+  *) echo "FAIL: 缺 python3 时的报错未点明原因: $out" >&2; exit 1 ;;
+esac
+echo "PASS: 缺 python3 时退出非零并点明原因"
+
+# 失败路径：index.json 的**非推荐版本** sha256 未填实（AUDIT N16）。
+# 旧版只校验 tools.yaml 里那一组（推荐版本），jdk 其余四条写成占位符也能过。
+if command -v python3 >/dev/null 2>&1; then
+  python3 - "$SHADOW_INDEX_DIR/index.json" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+for tool in data['tools']:
+    if tool['id'] == 'jdk' and len(tool['versions']) > 1:
+        tool['versions'][1]['sha256'] = '<TBD>'
+json.dump(data, open(path, 'w'), ensure_ascii=False)
+PY
+  out=$(sh "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+    echo "FAIL: 非推荐版本 sha256 占位应失败（旧版只校验推荐版本）" >&2; exit 1; }
+  case "$out" in
+    *"jdk@"*sha256*) ;;
+    *) echo "FAIL: 非推荐版本占位时的报错未点明版本与字段: $out" >&2; exit 1 ;;
+  esac
+  echo "PASS: 非推荐版本 sha256 占位时退出非零并点明版本"
+  cp "$ROOT/apps/linyaps/desktop-launcher/internal/toolchain/tools/index.json" "$SHADOW_INDEX_DIR/index.json"
+
+  # 失败路径：tools.yaml 的推荐版本与 index.json 的 versions[0] 漂移。
+  # 两份文件各自"看起来都对"时，只有对账能发现它们说的不是同一份东西。
+  python3 - "$SHADOW/tools.yaml" <<'PY'
+import re, sys
+path = sys.argv[1]
+text = open(path).read()
+# 只改 installable 段里 go 的 sha256，其它工具与 tools 段不动。
+head, sep, tail = text.partition('\ninstallable:\n')
+assert sep, 'tools.yaml 缺少 installable 段'
+tail = re.sub(r'((?:^|\n)  go:\n(?:    .*\n)*?    sha256: )"[0-9a-f]{64}"',
+              r'\g<1>"' + '0' * 64 + '"', tail, count=1)
+open(path, 'w').write(head + sep + tail)
+PY
+  out=$(sh "$SHADOW/verify-tools.sh" "$TMP" 2>&1) && {
+    echo "FAIL: tools.yaml 与 index.json 漂移应失败" >&2; exit 1; }
+  case "$out" in
+    *漂移*) ;;
+    *) echo "FAIL: 漂移时的报错未点明原因: $out" >&2; exit 1 ;;
+  esac
+  echo "PASS: 推荐版本漂移时退出非零并点明原因"
+else
+  echo "SKIP: 无 python3，跳过非推荐版本与漂移两条失败路径"
+fi

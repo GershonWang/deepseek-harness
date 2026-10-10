@@ -64,7 +64,7 @@ describe('Client UI i18n source check', () => {
   })
 
   it('rejects every Chinese literal in the buildless launcher shell', () => {
-    expect(findUiI18nViolations('apps/desktop-launcher/frontend/app.js', `
+    expect(findUiI18nViolations('apps/linyaps/desktop-launcher/frontend/app.js', `
       const stateText = "运行中";
       el.textContent = \`已停止\`;
       el.textContent = "（";
@@ -74,7 +74,7 @@ describe('Client UI i18n source check', () => {
   })
 
   it('rejects Chinese text in launcher HTML and skips comments', () => {
-    expect(findHtmlI18nViolations('apps/desktop-launcher/frontend/index.html', [
+    expect(findHtmlI18nViolations('apps/linyaps/desktop-launcher/frontend/index.html', [
       '<!-- 终端弹框 -->',
       '<span data-i18n="terminal.title">终端</span>',
       '<button title="最大化"></button>',
@@ -86,11 +86,11 @@ describe('Client UI i18n source check', () => {
 
   it('leaves launcher locale dictionaries and English data alone', () => {
     expect(findUiI18nViolations(
-      'apps/desktop-launcher/frontend/locales/en.js',
+      'apps/linyaps/desktop-launcher/frontend/locales/en.js',
       'window.DSH_LOCALES = { en: { "status.running": "Running" } }',
     )).toEqual([])
     expect(findUiI18nViolations(
-      'apps/desktop-launcher/frontend/app.js',
+      'apps/linyaps/desktop-launcher/frontend/app.js',
       'const id = "terminal"; const label = window.DSHI18N.t("terminal.title");',
     )).toEqual([])
   })

@@ -23,11 +23,11 @@ const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
  * 这是本 fork 的本地豁免，不改变上游文件的检查口径。
  */
 const excludedFiles = [
-  'apps/desktop-launcher/docs/AUDIT.md',
-  'apps/desktop-launcher/docs/fork-divergence.md',
-  'apps/desktop-launcher/docs/i18n.md',
-  'apps/desktop-launcher/docs/index.md',
-  'apps/desktop-launcher/internal/toolchain/remote.go',
+  'apps/linyaps/desktop-launcher/docs/AUDIT.md',
+  'apps/linyaps/desktop-launcher/docs/fork-divergence.md',
+  'apps/linyaps/desktop-launcher/docs/i18n.md',
+  'apps/linyaps/desktop-launcher/docs/index.md',
+  'apps/linyaps/desktop-launcher/internal/toolchain/remote.go',
 ]
 const gitOutputLimit = 64 * 1024 * 1024
 

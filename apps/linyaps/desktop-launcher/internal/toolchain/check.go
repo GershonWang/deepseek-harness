@@ -1,0 +1,120 @@
+// Package toolchain 提供工具链自检（探测版本/缺失）与按需安装。
+package toolchain
+
+import (
+	"bytes"
+	"context"
+	"os/exec"
+	"strings"
+	"time"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
+)
+
+// Spec 声明一个可探测工具。
+type Spec struct {
+	Name      string
+	Command   []string // 探测命令，如 {"git","--version"}
+	NoVersion bool     // true=仅存在性探测（如 xdg-open），成功即视为可用，不提取版本号
+}
+
+// DefaultSpecs 返回随包内置的关键工具清单（与 linglong/tools.yaml 的 tools
+// 段保持同步），供自检面板与工具市场的"内置工具"区展示。xdg-open 没有
+// 安全的版本探测命令（见 tools.yaml 注释），用存在性探测。
+func DefaultSpecs() []Spec {
+	return []Spec{
+		{Name: "git", Command: []string{"git", "--version"}},
+		{Name: "git-lfs", Command: []string{"git", "lfs", "version"}},
+		{Name: "python3", Command: []string{"python3", "--version"}},
+		{Name: "curl", Command: []string{"curl", "--version"}},
+		{Name: "wget", Command: []string{"wget", "--version"}},
+		{Name: "jq", Command: []string{"jq", "--version"}},
+		{Name: "unzip", Command: []string{"unzip", "-v"}},
+		{Name: "xxd", Command: []string{"xxd", "--version"}},
+		{Name: "node", Command: []string{"node", "--version"}},
+		{Name: "pnpm", Command: []string{"pnpm", "--version"}},
+		{Name: "dsh", Command: []string{"dsh", "--version"}},
+		{Name: "xdg-open", Command: []string{"command", "-v", "xdg-open"}, NoVersion: true},
+	}
+}
+
+// probeTimeout 是单次版本探测上限（Check 与 ProbeCommands 共用）。
+const probeTimeout = 5 * time.Second
+
+// Check 依序探测，单工具失败不影响其余。每次探测最多 5 秒。
+func Check(specs []Spec) []domain.ToolCheck {
+	out := make([]domain.ToolCheck, 0, len(specs))
+	for _, s := range specs {
+		c := domain.ToolCheck{Name: s.Name}
+		// LookPath 结果随探测一并返回，供按路径前缀归类命令来源；与
+		// exec.Command 内部解析一致，失败不影响后续探测。
+		c.Path, _ = exec.LookPath(s.Command[0])
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		var buf bytes.Buffer
+		cmd := exec.CommandContext(ctx, s.Command[0], s.Command[1:]...)
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		err := cmd.Run()
+		cancel()
+		if err != nil {
+			c.Err = err.Error()
+		} else {
+			c.OK = true
+			if s.NoVersion {
+				// 仅存在性探测（如 xdg-open）：版本号无意义，只报这一事实，
+				// 界面上的「内置」由 app 层渲染。
+				c.NoVersion = true
+			} else {
+				c.Version = firstLine(buf.String())
+			}
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// ProbeCommands 对 Checks 固定清单之外的命令做按需可用性探测：LookPath 命中
+// 即视为可用，未命中的命令不出现在结果里。版本探测（--version）失败不回退
+// 可用性判定——部分命令没有安全的版本参数或以非零退出码打印版本，而市场卡片
+// 只需要"容器内已可用"这一事实与尽力而为的版本号。调用方传入去重后的命令名。
+func ProbeCommands(names []string) []domain.ToolCheck {
+	out := make([]domain.ToolCheck, 0, len(names))
+	for _, name := range names {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+		c := domain.ToolCheck{Name: name, OK: true, Path: path}
+		ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+		var buf bytes.Buffer
+		cmd := exec.CommandContext(ctx, name, "--version")
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		if runErr := cmd.Run(); runErr == nil {
+			c.Version = VersionNumber(firstLine(buf.String()))
+		}
+		cancel()
+		out = append(out, c)
+	}
+	return out
+}
+
+// VersionNumber 从探测输出里提取首个数字段并去掉前导非数字字符，把
+// "git version 2.34.1" / "Python 3.10.12" / "v18.19.0" / "jq-1.6"
+// 归一为 "2.34.1" / "3.10.12" / "18.19.0" / "1.6"。
+func VersionNumber(v string) string {
+	v = strings.TrimSpace(v)
+	for i := 0; i < len(v); i++ {
+		if v[i] >= '0' && v[i] <= '9' {
+			return v[i:]
+		}
+	}
+	return v
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
+}

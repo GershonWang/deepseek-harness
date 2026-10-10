@@ -66,5 +66,5 @@ pre-push:
     # 直接跑 node（不经过包管理器），且工具在找不到 Chromium 时打印原因并跳过，
     # 不会因为某台机器没装浏览器而堵住推送。
     - name: launcher frontend layout
-      glob: 'apps/desktop-launcher/frontend/**'
-      run: node apps/desktop-launcher/frontend/tools/preview.mjs verify
+      glob: 'apps/linyaps/desktop-launcher/frontend/**'
+      run: node apps/linyaps/desktop-launcher/frontend/tools/preview.mjs verify

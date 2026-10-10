@@ -32,11 +32,12 @@ const MANIFEST_BIN_ALLOWLIST = new Map<string, ManifestBin>([
 /** Every JavaScript executable in an application or packaging workspace has one explicit role. */
 const EXECUTABLE_SOURCE_ALLOWLIST = new Map<string, string>([
   ['apps/cli/src/bin.ts', 'supported dsh application launcher'],
-  // apps/desktop-launcher 是 fork 自有的启动器应用：doctor 是壳私有的诊断框架（唯一消费者是
+  // apps/linyaps/desktop-launcher 是 fork 自有的启动器应用：doctor 是壳私有的诊断框架（唯一消费者是
   // Go 壳的启动前预检与 doctor 面板），另外两个是它的构建工具，三者都不作为 dsh 应用入口。
-  ['apps/desktop-launcher/doctor/src/cli.ts', 'packaged doctor diagnostic CLI, not a dsh application launcher'],
-  ['apps/desktop-launcher/tools/doctor-build.mjs', 'build-only doctor bundler'],
-  ['apps/desktop-launcher/tools/doctor-link-deps.mjs', 'build-only doctor dependency linker'],
+  ['apps/linyaps/desktop-launcher/doctor/src/cli.ts', 'packaged doctor diagnostic CLI, not a dsh application launcher'],
+  ['apps/linyaps/desktop-launcher/tools/doctor-build.mjs', 'build-only doctor bundler'],
+  ['apps/linyaps/desktop-launcher/tools/doctor-link-deps.mjs', 'build-only doctor dependency linker'],
+  ['apps/linyaps/desktop-launcher/tools/fix-deploy-closure.mjs', 'build-only deployed-closure fixer'],
   ['apps/desktop/scripts/logged-notarytool.mjs', 'build-only notarization logging wrapper'],
   ['packages/context/time-context/tests/fixtures/driver.ts', 'test-only subprocess driver'],
   ['packages/experimental/webworker-packer/bin.js', 'build-only wrapper'],
@@ -86,6 +87,11 @@ const SOURCE_EXCLUDES = [
   '**/lib/**',
   '**/dist/**',
   '**/coverage/**',
+  // 玲珑模块的 stage 树是 prepare-offline 每次重建的暂存产物（已 gitignore），
+  // 其中的 pnpm 等第三方可执行文件不是本仓库编写的入口，不参与分类。
+  'apps/linyaps/desktop-launcher/linglong/stage/**',
+  'apps/linyaps/desktop-linglong/stage/**',
+  'apps/linyaps/desktop-dual/stage/**',
 ]
 
 /** Convert a host path from glob output to the repository's slash form. */

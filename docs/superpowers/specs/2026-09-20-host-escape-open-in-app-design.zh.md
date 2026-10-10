@@ -194,7 +194,7 @@ systemd-run --user --collect --quiet --service-type=exec -- /bin/true
 
 ### 7. Go 侧注入
 
-在 [`ConfigureChildEnv`](../../../apps/desktop-launcher/internal/appenv/env.go) 中,满足"`/run/host/rootfs` 存在"且"`systemd-run` 在 PATH 上可解析"时注入 `DSH_HOST_ROOTFS`/`DSH_HOST_LAUNCH`;两个条件任一不成立则都不注入。**已存在同名变量时不覆盖**,便于手工调试与临时关闭。与既有 `/opt/host-tools` PATH 注入同一处、同一风格。
+在 [`ConfigureChildEnv`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go) 中,满足"`/run/host/rootfs` 存在"且"`systemd-run` 在 PATH 上可解析"时注入 `DSH_HOST_ROOTFS`/`DSH_HOST_LAUNCH`;两个条件任一不成立则都不注入。**已存在同名变量时不覆盖**,便于手工调试与临时关闭。与既有 `/opt/host-tools` PATH 注入同一处、同一风格。
 
 ## 与既有决策的关系(顺带发现)
 
@@ -277,7 +277,7 @@ Go 测试(`apps/desktop-launcher`):
 | # | 提交 | 主要文件 |
 |---|---|---|
 | 1 | `feat(launch-environment): 识别沙箱宿主逃逸事实` | [`packages/util/launch-environment`](../../../packages/util/launch-environment/src/index.ts) + tests |
-| 2 | `feat(desktop-launcher): 注入宿主逃逸环境事实` | [`appenv/env.go`](../../../apps/desktop-launcher/internal/appenv/env.go) + tests |
+| 2 | `feat(desktop-launcher): 注入宿主逃逸环境事实` | [`appenv/env.go`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go) + tests |
 | 3 | `feat(open-in-app): 支持宿主侧 desktop 探测与逃逸启动` | [`catalog.ts`](../../../packages/host/open-in-app/src/catalog.ts)、[`resolver.ts`](../../../packages/host/open-in-app/src/resolver.ts)、[`icons.ts`](../../../packages/host/open-in-app/src/icons.ts) + tests |
 | 4 | `docs(open-in-app): 记录宿主逃逸契约与局限` | 双语 README + Agent Note(沙箱逃逸属长期决策依据) |
 
@@ -290,7 +290,7 @@ Go 测试(`apps/desktop-launcher`):
 | [`packages/host/open-in-app/src/resolver.ts`](../../../packages/host/open-in-app/src/resolver.ts) | 宿主 desktop 查找与路径验证、通道探针、`host-argv` 启动 |
 | [`packages/host/open-in-app/src/index.ts`](../../../packages/host/open-in-app/src/index.ts) | 解析入口注入宿主事实 |
 | [`packages/host/open-in-app/src/icons.ts`](../../../packages/host/open-in-app/src/icons.ts) | 宿主图标目录 |
-| [`apps/desktop-launcher/internal/appenv/env.go`](../../../apps/desktop-launcher/internal/appenv/env.go) | 条件注入两个环境事实 |
+| [`apps/desktop-launcher/internal/appenv/env.go`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go) | 条件注入两个环境事实 |
 | README(open-in-app 双语、desktop-launcher) | 契约、限制、安全语义 |
 
 ## 落地差异(实施后回填)

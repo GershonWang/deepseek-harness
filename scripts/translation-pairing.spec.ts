@@ -322,7 +322,7 @@ describe('translation scope discovery', () => {
     'python/guide.md',
     'python/sdk-runtime/README.md',
     'python/sdk-runtime/src/deepseek_harness_runtime/README.md',
-    'apps/desktop-launcher/linglong/README.md',
+    'apps/linyaps/desktop-launcher/linglong/README.md',
   ])('includes %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(true)
   })
@@ -343,9 +343,10 @@ describe('translation scope discovery', () => {
     'python/sdk-runtime/src/deepseek_harness_runtime/runtime/macos-arm64/office-skills/office-docx/SKILL.md',
     'linglong/overlay/build_base/upperdir/usr/share/doc/jq/README.md',
     'linglong/output/binary/files/node/README.md',
-    'apps/desktop-launcher/linglong/stage/node/README.md',
-    'apps/desktop-linglong/stage/resources/runtime/pnpm/README.md',
-    'apps/desktop-launcher/linglong/linglong/output/binary/files/node/README.md',
+    'apps/linyaps/desktop-launcher/linglong/stage/node/README.md',
+    'apps/linyaps/desktop-linglong/stage/resources/runtime/pnpm/README.md',
+    'apps/linyaps/desktop-dual/stage/node/README.md',
+    'apps/linyaps/desktop-launcher/linglong/linglong/output/binary/files/node/README.md',
   ])('excludes non-source or non-README path %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(false)
   })

@@ -37,11 +37,11 @@ python/**/__pycache__/
 python/**/.pytest_cache/
 packages/**/__pycache__/
 apps/web/dist/
-apps/desktop-launcher/dsh-desktop-launcher
-apps/desktop-launcher/linglong/linglong/
-apps/desktop-launcher/linglong/stage/
-apps/desktop-linglong/stage/
-apps/desktop-dual/stage/
+apps/linyaps/desktop-launcher/dsh-desktop-launcher
+apps/linyaps/desktop-launcher/linglong/linglong/
+apps/linyaps/desktop-launcher/linglong/stage/
+apps/linyaps/desktop-linglong/stage/
+apps/linyaps/desktop-dual/stage/
 /linglong/
 # 玲珑打包导出产物（ll-builder export）
 com.deepseek.dsh-desktop_*.uab
@@ -65,7 +65,7 @@ native/system/test/bin/
 
 # 启动器前端预览工具的产物（截图与运行时生成的预览页）：与浏览器状态同理，
 # 必须留在 go:embed 根 `frontend/` 之外，否则会被嵌进启动器二进制
-apps/desktop-launcher/.preview/
+apps/linyaps/desktop-launcher/.preview/
 # 启动器前端预览工具的浏览器状态（profile 与 HOME/XDG）：必须留在 go:embed 根
 # `frontend/` 之外，否则 Chromium 的缓存文件名会让启动器的 go build 直接失败
-apps/desktop-launcher/.preview-cache/
+apps/linyaps/desktop-launcher/.preview-cache/

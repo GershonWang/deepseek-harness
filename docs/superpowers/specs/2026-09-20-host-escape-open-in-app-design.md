@@ -194,7 +194,7 @@ Zero changes. The inventory lists existing ids whose copy is already in place in
 
 ### 7. Go-side injection
 
-In [`ConfigureChildEnv`](../../../apps/desktop-launcher/internal/appenv/env.go), inject `DSH_HOST_ROOTFS`/`DSH_HOST_LAUNCH` when "`/run/host/rootfs` exists" and "`systemd-run` resolves on PATH"; if either condition does not hold, inject neither. **An existing variable of the same name is not overwritten**, which keeps manual debugging and temporary disabling easy. It sits in the same place and follows the same style as the existing `/opt/host-tools` PATH injection.
+In [`ConfigureChildEnv`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go), inject `DSH_HOST_ROOTFS`/`DSH_HOST_LAUNCH` when "`/run/host/rootfs` exists" and "`systemd-run` resolves on PATH"; if either condition does not hold, inject neither. **An existing variable of the same name is not overwritten**, which keeps manual debugging and temporary disabling easy. It sits in the same place and follows the same style as the existing `/opt/host-tools` PATH injection.
 
 ## Relationship to existing decisions (found in passing)
 
@@ -277,7 +277,7 @@ Regression checks:
 | # | Commit | Main files |
 |---|---|---|
 | 1 | `feat(launch-environment): recognize the sandbox host escape fact` | [`packages/util/launch-environment`](../../../packages/util/launch-environment/src/index.ts) + tests |
-| 2 | `feat(desktop-launcher): inject the host escape environment fact` | [`appenv/env.go`](../../../apps/desktop-launcher/internal/appenv/env.go) + tests |
+| 2 | `feat(desktop-launcher): inject the host escape environment fact` | [`appenv/env.go`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go) + tests |
 | 3 | `feat(open-in-app): support host-side desktop detection and escape launch` | [`catalog.ts`](../../../packages/host/open-in-app/src/catalog.ts), [`resolver.ts`](../../../packages/host/open-in-app/src/resolver.ts), [`icons.ts`](../../../packages/host/open-in-app/src/icons.ts) + tests |
 | 4 | `docs(open-in-app): record the host escape contract and limitations` | Bilingual README + Agent Note (sandbox escape is long-term decision evidence) |
 
@@ -290,7 +290,7 @@ Regression checks:
 | [`packages/host/open-in-app/src/resolver.ts`](../../../packages/host/open-in-app/src/resolver.ts) | Host desktop lookup and path validation, channel probe, `host-argv` launch |
 | [`packages/host/open-in-app/src/index.ts`](../../../packages/host/open-in-app/src/index.ts) | Inject the host fact at the resolution entry point |
 | [`packages/host/open-in-app/src/icons.ts`](../../../packages/host/open-in-app/src/icons.ts) | Host icon directories |
-| [`apps/desktop-launcher/internal/appenv/env.go`](../../../apps/desktop-launcher/internal/appenv/env.go) | Conditionally inject the two environment facts |
+| [`apps/desktop-launcher/internal/appenv/env.go`](../../../apps/linyaps/desktop-launcher/internal/appenv/env.go) | Conditionally inject the two environment facts |
 | README (open-in-app bilingual, desktop-launcher) | Contract, limitations, security semantics |
 
 ## Deviations when implemented

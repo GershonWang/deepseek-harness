@@ -1,0 +1,1520 @@
+// Package app 是 Wails 绑定层：向 Web 壳暴露控制方法，并定时推送状态事件。
+// 它编排下层各领域包（supervisor/connector/toolchain/hosttools/packaging），
+// 不含任何业务实现，只做"翻译"：领域状态 → 前端可渲染的快照。
+package app
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/appenv"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/clipboard"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/connector"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/hosttools"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/i18n"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/preflight"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/supervisor"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/terminal"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/toolchain"
+)
+
+// 事件名（前端监听）。
+const (
+	StatusEvent            = "harness:status"
+	ToolchainEvent         = "toolchain:status"
+	ToolchainProgressEvent = "toolchain:progress" // 单个工具链安装的实时进度
+	TerminalOutputEvent    = "terminal:output"    // 终端输出事件
+	TerminalStatusEvent    = "terminal:status"    // 终端状态变更事件
+	StartupProgressEvent   = "startup:progress"   // 加载页的启动进度（阶段 + 条目计数）
+)
+
+// ProgressEvent 是 toolchain:progress 事件的载荷：描述某个工具链安装的
+// 当前阶段与百分比。前端据此在工具卡片上渲染进度条，支持多工具并发安装
+// （每个事件按 ID 定向更新对应卡片，避免重渲染整个网格）。
+type ProgressEvent struct {
+	ID      string // 工具链 ID
+	Phase   string // queued / downloading / extracting / verifying / linking / done / error
+	Percent int    // 0-100
+}
+
+// FrontendStatus 是 Web 壳每次状态刷新收到的快照。
+type FrontendStatus struct {
+	Mode               string // "container" | "external"
+	State              string // "starting" | "running" | "stopped"
+	URL                string
+	PID                int
+	LastExit           string
+	ExternalURL        string
+	ConnectError       string
+	Target             string // 前端 iframe 应加载的地址；空串表示显示引导页
+	Busy               bool
+	StartupDiagnosing  bool   // 是否正在进行启动失败自动诊断
+	StartupDoctorReady bool   // 自动诊断结果已就绪（本次失败周期内）
+	ClientFailure      string // 非空表示 iframe 内客户端插件加载失败：进程可能健康，界面起不来
+	CanStart           bool
+	CanStop            bool
+	CanRestart         bool
+	CanConnect         bool
+	CanDisconnect      bool
+	SafeMode           string           // "" | "plugins" | "config" | "full"
+	FreshHome          bool             // 是否以全新运行时目录（~/.dsh-fallback）启动
+	Preflight          PreflightSummary // 启动前预检状态
+	Startup            StartupView      // 加载页的启动进度（见 startup_progress.go）
+}
+
+// equal 判断两个状态快照是否完全相同，用于变化检测。
+// 零值状态也能正确比较（首次推送时 lastEmitted 是零值，必然不等 → 推送）。
+func (s FrontendStatus) equal(o FrontendStatus) bool {
+	return s.Mode == o.Mode &&
+		s.State == o.State &&
+		s.URL == o.URL &&
+		s.PID == o.PID &&
+		s.LastExit == o.LastExit &&
+		s.ExternalURL == o.ExternalURL &&
+		s.ConnectError == o.ConnectError &&
+		s.Target == o.Target &&
+		s.Busy == o.Busy &&
+		s.StartupDiagnosing == o.StartupDiagnosing &&
+		s.StartupDoctorReady == o.StartupDoctorReady &&
+		s.ClientFailure == o.ClientFailure &&
+		s.CanStart == o.CanStart &&
+		s.CanStop == o.CanStop &&
+		s.CanRestart == o.CanRestart &&
+		s.CanConnect == o.CanConnect &&
+		s.CanDisconnect == o.CanDisconnect &&
+		s.SafeMode == o.SafeMode &&
+		s.FreshHome == o.FreshHome &&
+		s.Preflight.equal(o.Preflight) &&
+		s.Startup.equal(o.Startup)
+}
+
+// ToolRow 是工具链表格的一行。
+type ToolRow struct {
+	Name    string
+	Version string
+	State   string // "installed" | "missing"
+}
+
+// ToolStatus 是工具自检的一次刷新结果。
+type ToolStatus struct {
+	Rows        []ToolRow
+	Installed   string
+	Installable string
+	Catalog     []toolchain.ToolStatus // 内置一键安装清单状态
+	// CategoryLabels 是市场分类的中文标签，取自当前生效索引。分类页签由清单推导后，
+	// 标签也必须随索引走，否则新增分类仍要等客户端发版。
+	CategoryLabels map[string]string
+	HostTools      []HostToolEntry // 宿主命令挂载列表（仅沙箱环境）
+	Sandboxed      bool            // 是否玲珑打包（沙箱）环境
+	Notice         string          // 一次性提示（安装结果等）
+}
+
+// HostToolEntry 是宿主命令挂载的渲染数据。
+type HostToolEntry struct {
+	Name    string
+	Source  string
+	Target  string
+	Mounted bool // 本次实例启动时挂载是否生效（需重启应用才能更新）
+}
+
+// HostToolResult 是 AddHostTool 的返回。
+type HostToolResult struct {
+	Warning string
+	Error   string
+}
+
+// ProjectPinView 是项目级工具配置中单个 pin 的前端视图。
+type ProjectPinView struct {
+	ID        string
+	Version   string
+	Installed bool
+	Active    bool
+}
+
+// ProjectToolchainResult 是 ApplyProjectToolchain 的返回。
+type ProjectToolchainResult struct {
+	ProjectPath string
+	Found       bool
+	AutoSwitch  bool
+	AutoPrompt  bool
+	Switched    []string
+	Missing     []string // 未安装的工具 ID，供前端提示安装
+	Pins        []ProjectPinView
+	Error       string
+}
+
+// AboutInfo 是"关于"弹框的内容。字段全部由打包态解析或常量给出，前端只
+// 负责渲染：维护者署名与两个仓库地址是用户定位问题来源的唯一线索，
+// 不允许散落到前端各写一份。
+type AboutInfo struct {
+	Program        string
+	HarnessVersion string
+	PackageVersion string
+	Packager       string
+	Repo           string // 玲珑封装（fork）仓库
+	UpstreamRepo   string // 上游 DSH 官方仓库
+}
+
+// App 是绑定给 Web 壳的应用控制器。
+type App struct {
+	sup        *supervisor.Supervisor
+	conn       *connector.Connector
+	configPath string
+	home       string
+	ctx        context.Context
+	term       *terminal.Manager // 终端会话管理器
+
+	mu            sync.Mutex
+	externalBusy  bool
+	safeMode      string // "plugins" | "config" | "full" | ""
+	freshHome     bool   // 是否以全新运行时目录（~/.dsh-fallback）启动
+	clientFailure string // iframe 内客户端插件加载失败的原因；非空时前端改显启动失败页
+
+	// 当前生效的壳语言（受 localeMu 保护）：真源是 iframe 内 GUI 的 <html lang>，
+	// 由前端 applyLocale 时经 SetLocale 回推；前端起来之前用环境语言兜底。
+	// 与 mu 分开，避免渲染路径上的读锁与状态锁相互牵连（见 locale.go）。
+	localeMu sync.RWMutex
+	locale   i18n.Locale
+
+	// 启动前预检（preflight.go 状态机）与 doctor 面板共用的 doctor 执行器。
+	preflightRunner *preflight.Runner
+	preflight       PreflightSummary
+
+	// 启动失败自动诊断状态（受 mu 保护；语义按失败周期计）。
+	startupDoctorRunning  bool          // 自动诊断是否正在后台运行
+	startupDoctorReady    bool          // 自动诊断结果是否已就绪（本失败周期内）
+	startupDoctorDoneOnce bool          // 本次失败周期是否已触发过诊断（防重复触发）
+	startupDoctorError    string        // 自动诊断的 doctor 命令错误（非空表示诊断本身失败）
+	doctorCancel          func()        // 取消正在运行的 doctor 进程
+	doctorDone            chan struct{} // doctor 进程退出信号（nil 表示未在运行）
+	doctorEpoch           int           // 诊断启动序号，用于 goroutine 收尾时归属判断
+
+	// 窗口状态跟踪（受 winMu 保护）。OnBeforeClose 是唯一可靠的保存时机
+	// （Wails 在窗口销毁之后才调用 OnShutdown，届时 WindowGetSize 只能取
+	// 到 0）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
+	// 作为还原基准，避免把全屏尺寸写进配置。
+	winMu             sync.Mutex
+	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
+	winRestoredHeight int // 最近一次非最大化时的窗口高度
+	winRestoredX      int // 最近一次非最大化时的窗口左上角坐标（还原位置基准）
+	winRestoredY      int
+	// winHasPosition 表示上面两个坐标已记录过：0,0 是合法位置，不能拿零值当「没有」。
+	winHasPosition bool
+
+	// 上一次推送给前端的状态快照，用于变化检测：
+	// 仅当快照真正变化时才推送事件，避免每秒一次的无意义重渲染。
+	lastEmitted FrontendStatus
+
+	// 启动进度事件的节流状态（受 mu 保护）：上一帧视图与上次推送时刻。
+	startupLastView  StartupView
+	startupEmittedAt time.Time
+}
+
+// New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
+// 由预检结果决定放行或等待用户决策。
+//
+// doctor 的运行环境（node 与 cli.js）由 appenv 一并解析后传入，本层不再从
+// harness 的 argv 里反推——doctor 已经不经 `dsh` 分发，两者位置无关。
+func New(resolved appenv.Resolved, home, configPath string) *App {
+	cfg := resolved.Config
+	term := terminal.NewManager()
+
+	a := &App{
+		sup:             supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
+		conn:            connector.New(),
+		configPath:      configPath,
+		home:            home,
+		term:            term,
+		locale:          i18n.FromEnv(),
+		preflightRunner: preflight.NewRunner(resolved.DoctorNode, resolved.DoctorCLI, resolved.DoctorEnv(), preflightHomePath(home)),
+	}
+	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
+	a.sup.SetStartupProgressListener(a.emitStartupProgress)
+	// 预检先于 harness 首次启动：门控监护循环，预检通过/降级决策后放行。
+	a.sup.Gate()
+	go a.runPreflightGate()
+	return a
+}
+
+// ExternalConfigFilePath 返回外部 URL 配置文件路径。
+func ExternalConfigFilePath() string {
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, ".config", "dsh-desktop", "config.json")
+	}
+	return filepath.Join(".cache", "dsh-desktop", "config.json")
+}
+
+// Shutdown 停止 harness 子进程、后台 doctor 和所有终端会话
+// （窗口关闭与外置信号两路共用；幂等）。
+// SIGTERM 路径不经过 OnBeforeClose，这里补一次窗口状态保存；正常关闭
+// 路径 OnBeforeClose 已保存过，saveWindowState 内部对无效读数会跳过。
+func (a *App) Shutdown() {
+	a.saveWindowState()
+	a.sup.Stop()
+	a.stopDoctor()
+	if a.term != nil {
+		a.term.CloseAll()
+	}
+}
+
+// stopDoctor 取消正在运行的 doctor 进程并等待它退出。
+func (a *App) stopDoctor() {
+	a.mu.Lock()
+	cancel := a.doctorCancel
+	done := a.doctorDone
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		// 最多等 2 秒，避免 shutdown 被卡死
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
+func (a *App) OnStartup(ctx context.Context) {
+	a.ctx = ctx
+
+	// 窗口还原几何的初值取配置里保存的值：若用户全程最大化使用并直接关闭，
+	// 还原基准仍是他上次主动调整过的窗口大小与位置，而非程序默认值。
+	if cfg, err := LoadAppConfig(a.home); err == nil && cfg.Window.Width >= 400 && cfg.Window.Height >= 300 {
+		a.winMu.Lock()
+		a.winRestoredWidth = cfg.Window.Width
+		a.winRestoredHeight = cfg.Window.Height
+		hasPos := cfg.Window.X != 0 || cfg.Window.Y != 0
+		if hasPos {
+			a.winRestoredX, a.winRestoredY = cfg.Window.X, cfg.Window.Y
+			a.winHasPosition = true
+		}
+		a.winMu.Unlock()
+		// 位置只能在窗口建好之后经 runtime 恢复：Wails v2.15 的 options.App 没有
+		// X/Y 字段。保存的位置明显越界时居中，避免窗口出现在用户看不到的地方。
+		if hasPos {
+			if windowPositionPlausible(ctx, cfg.Window.X, cfg.Window.Y) {
+				runtime.WindowSetPosition(ctx, cfg.Window.X, cfg.Window.Y)
+			} else {
+				runtime.WindowCenter(ctx)
+			}
+		}
+	}
+
+	// 注册终端事件回调：把终端输出和状态变更推送到前端
+	a.term.SetOutputCallback(func(sessionID string, data string) {
+		runtime.EventsEmit(ctx, TerminalOutputEvent, terminal.OutputEvent{
+			SessionID: sessionID,
+			Data:      data,
+		})
+	})
+	a.term.SetStatusCallback(func(sessionID string, status terminal.SessionStatus, exitCode int, err error) {
+		errStr := ""
+		if err != nil {
+			errStr = err.Error()
+		}
+		runtime.EventsEmit(ctx, TerminalStatusEvent, terminal.StatusEvent{
+			SessionID: sessionID,
+			Status:    status,
+			ExitCode:  exitCode,
+			Error:     errStr,
+		})
+	})
+
+	go a.tick(ctx)
+	// 异步加载远程工具索引（不阻塞 UI）；加载完推送一次工具链状态。
+	go func() {
+		toolchain.LoadIndex(toolchain.InstallDir(a.home))
+		a.RefreshTools()
+		// 加载完成后延迟 3 秒检测更新（不与首屏渲染抢资源）。
+		// 若检测到有可更新工具，推送 toolchain:updates 事件到前端。
+		time.AfterFunc(3*time.Second, func() {
+			a.checkToolUpdatesBackground()
+		})
+	}()
+}
+
+// OnBeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或 runtime.Quit）时保存
+// 窗口状态。这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose →
+// 窗口销毁 → OnShutdown，OnShutdown 里 WindowGetSize 只能取到 0。
+// 返回 false 表示放行关闭。
+func (a *App) OnBeforeClose(ctx context.Context) bool {
+	a.saveWindowState()
+	return false
+}
+
+// OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
+// 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
+// 窗口状态已在 OnBeforeClose 保存，这里不再重复（窗口已销毁，读取必然为 0）。
+func (a *App) OnShutdown(_ context.Context) {
+	a.Shutdown()
+}
+
+// trackWindowGeometry 每秒记录一次窗口的非最大化尺寸与位置。
+// 关闭时若窗口处于最大化，配置里写入的是这份"还原基准"而非全屏几何，
+// 否则下次启动取消最大化后窗口会铺满屏幕，也不再是用户放它的地方。
+func (a *App) trackWindowGeometry() {
+	if a.ctx == nil {
+		return
+	}
+	if runtime.WindowIsMaximised(a.ctx) {
+		return
+	}
+	w, h := runtime.WindowGetSize(a.ctx)
+	if w < 400 || h < 300 {
+		return
+	}
+	x, y := runtime.WindowGetPosition(a.ctx)
+	a.winMu.Lock()
+	a.winRestoredWidth = w
+	a.winRestoredHeight = h
+	a.winRestoredX = x
+	a.winRestoredY = y
+	a.winHasPosition = true
+	a.winMu.Unlock()
+}
+
+// windowPositionPlausible 判断保存的窗口位置是否还值得恢复。
+//
+// Wails v2.15 的 Screen 只给尺寸、不给原点（internal/frontend.Screen 没有 X/Y），
+// 因此无法精确判断某个点落在哪块屏幕上。这里用「不超出所有屏幕拼起来的外接框」做保守
+// 判断：主屏左侧/上方的副屏会出现负坐标，按一块屏幕的尺寸放宽；右侧副屏按各屏宽度
+// 之和放宽。明显越界（副屏被拔掉、分辨率变小）时不恢复位置、改由调用方居中——
+// 让窗口出现在屏幕外、用户看不到也点不着，比不恢复位置严重得多。
+func windowPositionPlausible(ctx context.Context, x, y int) bool {
+	screens, err := runtime.ScreenGetAll(ctx)
+	if err != nil || len(screens) == 0 {
+		return true // 取不到屏幕信息时不阻挠恢复
+	}
+	return positionWithinScreens(screens, x, y)
+}
+
+// positionWithinScreens 是 windowPositionPlausible 的纯函数部分，便于直接断言。
+func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
+	totalW, maxW, maxH := 0, 0, 0
+	for _, s := range screens {
+		totalW += s.Size.Width
+		maxW = max(maxW, s.Size.Width)
+		maxH = max(maxH, s.Size.Height)
+	}
+	return x > -maxW && x < totalW && y > -maxH && y < maxH
+}
+
+// saveWindowState 读取当前窗口状态并写入配置文件。
+// 最大化时用 tick 记录的还原几何代替全屏几何；窗口已不可读（SIGTERM 等
+// 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
+func (a *App) saveWindowState() {
+	if a.ctx == nil {
+		return
+	}
+	w, h := runtime.WindowGetSize(a.ctx)
+	x, y := runtime.WindowGetPosition(a.ctx)
+	maximized := runtime.WindowIsMaximised(a.ctx)
+	if maximized {
+		a.winMu.Lock()
+		rw, rh := a.winRestoredWidth, a.winRestoredHeight
+		rx, ry, recorded := a.winRestoredX, a.winRestoredY, a.winHasPosition
+		a.winMu.Unlock()
+		// 还原几何尚无记录（进程刚启动就最大化关闭）时放弃本次保存，
+		// 保留配置里已有的有效值。
+		if rw < 400 || rh < 300 {
+			return
+		}
+		w, h = rw, rh
+		if recorded {
+			x, y = rx, ry
+		} else {
+			// 最大化状态读到的坐标不是用户放它的地方；没有还原基准时保留配置里已有的值。
+			if prev, err := LoadWindowState(a.home); err == nil {
+				x, y = prev.X, prev.Y
+			}
+		}
+	}
+	if w < 400 || h < 300 {
+		return
+	}
+	_ = SaveWindowState(a.home, WindowState{
+		Width:     w,
+		Height:    h,
+		Maximized: maximized,
+		X:         x,
+		Y:         y,
+	})
+}
+
+func (a *App) tick(ctx context.Context) {
+	t := time.NewTicker(time.Second)
+	defer t.Stop()
+	// 上一次状态，用于启动失败边沿检测（tick 是常驻 goroutine，局部变量即可）。
+	prevState := a.sup.Status().State
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			curState := a.sup.Status().State
+			a.trackStartupDoctor(prevState, curState)
+			prevState = curState
+			a.trackWindowGeometry()
+			// 仅在状态快照真正变化时推送事件，避免每秒一次的无意义重渲染。
+			// 窗口尺寸跟踪不受影响（它不需要推送给前端）。
+			a.emitStatusIfChanged()
+		}
+	}
+}
+
+// emitStatusIfChanged 仅当状态快照与上次推送不同时才推送事件。
+// 返回值表示是否实际推送了（测试用）。
+func (a *App) emitStatusIfChanged() bool {
+	if a.ctx == nil {
+		return false
+	}
+	cur := a.snapshot()
+	if a.lastEmitted.equal(cur) {
+		return false
+	}
+	a.lastEmitted = cur
+	runtime.EventsEmit(a.ctx, StatusEvent, cur)
+	return true
+}
+
+// emitStatus 推送一次状态快照；ctx 尚未就绪时静默跳过。
+func (a *App) emitStatus() {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, StatusEvent, a.snapshot())
+}
+
+// emitToolchain 推送一次工具/凭据刷新结果。
+func (a *App) emitToolchain(s ToolStatus) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, ToolchainEvent, s)
+}
+
+// emitProgress 推送单个工具链安装的实时进度（下载/解压/校验百分比）。
+// 下载进度回调频率高（io.Copy 每读一块触发一次），这里直接事件发射，
+// 前端按 ID 定向更新对应卡片的进度条，不重渲染整个网格，避免卡顿。
+func (a *App) emitProgress(id, phase string, percent int) {
+	if a.ctx == nil {
+		return
+	}
+	runtime.EventsEmit(a.ctx, ToolchainProgressEvent, ProgressEvent{
+		ID:      id,
+		Phase:   phase,
+		Percent: percent,
+	})
+}
+
+func (a *App) setBusy(b bool) {
+	a.mu.Lock()
+	a.externalBusy = b
+	a.mu.Unlock()
+}
+
+func (a *App) isBusy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.externalBusy
+}
+
+// trackStartupDoctor 维护启动失败自动诊断状态：进入失败态触发一次后台诊断，
+// 退出失败态（用户手动 Restart/StartSafeMode）重置本周期标志。
+// 边沿检测幂等：仅状态真正变化时动作，每秒轮询不会重复触发。
+func (a *App) trackStartupDoctor(prev, cur domain.HarnessState) {
+	if maybeStartStartupDoctor(prev, cur, a.conn.Mode()) {
+		a.startStartupDoctor()
+		return
+	}
+	if exitFailedEdge(prev, cur) {
+		a.resetStartupDoctor()
+	}
+}
+
+// maybeStartStartupDoctor 判断状态边沿是否应自动触发启动失败诊断：
+// 从非 failed 变为 failed，且处于容器模式（外置模式由用户显式触达，无需诊断）。
+// 纯函数便于单测；同周期防重由调用方 startupDoctorDoneOnce 保证。
+func maybeStartStartupDoctor(prev, cur domain.HarnessState, mode domain.Mode) bool {
+	return prev != domain.StateFailed && cur == domain.StateFailed && mode == domain.ModeContainer
+}
+
+// exitFailedEdge 判断是否刚退出失败态（用户手动 Restart/StartSafeMode），
+// 用于重置本失败周期的自动诊断状态。
+func exitFailedEdge(prev, cur domain.HarnessState) bool {
+	return prev == domain.StateFailed && cur != domain.StateFailed
+}
+
+// startStartupDoctor 触发一次后台自动诊断；本失败周期内只触发一次。
+// RunDoctor 可能耗时数秒（执行 dsh doctor），放独立 goroutine 运行，不阻塞状态轮询。
+func (a *App) startStartupDoctor() {
+	a.mu.Lock()
+	if a.startupDoctorDoneOnce {
+		a.mu.Unlock()
+		return
+	}
+	a.startupDoctorRunning = true
+	a.startupDoctorDoneOnce = true
+	// 为本次诊断创建独立的 context，便于在 shutdown 或失败周期重置时取消。
+	a.doctorEpoch++
+	myEpoch := a.doctorEpoch
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	a.doctorCancel = cancel
+	a.doctorDone = done
+	a.mu.Unlock()
+
+	go func() {
+		defer close(done)
+		report := a.runDoctor(ctx)
+		if a.finishStartupDoctor(myEpoch, report.Error) {
+			a.emitStatus()
+		}
+	}()
+}
+
+// finishStartupDoctor 记录一次自动诊断的结论，返回是否真的写入了状态。
+//
+// 归属判断只认 doctorEpoch：被 reset 取消的旧诊断与被新一轮诊断取代的旧诊断都可能
+// 在"新一轮正在运行"之后才收尾。曾经这里判断的是 !startupDoctorRunning——旧诊断
+// 恰好会在该值为 true 时通过，写入自己的过期结论并把 running 置回 false，而真正
+// 的新诊断收尾时又因该值已是 false 而丢弃自己的结论：界面上显示"诊断已就绪"配上
+// 伪造的错误，失败路径下的自动诊断静默失效。
+func (a *App) finishStartupDoctor(myEpoch int, errText string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.doctorEpoch != myEpoch {
+		return false
+	}
+	a.doctorCancel = nil
+	a.doctorDone = nil
+	a.startupDoctorRunning = false
+	a.startupDoctorReady = true
+	a.startupDoctorError = errText
+	return true
+}
+
+// resetStartupDoctor 清除本失败周期的自动诊断状态，等待下一次失败边沿重新触发。
+// 如果诊断仍在运行，则取消它，避免旧的诊断结果或进程残留。
+func (a *App) resetStartupDoctor() {
+	a.mu.Lock()
+	cancel := a.doctorCancel
+	done := a.doctorDone
+	a.doctorCancel = nil
+	a.doctorDone = nil
+	a.startupDoctorRunning = false
+	a.startupDoctorDoneOnce = false
+	a.startupDoctorReady = false
+	a.startupDoctorError = ""
+	// 递增 epoch：在途的诊断取消后可能仍会收尾，必须让它不再被认作"当前"的一次，
+	// 否则它的结论会顶掉下一个失败周期新诊断的结果。
+	a.doctorEpoch++
+	a.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	// 不等它退出——reset 是轻量操作，goroutine 自己会收尾。
+	_ = done
+}
+
+// startupDoctorStatus 返回自动诊断的两个前端可见状态位。
+func (a *App) startupDoctorStatus() (diagnosing, ready bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.startupDoctorRunning, a.startupDoctorReady
+}
+
+// snapshot 组装当前完整状态。
+func (a *App) snapshot() FrontendStatus {
+	st := a.sup.Status()
+	mode := a.conn.Mode()
+	extURL := a.conn.ExternalURL()
+	busy := a.isBusy()
+	diagnosing, doctorReady := a.startupDoctorStatus()
+
+	// 预检/安全模式/全新环境标志在预检状态机与用户操作间并发更新，快照读取收进锁内。
+	a.mu.Lock()
+	safeMode, freshHome, preflightNow, clientFailure := a.safeMode, a.freshHome, a.preflight, a.clientFailure
+	a.mu.Unlock()
+	target := resolveTarget(mode, extURL, st.URL, st.State == domain.StateRunning, clientFailure)
+	s := FrontendStatus{
+		Mode:               modeName(mode),
+		State:              stateName(st.State),
+		URL:                st.URL,
+		PID:                st.PID,
+		LastExit:           st.LastExit,
+		ExternalURL:        extURL,
+		ConnectError:       a.conn.LastError(),
+		Target:             target,
+		Busy:               busy,
+		StartupDiagnosing:  diagnosing,
+		StartupDoctorReady: doctorReady,
+		ClientFailure:      clientFailure,
+		CanStart:           (st.State == domain.StateStopped || st.State == domain.StateFailed) && !busy,
+		CanStop:            (st.State == domain.StateStarting || st.State == domain.StateRunning) && !busy,
+		CanRestart:         mode == domain.ModeContainer && !busy && (st.State == domain.StateStarting || st.State == domain.StateRunning),
+		CanConnect:         mode == domain.ModeContainer && !busy,
+		CanDisconnect:      mode == domain.ModeExternal && !busy,
+		SafeMode:           safeMode,
+		FreshHome:          freshHome,
+		Preflight:          preflightNow,
+		Startup:            a.currentStartupView(),
+	}
+	// 连接失败错误只在容器模式展示，成功后清除。
+	if mode != domain.ModeExternal {
+		s.ConnectError = a.conn.LastError()
+	}
+	return s
+}
+
+// resolveTarget 决定 Web 壳 iframe 应加载的目标：客户端插件加载失败时为空——那个
+// 页面本身就是死的，壳改用失败页承载原因、诊断与安全模式入口；否则外部已连接优先
+// 于容器，容器仅在运行中接管。纯函数便于单测。
+func resolveTarget(mode domain.Mode, externalURL, containerURL string, running bool, clientFailure string) string {
+	if clientFailure != "" {
+		return ""
+	}
+	if mode == domain.ModeExternal {
+		return externalURL
+	}
+	if running {
+		return containerURL
+	}
+	return ""
+}
+
+// Status 返回当前状态快照（前端首次加载调用）。
+func (a *App) Status() FrontendStatus {
+	return a.snapshot()
+}
+
+// ReportClientBootFailure 记录 iframe 内客户端插件加载失败，并触发一次自动诊断。
+//
+// 宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在
+// 浏览器侧的插件树上：窗口里只剩一张 "Failed to load plugins" 死路页，而壳以为一切
+// 正常。打包注入的桥（linglong/dsh-link-bridge.js）侦测到该状态后调用本方法，壳据此
+// 改显启动失败页，并复用既有的自动诊断、分级修复与安全模式链路。
+//
+// 只受理容器模式：外置 harness 的页面没有注入桥，其失败由用户自行处理。
+// 客户端可能重试并重复上报，startupDoctorDoneOnce 已保证同一失败周期只诊断一次。
+func (a *App) ReportClientBootFailure(reason string) FrontendStatus {
+	if a.conn.Mode() != domain.ModeContainer {
+		return a.snapshot()
+	}
+	message := strings.TrimSpace(reason)
+	if message == "" {
+		message = a.t("client.bootFailedNoReason")
+	}
+	a.mu.Lock()
+	a.clientFailure = message
+	a.mu.Unlock()
+	a.startStartupDoctor()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// clearClientFailure 清除客户端失败标记并重置自动诊断周期：用户重启、停止或切换
+// 安全模式，都意味着上一轮界面失败已经过去，下一次失败应能重新触发诊断。
+func (a *App) clearClientFailure() {
+	a.mu.Lock()
+	a.clientFailure = ""
+	a.mu.Unlock()
+	a.resetStartupDoctor()
+}
+
+// StartServer 启动容器内 harness。
+func (a *App) StartServer() FrontendStatus {
+	a.clearClientFailure()
+	a.sup.Start()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// StopServer 手动停止容器内 harness 并暂停自动重启。
+func (a *App) StopServer() FrontendStatus {
+	a.clearClientFailure()
+	a.sup.StopHarness()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// RestartServer 重启容器内 harness：运行态先优雅终止再拉起，停止/失败态直接
+// 拉起（见 supervisor.Restart）。
+//
+// 插件变更后让新配置生效靠这个入口：dsh-market 的一键重启已被 launcher 注入的
+// 监护声明禁用（appenv.supervisorOverlayBody），harness 的生命周期统一归
+// Supervisor，避免两个重启者争抢同一个 --port。
+func (a *App) RestartServer() FrontendStatus {
+	a.clearClientFailure()
+	a.sup.Restart()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// StartSafeMode 以插件安全模式启动 harness（跳过第三方 bundle，保留官方插件和用户数据）。
+// 适用于升级后第三方插件不兼容导致启动失败的场景。
+func (a *App) StartSafeMode() FrontendStatus {
+	return a.StartSafeModeLevel("plugins")
+}
+
+// StartSafeModeLevel 以指定级别的安全模式启动 harness（"plugins" 跳过第三方
+// bundle；"config" 再跳过用户补丁层，用于用户配置层也损坏的场景）。用户数据
+// 始终保留。门控期（预检等待决策）与失败/停止态都由此放行。
+func (a *App) StartSafeModeLevel(level string) FrontendStatus {
+	os.Setenv("DSH_SAFE_MODE", level)
+	a.clearClientFailure()
+	a.mu.Lock()
+	a.safeMode = level
+	a.freshHome = false
+	a.mu.Unlock()
+	a.sup.SetEnv(nil) // 安全模式回到默认 home；与全新环境互斥
+	a.resumeAfterPreflight()
+	return a.snapshot()
+}
+
+// ExitSafeMode 退出安全模式，恢复正常启动。
+func (a *App) ExitSafeMode() FrontendStatus {
+	os.Unsetenv("DSH_SAFE_MODE")
+	a.clearClientFailure()
+	a.mu.Lock()
+	a.safeMode = ""
+	a.mu.Unlock()
+	a.sup.Restart()
+	a.emitStatus()
+	return a.snapshot()
+}
+
+// DoctorCheck 是诊断结果中的单条检查（与 doctor 包 DoctorReportCheckEntry 对齐的前端视图）。
+type DoctorCheck struct {
+	ID             string
+	Name           string
+	Category       string // "env" | "config" | "plugin" | "data"
+	Severity       string // "info" | "warning" | "error" | "fatal"
+	OK             bool
+	Message        string
+	Detail         string
+	Fixable        bool
+	SuggestedLevel int
+}
+
+// DoctorReport 是诊断结果的前端视图。
+type DoctorReport struct {
+	DshHome     string
+	GeneratedAt string
+	Checks      []DoctorCheck
+	Total       int
+	OK          int
+	Failed      int
+	Fatal       int
+	Fixable     int
+	Error       string // 非空表示 doctor 命令本身执行失败
+}
+
+// beginDoctorRun 登记一次 doctor 子进程运行：取消上一次仍在运行的 doctor，
+// 递增 epoch 作为本次运行的身份，返回后台 context 与其收尾句柄。
+// 登记后必须调用 endDoctorRun 收尾（通常经 defer）。
+func (a *App) beginDoctorRun() (ctx context.Context, cancel func(), myEpoch int, done chan struct{}) {
+	// 用户手动触发的诊断/修复：用后台 context，shutdown 时会被 stopDoctor 取消。
+	ctx, cancel = context.WithCancel(context.Background())
+	a.mu.Lock()
+	// 取消上一次诊断（如果有）
+	if a.doctorCancel != nil {
+		a.doctorCancel()
+	}
+	a.doctorCancel = cancel
+	a.doctorDone = make(chan struct{})
+	a.doctorEpoch++
+	myEpoch = a.doctorEpoch
+	done = a.doctorDone
+	a.mu.Unlock()
+	return ctx, cancel, myEpoch, done
+}
+
+// endDoctorRun 收尾一次 doctor 运行：关闭退出信号、仅当本次仍是最新登记时
+// 清空追踪引用，最后取消 ctx。与 beginDoctorRun 配对使用。
+func (a *App) endDoctorRun(myEpoch int, done chan struct{}, cancel func()) {
+	close(done)
+	a.mu.Lock()
+	if a.doctorEpoch == myEpoch {
+		a.doctorCancel = nil
+		a.doctorDone = nil
+	}
+	a.mu.Unlock()
+	cancel()
+}
+
+// RunDoctor 运行 dsh doctor 并返回诊断结果。失败时 Error 字段包含错误信息。
+//
+// 注意：dsh doctor --json 用退出码表达诊断结论（1 = 发现 fatal 问题），
+// 因此不能用 cmd.Output()（它对非零退出码丢弃 stdout）——必须自己捕获
+// stdout/stderr，只要 JSON 可解析就返回结果，退出码本身不是错误。
+func (a *App) RunDoctor() DoctorReport {
+	ctx, cancel, myEpoch, done := a.beginDoctorRun()
+	defer a.endDoctorRun(myEpoch, done, cancel)
+	return a.runDoctor(ctx)
+}
+
+// runDoctor 是内部实现，接收 ctx 以便上层控制生命周期（shutdown / 失败周期重置）。
+func (a *App) runDoctor(ctx context.Context) DoctorReport {
+	// doctor 子进程的环境与 argv 统一来自 preflight.Runner：剥离
+	// DSH_SAFE_MODE（否则安全模式下诊断看不到真实安装的第三方插件）、
+	// 显式指向真实 harness home（而非 $HOME）。
+	name, args, ok := a.preflightRunner.Command("--json")
+	if !ok {
+		return DoctorReport{Error: a.t("preflight.doctor.notConfigured")}
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = a.preflightRunner.Env()
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	_ = cmd.Run() // 退出码非零是"发现 fatal 问题"，不是命令失败
+
+	out := outBuf.Bytes()
+	if len(bytes.TrimSpace(out)) == 0 {
+		return DoctorReport{Error: a.t("doctor.noOutputExit", exitCodeText(cmd))}
+	}
+
+	// 用 json.RawMessage 先解一层结构
+	var raw struct {
+		DshHome     string `json:"dshHome"`
+		GeneratedAt string `json:"generatedAt"`
+		Checks      []struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Category string `json:"category"`
+			Severity string `json:"severity"`
+			Result   struct {
+				OK             bool   `json:"ok"`
+				Message        string `json:"message"`
+				Detail         string `json:"detail"`
+				Fixable        bool   `json:"fixable"`
+				SuggestedLevel int    `json:"suggestedLevel"`
+			} `json:"result"`
+		} `json:"checks"`
+		Summary struct {
+			Total   int `json:"total"`
+			OK      int `json:"ok"`
+			Failed  int `json:"failed"`
+			Fatal   int `json:"fatal"`
+			Fixable int `json:"fixable"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return DoctorReport{Error: "doctor output parse error: " + err.Error()}
+	}
+
+	checks := make([]DoctorCheck, 0, len(raw.Checks))
+	for _, c := range raw.Checks {
+		checks = append(checks, DoctorCheck{
+			ID:             c.ID,
+			Name:           c.Name,
+			Category:       c.Category,
+			Severity:       c.Severity,
+			OK:             c.Result.OK,
+			Message:        c.Result.Message,
+			Detail:         c.Result.Detail,
+			Fixable:        c.Result.Fixable,
+			SuggestedLevel: c.Result.SuggestedLevel,
+		})
+	}
+
+	return DoctorReport{
+		DshHome:     raw.DshHome,
+		GeneratedAt: raw.GeneratedAt,
+		Checks:      checks,
+		Total:       raw.Summary.Total,
+		OK:          raw.Summary.OK,
+		Failed:      raw.Summary.Failed,
+		Fatal:       raw.Summary.Fatal,
+		Fixable:     raw.Summary.Fixable,
+	}
+}
+
+// exitCodeText 提取命令的退出码文本，供"无输出时"的错误信息使用。
+func exitCodeText(cmd *exec.Cmd) string {
+	if cmd.ProcessState == nil {
+		return "unknown"
+	}
+	return cmd.ProcessState.String()
+}
+
+// RunDoctorRepair 运行指定级别的修复，返回修复结果摘要。
+//
+// 同 RunDoctor：dsh doctor --repair 的退出码表达修复结论（1 = 仍有未完成
+// 的修复项），非零退出码不代表命令失败。CombinedOutput 保留完整输出，
+// 直接返回它；只有输出为空才视为命令本身失败。修复进程纳入 doctor 追踪，
+// 关闭窗口时同样会被 stopDoctor 取消，避免残留。
+func (a *App) RunDoctorRepair(level int) string {
+	ctx, cancel, myEpoch, done := a.beginDoctorRun()
+	defer a.endDoctorRun(myEpoch, done, cancel)
+
+	// 收敛到 doctor 支持的 1/2/3：调用方可能传入更大值表示"尽力修复"。
+	effective := min(max(level, 1), 3)
+	name, args, ok := a.preflightRunner.Command("--repair", strconv.Itoa(effective))
+	if !ok {
+		return a.t("preflight.doctor.notConfigured")
+	}
+
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = a.preflightRunner.Env()
+	out, err := cmd.CombinedOutput()
+	if err != nil && len(bytes.TrimSpace(out)) == 0 {
+		return a.t("doctor.repairFailed", err.Error())
+	}
+	return string(out)
+}
+
+// ConnectExternal 校验并连接外部服务。确认与探测不阻塞前端：
+// 校验失败立即返回错误文本；成功则后台探测，结果随状态事件推送。
+func (a *App) ConnectExternal(raw string) string {
+	if a.ctx == nil {
+		return a.t("app.notReady")
+	}
+	u, err := a.conn.ValidateURL(raw)
+	if err != nil {
+		return a.t("server.addressInvalid", a.connectorErrorText(err))
+	}
+	if a.conn.NeedConfirmation(u) {
+		selected, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+			Type:          runtime.QuestionDialog,
+			Title:         a.t("server.confirmTitle"),
+			Message:       a.t("server.confirmMessage", u),
+			Buttons:       []string{a.t("common.connect"), a.t("common.cancel")},
+			DefaultButton: a.t("common.cancel"),
+		})
+		if err != nil || selected != a.t("common.connect") {
+			return ""
+		}
+		a.conn.ConfirmHost(u)
+	}
+
+	// 连接前先停容器 harness（释放端口、暂停自动重启），避免端口冲突。
+	// 容器侧的界面失败随之作废：用户选择的是外部服务，不该再看到那张失败页。
+	a.clearClientFailure()
+	a.sup.StopHarness()
+	a.setBusy(true)
+	a.emitStatus()
+	go func() {
+		err := a.conn.BeginExternal(u)
+		if err == nil {
+			// 用统一配置结构保存，保留窗口状态等其他字段
+			cfg, _ := LoadAppConfig(a.home)
+			cfg.ExternalURL = u
+			_ = SaveAppConfig(a.home, cfg)
+		} else {
+			a.sup.Restart() // 探测失败：恢复容器模式并重启 harness
+		}
+		a.setBusy(false)
+		a.emitStatus()
+	}()
+	return ""
+}
+
+// DisconnectExternal 断开外部服务并重启容器 harness。
+func (a *App) DisconnectExternal() {
+	a.conn.EndExternal()
+	a.setBusy(true)
+	a.emitStatus()
+	go func() {
+		a.sup.Restart()
+		select {
+		case <-a.sup.Ready():
+		case <-time.After(30 * time.Second):
+		}
+		a.setBusy(false)
+		a.emitStatus()
+	}()
+}
+
+// RefreshTools 后台刷新工具链自检与凭据状态，结果经事件推送。
+func (a *App) RefreshTools() {
+	go func() {
+		toolStatus := a.collectTools()
+		a.emitToolchain(toolStatus)
+	}()
+}
+
+// RefreshToolIndex 强制刷新远程工具索引并推送一次工具链状态。异步执行。
+func (a *App) RefreshToolIndex() {
+	go func() {
+		toolchain.RefreshIndex(toolchain.InstallDir(a.home))
+		a.RefreshTools()
+	}()
+}
+
+// collectTools 采集工具自检 + 已安装列表 + 清单状态 + 宿主挂载。
+func (a *App) collectTools() ToolStatus {
+	checks := toolchain.Check(toolchain.DefaultSpecs())
+	dir := toolchain.InstallDir(a.home)
+	installed := toolchain.ListInstalled(dir)
+
+	rows := make([]ToolRow, 0, len(checks))
+	for _, c := range checks {
+		row := ToolRow{Name: c.Name, State: "missing"}
+		if c.OK {
+			row.State = "installed"
+			// 只做存在性探测的命令没有有意义的版本号（见 domain.ToolCheck.NoVersion），
+			// 显示本地措辞而不是空列。
+			if c.NoVersion {
+				row.Version = a.t("tools.builtin")
+			} else {
+				row.Version = toolchain.VersionNumber(c.Version)
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	hostTools := []HostToolEntry{}
+	for _, e := range hosttools.List(a.home) {
+		hostTools = append(hostTools, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target, Mounted: e.Mounted})
+	}
+
+	catalog := toolchain.ToolStatuses(dir)
+	annotateRuntime(a.t, catalog, checks, a.home, a.bundledBinPrefix())
+
+	return ToolStatus{
+		Rows:           rows,
+		Installed:      joinOrNone(a.t, installed),
+		Installable:    catalogInstallable(),
+		Catalog:        catalog,
+		CategoryLabels: toolchain.CategoryLabels(),
+		HostTools:      hostTools,
+		Sandboxed:      a.sandboxed(),
+	}
+}
+
+// annotateRuntime 为未安装的市场工具填充容器内运行时可用性（Runtime* 字段）。
+// 背景玲珑容器内命令有三个互不相干的来源：随包内置、宿主导入挂载、系统运行
+// 时，而市场卡片只描述市场仓库（~/.dsh-tools）的安装状态——不标注运行时可
+// 用性会让"环境里明明有 node"与卡片"可安装"看似矛盾。
+//
+// 探测数据优先复用固定自检清单（Checks，覆盖随包工具），其余 Provides 命令
+// 按需 LookPath 补充。只处理未安装工具：已安装工具的仓库状态信息更准，混入
+// PATH 提示会模糊两套语义。home 与 bundledBin 由调用方传入（市场目录与随包
+// 前缀的判定依据），本函数除按需探测外不读取进程环境，保证分类结果确定可测。
+func annotateRuntime(t translate, catalog []toolchain.ToolStatus, checks []domain.ToolCheck, home, bundledBin string) {
+	known := make(map[string]domain.ToolCheck, len(checks))
+	for _, c := range checks {
+		known[c.Name] = c
+	}
+
+	// 收集固定清单未覆盖、且属于未安装工具的命令名，去重后按需补充探测。
+	var extra []string
+	seenExtra := map[string]bool{}
+	for _, ts := range catalog {
+		if ts.Installed {
+			continue
+		}
+		for _, cmd := range ts.Provides {
+			if _, ok := known[cmd]; !ok && !seenExtra[cmd] {
+				seenExtra[cmd] = true
+				extra = append(extra, cmd)
+			}
+		}
+	}
+	for _, c := range toolchain.ProbeCommands(extra) {
+		known[c.Name] = c
+	}
+
+	for i := range catalog {
+		ts := &catalog[i]
+		if ts.Installed {
+			continue
+		}
+		for _, cmd := range ts.Provides {
+			c, ok := known[cmd]
+			if !ok || !c.OK {
+				continue
+			}
+			source := classifyRuntimeSource(t, c.Path, home, bundledBin)
+			if source == "" {
+				continue
+			}
+			ts.RuntimeCmd = cmd
+			ts.RuntimeVersion = c.Version
+			ts.RuntimeSource = source
+			break
+		}
+	}
+}
+
+// bundledBinPrefix 返回随包可执行目录前缀，由 launcher 自身位置推导：
+// .../files/bin/<exe> → .../files/bin。玲珑打包态随包工具都部署在该目录；
+// 推导失败（拿不到可执行路径）返回空，来源分类不命中随包分支。
+func (a *App) bundledBinPrefix() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(filepath.Dir(exe)), "bin")
+}
+
+// classifyRuntimeSource 按命令解析路径归类容器内命中来源。路径分隔符固定用
+// "/"：MountBase 与 LookPath 结果都是 Linux 绝对路径语义。市场自管目录
+// （~/.dsh-tools）返回空——那是 Installed 已覆盖的仓库语义，不应再以运行时
+// 来源出现，避免同一命令展示两个出处。
+func classifyRuntimeSource(t translate, path, home, bundledBin string) string {
+	switch {
+	case path == "":
+		return ""
+	case strings.HasPrefix(path, hosttools.MountBase+"/"):
+		return t("runtimeSource.host")
+	case bundledBin != "" && strings.HasPrefix(path, bundledBin+"/"):
+		return t("runtimeSource.bundled")
+	case strings.HasPrefix(path, toolchain.InstallDir(home)+"/"):
+		return ""
+	default:
+		return t("runtimeSource.system")
+	}
+}
+
+// checkToolUpdatesBackground 后台检测工具更新：先刷新远程索引，
+// 再对比已装版本，有更新则推送事件到前端。
+func (a *App) checkToolUpdatesBackground() {
+	if a.ctx == nil {
+		return
+	}
+	dir := toolchain.InstallDir(a.home)
+	// 刷新索引（忽略缓存新鲜度，但失败了也不影响已有功能）
+	toolchain.RefreshIndex(dir)
+	outdated := toolchain.OutdatedTools(dir)
+	if len(outdated) == 0 {
+		return
+	}
+	st := a.collectTools()
+	a.emitToolchain(st)
+}
+
+// sandboxed 判断是否玲珑打包（沙箱）环境：打包态可执行文件在 $PREFIX/bin，
+// HarnessPrefix() 非空；开发态在 /tmp/go-build 下返回空。
+func (a *App) sandboxed() bool {
+	return packaging.HarnessPrefix() != ""
+}
+
+func catalogInstallable() string {
+	ids := []string{}
+	for _, it := range toolchain.Catalog() {
+		ids = append(ids, it.ID)
+	}
+	return strings.Join(ids, ",")
+}
+
+// InstallToolchain 一键安装内置工具链（推荐版本）。异步执行，结果经 toolchain
+// 事件推送。
+func (a *App) InstallToolchain(id string) string {
+	tool, ok := toolchain.LookupTool(id)
+	if !ok {
+		return a.t("toolchain.unknownID", id)
+	}
+	a.installToolAsync(tool, "")
+	return ""
+}
+
+// InstallToolVersion 安装指定工具的指定版本。异步执行，结果经事件推送。
+func (a *App) InstallToolVersion(id, version string) string {
+	tool, ok := toolchain.LookupTool(id)
+	if !ok {
+		return a.t("toolchain.unknownID", id)
+	}
+	if _, found := tool.FindVersion(version); !found {
+		return a.t("toolchain.unknownVersion", id, version)
+	}
+	a.installToolAsync(tool, version)
+	return ""
+}
+
+// installToolAsync 异步安装并推送通知；version 为空时装推荐版本。
+// 用户在卡片上显式点安装或选了版本，都视为「要用这个版本」，因此显式要求激活：
+// 只有依赖自动安装与并存安装才走 InstallTool 的默认规则（不覆盖当前激活版本）。
+// 安装进度通过 toolchain:progress 事件实时推给前端（下载百分比等），
+// 结束后通过 toolchain:status 推送最终状态与结果通知。
+func (a *App) installToolAsync(tool toolchain.Tool, version string) {
+	// 立即推送"排队中"进度，前端据此把卡片切到"安装中"并显示进度条。
+	a.emitProgress(tool.ID, "queued", 0)
+	go func() {
+		dir := toolchain.InstallDir(a.home)
+		activate := true
+		// 把安装器内部的阶段回调转发成前端进度事件；下载回调频率高，
+		// 前端按 ID 定向更新进度条（见 emitProgress 注释）。
+		opts := &toolchain.InstallOptions{
+			Activate: &activate,
+			Progress: func(phase string, percent int) {
+				a.emitProgress(tool.ID, phase, percent)
+			},
+		}
+		err := toolchain.InstallTool(dir, tool.ID, version, opts)
+		label := tool.Name
+		if version != "" {
+			label += " " + version
+		}
+		notice := a.t("toolchain.installDone", label)
+		if err != nil {
+			notice = a.t("toolchain.installFailed", label, a.installErrorText(err))
+		} else {
+			// 安装后刷新环境注入（bin 软链已进 ~/.dsh-tools/bin）。
+			appenv.ConfigureChildEnv(a.home)
+		}
+		st := a.collectTools()
+		st.Notice = notice
+		a.emitToolchain(st)
+	}()
+}
+
+// SetActiveToolVersion 切换某工具已安装版本的激活状态。返回错误文本（空=成功）。
+func (a *App) SetActiveToolVersion(id, version string) string {
+	dir := toolchain.InstallDir(a.home)
+	if err := toolchain.SetActiveVersion(dir, id, version); err != nil {
+		return a.t("toolchain.activateFailed", err.Error())
+	}
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
+	return ""
+}
+
+// UninstallTool 卸载某工具的某个版本（卸载激活版本时自动切到最新剩余版本）。
+func (a *App) UninstallTool(id, version string) string {
+	dir := toolchain.InstallDir(a.home)
+	if err := toolchain.Uninstall(dir, id, version); err != nil {
+		return a.t("toolchain.uninstallFailed", err.Error())
+	}
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
+	return ""
+}
+
+// ApplyProjectToolchain 检测并应用项目级 .dsh-toolchain.yml：向上查找配置，
+// 对已装但未激活的工具按配置切换版本，未装的列入 Missing 供前端提示安装。
+func (a *App) ApplyProjectToolchain(projectDir string) ProjectToolchainResult {
+	res := ProjectToolchainResult{ProjectPath: projectDir}
+	cfg, pins, err := toolchain.ResolveProject(projectDir, a.home)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	if cfg == nil {
+		return res
+	}
+	res.Found = true
+	res.AutoSwitch = cfg.AutoSwitch
+	res.AutoPrompt = cfg.AutoPrompt
+	for _, p := range pins {
+		res.Pins = append(res.Pins, ProjectPinView{ID: p.ID, Version: p.Version, Installed: p.Installed, Active: p.Active})
+		if !p.Installed {
+			res.Missing = append(res.Missing, p.ID)
+		}
+	}
+	switched, err := toolchain.ApplyProject(projectDir, a.home, cfg.AutoSwitch)
+	if err != nil {
+		res.Error = err.Error()
+		return res
+	}
+	res.Switched = switched
+	appenv.ConfigureChildEnv(a.home)
+	a.RefreshTools()
+	return res
+}
+
+// HostToolScanEntry 是宿主导入向导扫描结果的一行。
+type HostToolScanEntry struct {
+	Name     string
+	Source   string
+	Tool     string
+	Version  string
+	Conflict bool // 与已装 L2 工具提供的命令重名（宿主挂载优先级更高）
+}
+
+// ScanHostTools 扫描常见宿主工具链根目录，返回发现列表及与已装 L2 工具的
+// 重名标记，供导入向导展示。导入动作复用 AddHostTool。
+func (a *App) ScanHostTools() []HostToolScanEntry {
+	discovered := hosttools.Discover(hosttools.DefaultRootDirs(a.home))
+	provided := map[string]bool{}
+	for _, ts := range toolchain.ToolStatuses(toolchain.InstallDir(a.home)) {
+		if ts.Installed {
+			for _, p := range ts.Provides {
+				provided[p] = true
+			}
+		}
+	}
+	out := make([]HostToolScanEntry, 0, len(discovered))
+	for _, d := range discovered {
+		out = append(out, HostToolScanEntry{
+			Name:     d.Name,
+			Source:   d.Source,
+			Tool:     d.Tool,
+			Version:  d.Version,
+			Conflict: provided[d.Tool],
+		})
+	}
+	return out
+}
+
+// AddHostTool 把宿主命令路径挂载进沙箱（写 linglong config.d），返回冲突提示。
+func (a *App) AddHostTool(source, name string) HostToolResult {
+	if !a.sandboxed() {
+		return HostToolResult{Error: a.t("hosttool.sandboxOnly")}
+	}
+	if name == "" {
+		name = hosttools.SuggestName(source)
+	}
+	e, warnKind, err := hosttools.Add(a.home, name, source)
+	if err != nil {
+		return HostToolResult{Error: a.hostToolErrorText(err)}
+	}
+	warn := a.hostToolWarningText(warnKind)
+	if conflicts := hostToolConflicts(e.Source, a.home); len(conflicts) > 0 {
+		if warn != "" {
+			warn += a.t("common.clauseSeparator")
+		}
+		warn += a.t("hosttool.conflictWarning", strings.Join(conflicts, ", "))
+	}
+	a.RefreshTools()
+	return HostToolResult{Warning: warn}
+}
+
+// hostToolConflicts 返回宿主挂载源 bin 与按需安装 bin 同名的命令。
+func hostToolConflicts(source, home string) []string {
+	return toolchain.Conflicts(hosttools.EffectiveBin(source), filepath.Join(toolchain.InstallDir(home), "bin"))
+}
+
+// ListHostTools 返回已配置的宿主命令挂载。
+func (a *App) ListHostTools() []HostToolEntry {
+	out := []HostToolEntry{}
+	for _, e := range hosttools.List(a.home) {
+		out = append(out, HostToolEntry{Name: e.Name, Source: e.Source, Target: e.Target, Mounted: e.Mounted})
+	}
+	return out
+}
+
+// RemoveHostTool 移除宿主命令挂载配置。
+func (a *App) RemoveHostTool(name string) string {
+	if err := hosttools.Remove(a.home, name); err != nil {
+		return err.Error()
+	}
+	a.RefreshTools()
+	return ""
+}
+
+// About 返回关于弹框内容。
+func (a *App) About() AboutInfo {
+	return AboutInfo{
+		Program:        "DeepSeek Harness",
+		HarnessVersion: packaging.ResolveHarnessVersion(),
+		PackageVersion: packaging.Version,
+		Packager:       packaging.Packager,
+		Repo:           packaging.GithubRepo,
+		UpstreamRepo:   packaging.UpstreamRepo,
+	}
+}
+
+// ReadClipboardImage 读取当前 X11 CLIPBOARD 的 image/png 数据并返回
+// base64 编码结果。剪贴板空、无图片或读取超时时返回空串（前端据此
+// 判断“当前没有可粘贴的图片”），不视为错误。
+//
+// 背景：内嵌 WebKitGTK 的 paste 事件不暴露剪贴板位图，壳进程直接读
+// X selection 反而完整可行；浏览器模式无此限制，该绑定只在 iframe
+// 内嵌模式下被前端调用。
+func (a *App) ReadClipboardImage() string {
+	img, err := clipboard.ReadImage()
+	if err != nil {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(img)
+}
+
+func modeName(m domain.Mode) string {
+	if m == domain.ModeExternal {
+		return "external"
+	}
+	return "container"
+}
+
+func stateName(s domain.HarnessState) string {
+	switch s {
+	case domain.StateRunning:
+		return "running"
+	case domain.StateStarting:
+		return "starting"
+	case domain.StateFailed:
+		return "failed"
+	default:
+		return "stopped"
+	}
+}
+
+func joinOrNone(t translate, items []string) string {
+	if len(items) == 0 {
+		return t("common.none")
+	}
+	out := ""
+	for i, it := range items {
+		if i > 0 {
+			out += ","
+		}
+		out += it
+	}
+	return out
+}
+
+// ---- 终端会话控制（Wails 绑定方法） ----
+
+// TerminalStart 启动一个新的终端会话。
+//
+// command 为空时使用默认 shell（/bin/bash）；cwd 为空时使用当前工作目录。
+// 返回会话 ID 供后续操作使用。
+func (a *App) TerminalStart(command, cwd string, cols, rows int) (string, error) {
+	opts := &terminal.StartOptions{
+		Command: command,
+		Cwd:     cwd,
+		Cols:    cols,
+		Rows:    rows,
+	}
+	// 玲珑容器环境下，确保 PATH 包含容器内的 bin 目录
+	if opts.Env == nil {
+		opts.Env = []string{}
+	}
+	return a.term.Start(opts)
+}
+
+// TerminalWrite 向指定终端会话写入输入数据。
+//
+// data 是原始字节串，可以包含普通字符和控制字符（如换行、Ctrl+C 等）。
+func (a *App) TerminalWrite(sessionID, data string) error {
+	return a.term.Write(sessionID, data)
+}
+
+// TerminalResize 调整指定终端会话的窗口大小。
+//
+// 前端终端组件尺寸变化时调用此方法，通知 PTY 调整窗口大小。
+func (a *App) TerminalResize(sessionID string, cols, rows int) error {
+	return a.term.Resize(sessionID, cols, rows)
+}
+
+// TerminalClose 关闭指定终端会话。
+//
+// 会话关闭后，后续写入操作将失败，状态变更会通过 terminal:status 事件通知前端。
+func (a *App) TerminalClose(sessionID string) error {
+	return a.term.Close(sessionID)
+}
+
+// TerminalList 返回所有终端会话的元数据列表。
+//
+// 前端可以轮询或在需要时调用此方法获取当前所有会话的状态。
+func (a *App) TerminalList() []terminal.SessionInfo {
+	return a.term.List()
+}

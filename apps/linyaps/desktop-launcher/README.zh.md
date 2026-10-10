@@ -1,0 +1,232 @@
+# DeepSeek Harness Linux 桌面启动器
+
+[English](README.md) | 中文
+
+`apps/linyaps/desktop-launcher` 是 deepseek-harness 的桌面客户端。它基于 [Wails v2](https://wails.io) 用 Go 编写：spawn `dsh web` 子进程并监护，把 harness Web GUI 以 iframe 嵌进一层薄的启动器壳（状态栏、服务器/设置弹框、引导页）。最终打成如意玲珑（Linglong）包在 Deepin 25 上分发。
+
+> 独立 Go module，不纳入 pnpm workspace。壳 UI 是静态 HTML/CSS/JS（无 Node 构建链），经 `go:embed` 打进二进制。
+
+## 架构
+
+```
+┌─ Wails 窗口（webkit2gtk）───────────────────────────────────┐
+│  launcher 壳（frontend/，静态 HTML/CSS/JS，go:embed）          │
+│   ├── 自定义标题栏(无边框)：品牌 + 图标动作 + 窗口控制        │
+│   ├── 舞台：<iframe src=http://127.0.0.1:<port>> 嵌 harness UI │
+│   │         （未运行/未连接时显示内置引导页）                   │
+│   └── 底部状态栏：● 运行中 http://127.0.0.1:<port>             │
+└───────────────▲───────────────────────────────────────────┘
+                │ window.go.app.App.*（Wails 绑定）+ 1s 状态事件
+┌───────────────┴───────────────────────────────────────────┐
+│ internal/app —— 绑定层：状态快照、控制方法、事件推送          │
+│   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
+│   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
+│   toolchain   工具链自检 + 按需安装                          │
+│   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
+│   packaging   打包态路径、版本、webkit 平台适配               │
+│   domain      共享领域模型（纯类型）                          │
+└───────────────────────────────────────────────────────────┘
+```
+
+分层规则：`domain` 零依赖；`supervisor`/`connector`/`toolchain`/`appenv`/`packaging` 为纯 Go（仅标准库）、可单测；`webviewperm` 是唯一的 CGO 包（GTK/WebKit，仅 Linux），但把判定逻辑留在纯 Go 的 `policy.go` 里，无显示环境也能单测；`app` 编排它们并面向前端；`main` 只做组装。
+
+渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
+
+harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报插件（见下一节）。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+
+## 内嵌 WebView 的媒体采集权限
+
+启动器只放行内嵌 WebView 的**音频**采集，使桌面版的语音输入与在浏览器里打开同一 Web GUI 时表现一致。这条路径上叠着三个彼此独立的缺陷：只修其中任何一个，语音输入都依然是坏的，而症状与另外两个看起来一模一样；三个都不是用户能从某个设置里解决的。
+
+- **跨源 iframe 未获麦克风授权。** 壳从 `http://127.0.0.1:<port>` 嵌入 harness UI，与 Wails 资源服务器不同源，而 `microphone` 的 permissions policy 默认白名单是 `self`。缺少 `allow="microphone"` 时，请求在 WebKit 发出权限信号**之前**就被拒绝，因此这一个缺陷把另外两个完全遮住了。`frontend/index.html` 现在带 `allow="fullscreen; microphone"`。
+- **Wails v2 从不连接 `WebKitWebView::permission-request`**，而 WebKitGTK 对该信号的默认处理是拒绝。Wails 把 `WebKitWebView*` 关在 `internal/` 包里，于是 `internal/webviewperm` 在 `OnDomReady`（该回调由 Wails 从 GTK 主线程进入，无需切换线程）时用 `gtk_window_list_toplevels()` 遍历进程的顶层窗口，找到视图并自行连接信号。判定逻辑归 `internal/webviewperm/policy.go`，脱离 GTK 也能单测：只有「请求媒体采集、要音频、且不要视频与屏幕」才放行。摄像头、屏幕共享及其余所有权限请求一律拒绝，因为内嵌界面没有需要它们的功能。找不到视图时只记一行日志并继续：缺麦克风权限绝不该拦住启动。
+- **WebKit 的 WebProcess 找不到包内的 GStreamer 插件。** 设备枚举发生在 WebProcess 里而不是启动器里。容器内 `/usr/lib/x86_64-linux-gnu/gstreamer-1.0` 只有 `coreelements` 与 `coretracers`，而包内 `<PREFIX>/lib/x86_64-linux-gnu/gstreamer-1.0` 有 259 个插件。没有插件搜索路径时 `appsink` 加载失败、枚举到 0 个音频输入，`getUserMedia` 转而以 `OverconstrainedError` 拒绝。`packaging.ConfigureGStreamerPlugins()` 在 `wails.Run` 之前设置 `GST_PLUGIN_PATH`，因为 WebProcess 继承本进程环境、之后再设无效。它用附加语义的 `GST_PLUGIN_PATH` 而非 `GST_PLUGIN_SYSTEM_PATH`，让系统默认路径与环境里已有的取值照旧生效；开发态插件本就在标准路径上时则不做任何事。
+
+## 启动阶段与加载页进度
+
+窗口在 harness 就绪之前就已经存在，所以启动期必须自己说明进展。加载页显示四个阶段，每个阶段都由观测到的事实触发，不存在按时间猜测的进度：
+
+| 阶段 | 触发事实 | 页面显示 |
+|---|---|---|
+| `starting` | 已拉起 harness 子进程，还没有任何输出 | 正在启动服务进程，请稍候 |
+| `loading` | 子进程已有输出，还没有收到条目计数 | DeepSeek Harness 正在加载插件和服务，请稍候 |
+| `plugins` | 已收到条目计数 | 同上 + 进度条与「已加载 n/m 个插件」 |
+| `serving` | 计数已到齐，只剩监听端口 | 插件已就绪，正在启动服务端口 |
+
+计数来自 `internal/appenv/startup_progress.mjs`：`appenv` 在每次 spawn 时把它与 overlay 一起写进 launcher 运行时目录，并由同一份 overlay 的 `insert` 行注入 harness。该插件不 import 任何模块、不抛异常（entry 激活失败会中止启动，而进度只是体验增强），统计「已 settle 的 loader 条目数」并向 stderr 写 `dsh-desktop: startup <已激活>/<总数>`；`internal/supervisor` 解析该行，`internal/app` 映射成上表的阶段，经节流的 `startup:progress` 事件与 1 秒状态快照送到前端。分母取「真正会挂载的条目」（排除 group 与 disabled），启动期基本稳定；偶发新增的行由前端按单调不减渲染，计数本身原样显示。计数首次到齐后上报即停止：这条通道只服务启动期，而就绪之后 harness 仍会重组配置树（客户端 HMR、用户补丁层 watcher、市场插件等），继续上报只会让日志出现分子大于分母的行（实测过 `161/136`），既污染启动耗时记录，也与上面的契约矛盾。
+
+插件文件写不出来、或 harness 尚未注入它时（在途版本），加载页退回前两档粗粒度文案与转圈，不显示进度块，也绝不补一个按时间估算的百分比。WebView 里 harness 自己的 `Loading plugins…` 属于浏览器侧的另一段，不在本机制范围内。
+
+## 插件不兼容时的自动禁用与启动后提示
+
+不兼容的第三方插件不会拦住 harness 进程（宿主对非必需条目的激活失败只告警），但会让客户端插件树起不来。这条链路两端各占一半：doctor 判定插件与当前版本不兼容后把它从 profile 的 bundle 层禁用（安装与依赖保留），并把留痕追加到 `<dshHome>/doctor/auto-disabled.json`；壳在 harness 启动成功后读这份留痕，在主界面上方给出一条常驻提示，逐条列出被禁用的插件与原因，并说明安装与依赖仍在、可在「插件」页重新启用或自行卸载——卸不卸载由用户决定，壳不代劳。
+
+提示常驻而不弹窗，是因为此刻用户已经在用主界面：弹窗会打断正在进行的操作，而"插件为什么不见了、怎么恢复"必须让用户看到。用户点「知道了」后，壳把展示过的包名写进 `<启动器运行时目录>/auto-disabled-ack.json`，同一批留痕不再提示；确认按包名回传，因此展示期间 doctor 新禁用的插件仍会在下次启动提示。留痕只用于提示：文件缺失或内容损坏都按"没有留痕"处理，最多少提示一次，绝不阻断启动。
+
+读取与确认的约定在 `internal/app/autodisabled.go`，字段名与 doctor 侧（`packages/support/doctor/src/auto-disabled.ts`）对齐；`internal/app/autodisabled_test.go` 会在任何一边改动时先失败。
+
+## 文件结构
+
+```
+main.go                 Wails 入口：环境 → 控制器 → wails.Run（内嵌 frontend）
+frontend/               壳 UI：index.html / styles.css / app.js / i18n.js / locales/（无 Node 构建链）
+internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
+internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
+internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
+internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
+internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
+internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
+internal/webviewperm/   内嵌 WebView 采集权限（GTK 遍历 + permission-request 策略）
+linglong/               Linglong 构建清单 + 宿主预备脚本
+icons/hicolor/*/apps/dsh-desktop.png   hicolor icon set (16–512 RGBA rounded)
+icons/dsh-desktop.png   dev-mode fallback (256×256)
+```
+
+## 环境解析（三级回退）
+
+`appenv.Resolve()` 按优先级解析子进程命令：
+
+| 优先级 | 触发条件 | command | args |
+|---|---|---|---|
+| 1 | `DSH_DESKTOP_DSH_BIN` 已设 | `$DSH_DESKTOP_DSH_BIN` | `web --port $PORT` |
+| 2 | `$PREFIX/harness/lib/bin.js` 存在（打包态） | `$PREFIX/node/bin/node`（捆绑 Node 24，缺失时回退 PATH node） | `$PREFIX/harness/lib/bin.js web --port $PORT` |
+| 3 | `../cli/lib/bin.js` 存在（开发态，相对 CWD） | `node` | `../cli/lib/bin.js web --port $PORT` |
+
+开发态用 CWD 而非可执行文件路径推算 repo 根，因为 `go run .` 时二进制在 `/tmp/go-build...`。三级均未命中时回退为 `node bin.js web --port $PORT`（bin.js 相对 CWD）。
+
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `DSH_DESKTOP_DSH_BIN` | 未设 | 直接指定 dsh bin 路径，跳过其他解析 |
+| `DSH_DESKTOP_PORT` | 未设 | 默认保留一个空闲 loopback 端口（harness 重启复用，GUI 可重连）；显式指定则尊重，`0` 让系统选空闲端口 |
+| `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
+| `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
+| `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
+| `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于关掉 DMABUF 后 web 区域仍然花屏的机器（见已知事项） |
+| `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
+| `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
+
+## 连接外部服务
+
+服务器弹框支持两种连接模式：
+
+- **容器内**（默认）：启动并监护玲珑容器内捆绑的 harness。
+- **本机/远端服务**：连接外部 harness 服务（本机 `npx @deepseek-ai/dsh web` 或网络可达的其他机器）。切到外部模式会先停止容器内 harness；断开后自动重启容器 harness 并导航回。
+- **空闲引导页**：容器内 harness 停止且外部服务未连接时，舞台默认显示内置引导页（容器内启动、本机 npx 服务、远端连接三种方案的开箱步骤），不再停留在已失效的服务页面；服务就绪或连接成功后自动切回对应地址。
+
+连接外部服务的前提：目标 harness 需绑定可访问的接口（`dsh web --host <LAN-IP>`；`--host 0.0.0.0` 被上游有意拒绝，原因见其 CLI 提示），局域网可达或经端口转发/隧道。外部地址（非 127.0.0.1/localhost）首次连接会弹原生安全确认；上次地址记忆在 `~/.config/dsh-desktop/config.json`，打开弹框自动填充、不自动重连。
+
+## 构建与运行
+
+### 开发态
+
+```sh
+# 1. 先构建 harness（生成 apps/cli/lib/bin.js 和前端 dist）
+pnpm run build
+
+# 2. 构建启动器（Wails；Linux 用 -tags "production webkit2_41" 显式选 webkit2gtk-4.1）
+cd apps/linyaps/desktop-launcher
+make build          # 等价: go build -tags "production webkit2_41" -o dsh-desktop-launcher .
+
+# 3. 运行（命中环境解析优先级 3）
+./dsh-desktop-launcher
+```
+
+> 仓库根的 `pnpm run dev:desktop` / `pnpm run build:desktop` 仍调用裸 `go run`/`go build`（不带 `-tags "production webkit2_41"`）；Wails 栈请用 `make build` 或 `linglong/prepare-offline.sh`。根脚本与上游同步，刻意不动。
+
+### 测试
+
+```sh
+cd apps/linyaps/desktop-launcher
+go test ./...        # 单元 + mock 子进程集成测试
+node --test frontend/test-app.cjs        # 前端 DOM 桩测试
+node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性上报）
+node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
+node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
+DSH_PREVIEW_LOCALE=en node frontend/tools/preview.mjs verify  # 同一组不变量按英文文案再量一遍（英文更长）
+DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
+```
+
+前端没有构建步骤：`index.html`、`styles.css`、`app.js` 原样内嵌。`test-app.cjs` 用手写的 DOM 桩跑 `app.js`，因此看得见这些文件产生的行为，看不见它们产生的布局。`frontend/tools/preview.mjs` 补的正是桩看不到的那一层：它把 `index.html` 放进无头 Chromium 渲染，按 `app.js` 的写法回放每个弹框状态，并断言布局不变量——卡片在连接模式与运行状态之间保持同一高度、地址框保持两行预留、服务地址输入框不超过封顶；它还会打开工具链市场，用元信息行带长命令列表的卡片验证网格不横向溢出且同列等宽（`1fr` 会在这一步失败，卡片的最小内容宽度会把轨道顶出容器）；它还逐形状核对卡片的 `min-height` 档位装得下该形状的内容高——WebKitGTK 拿这个档位当行高，档位不足时内容会溢出压到下一排——并断言安装中形状的进度条轨道与卡片异色。加载页进度条也在它的量测范围内：50% 与 100% 的宽度必须与轨道一致、进度块落在舞台内、长计数保持单行且不与提示行重叠。`render` 按主题与状态各出一张截图到 `apps/linyaps/desktop-launcher/.preview`；`measure` 改为打印原始几何。Chromium 的 profile 与 `HOME`/XDG 目录落在 `apps/linyaps/desktop-launcher/.preview-cache`，每次运行新建、结束后删除：`main.go` 用显式清单嵌入随包资源（`index.html`、`app.js`、`styles.css`、`i18n.js`，以及 `locales/`、`vendor/` 两个目录），`frontend/` 下的开发文件不随包，清单与磁盘是否一致由 `main_test.go` 断言。浏览器状态与截图产物仍必须落在 `frontend/` 之外：`locales/` 与 `vendor/` 是目录模式，写进这两个目录的任何文件都会随包，而落在 `frontend/` 下的游离文件会让 `main_test.go` 失败。浏览器依次取自 `DSH_PREVIEW_BROWSER`、Playwright 缓存、`PATH`；一个都没有时工具会说明原因并正常退出，因此没装浏览器的机器照样能推送。`i18n.js` 是壳前端的国际化运行时（语言解析、字典回退、`data-i18n` 回填），`locales/` 按语言各存一份字典；`test-i18n.cjs` 只用最小 DOM 桩测这个运行时，断言不依赖 `app.js` 的弹框。
+
+市场清单有一条可选审计路径：`DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall` 默认跳过，启用后逐条版本线真实安装索引里的工具，验证地址可达、归档 sha256 与清单一致、解压布局与 `bin_rel`/`bin_names` 声明相符，以及每个声明过的命令确实出现在 `bin/`。默认覆盖每个工具的全部版本线（当前清单 43 个工具、55 条版本线，按索引声明的体积合计约 4.7 GB）。镜像站会轮换版本（Apache dlcdn 只保留当前版本，旧地址静默 404），这类腐坏只有主动审计或等用户点安装才会暴露；`DSH_TC_E2E_IDS` 可按工具 ID 收窄，`DSH_TC_E2E_VERSIONS` 可按 `<工具ID>@<版本>` 只复查某条版本线（如 `jdk@8u504`），两者同时给出时取交集。
+
+## 玲珑打包
+
+**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。
+
+**组装式两步构建**：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，容器只复制组装。规避了构建容器的环境问题（Debian npm 代理 bug、无 HOME、beige 无 Node 22、tsdown 在 Node 22 下加载配置失败），且容器不再碰仓库的 node_modules。
+
+```sh
+# 1. 宿主机构建全部产物（lib + web + dsh 闭包 + Go 启动器 -> stage/）
+#    源码改动后需重新运行
+sh apps/linyaps/desktop-launcher/linglong/prepare-offline.sh
+
+# 2. 玲珑组装打包（仓库根运行，秒级）
+ll-builder build -f apps/linyaps/desktop-launcher/linglong/linglong.yaml
+ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
+```
+
+打包要点：
+
+- `base: org.deepin.base/25.2.2`（3 段式模糊匹配 stable 仓库的 25.2.2.6；base 不接受 4 段完整版本号）
+- 运行时依赖（webkit2gtk-4.1/gtk3/libsoup3）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
+- 闭包修复（`apps/linyaps/desktop-launcher/tools/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
+- Go 启动器用 Wails 构建，须带 `-tags "production webkit2_41"`（wails 在该标签下选用 webkit2gtk-4.1）；旧的 webkit2gtk-4.0 pkg-config shim 不再需要
+- 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
+- 玲珑包版本由 prepare-offline 从 linglong.yaml 提取并注入 launcher（`-ldflags -X github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging.Version=...`）。关于弹框的事实——两个版本号、玲珑封装作者、玲珑封装（fork）与上游 DSH 两个仓库地址——统一由 `internal/packaging` 的常量与解析函数给出，`app.About()` 聚合成 `AboutInfo`，前端只负责渲染，不另写一份
+
+外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每个 `target="_blank"` 的 HTTP(S) 点击经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。「关于」弹框的两个仓库链接走同一通道。
+
+同一个桥还负责第二件事：把 iframe 内的**客户端插件加载失败**上报给壳。宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张 `Failed to load plugins` 死路页，壳却以为一切正常，用户既看不到原因也看不到诊断与安全模式入口。桥在两条通道上侦测该状态并只上报一次（`console.error` 收到以 `web boot:` 开头的文案；引导页节点出现 `Failed to load plugins` 文案），消息为 `{ dshDesktop: true, type: "boot-failed", message }`；`frontend/app.js` 转交 `ReportClientBootFailure`，Go 侧记录为快照里的 `ClientFailure`，前端据此切到自己的启动失败页（清空 iframe 地址、状态栏改「界面插件加载失败」）并复用既有的自动诊断、分级修复与安全模式链路，用户重启、停止、切安全模式或连接外部服务时清除该标记并复位诊断周期。两处上游文案因此成为判据：本包的 `linglong/test-link-bridge.cjs` 会先在这里暴露变化，真机再回归一次。
+
+桥还负责第三件事：把 GUI 的生效语言上报给壳。壳渲染的每一处文案都跟随 iframe 内 harness GUI 的语言，而 GUI 的语言由它自己的 `<html lang>` 表达（客户端 locale 服务在每次语言快照变化时同步该属性），因此桥在属性变化时、以及应用挂载完成时各上报一次 `{ dshDesktop: true, type: "locale", id }`；`frontend/app.js` 转交 `frontend/i18n.js`，壳据此切换文案并把语言回推给 Go 侧（`App.SetLocale`）。挂载后的补报不可省略：服务端 `index.html` 的默认 `lang` 恰好等于生效语言时（中文系统 + 用户在 GUI 里选英文），属性自始至终不变，只观察变化会漏掉这种组合。真源选型与分期实施见 `docs/i18n.md`。
+
+桥还负责第四件事：判断 GUI 的内容还在不在。白屏的另一种形态是文档还在、客户端内容整个不见了——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空——此时壳只看得到 iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。桥按周期检查挂载点里还有没有内容（连续为空，或引导页长时间不消失），确认后上报 `{ dshDesktop: true, type: "boot-stalled", message }`；`frontend/app.js` 收到后重载 iframe（最多两次），仍不成功才带上原因走上面的失败页链路。与第二件事的边界：第二件判"上游自己报了失败"，这一件判"上游没有报错、内容只是不出现"。
+
+## 容器可用性（工具链/挂载）
+
+- 工具链自包含：`buildext.apt.depends` 随包带入 git/python3/curl/wget/unzip/zip/jq/xxd/ca-certificates/xdg-utils/wl-clipboard；清单与校验见 `linglong/tools.yaml` 与 `verify-tools.sh`（宿主侧在 export 前校验合并产物树）。官方 `dsh` CLI（`harness/lib/bin.js`）经 `$PREFIX/bin/dsh` 薄包装暴露在容器 PATH 上（与捆绑 node/pnpm 同列），沙箱内（含 node-pty 起的 shell）可直接运行 `dsh plugin` 及全部子命令。
+- 按需安装：重/罕见工具（jdk、go、ripgrep、uv）在归档 sha256 与清单一致后装到 `$HOME/.dsh-tools`（容器内、宿主磁盘、卸载默认保留），launcher 自动注入 PATH/LD_LIBRARY_PATH；该比对是对清单的一致性校验，不是对清单的来源认证——清单自身由 `internal/toolchain/remote.go` 固定的提交哈希锚定，因此对工具市场的信任收敛为对已安装的 launcher 二进制的信任。自检面板展示可安装清单。白名单为 `linglong/tools.yaml` 的 `installable`，与运行时清单（`internal/toolchain/catalog.go`）保持同步，`verify-tools.sh` 对占位哈希直接中止构建。归档内文件名与应当暴露的命令名不一致时，清单用 `bin_names` 改名，值为空串则屏蔽该文件——避免把平台后缀名或发行包自带的辅助脚本混进 PATH。市场的分类页签与其中文标签同样取自索引：页签按清单里实际出现的分类生成，标签来自索引的 `category_labels`（客户端保留一张同内容的兜底表，供旧索引使用），因此增删工具、新增分类本身仍是纯索引工作，只是索引地址固定到提交后，发布这类索引需要改该常量并重新发客户端——这是为认证清单付出的代价。清单里跨多条大版本线的工具（jdk 8/11/17/21/25、python 3.12/3.13/3.14、php、node、cmake、dotnet、zig）在卡片上给出两个联动下拉：一级选大版本线，二级选该线内的小版本，且二级只列该线最新的小版本与其中已安装的那些——未装过的线只显示它的最新版本，单线工具则只保留二级下拉。由此未装时选要装的版本，已装后在已装版本间切换激活、按版本卸载；`versions` 的首项是推荐版本，「可更新」判定按版本号把它与当前激活版本比较（而不是字符串不等），因此顺序即语义——但只在同一大版本线内比较，更新的大版本线属于换工具链而非打补丁。更新会把推荐版本设为当前版本，被替换的旧版本保留在磁盘上，下拉里仍可切回。`linglong/tools.yaml` 的 `installable` 只登记每个工具的推荐版本，其余版本以索引为唯一事实来源，`verify-tools.sh` 的占位哈希校验也只覆盖推荐版本。
+- 宿主玲珑命令透传：容器里没有 `ll-builder`/`ll-cli`，玲珑守护进程、层仓库（宿主 `/var/lib/linglong`）与可写状态也只在宿主侧（容器 `~/.linglong` 只读）。`internal/linglonghost` 复用既有的宿主逃逸通道（`DSH_HOST_ROOTFS`/`DSH_HOST_LAUNCH`），启动时把宿主 `/usr/bin` 下的这两个命令包成 `~/.dsh-linglong/bin` 里的透传脚本（`systemd-run --user --wait`，退出码与工作目录原样带回），随后由 `appenv.ConfigureChildEnv` 注入子进程 PATH，于是模型与用户用既有 Bash 工具就能构建、导出、打包玲珑应用。包装里写的是宿主视角的绝对路径：容器内的探测路径带 `/run/host/rootfs` 前缀，把它写进包装会在宿主上 `exec: not found`。子命令白名单失败闭合——`ll-builder` 只放 build/export/run/list，`ll-cli` 只放 list/info/content/analyze/ps/search，其余（install/uninstall/upgrade/run/kill/prune/repo 与 push）一律拒绝，退出码 2 且不触达宿主；不在容器内或宿主未装玲珑时不生成包装，并清掉旧包装；某个命令不在 PATH 上就说明宿主没提供它，容器内没有替代品，如实说明即可。构建须在项目脚本预期的 `/project` 目录（本仓库即仓库根加 `-f apps/linyaps/desktop-launcher/linglong/linglong.yaml`），耗时数分钟，建议后台运行。
+- 卡片状态语义：工具链市场的「已安装/可安装」只描述市场仓库（`$HOME/.dsh-tools`）里的版本目录，与容器内命令可用性相互独立。仓库未装但容器 PATH 已有同名命令（随包/宿主导入/系统提供）时，卡片显示「容器内已可用：命令 版本（来源）」；来源按命令解析路径前缀归类（`internal/app/app.go` 的 `classifyRuntimeSource`），探测与组装分别在 `internal/toolchain/check.go`（`ProbeCommands`）与 `annotateRuntime`。
+- 代理：linyaps 默认转发宿主 `http_proxy/https_proxy/all_proxy`；公司私有 CA 追加到容器可写区并 `update-ca-certificates`。
+
+## 剪贴板图片桥接
+
+打包壳把 harness UI 嵌在 WebKitGTK iframe 内。与 Chromium 不同，WebKitGTK
+不会把剪贴板位图交给页面：粘贴截图时 `clipboardData` 里没有图片条目，
+拖拽图片文件还会把整个帧导航走；文本（包括粘贴的路径）正常，图片不行。
+
+缓解方案保留 WebKitGTK 渲染器：壳进程自行读取剪贴板里的图片，把 base64 PNG
+通过既有的 `{ dshDesktop: true }` postMessage 协议交给页面。
+
+- Go：`internal/clipboard` 依次尝试 X11 CLIPBOARD、X11 PRIMARY、X11
+  `text/uri-list`、Wayland 位图、Wayland `text/uri-list`。X11 通道是自实现的
+  wire 客户端（无 cgo、无外部工具），目标 X server 由会话的 `DISPLAY` 推导
+  （X11 会话是 `:0`，Wayland 会话是 XWayland 的 `:1`），支持 INCR、超时与体积
+  上限；Wayland 通道交给随包的 `wl-paste`。两条通道都覆盖两种来源：剪贴板上
+  直接是位图（`image/*`），或只是图片文件的 URI（`text/uri-list` /
+  `x-special/gnome-copied-files`——在文管里复制图片文件时给的就是后者，一个
+  `image/*` 都没有），后者按 URI 读盘；容器把 `/home`、`/media`、`/mnt` 按宿主
+  同路径绑定挂载，因此无需路径映射。`App.ReadClipboardImage()`（Wails 绑定）
+  返回 base64 或空串。
+- Wayland 侧持有的 selection 只能靠 `wl-paste`：实测 XWayland 不把 Wayland 侧的
+  `image/png` 桥接成 X11 selection（同一张 PNG，`wl-paste` 读得到，X11
+  `CLIPBOARD`/`PRIMARY` 读到 0 字节）；XWayland 客户端持有的 selection 仍走
+  X11 通道。因此 `wl-clipboard` 随包合入 `${PREFIX}/bin`（`tools.yaml` 的
+  `wl-paste` 项），不依赖宿主是否装过。
+- 壳前端（`frontend/app.js`）：应答 harness iframe 的
+  `clipboard-read-image` 请求，回发 `clipboard-image-result`。
+- harness UI（`packages/client/ui-conversation`）：`desktop-clipboard.ts`
+  封装请求；`InputBar` 在 paste 事件没有图片条目时改向壳取图，并提供
+  “从剪贴板取图”工具按钮。两者仅在壳 iframe 内生效——普通浏览器标签页
+  保持原生 Chromium 路径不变。
+
+## 已知事项
+
+- **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。再设 `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 会进一步彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），适用于关掉 DMABUF 后 web 区域仍然花屏的机器；代价是滚动与动画走 CPU。
+- **GUI 整块空白时壳自动重载 iframe**：容器内 harness 的 GUI 是 iframe 里的另一份文档，它可能整块变白，而壳自己的标题栏与状态栏照常渲染——用户看到的就是「只有 harness 区域白」。壳按每秒状态快照计数：约 25 秒收不到桥的挂载握手（或桥发现挂载点连续为空、引导页长时间不消失）就自动重载 iframe，最多两次；仍不成功则切到既有失败页并触发诊断。重载只动 iframe、不重启 harness，因此不会打断正在跑的任务；手动恢复入口仍是服务器弹框里的「重启服务」。

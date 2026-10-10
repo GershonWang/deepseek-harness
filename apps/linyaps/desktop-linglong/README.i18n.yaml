@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/linyaps/desktop-linglong/README.md
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle:
+  en: 503f2221d592e1b1
+  zh: e748778fee3656b9
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle/what-this-module-produces:
+  en: 40f9a204fa766c85
+  zh: d62cf493b4d66ffb
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle/why-the-upstream-packaging-entry-is-not-reused:
+  en: d8222a1f1b52bb3c
+  zh: c2b80ef03a6efedc
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle/building:
+  en: 62e5778eea63ae02
+  zh: 950a06f2b7af1090
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle/upstream-changes-this-module-depends-on:
+  en: b46ee351f11cbe93
+  zh: 361d16f49fcee7a5
+/deepseek-harness-official-desktop-client-as-a-linglong-bundle/known-limits:
+  en: c3a954567a725227
+  zh: 671c1725eb97a9b5

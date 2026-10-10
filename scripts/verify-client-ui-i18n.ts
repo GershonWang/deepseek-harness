@@ -52,7 +52,7 @@ const IMMUTABLE_LANGUAGE_TOKENS = new Set([
 ])
 const LOCALE_KEY = /^[a-z][a-zA-Z0-9]*(?:[._-][a-zA-Z0-9]+)+$/
 /** 带壳前端：无打包器的纯 JS + HTML，文案的唯一归属地是 `frontend/locales/*.js`。 */
-const LAUNCHER_SHELL = /^apps\/desktop-launcher\/frontend\//
+const LAUNCHER_SHELL = /^apps\/linyaps\/desktop-launcher\/frontend\//
 /** CJK 统一表意文字：带壳前端里出现即文案（英文数据与字典键都是 ASCII）。 */
 const CJK_TEXT = /[\u3000-\u303f\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/u
 
@@ -412,7 +412,7 @@ function sourceFiles(): string[] {
     ...globSync('apps/desktop/renderer/*.js', { cwd: root }),
     // 带壳前端：只含 app.js / i18n.js / index.html；测试桩（*.cjs）、预览工具
     // （tools/*.mjs）与字典（locales/*.js，经 localeOwner 排除）不在此列。
-    ...globSync('apps/desktop-launcher/frontend/*.{js,html}', { cwd: root }),
+    ...globSync('apps/linyaps/desktop-launcher/frontend/*.{js,html}', { cwd: root }),
   ])]
     .map(file => file.replaceAll('\\', '/'))
     .filter(file => !file.endsWith('.d.ts'))

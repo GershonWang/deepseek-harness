@@ -1,0 +1,68 @@
+version: "1"
+package:
+  id: com.deepseek.dsh-desktop
+  name: deepseek-harness-desktop
+  version: 0.1.5.3
+  kind: app
+  description: |
+    DeepSeek Harness 桌面客户端。
+    以受监护子进程方式运行 harness，通过系统 webkit2gtk 窗口加载其 Web GUI。
+
+command:
+  - /opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-launcher
+
+base: org.deepin.base/25.2.2
+
+# 组装式构建：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，
+# 先在仓库根运行 sh apps/linyaps/desktop-launcher/linglong/prepare-offline.sh
+# 生成 stage/ 产物，本脚本只在容器内复制组装。
+# 源码改动后需重新运行 prepare-offline.sh。
+build: |
+  # 容器内安装的全部步骤都在脚本里（与双客户端包共用同一份）。
+  sh /project/apps/linyaps/desktop-launcher/linglong/install-shell-runtime.sh \
+    /project/apps/linyaps/desktop-launcher/linglong/stage
+buildext:
+  apt:
+    build_depends:
+      - libwebkit2gtk-4.1-0
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libjavascriptcoregtk-4.1-0
+      - libgtk-3-0
+      - libglib2.0-0
+      # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
+      # /usr 不随 layer 导出；因此文泉驿微米黑由 build 段从 .deb 里自行解出后随包
+      # （见上面 CJK_PKG 段），既不新增 build_depends，也不触碰
+      # verify-container-deps.sh 的 /usr `*.dpkg-new` 全局扫描（AUDIT N26）。
+      # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
+      # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
+      # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
+      # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
+      - git
+      # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
+      # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
+      - git-lfs
+      # 层1 工具链自包含:随包工具与其运行时依赖。
+      # 注意：不带 python3-pip —— pip 的 Recommends(build-essential + python3-dev)
+      # 会经 apt 拉进完整 gcc-12 编译器（cc1/cc1plus/lto1 + 静态库，约 121 MB）
+      # 与 python3-dev 头文件/静态库（约 46 MB）。运行时不需要编译能力，pip 由
+      # L2 工具链（~/.dsh-tools 热插拔 python，自带 pip）提供，避免 ~167 MB 浪费。
+      - python3
+      - curl
+      - wget
+      - unzip
+      - zip
+      - jq
+      - xxd   # 独立二进制包;beige/noble 的 vim-common 已不含 xxd
+      - ca-certificates   # git/https/python 校验
+      # 打开外部链接需要真实的 xdg-open：基础运行时的 /bin/xdg-open 只是个
+      # systemd-run 转发壳（实测递归失败，打不开任何东西）。随包合并真实的
+      # xdg-utils（deepin fork）到 ${PREFIX}/bin（容器 PATH 首位，盖过该壳），
+      # 由其在 XDG_CURRENT_DESKTOP=DDE 下经宿主 portal 打开本机默认浏览器。
+      - xdg-utils
+      # Wayland 会话下的粘贴图片只能经 Wayland 剪贴板拿到：实测 XWayland 不把
+      # Wayland 侧的 image/png 暴露成 X11 selection（同一张 12420 字节 PNG，
+      # wl-paste 读到 12453 字节，X11 CLIPBOARD/PRIMARY 读到 0 字节）。宿主、
+      # 基础运行时与产物层三处都没有 wl-clipboard，不随包则 readWaylandImage
+      # 找不到 wl-paste，截图粘贴静默失效。合并进 ${PREFIX}/bin（容器 PATH 上）。
+      - wl-clipboard
