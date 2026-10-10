@@ -24,7 +24,8 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const ROOT = resolve(HERE, '..', '..', '..')
+// 仓库根：<root>/apps/linyaps/desktop-launcher/linglong → 四层。
+const ROOT = resolve(HERE, '..', '..', '..', '..')
 const require = createRequire(join(ROOT, 'package.json'))
 const yaml = require('js-yaml')
 

@@ -20,8 +20,10 @@ if (!harnessDir) {
   process.exit(1)
 }
 
-// apps/cli 的 node_modules 路径（deploy root 的 workspace node_modules）
-const cliNodeModules = join(import.meta.dirname, '..', 'apps', 'cli', 'node_modules')
+// workspace 成员 apps/cli 的 node_modules（deploy root 的依赖来源）。
+// 必须从本文件位置爬到仓库根再进 apps/cli：写成 '..' 一层会落到模块自己的目录里，
+// 那条路径永远不存在，只在「目的地里缺依赖」这条罕见分支上才暴露。
+const cliNodeModules = join(import.meta.dirname, '..', '..', '..', 'apps', 'cli', 'node_modules')
 
 /**
  * 递归查找 node_modules/<scope>/<name> 目录。

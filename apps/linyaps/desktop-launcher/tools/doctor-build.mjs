@@ -29,7 +29,8 @@ import { fileURLToPath } from 'node:url'
 
 const toolsDir = dirname(fileURLToPath(import.meta.url))
 const launcherDir = resolve(toolsDir, '..')
-const repoRoot = resolve(launcherDir, '..', '..')
+// 仓库根：<root>/apps/linyaps/desktop-launcher/tools → 四层。
+const repoRoot = resolve(launcherDir, '..', '..', '..')
 const doctorDir = join(launcherDir, 'doctor')
 const doctorTsconfig = join(doctorDir, 'tsconfig.json')
 

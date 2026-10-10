@@ -25,7 +25,8 @@ import { fileURLToPath } from 'node:url'
 
 const toolsDir = dirname(fileURLToPath(import.meta.url))
 const launcherDir = resolve(toolsDir, '..')
-const repoRoot = resolve(launcherDir, '..', '..')
+// 仓库根：<root>/apps/linyaps/desktop-launcher/tools → 四层。
+const repoRoot = resolve(launcherDir, '..', '..', '..')
 const doctorDir = join(launcherDir, 'doctor')
 
 /**
@@ -87,9 +88,13 @@ for (const name of Object.keys(manifest.dependencies ?? {})) {
   }
   const linkPath = join(doctorDir, 'node_modules', name)
   mkdirSync(dirname(linkPath), { recursive: true })
-  if (existsSync(linkPath)) {
-    const current = lstatSync(linkPath)
-    const pointsAtTarget = current.isSymbolicLink()
+  // 用 lstat 而不是 existsSync 判断「这里有没有东西」：existsSync 会跟随符号链接，
+  // 指向已不存在目标的断链会被判成「不存在」，于是既不匹配目标也不被删除，
+  // 紧接着的 symlinkSync 直接 EEXIST。模块目录整体搬动之后旧链接必然指向错位置，
+  // 正好落在这条路径上。
+  const existing = lstatSync(linkPath, { throwIfNoEntry: false })
+  if (existing !== undefined) {
+    const pointsAtTarget = existing.isSymbolicLink()
       && resolve(dirname(linkPath), readlinkSync(linkPath)) === resolve(target)
     if (pointsAtTarget) {
       reused += 1
