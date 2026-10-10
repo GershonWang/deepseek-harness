@@ -241,10 +241,13 @@ fi
 echo ""
 echo "==> 清理完成"
 echo ""
+# 提示指向聚合入口而不是本模块的构建命令：本脚本是三个模块共用的清理实现，会被
+# desktop-linglong 与 desktop-dual 的包装脚本以相同参数调用。写死 launcher 的构建命令
+# 会让「清理 dual 之后」的提示指向另一个模块，用户照着做就会打错包。
 if [ "$DEEP" = true ]; then
   echo "下一步:"
   echo "  1. pnpm install"
-  echo "  2. sh apps/linyaps/desktop-launcher/build-linglong.sh"
+  echo "  2. sh apps/linyaps/build-linglong.sh <web|official|dual>"
 else
-  echo "下一步: sh apps/linyaps/desktop-launcher/build-linglong.sh"
+  echo "下一步: sh apps/linyaps/build-linglong.sh <web|official|dual>"
 fi
