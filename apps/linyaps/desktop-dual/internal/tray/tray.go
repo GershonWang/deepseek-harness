@@ -156,28 +156,37 @@ func (c *Client) Register() error {
 	}
 
 	name := fmt.Sprintf("%s-%d-1", sniInterface, os.Getpid())
+	// AlreadyOwner 也算成功：上面任何一步失败后我们可能仍持有这个名字（只有所有步骤
+	// 走完才由 releaseLocked 释放），此时重试必须能继续，否则重试循环会永远卡在
+	// 「name is already owned」上，托盘再也不出现。
 	if reply, err := c.conn.RequestName(name, dbus.NameFlagDoNotQueue); err != nil {
 		return fmt.Errorf("tray: requesting %s: %w", name, err)
-	} else if reply != dbus.RequestNameReplyPrimaryOwner {
-		return fmt.Errorf("tray: %s is already owned", name)
+	} else if reply != dbus.RequestNameReplyPrimaryOwner && reply != dbus.RequestNameReplyAlreadyOwner {
+		return fmt.Errorf("tray: requesting %s: unexpected reply %v", name, reply)
+	}
+	// 后续任一步失败都要把名字还回去：留着一个已持有但未注册生效的名字，会让下一次
+	// 重试与「另一个实例正在运行」无法区分。
+	fail := func(err error) error {
+		_, _ = c.conn.ReleaseName(name)
+		return err
 	}
 
 	it := &item{client: c, name: name}
 	it.menu = newMenuObject(it)
 	if err := c.conn.Export(it, itemPath, sniInterface); err != nil {
-		return fmt.Errorf("tray: exporting %s: %w", sniInterface, err)
+		return fail(fmt.Errorf("tray: exporting %s: %w", sniInterface, err))
 	}
 	if err := c.conn.Export(it.menu, menuPath, menuInterface); err != nil {
-		return fmt.Errorf("tray: exporting %s: %w", menuInterface, err)
+		return fail(fmt.Errorf("tray: exporting %s: %w", menuInterface, err))
 	}
 
 	props, err := prop.Export(c.conn, itemPath, it.properties())
 	if err != nil {
-		return fmt.Errorf("tray: exporting SNI properties: %w", err)
+		return fail(fmt.Errorf("tray: exporting SNI properties: %w", err))
 	}
 	it.props = props
 	if _, err := prop.Export(c.conn, menuPath, it.menu.properties()); err != nil {
-		return fmt.Errorf("tray: exporting dbusmenu properties: %w", err)
+		return fail(fmt.Errorf("tray: exporting dbusmenu properties: %w", err))
 	}
 	c.item = it
 	it.refreshLocked()
