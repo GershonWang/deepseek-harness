@@ -16,7 +16,6 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	"github.com/wailsapp/wails/v2/pkg/options/linux"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/app"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/appenv"
