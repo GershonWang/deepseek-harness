@@ -15,6 +15,11 @@ LL_ID=$(grep -oP '^\s+id: \K[0-9a-zA-Z.-]+' "$YAML" | head -1)
 LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' "$YAML" | head -1)
 echo "==> 目标玲珑包: $LL_ID $LL_VERSION"
 
+# 导出树整棵上限。薄壳版那份断言默认 1 GiB，本包在同一棵树里多带一整套官方 Electron
+# 运行时，必然超过它，因此整棵这一项按包分档；其余内容断言（该在的、不该在的、lib 单项
+# 上限）仍与薄壳版共用同一份脚本。阈值口径同薄壳版：实测值 + 约 15% 余量。
+MAX_TREE_UNIFIED=$((2300 * 1024 * 1024))
+
 if [ "${1:-}" = "--no-prepare" ]; then
   echo "==> 跳过 prepare-offline(复用现有 stage/)"
 else
@@ -52,6 +57,13 @@ fi
 # 复用薄壳版的日志校验：它把未豁免的 'failed to copy' 判为失败。本包内含薄壳版，
 # webkit 那条豁免规则正是为它准备的；Electron 侧的共享库告警不受豁免，同样会被拦下。
 sh apps/linyaps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
+
+# 后处理与断言与薄壳版共用同一份脚本（裁剪编译器、修复断链、校验依赖实体与工具清单、断言
+# 体积），只有整棵上限按包分档。共用这段编排是必须的：本包此前漏掉了它，打出的包带着约
+# 140 MB 编译器工具链，且 libblas/liblapack 断链让 GStreamer 的 FFmpeg 后端静默加载失败
+# （实测容器内 ldd 报 libblas.so.3 => not found）。
+echo "==> 后处理导出树（裁剪、断链修复、依赖与体积断言）"
+sh apps/linyaps/desktop-launcher/linglong/postprocess-export-tree.sh linglong/output/binary/files "$MAX_TREE_UNIFIED"
 
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 

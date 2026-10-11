@@ -55,36 +55,13 @@ if [ "$BUILD_STATUS" -ne 0 ]; then
   exit 1
 fi
 sh apps/linyaps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
-echo "==> 清理 gcc 编译工具链（保留运行时库，减约 140 MB）"
-sh apps/linyaps/desktop-launcher/linglong/prune-gcc-toolchain.sh linglong/output/binary/files
-# depends 的合并发生在 build: 段之后，alternatives 断链那时才出现，所以修复必须在这里做，
-# 不能放进 build: 段（放进去会因为链接尚不存在而空转，且没有任何报错）。
-# 修复必须排在下面的校验之前：校验断言的正是修复后的状态。
-echo "==> 修复 depends 合并带进来的 alternatives 断链"
-sh apps/linyaps/desktop-launcher/linglong/repair-alternatives-links.sh linglong/output/binary/files
-echo "==> 校验 depends 实体是否真的进了合并产物树（容器内看不到它们）"
-if sh apps/linyaps/desktop-launcher/linglong/verify-merged-deps.sh linglong/output/binary/files; then
-  echo "==> depends 实体校验通过"
-else
-  echo "==> ✗ depends 实体校验失败：产物与 buildext.apt 声明不符，中止导出" >&2
-  exit 1
-fi
-echo "==> 校验合并产物树工具清单（含 git-core helper，launcher 以 GIT_EXEC_PATH 指回它）"
-if sh apps/linyaps/desktop-launcher/linglong/verify-tools.sh linglong/output/binary/files; then
-  echo "==> 工具清单校验通过"
-else
-  echo "==> ⚠ 工具清单校验有失败项，继续导出（不影响包功能）" >&2
-fi
-# 裁剪（lib/gcc、node/include）此前只有脚本自觉、没有断言：脚本因上游布局变化而空转时，
-# 产物凭空大几十 MB 而构建照常成功；lib/x86_64-linux-gnu 的膨胀也完全没有上限。
-# 这里把「不该有的、该有的、体积上限」写成导出前的硬条件（AUDIT 9/10）。
-echo "==> 校验导出树的体积与内容"
-if sh apps/linyaps/desktop-launcher/linglong/verify-artifact-size.sh linglong/output/binary/files; then
-  echo "==> 体积与内容断言通过"
-else
-  echo "==> ✗ 体积与内容断言失败：产物与裁剪/组装预期不符，中止导出" >&2
-  exit 1
-fi
+
+# 后处理与断言与双客户端包共用同一份脚本（裁剪编译器、修复断链、校验依赖实体与工具清单、
+# 断言体积），整棵上限留空即用薄壳版的默认值。两个包各留一份编排，正是双客户端包漏掉裁剪
+# 与断链修复的成因——那段编排只应该有一份。
+echo "==> 后处理导出树（裁剪、断链修复、依赖与体积断言）"
+sh apps/linyaps/desktop-launcher/linglong/postprocess-export-tree.sh linglong/output/binary/files
+
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
 ART="${LL_ID}_${LL_VERSION}_x86_64_main.uab"

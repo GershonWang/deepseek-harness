@@ -16,15 +16,18 @@
 # 体积用 `du -sb`（表观字节数）而非 `du -sh`：后者按块大小取整，不同文件系统会得到
 # 不同数字，无法作为稳定判据。
 #
-# 用法: verify-artifact-size.sh <merged-prefix>
+# 用法: verify-artifact-size.sh <merged-prefix> [整棵上限字节]
 set -eu
 
-PREFIX=${1:?usage: verify-artifact-size.sh <merged-prefix>}
+PREFIX=${1:?usage: verify-artifact-size.sh <merged-prefix> [max-tree-bytes]}
 
 # 2026-10-07 实测（0.1.5.1 导出树）：整棵 937,166,505 B（893 MiB），
 # lib/x86_64-linux-gnu 304,866,155 B（290 MiB）。
 MAX_LIB_X86=$((340 * 1024 * 1024))
-MAX_TREE=$((1024 * 1024 * 1024))
+# 整棵上限允许调用方覆盖：双客户端包（com.deepseek.dsh-desktop）在同一棵树里还带着官方
+# Electron 客户端，必然超过薄壳版的上限，而两包共用同一份内容断言（该在的、不该在的、
+# lib 单项上限）才有意义——各写一份等于放弃其中一份的维护。只有整棵这一项按包分档。
+MAX_TREE=${2:-$((1024 * 1024 * 1024))}
 
 fail=0
 
