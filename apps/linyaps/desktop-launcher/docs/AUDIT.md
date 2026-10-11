@@ -21,7 +21,7 @@
 
 - 分支 `linglong`，HEAD `220bb0610a`（2026-10-08），玲珑包 `0.1.5.2`。
 - 产物证据取自交付层 `~/.cache/linglong-builder/merged/8c11d079…/files`（2026-10-07）、仓库根 `linglong/` 的构建工作区与 `apps/linyaps/desktop-launcher/linglong/stage/`。`8c11d079` 与上一版 `acbfe51b` 的 `lib/x86_64-linux-gnu` 体积与条目数一致（同为 304,866,155 B、180 个普通文件 + 172 条软链）。
-- **环境限制**：本次复核时宿主已提供 `ll-builder`／`ll-cli`（实测在 PATH，来自 `~/.dsh-linglong/bin` 的宿主透传），`make` 与 `gcc` 仍缺。除静态复核外，已在本机真跑：`DSH_TC_E2E=1` 的清单审计（php 全部 3 条、jdk 全部 5 条版本线，含全部非推荐版本）、两次 `prepare-offline.sh` 注入阶段（建立基线、比对一致）、以及字体随包用的 `dpkg-deb -x` 抽取与族名核验（用真实 `fonts-wqy-microhei_0.2.0-beta-3.1_all.deb`，解出的 5,177,387 字节实体与构建容器 overlay 里的逐字节一致）。未跑的是真实 `ll-builder build`／安装／GUI 启动（沙箱缺 gcc 与 GTK 开发库，launcher 二进制的 cgo 构建起不来）——涉及容器与真机行为的结论仍以本机闭环为准；8/13 的裁剪实测同样待真实构建。
+- **环境限制**：本次复核时宿主已提供 `ll-builder`／`ll-cli`（实测在 PATH，来自 `~/.config/dsh-desktop/linglong-bin` 的宿主透传），`make` 与 `gcc` 仍缺。除静态复核外，已在本机真跑：`DSH_TC_E2E=1` 的清单审计（php 全部 3 条、jdk 全部 5 条版本线，含全部非推荐版本）、两次 `prepare-offline.sh` 注入阶段（建立基线、比对一致）、以及字体随包用的 `dpkg-deb -x` 抽取与族名核验（用真实 `fonts-wqy-microhei_0.2.0-beta-3.1_all.deb`，解出的 5,177,387 字节实体与构建容器 overlay 里的逐字节一致）。未跑的是真实 `ll-builder build`／安装／GUI 启动（沙箱缺 gcc 与 GTK 开发库，launcher 二进制的 cgo 构建起不来）——涉及容器与真机行为的结论仍以本机闭环为准；8/13 的裁剪实测同样待真实构建。
 - 行号以该基点为准，代码改动后会漂移；按函数名/符号名定位比按行号可靠。
 
 ## 状态与验证等级

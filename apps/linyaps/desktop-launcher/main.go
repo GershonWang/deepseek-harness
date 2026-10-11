@@ -62,10 +62,14 @@ func runClient() {
 	}
 	// 宿主玲珑工具链：容器里没有 ll-builder/ll-cli，宿主的玲珑守护进程、层仓库
 	// (/var/lib/linglong) 与可写状态目录也只在宿主侧，因此把它们以透传包装的形式放到
-	// ~/.dsh-linglong/bin，紧随其后的 ConfigureChildEnv 把该目录注入子进程 PATH——
-	// 模型用既有的 Bash 工具就能构建与打包玲珑应用。
+	// ~/.config/dsh-desktop/linglong-bin，紧随其后的 ConfigureChildEnv 把该目录注入
+	// 子进程 PATH——模型用既有的 Bash 工具就能构建与打包玲珑应用。
 	// 非玲珑容器（开发态直接在宿主上跑）或宿主未装玲珑时探测结果为空，旧包装会被清掉，
 	// 不拦启动。
+	//
+	// 旧落点（~/.dsh-linglong）在换点后不会再被更新或删除，无条件清理一次：宿主开发态
+	// 没有宿主逃逸通道，同样不该在用户家目录里留下那份残留。
+	linglonghost.PruneLegacy(home)
 	if fact, ok := appenv.HostEscape(); ok {
 		if n, err := linglonghost.Ensure(home, fact.Rootfs); err != nil {
 			log.Printf("玲珑宿主工具链包装未启用: %v", err)

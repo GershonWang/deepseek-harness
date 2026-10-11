@@ -173,7 +173,7 @@ var allowedChinese = map[string][]string{
 `,
 	},
 	"internal/linglonghost/linglonghost.go": {
-		// 写进 ~/.dsh-linglong/bin 的包装脚本内容：注释面向随后读这个脚本的人，
+		// 写进 ~/.config/dsh-desktop/linglong-bin 的包装脚本内容：注释面向随后读这个脚本的人，
 		// 拒绝提示面向容器里敲命令的人。包装是磁盘上的生成物，内容必须与客户端界面
 		// 语言无关（同一份脚本会被反复覆盖写入，按语言变化会让文件内容随界面漂移），
 		// 界面里也不会出现这些字符串。

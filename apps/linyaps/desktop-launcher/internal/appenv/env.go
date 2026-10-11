@@ -389,7 +389,7 @@ func setenvIfUnset(key, value string) {
 }
 
 // ConfigureChildEnv 设置子进程（harness 及其后代）需要的环境变量。
-// PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 玲珑宿主包装(~/.dsh-linglong/bin) >
+// PATH 优先级：宿主挂载(/opt/host-tools/*/bin) > 玲珑宿主包装(~/.config/dsh-desktop/linglong-bin) >
 // 按需安装(~/.dsh-tools/bin) > 现有 PATH。
 //
 // 玲珑宿主包装排在按需安装之前是刻意的：它透传的是宿主那份 ll-builder/ll-cli，而玲珑

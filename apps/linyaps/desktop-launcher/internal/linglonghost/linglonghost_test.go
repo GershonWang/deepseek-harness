@@ -157,7 +157,7 @@ func TestEnsure_PrunesStaleWrappersAndEmptyDir(t *testing.T) {
 	if err != nil || n != 0 {
 		t.Fatalf("Ensure = (%d, %v), 预期 (0, nil)", n, err)
 	}
-	if _, err := os.Stat(filepath.Join(home, dirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(WrapperDir(home)); !os.IsNotExist(err) {
 		t.Fatalf("包装目录应被删除, stat err = %v", err)
 	}
 }
@@ -184,6 +184,77 @@ func TestEnsure_KeepsForeignFilesInWrapperDir(t *testing.T) {
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("不该删除非本包生成的文件 %s: %v", path, err)
 		}
+	}
+}
+
+// TestEnsure_KeepsConfigDirWithForeignFiles 覆盖换点后最危险的一条：包装目录的父目录是
+// 客户端配置目录（住着 config.json/switch.json）。清理包装只能删包装子目录本身，
+// 探测为空时也绝不能向上删到配置目录。
+func TestEnsure_KeepsConfigDirWithForeignFiles(t *testing.T) {
+	home := t.TempDir()
+	configFile := filepath.Join(home, ".config", configDirName, "config.json")
+	if err := os.MkdirAll(filepath.Dir(configFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configFile, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := Ensure(home, fakeHostRootfs(t, "ll-builder")); err != nil || n != 1 {
+		t.Fatalf("Ensure = (%d, %v), 预期 (1, nil)", n, err)
+	}
+	// 宿主玲珑消失：包装子目录清掉，配置目录与配置文件必须原样在。
+	if n, err := Ensure(home, t.TempDir()); err != nil || n != 0 {
+		t.Fatalf("Ensure = (%d, %v), 预期 (0, nil)", n, err)
+	}
+	if _, err := os.Stat(WrapperDir(home)); !os.IsNotExist(err) {
+		t.Fatalf("包装子目录应被删除, stat err = %v", err)
+	}
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		t.Fatalf("配置目录/文件不该被删除: %v", err)
+	}
+	if string(data) != "{}\n" {
+		t.Fatalf("配置文件内容被改动: %q", data)
+	}
+}
+
+// TestPruneLegacy_RemovesGeneratedWrappers 覆盖换点后的一次性清理：旧落点里本包生成的
+// 包装与随之变空的目录要被清掉，用户自己放进去的内容一律保留。
+func TestPruneLegacy_RemovesGeneratedWrappers(t *testing.T) {
+	home := t.TempDir()
+	legacyBin := filepath.Join(home, legacyDirName, legacyBinDirName)
+	if err := os.MkdirAll(legacyBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	generated := filepath.Join(legacyBin, "ll-builder")
+	writeGenerated := func() {
+		t.Helper()
+		content := script(Command{Name: "ll-builder", HostPath: "/usr/bin/ll-builder", Allow: []string{"build"}})
+		if err := os.WriteFile(generated, []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeGenerated()
+	PruneLegacy(home)
+	if _, err := os.Stat(filepath.Join(home, legacyDirName)); !os.IsNotExist(err) {
+		t.Fatalf("旧落点变空后应连目录一起删除, stat err = %v", err)
+	}
+
+	// 目录里还有用户自己的东西时：目录保留、用户文件保留，只有带 marker 的被删。
+	if err := os.MkdirAll(legacyBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(legacyBin, "mine")
+	if err := os.WriteFile(foreign, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeGenerated()
+	PruneLegacy(home)
+	if _, err := os.Stat(generated); !os.IsNotExist(err) {
+		t.Fatalf("带 marker 的旧包装应被删除, stat err = %v", err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Fatalf("用户自己的文件不该被删除: %v", err)
 	}
 }
 
@@ -288,7 +359,7 @@ func TestWrapper_RealHostLinglongInsideContainer(t *testing.T) {
 	if len(available) == 0 {
 		t.Skip("宿主上没有可用的玲珑命令")
 	}
-	// 用临时 home，不碰真实的 ~/.dsh-linglong。
+	// 用临时 home，不碰真实的用户配置目录。
 	home := t.TempDir()
 	if n, err := Ensure(home, realHostRootfs); err != nil || n != len(available) {
 		t.Fatalf("Ensure = (%d, %v), 预期 (%d, nil)", n, err, len(available))
