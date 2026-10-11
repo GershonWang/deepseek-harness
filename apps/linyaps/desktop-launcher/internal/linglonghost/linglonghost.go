@@ -58,17 +58,20 @@ type Command struct {
 
 // commands 是本包包装的命令集合，顺序稳定（测试与日志依赖它）。
 //
-// 白名单是安全不变式，只列不改宿主状态的子命令，且失败闭合：白名单之外、或第一个
-// 非选项参数之外的写法一律拒绝。需要放开某项时改这里，不要在包装脚本里另写判断。
-//   - ll-builder：开发-测试-打包主链路（构建、导出、本地运行、列出已构建应用）。
-//     push 会推送远程仓库、repo 会改仓库配置、clean/remove/import/extract 会改本地
-//     构建仓库，都不放。
-//   - ll-cli：只读查询。install/uninstall/upgrade 会改宿主已装应用，run/enter/kill
-//     会在宿主启动或干预应用，prune 会删宿主的 base/runtime，repo 会改仓库配置，
-//     一律拒绝。
+// 白名单是安全不变式，且失败闭合：白名单之外、或第一个非选项参数之外的写法一律拒绝。
+// 需要放开某项时改这里，不要在包装脚本里另写判断。放行面覆盖日常开发全链路（建模板、
+// 构建、运行、导出、安装、卸载、升级与查询），只保留会越出本机局部状态的三类：
+//   - ll-builder push 推送远程仓库：外部可见动作，且需要凭据。
+//   - ll-builder repo 与 ll-cli repo 改写仓库配置：影响后续所有安装与更新。
+//   - ll-cli prune 删除宿主的 base/runtime：宿主上其它玲珑应用可能依赖它们。
 var commands = []Command{
-	{Name: "ll-builder", Allow: []string{"build", "export", "run", "list"}},
-	{Name: "ll-cli", Allow: []string{"list", "info", "content", "analyze", "ps", "search"}},
+	{Name: "ll-builder", Allow: []string{
+		"create", "build", "run", "list", "remove", "export", "import", "extract", "clean",
+	}},
+	{Name: "ll-cli", Allow: []string{
+		"run", "ps", "enter", "kill", "install", "uninstall", "upgrade",
+		"list", "analyze", "info", "content", "search",
+	}},
 }
 
 // WrapperDir 返回包装目录（<home>/.config/dsh-desktop/linglong-bin）。

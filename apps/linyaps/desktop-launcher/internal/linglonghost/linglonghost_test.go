@@ -269,11 +269,10 @@ func TestWrapper_RejectsSubcommandOutsideWhitelist(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"ll-cli", []string{"ll-cli", "install", "x.uab"}},
-		{"ll-cli", []string{"ll-cli", "--json", "upgrade"}},
-		{"ll-cli", []string{"ll-cli", "repo", "add", "https://example.invalid"}},
+		{"ll-cli", []string{"ll-cli", "prune"}},
+		{"ll-cli", []string{"ll-cli", "--json", "repo", "add", "https://example.invalid"}},
 		{"ll-builder", []string{"ll-builder", "push"}},
-		{"ll-builder", []string{"ll-builder", "clean"}},
+		{"ll-builder", []string{"ll-builder", "repo", "add", "https://example.invalid"}},
 	} {
 		out, err := runWrapper(t, home, binDir, record, tc.args...)
 		if err == nil {
@@ -305,7 +304,13 @@ func TestWrapper_PassesAllowedCallsToHostLauncher(t *testing.T) {
 		{"ll-cli", "--json", "info", "com.deepseek.dsh-desktop"},
 		{"ll-cli", "info", "含 空格 的 id"},
 		{"ll-cli", "--version"},
+		{"ll-cli", "install", "/tmp/example.uab"},
+		{"ll-cli", "uninstall", "com.example.app"},
+		{"ll-cli", "upgrade", "com.example.app"},
+		{"ll-cli", "kill", "com.example.app"},
 		{"ll-builder", "build", "-f", "linglong.yaml"},
+		{"ll-builder", "create"},
+		{"ll-builder", "clean"},
 	} {
 		if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)
@@ -391,8 +396,10 @@ func TestWrapper_RealHostLinglongInsideContainer(t *testing.T) {
 		if out, err := run("ll-cli", "list"); err != nil {
 			t.Fatalf("ll-cli list 未能在宿主上执行: err=%v out=%q", err, out)
 		}
-		if out, err := run("ll-cli", "install", "x.uab"); err == nil || !strings.Contains(out, "只允许") {
-			t.Fatalf("ll-cli install 应被白名单拒绝: err=%v out=%q", err, out)
+		// 保留拒绝的是全局性动作：prune 会删除宿主的 base/runtime，宿主上其它
+		// 玲珑应用可能依赖它们。
+		if out, err := run("ll-cli", "prune"); err == nil || !strings.Contains(out, "只允许") {
+			t.Fatalf("ll-cli prune 应被白名单拒绝: err=%v out=%q", err, out)
 		}
 	}
 }
