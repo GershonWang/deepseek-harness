@@ -24,7 +24,7 @@ func (it *item) properties() prop.Map {
 	return prop.Map{
 		sniInterface: {
 			"Category":   {Value: "ApplicationStatus", Emit: prop.EmitFalse},
-			"Id":         {Value: "dsh-desktop-dual", Emit: prop.EmitFalse},
+			"Id":         {Value: "dsh-desktop", Emit: prop.EmitFalse},
 			"Title":      {Value: "DeepSeek Harness", Emit: prop.EmitTrue},
 			"Status":     {Value: "Active", Emit: prop.EmitTrue},
 			"IconName":   {Value: "", Emit: prop.EmitFalse},

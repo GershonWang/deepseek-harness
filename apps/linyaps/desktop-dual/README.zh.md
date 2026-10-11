@@ -1,14 +1,20 @@
-# 以玲珑包分发的 DeepSeek Harness 双客户端
+# 以玲珑包分发的 DeepSeek Harness 双客户端（薄壳版的升级款）
 
 [English](README.md) | 中文
 
-`apps/linyaps/desktop-dual` 把本仓库的两个桌面客户端打进同一个玲珑包，并加一个常驻切换器保证任一时刻只有一个在跑。官方 Electron 客户端来自 [`apps/linyaps/desktop-linglong`](../desktop-linglong)，Go + Wails 薄壳客户端来自 [`apps/linyaps/desktop-launcher`](../desktop-launcher)；切换器是本包安装的唯一入口。
+`apps/linyaps/desktop-dual` 把本仓库的两个桌面客户端打进同一个玲珑包，并加一个常驻切换器保证任一时刻只有一个在跑。这个包**沿用薄壳版的包 ID `com.deepseek.dsh-desktop`**，只把版本号抬高，因此在玲珑应用商店里它是薄壳版的升级，而不是货架上的第二个应用。官方 Electron 客户端来自 [`apps/linyaps/desktop-linglong`](../desktop-linglong)，Go + Wails 薄壳客户端来自 [`apps/linyaps/desktop-launcher`](../desktop-launcher)；切换器是本包安装的唯一入口。
 
 ## 这个模块产出什么
 
-一个 `.uab`，命令入口是 `/opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-switcher`——一个没有窗口的托盘进程。它拉起被选为默认的客户端、在系统托盘上提供切换，并在自己退出时终止客户端的整棵进程组，因此不会留下「客户端还在后台跑、用户却看不到控制入口」的状态。
+一个 `.uab`，命令入口是 `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher`——一个没有窗口的托盘进程。它拉起被选为默认的客户端、在系统托盘上提供切换，并在自己退出时终止客户端的整棵进程组，因此不会留下「客户端还在后台跑、用户却看不到控制入口」的状态。
 
-本包不自带第三份运行时：薄壳版的 harness 树与 Node 来自 launcher 的暂存产物，官方 Electron 客户端自带 Electron 与它自己的 dsh 树。切换器唯一额外需要的二进制是 `dsh-desktop-about`——一个画「关于」对话框的 GTK3 小助手，因为切换器本身不带窗口工具链。
+本包不自带第三份运行时：薄壳版的 harness 树与 Node 来自 launcher 的暂存产物，官方 Electron 客户端自带 Electron 与它自己的 dsh 树。两套运行时合起来约 1.8 GB，这是「一个包内可切换」的代价。切换器唯一额外需要的二进制是 `dsh-desktop-about`——一个画「关于」对话框的 GTK3 小助手，因为切换器本身不带窗口工具链。
+
+## 为什么沿用薄壳版的包 ID
+
+包 ID 就是应用商店里的身份：同一个 ID 配更高的版本号是一次升级，用户装到的仍是同一个应用，桌面图标、固定在启动器或任务栏上的入口、家目录里的工具链与配置全部延续；换一个 ID 会变成第二个应用，用户得重装一遍，这些状态也不继承。
+
+因此本包连桌面入口的文件名（`com.deepseek.dsh-desktop.desktop`）、`Name` 与 `Icon` 都与薄壳版逐字一致，真正变化的只有 `Exec`——它指向切换器，由切换器再按默认形态拉起客户端。包内目录在容器里是只读层（实测挂载选项为 `ro`），运行期无法往包里写任何东西，两种客户端因此都随包提供，不存在「安装后再把另一份拉进包目录」这一步。
 
 ## 切换器为什么独立成模块
 
@@ -44,5 +50,7 @@ ll-builder build -f apps/linyaps/desktop-dual/linglong.yaml
 切换器以 StatusNotifierItem 注册。会话里没有 `org.kde.StatusNotifierWatcher` 时，它按默认形态启动客户端、记录原因，并每五秒核对一次，桌面外壳回来后入口自动恢复。核对还会把宿主的连接唯一名与注册时记下的那个比对，因此外壳崩溃后被新进程接管时，入口会在五秒内回来，而不是让客户端一直够不到。宿主不在时无法切换客户端。
 
 只有切换器进程在跑时，托盘才提供切换入口。再次启动会立即退出，而不是叠出第二个客户端。
+
+统一身份之前的双客户端包（`com.deepseek.dsh-desktop-dual`）与本包可以装在同一台机器上，但只应保留一个：两者装的是同一个切换器，单实例名刻意保持相同，让它们互相排斥——否则两个切换器会各拉起一个客户端去抢同一个 dsh 端口与 `~/.dsh` 状态。表现是只有先启动的那一个拥有托盘入口。升级测试机时建议先执行 `ll-cli uninstall com.deepseek.dsh-desktop-dual`。
 
 左键只能显示「还在运行」的客户端：薄壳版关窗即退出，点击会重新启动它；官方版关窗只是隐藏，点击把那个窗口叫回来。薄壳版窗口若只是被最小化，点击不会把它抬到最前。

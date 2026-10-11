@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	// PackageID 是本玲珑包的 ID，作为「关于」里的诊断信息展示。
-	PackageID = "com.deepseek.dsh-desktop-dual"
+	// PackageID 是本玲珑包的 ID，作为「关于」里的诊断信息展示。它与薄壳版相同——本包
+	// 就是薄壳版的升级款，用户报障时给出的包 ID 必须能对回货架上的那一个应用。
+	PackageID = "com.deepseek.dsh-desktop"
 	// productName 是产品名，两种语言下一致。
 	productName = "DeepSeek Harness"
 	// helperName 是打包时编译出的对话框助手文件名。
@@ -28,7 +29,7 @@ const (
 	logoSize = "256x256"
 	// logoFile 是随包图标的文件名，与 linglong.yaml 的安装名、.desktop 的 Icon= 以及托盘
 	// 图标读取的是同一份文件。图标缺失只少一张图，因此路径写错不会报错——用名字对齐来防它。
-	logoFile = "dsh-desktop-dual.png"
+	logoFile = "dsh-desktop.png"
 )
 
 // Presenter 弹出「关于」对话框。同一个实例同时只允许一个对话框，避免连点叠窗。

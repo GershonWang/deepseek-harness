@@ -54,7 +54,7 @@ func TestPixmapsFallBackWhenIconsMissing(t *testing.T) {
 }
 
 // TestPixmapsUsePackagedIconAndBadge 覆盖真实安装布局：从
-// <PREFIX>/share/icons/hicolor/<N>x<N>/apps/dsh-desktop-dual.png 读品牌图标，
+// <PREFIX>/share/icons/hicolor/<N>x<N>/apps/dsh-desktop.png 读品牌图标，
 // 并在右下角叠上形态角标。
 func TestPixmapsUsePackagedIconAndBadge(t *testing.T) {
 	prefix := t.TempDir()
@@ -69,7 +69,7 @@ func TestPixmapsUsePackagedIconAndBadge(t *testing.T) {
 			base.SetNRGBA(x, y, color.NRGBA{R: 0xff, A: 0xff})
 		}
 	}
-	file, err := os.Create(filepath.Join(dir, "dsh-desktop-dual.png"))
+	file, err := os.Create(filepath.Join(dir, "dsh-desktop.png"))
 	if err != nil {
 		t.Fatalf("创建图标失败: %v", err)
 	}

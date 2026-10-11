@@ -1,17 +1,21 @@
 version: "1"
+# 本包是薄壳版（com.deepseek.dsh-desktop）的升级款，而不是另一个应用：包 ID 与薄壳版
+# 相同、版本号更高，商店据此按「同一应用升级」处理——桌面图标、用户固定的启动项与家
+# 目录数据都原样延续。用独立 ID 打包会变成货架上的第二个应用，用户要重装、状态也不
+# 继承，那正是本包要消除的问题。
 package:
-  id: com.deepseek.dsh-desktop-dual
-  name: deepseek-harness-desktop-dual
-  version: 0.1.0.14
+  id: com.deepseek.dsh-desktop
+  name: deepseek-harness-desktop
+  version: 0.2.0.1
   kind: app
   description: |
-    DeepSeek Harness 双客户端桌面应用。
-    同一个包内含官方 Electron 客户端与 Go + Wails 薄壳客户端，由常驻托盘切换器
-    互斥切换：左键单击换客户端，菜单里可设默认形态或退出。
+    DeepSeek Harness 桌面客户端（薄壳版升级款）。
+    同一个包内含 Go + Wails 薄壳客户端与官方 Electron 客户端，由常驻托盘切换器
+    互斥切换：默认启动薄壳版，托盘菜单可切到官方版、设默认形态或退出。
 
 # 入口是切换器（常驻托盘进程，无窗口）。两个客户端都是它的子进程。
 command:
-  - /opt/apps/com.deepseek.dsh-desktop-dual/files/bin/dsh-desktop-switcher
+  - /opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher
 
 base: org.deepin.base/25.2.2
 
@@ -33,10 +37,11 @@ build: |
   # helper 进程路径指向容器内不存在的 /usr/lib/...，窗口一创建就崩，且构建期毫无报错。
   sh /project/apps/linyaps/desktop-launcher/linglong/install-shell-runtime.sh "$STAGE"
 
-  # 本包只暴露切换器一个入口。上面那份脚本会为薄壳版单独装一份
-  # com.deepseek.dsh-desktop.desktop，那条入口绕过切换器：用户点它就会在切换器之外
+  # 桌面入口的**文件名与薄壳版保持一致**：升级是同 ID 换层，文件名一致才能让用户固定在
+  # 任务栏/启动器上的那条入口继续指向同一个应用（换成别的名字等于入口消失、重来一次）。
+  # 变的只有 Exec——上面那份脚本装的是薄壳版入口，绕过切换器，用户点它就会在切换器之外
   # 再拉起一个客户端，破坏「任一时刻至多一个客户端」这条互斥语义（两者会同时占用
-  # dsh 端口与 ~/.dsh 状态）。
+  # dsh 端口与 ~/.dsh 状态）。因此先删掉它，再装本包自己的同名入口。
   rm -f ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
 
   # 切换器：纯 Go、无 cgo，与薄壳客户端同处 <PREFIX>/bin——它按自身路径的兄弟节点
@@ -70,13 +75,11 @@ build: |
     exit 1
   fi
 
-  for s in 16 22 24 32 48 64 128 256 512; do
-    install -Dm644 /project/apps/linyaps/desktop-launcher/icons/hicolor/${s}x${s}/apps/dsh-desktop.png \
-      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop-dual.png
-  done
-
-  install -Dm644 /project/apps/linyaps/desktop-dual/com.deepseek.dsh-desktop-dual.desktop \
-    ${PREFIX}/share/applications/com.deepseek.dsh-desktop-dual.desktop
+  # 图标不在这里安装：上面那份脚本已把薄壳版的 dsh-desktop.png 铺到同一批尺寸目录。
+  # 图标名与 .desktop 的 Icon=、托盘读图、关于弹框读图三处必须对齐，本包因此不再有
+  # 第二套图标名（多一个名字就多一处会漂移的引用）。
+  install -Dm644 /project/apps/linyaps/desktop-dual/com.deepseek.dsh-desktop.desktop \
+    ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
 
 buildext:
   apt:

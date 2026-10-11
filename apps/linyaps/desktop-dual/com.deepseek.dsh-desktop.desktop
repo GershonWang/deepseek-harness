@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+# 文件名、Name 与 Icon 都与薄壳版（apps/linyaps/desktop-launcher/linglong/）逐字一致：
+# 本包是薄壳版的升级款，同 ID 换层后用户固定在启动器/任务栏上的那条入口必须继续可用，
+# 任何一处改名都表现为「应用换了个身份」。真正变化的只有 Exec——它指向切换器，由切换器
+# 再按默认形态拉起客户端。
+Name=DeepSeek Harness
+Name[zh_CN]=DeepSeek Harness
+Comment=DeepSeek Harness desktop client; switch between the thin shell and the official client from the tray
+Comment[zh_CN]=DeepSeek Harness 桌面客户端，可在托盘切换薄壳版与官方版
+Exec=/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher
+Icon=dsh-desktop
+# 实际显示的窗口是客户端窗口（WM_CLASS 与薄壳版一致，客户端仍是同一个二进制）；
+# 切换器是常驻托盘进程，本身没有窗口，因此不参与 dock 图标关联。
+StartupWMClass=dsh-desktop-launcher
+Terminal=false
+Categories=Development;Utility;
+StartupNotify=false

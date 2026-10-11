@@ -56,7 +56,7 @@ func pixmaps(prefix string, mode switchboard.Mode) []Pixmap {
 func baseIcon(prefix string, size int) image.Image {
 	if prefix != "" {
 		path := filepath.Join(prefix, "share", "icons", "hicolor",
-			strconv.Itoa(size)+"x"+strconv.Itoa(size), "apps", "dsh-desktop-dual.png")
+			strconv.Itoa(size)+"x"+strconv.Itoa(size), "apps", "dsh-desktop.png")
 		if file, err := os.Open(path); err == nil {
 			defer func() { _ = file.Close() }()
 			if img, _, err := image.Decode(file); err == nil {

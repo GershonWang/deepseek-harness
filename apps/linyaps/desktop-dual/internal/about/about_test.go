@@ -43,7 +43,7 @@ func TestShowPassesVersionCommentsAndLogo(t *testing.T) {
 			t.Fatalf("准备目录失败: %v", err)
 		}
 	}
-	logo := filepath.Join(logoDir, "dsh-desktop-dual.png")
+	logo := filepath.Join(logoDir, "dsh-desktop.png")
 	if err := os.WriteFile(logo, []byte("not a real png"), 0o644); err != nil {
 		t.Fatalf("准备图标失败: %v", err)
 	}

@@ -325,7 +325,7 @@ func (c *Client) NotifyFailure(summary, body string) {
 	}
 	call := conn.Object("org.freedesktop.Notifications", "/org/freedesktop/Notifications").Call(
 		"org.freedesktop.Notifications.Notify", 0,
-		"DeepSeek Harness", uint32(0), "dsh-desktop-dual", summary, body,
+		"DeepSeek Harness", uint32(0), "dsh-desktop", summary, body,
 		[]string{}, map[string]dbus.Variant{}, int32(-1))
 	if call.Err != nil {
 		c.logf("sending the failure notification failed: %v", call.Err)

@@ -2,21 +2,24 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/linyaps/desktop-dual/README.md
-/deepseek-harness-dual-client-linglong-bundle:
-  en: 72025af17edd6cad
-  zh: 99edcc38c5ea2e08
-/deepseek-harness-dual-client-linglong-bundle/what-this-module-produces:
-  en: 7792dc5dd2be6916
-  zh: 438d95d1a3159456
-/deepseek-harness-dual-client-linglong-bundle/why-the-switcher-is-its-own-module:
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade:
+  en: 76785f3d7e050d77
+  zh: 69eb12308280e1c2
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/what-this-module-produces:
+  en: 583bbd92bc117a3a
+  zh: 255f4d7e2f668066
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/why-the-bundle-keeps-the-thin-shell-s-package-id:
+  en: 9defb19b828ac11e
+  zh: d09f5fd864c2ecd7
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/why-the-switcher-is-its-own-module:
   en: b048608b59090f65
   zh: a9394c4f4a43421f
-/deepseek-harness-dual-client-linglong-bundle/how-switching-behaves:
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/how-switching-behaves:
   en: b086ea1022ecf349
   zh: 6e735ef227d6210a
-/deepseek-harness-dual-client-linglong-bundle/building:
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/building:
   en: c4ec7ca73ee17fbe
   zh: e653a08c3c96f2e0
-/deepseek-harness-dual-client-linglong-bundle/known-limits:
-  en: d62fe382d0bf0714
-  zh: 67423047acfdb47d
+/deepseek-harness-dual-client-linglong-bundle-the-thin-shell-s-upgrade/known-limits:
+  en: a7698685b87a7cba
+  zh: c6e8b5ad7be0830a

@@ -26,6 +26,12 @@ import (
 
 // mutexName 是单实例名。同一时刻只允许一个切换器：两个实例会各拉起一个客户端，
 // 同时占用 dsh 端口与 ~/.dsh 状态。
+//
+// 取值刻意保留统一身份之前的那一个（DesktopDualSwitcher），不跟着包 ID 改名：旧包
+// com.deepseek.dsh-desktop-dual 装的也是同一个切换器，两者可能在同一台机器上共存
+// （本地装过测试包、商店升级尚未覆盖等）。同名让它们仍然互斥，最多是托盘入口只有一个；
+// 一旦改名，两个切换器会各自拉起一个客户端去抢同一个 dsh 端口与 ~/.dsh 状态。旧包退场
+// 后这个名字才可以一起改。
 const mutexName = "org.deepseek.dsh.DesktopDualSwitcher"
 
 // refreshInterval 是托盘刷新间隔。客户端可能在切换器之外结束（用户直接关掉客户端
