@@ -187,3 +187,10 @@ sh /project/apps/linyaps/desktop-launcher/linglong/install-container-fonts.sh \
   /project/apps/linyaps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
   /project/apps/linyaps/desktop-launcher/frontend/vendor/fonts/jetbrains-mono \
   "$CJK_TTC"
+
+# BLAS/LAPACK 的实体与相对链接：合并会把 alternatives 的绝对链接带进包，而
+# /etc/alternatives 由基础层提供、里面没有这两个条目，libgstlibav.so（GStreamer 的 FFmpeg
+# 后端）因此静默加载失败。修在 build 段而不是构建之后——后者改的是提交层的物化副本，
+# 不会进包（理由与证据见脚本头部）。放在这里而不是各包的 linglong.yaml：薄壳版与双客户端
+# 版含同一个运行时，两处各写一遍必然漂移。
+sh /project/apps/linyaps/desktop-launcher/linglong/place-alternatives-libs.sh "$PREFIX"

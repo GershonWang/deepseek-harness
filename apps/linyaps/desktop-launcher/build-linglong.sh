@@ -56,11 +56,10 @@ if [ "$BUILD_STATUS" -ne 0 ]; then
 fi
 sh apps/linyaps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
 
-# 后处理与断言与双客户端包共用同一份脚本（裁剪编译器、修复断链、校验依赖实体与工具清单、
-# 断言体积），整棵上限留空即用薄壳版的默认值。两个包各留一份编排，正是双客户端包漏掉裁剪
-# 与断链修复的成因——那段编排只应该有一份。
-echo "==> 后处理导出树（裁剪、断链修复、依赖与体积断言）"
-sh apps/linyaps/desktop-launcher/linglong/postprocess-export-tree.sh linglong/output/binary/files
+# 导出树验收与双客户端包共用同一份脚本（依赖实体、工具清单、体积与内容断言），整棵上限
+# 留空即用薄壳版的默认值。这里只断言、不改产物：导出树是提交层的物化副本，改它不会进包。
+echo "==> 验收导出树（依赖实体、工具清单、体积与内容）"
+sh apps/linyaps/desktop-launcher/linglong/verify-export-tree.sh linglong/output/binary/files
 
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
