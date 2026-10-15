@@ -95,7 +95,7 @@ func TestMenuEntriesReflectState(t *testing.T) {
 	if len(entries) != 6 {
 		t.Fatalf("菜单项数 = %d，期望 6", len(entries))
 	}
-	wantLabels := []string{"切换到官方版", "", "设置", "", "关于", "退出切换器"}
+	wantLabels := []string{"切换到官方版", "", "设置", "", "关于", "退出"}
 	for i, want := range wantLabels {
 		if entries[i].Separator {
 			continue

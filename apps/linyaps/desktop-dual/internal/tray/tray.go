@@ -76,7 +76,7 @@ type Options struct {
 	Version string
 	// About 弹出「关于」对话框，入参是本地化的附加信息；为 nil 时该菜单项不做事。
 	About func(comments string) error
-	// Quit 是菜单「退出切换器」的回调。
+	// Quit 是菜单「退出」的回调。
 	Quit func()
 	// Logf 记录降级与失败，便于真机排查；为 nil 时不记录。
 	Logf func(format string, args ...any)
