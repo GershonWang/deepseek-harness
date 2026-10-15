@@ -111,31 +111,23 @@ function openExternal(url) {
   if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
 }
 
-// 关于弹框里的外链：选择器 → App.About() 返回的字段名。绑定与填充都从这里
-// 取，新增一个仓库地址只需在这里登记一行、在 index.html 放一个同 id 的
-// <a target="_blank">，不会出现「显示了但没绑上」（点了没反应）或
-// 「绑上了但没填」（点了打开占位 #）这类只差一半的状态。
-const ABOUT_LINKS = [
-  ["#about-repo", "Repo"],
-  ["#about-upstream", "UpstreamRepo"],
-];
-
-// 每个外链共用这一份点击逻辑：target=_blank 在 Wails WebKitGTK 里不生效，
-// 必须显式转交运行时；浏览器预览（无 window.runtime）时保持原生行为。
-function bindExternalAnchor(selector) {
-  const link = $(selector);
-  link.addEventListener("click", (e) => {
-    const url = link.getAttribute("href") || "";
-    if (!isHttpUrl(url)) return; // 非 http(s) 保留默认行为
-    if (!window.runtime || !window.runtime.BrowserOpenURL) return; // 预览模式
-    e.preventDefault();
-    openExternal(url);
-  });
+// 标题栏的玲珑包版本，取一次即可（进程生命周期内不变，因此不进 1s 状态快照）。
+// 关于弹框已移除：完整信息（DSH 版本、两个仓库、封装作者）在双客户端包的托盘「关于」，
+// 这里只显示版本号。绑定缺失（浏览器预览、测试桩没提供）或取值失败时保持空串——
+// 版本号是装饰性信息，缺了不该弹提示，更不该拦住启动。
+async function renderPackageVersion() {
+  const app = api();
+  if (!app || typeof app.PackageVersion !== "function") return;
+  try {
+    const version = await app.PackageVersion();
+    const node = $("#brand-version");
+    if (node && typeof version === "string") node.textContent = version;
+  } catch (e) {
+    console.warn("package version unavailable:", e && e.message);
+  }
 }
 
 function bindExternalLinks() {
-  for (const [selector] of ABOUT_LINKS) bindExternalAnchor(selector);
-
   // 打包注入的 GUI 链接桥（dsh-link-bridge.js）把 iframe 内的外链点击
   // postMessage 上来（{ dshDesktop: true, type: "open-external", url }），
   // 只用 harness 帧发来的 http(s) 请求，其余一律忽略。
@@ -1744,23 +1736,6 @@ function bindUI() {
     openModal("tools-modal");
     api().RefreshTools();
   });
-  $("#btn-about").addEventListener("click", async () => {
-    const info = await runButtonAction($("#btn-about"), null, null, () => api().About());
-    if (!info) return; // 失败已提示，不再打开内容空白的弹框
-    $("#about-package-version").textContent = info.PackageVersion;
-    $("#about-harness-version").textContent = info.HarnessVersion;
-    $("#about-packager").textContent = info.Packager;
-    for (const [selector, field] of ABOUT_LINKS) {
-      const link = $(selector);
-      const url = info[field];
-      link.textContent = url;
-      // 写属性而不是 .href 属性：点击处理读的就是 getAttribute("href")，
-      // 两者同源才不会出现「显示有、点了没反应」。
-      link.setAttribute("href", url);
-    }
-    openModal("about-modal");
-  });
-
   document.querySelectorAll("[data-close]").forEach((b) =>
     b.addEventListener("click", () => closeModal(b.dataset.close)));
 
@@ -1891,6 +1866,8 @@ function init() {
     $("#status-text").textContent = tr("preview.noWails");
     return;
   }
+
+  renderPackageVersion();
 
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));

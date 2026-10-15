@@ -156,18 +156,6 @@ type ProjectToolchainResult struct {
 	Error       string
 }
 
-// AboutInfo 是"关于"弹框的内容。字段全部由打包态解析或常量给出，前端只
-// 负责渲染：维护者署名与两个仓库地址是用户定位问题来源的唯一线索，
-// 不允许散落到前端各写一份。
-type AboutInfo struct {
-	Program        string
-	HarnessVersion string
-	PackageVersion string
-	Packager       string
-	Repo           string // 玲珑封装（fork）仓库
-	UpstreamRepo   string // 上游 DSH 官方仓库
-}
-
 // App 是绑定给 Web 壳的应用控制器。
 type App struct {
 	sup        *supervisor.Supervisor
@@ -1410,17 +1398,11 @@ func (a *App) RemoveHostTool(name string) string {
 	return ""
 }
 
-// About 返回关于弹框内容。
-func (a *App) About() AboutInfo {
-	return AboutInfo{
-		Program:        "DeepSeek Harness",
-		HarnessVersion: packaging.ResolveHarnessVersion(),
-		PackageVersion: packaging.Version,
-		Packager:       packaging.Packager,
-		Repo:           packaging.GithubRepo,
-		UpstreamRepo:   packaging.UpstreamRepo,
-	}
-}
+// PackageVersion 返回打包时注入的玲珑包版本，前端在标题栏标题后面显示它。
+// 关于弹框已移除：完整信息（DSH 版本、上游仓库、封装作者与仓库）由双客户端包的
+// 托盘「关于」给出，本绑定只服务标题栏这一处展示。
+// @returns 玲珑包版本；开发态未注入时为 "dev"。
+func (a *App) PackageVersion() string { return packaging.Version }
 
 // ReadClipboardImage 读取当前 X11 CLIPBOARD 的 image/png 数据并返回
 // base64 编码结果。剪贴板空、无图片或读取超时时返回空串（前端据此

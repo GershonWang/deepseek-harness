@@ -26,7 +26,6 @@ window.DSH_LOCALES.en = {
   "titlebar.tools": "Toolchains",
   "titlebar.terminal": "Terminal",
   "titlebar.doctor": "Diagnosis & repair",
-  "titlebar.about": "About",
   "titlebar.minimize": "Minimize",
   "titlebar.maximize": "Maximize",
   "titlebar.close": "Close",
@@ -286,14 +285,6 @@ window.DSH_LOCALES.en = {
   "terminal.tab.exited": " (exited)",
   "terminal.tab.exitedWithCode": " (exited, code {code})",
   "terminal.processExited": "[process exited, code: {code}]",
-
-  /* ---------- 关于弹框 ---------- */
-  "about.title": "About",
-  "about.harnessVersion": "DSH version",
-  "about.upstreamRepo": "Upstream DSH repository",
-  "about.packageVersion": "Linglong package version",
-  "about.packager": "Linglong packager",
-  "about.repo": "Linglong packaging repo",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "Wails runtime not detected (browser preview mode)",

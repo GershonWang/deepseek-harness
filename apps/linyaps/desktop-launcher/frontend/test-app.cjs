@@ -289,7 +289,7 @@ function buildHtml(document) {
     "preflight-icon", "preflight-title", "preflight-hint", "preflight-repairs",
     "preflight-issues", "preflight-actions", "preflight-note",
     "btn-preflight-deep-repair", "btn-preflight-safe-mode", "btn-preflight-fresh", "btn-preflight-skip",
-    "server-modal", "tools-modal", "about-modal", "doctor-modal",
+    "server-modal", "tools-modal", "doctor-modal",
     "container-panel", "external-panel", "dlg-error", "server-state",
     "server-detail1", "server-detail2", "server-start", "server-restart", "server-stop", "server-copy",
     "server-address", "server-addr-origin", "server-addr-token",
@@ -297,9 +297,8 @@ function buildHtml(document) {
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
     "card-hosts", "host-list", "host-hint",
-    "about-repo", "about-upstream", "about-package-version", "about-harness-version", "about-packager",
-    "win-min", "win-max", "win-close", "titlebar",
-    "btn-server", "btn-tools", "btn-about", "btn-doctor",
+    "brand-version", "win-min", "win-max", "win-close", "titlebar",
+    "btn-server", "btn-tools", "btn-doctor",
     "doctor-content", "doctor-checks", "doctor-start",
     "repair-plans", "doctor-repair-output",
     "repair-panel-status", "repair-panel-body", "repair-panel-backup",
@@ -343,7 +342,7 @@ function buildHtml(document) {
     "harness", "loading-page", "failed-page", "preflight-page",
     "loading-progress",
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
-    "server-modal", "tools-modal", "about-modal", "doctor-modal", "terminal-modal",
+    "server-modal", "tools-modal", "doctor-modal", "terminal-modal",
     "doctor-content", "doctor-repair-output",
     "safe-mode-row", "safe-mode-active", "external-panel", "server-address",
     "fresh-home-active",
@@ -404,7 +403,7 @@ function buildHtml(document) {
   radioExternal.value = "external";
   document.body.appendChild(radioExternal);
 
-  for (const modal of ["server-modal", "tools-modal", "about-modal", "doctor-modal"]) {
+  for (const modal of ["server-modal", "tools-modal", "doctor-modal"]) {
     const b = document.createElement("button");
     b.dataset.close = modal;
     document.body.appendChild(b);
@@ -524,7 +523,8 @@ function makeWails(runCalls, overrides = {}) {
     AddHostTool: overrides.AddHostTool ?? (async () => ({})),
     // 宿主导入扫描（可选覆盖：用例按需给出待导入条目）。
     ScanHostTools: overrides.ScanHostTools ?? (async () => []),
-    About: overrides.About ?? (async () => ({})),
+    // 标题栏版本（用例按需给出注入值；默认空串即开发态未注入）。
+    PackageVersion: overrides.PackageVersion ?? (async () => ""),
     ReadClipboardImage: async () => "",
     // 壳语言回推（frontend/i18n.js 在 applyLocale 时调用）。
     SetLocale: async (id) => {
@@ -1056,15 +1056,14 @@ test("按钮动作失败时复位按钮并提示，不留永久中间态", async
   assert.ok(toast.textContent.includes("boom"), "提示应带失败原因");
 });
 
-test("关于弹框取数失败时不打开空弹框，并提示", async () => {
-  const h = loadApp({ overrides: { About: async () => { throw new Error("nope"); } } });
+test("标题栏版本取数失败时留空，不打断启动也不弹提示", async () => {
+  const h = loadApp({ overrides: { PackageVersion: async () => { throw new Error("nope"); } } });
   await flush();
-  h.document.getElementById("btn-about").fire("click");
-  await flush();
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
-    "取数失败不应打开内容空白的弹框");
+  assert.equal(h.document.getElementById("brand-version").textContent, "",
+    "取不到版本时标题栏留空");
   const toast = h.document.getElementById("toast");
-  assert.ok(toast && toast.textContent.includes("nope"), "失败必须给出可见反馈");
+  assert.ok(!toast || !String(toast.textContent).includes("nope"),
+    "版本号是装饰性信息，取不到不应弹提示");
 });
 
 test("未捕获的 Promise 拒绝会提示一次", async () => {
@@ -2426,33 +2425,13 @@ test("关掉最后一个标签回到空态，并提示下一步操作", async ()
   assert.equal(h.document.getElementById("terminal-tabs").innerHTML, "", "标签栏应清空");
 });
 
-test("关于弹框：事实来自 App.About()，两个仓库外链都转交 Wails 打开", async () => {
-  // 与 Go 侧 AboutInfo 同构：少一个字段前端就读到 undefined，弹框会留空行。
-  const about = {
-    Program: "DeepSeek Harness",
-    HarnessVersion: "0.1.6-alpha.2",
-    PackageVersion: "0.1.3.4",
-    Packager: "Jokul",
-    Repo: "https://github.com/GershonWang/deepseek-harness",
-    UpstreamRepo: "https://github.com/deepseek-ai/deepseek-harness",
-  };
-  const h = loadApp({ overrides: { About: async () => about } });
+test("标题栏显示 App.PackageVersion()，且不再有关于入口", async () => {
+  const h = loadApp({ overrides: { PackageVersion: async () => "0.1.3.4" } });
   await flush();
-  h.document.getElementById("btn-about").fire("click");
-  await flush();
-
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), false,
-    "点击关于应打开弹框");
-  assert.equal(h.document.getElementById("about-package-version").textContent, about.PackageVersion);
-  assert.equal(h.document.getElementById("about-harness-version").textContent, about.HarnessVersion);
-  assert.equal(h.document.getElementById("about-packager").textContent, about.Packager);
-  assert.equal(h.document.getElementById("about-repo").getAttribute("href"), about.Repo);
-  assert.equal(h.document.getElementById("about-repo").textContent, about.Repo);
-  assert.equal(h.document.getElementById("about-upstream").getAttribute("href"), about.UpstreamRepo);
-
-  // 两个链接都必须登记过外链绑定：WebKitGTK 里 target=_blank 不生效，
-  // 漏绑的表现是「点了没反应」，只有真的转交到运行时才算数。
-  h.document.getElementById("about-repo").fire("click");
-  h.document.getElementById("about-upstream").fire("click");
-  assert.deepEqual(h.openedUrls, [about.Repo, about.UpstreamRepo]);
+  assert.equal(h.document.getElementById("brand-version").textContent, "0.1.3.4",
+    "标题栏版本应来自 App.PackageVersion()");
+  // 关于弹框与标题栏关于按钮都已移除：完整信息（DSH 版本、两个仓库、封装作者）
+  // 由双客户端包的托盘「关于」给出，壳里再留一份入口只会两处漂移。
+  assert.equal(h.document.getElementById("btn-about"), null, "标题栏不应再有关于按钮");
+  assert.equal(h.document.getElementById("about-modal"), null, "壳里不应再有关于弹框");
 });

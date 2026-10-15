@@ -161,6 +161,9 @@ button, input, select, textarea { font: inherit; }
 
 .brand-name { font-size: 12px; color: var(--fg-strong); }
 
+/* 玲珑包版本：紧跟在产品名后面，弱化显示——它是附带信息，不该抢标题的视觉重心 */
+.brand-version { font-size: 11px; color: var(--fg-dim); }
+
 .titlebar-actions {
   display: flex;
   align-items: center;
@@ -613,13 +616,6 @@ button, input, select, textarea { font: inherit; }
   box-shadow: var(--shadow);
 }
 
-/* 关于弹框：事实行是「标签 + 长 URL」。宽度不改变行内间距——.about 是
-   align-items:center 的纵向 flex，dl 收缩为内容宽，标签与值的间距由 .about-meta
-   的 column-gap 决定，加宽只增加两侧留白。它决定的是值变长时会不会折行：实测
-   dt 列 72px + 列间距 10px + 最长 URL 294px = 377px，420px 的卡片只剩约 9px 余量，
-   460px 留出约 49px。这一档只服务该弹框（modal-sm 目前仅关于弹框使用）。 */
-.modal-card.modal-sm { width: 460px; }
-
 .modal-head {
   display: flex;
   align-items: center;
@@ -914,33 +910,6 @@ button, input, select, textarea { font: inherit; }
 .tools td.state-warn { color: var(--warn); }
 
 .hint { font-size: 12px; line-height: 1.7; color: var(--fg-dim); }
-
-/* 关于 */
-.about { align-items: center; text-align: center; }
-.about-logo {
-  /* 黑色小鲸鱼（DeepSeek Harness 品牌 logo）：颜色随主题对比弹框背景 */
-  width: 56px;
-  height: 56px;
-  display: block;
-  margin-bottom: 10px;
-  color: var(--fg-strong);
-}
-.about-title { font-size: 15px; font-weight: 600; color: var(--fg-strong); }
-.about a { color: var(--accent); font-size: 12px; text-decoration: none; }
-/* 事实行：标签独立成列并右对齐，值占满余下宽度。仓库地址是长 URL，弹框
-   没有横向滚动，故值列必须允许任意断行（minmax(0,1fr) 让网格轨道能被压
-   缩，否则长 URL 会把轨道顶宽、撑破卡片）。 */
-.about-meta {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 3px 10px;
-  margin: 12px 0 0;
-  text-align: left;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.about-meta dt { color: var(--fg-dim); white-space: nowrap; }
-.about-meta dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
 
 /* 宿主命令挂载 */
 .host-row { display: flex; align-items: center; gap: 8px; }

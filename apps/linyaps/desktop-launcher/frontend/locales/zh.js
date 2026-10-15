@@ -32,7 +32,6 @@ window.DSH_LOCALES.zh = {
   "titlebar.tools": "工具链",
   "titlebar.terminal": "终端",
   "titlebar.doctor": "诊断与修复",
-  "titlebar.about": "关于",
   "titlebar.minimize": "最小化",
   "titlebar.maximize": "最大化",
   "titlebar.close": "关闭",
@@ -320,16 +319,6 @@ window.DSH_LOCALES.zh = {
   "terminal.tab.exitedWithCode": "（已退出，退出码 {code}）",
   // 进程退出后写进终端缓冲区的灰色标注，方括号也算文案的一部分。
   "terminal.processExited": "[进程已退出，退出码: {code}]",
-
-  /* ---------- 关于弹框 ---------- */
-  "about.title": "关于",
-  // 「DSH版本」等标签的用词是既有决定（版本行改称 DSH版本 并置于首行），迁移只改
-  // 文案来源、不改用词。
-  "about.harnessVersion": "DSH版本",
-  "about.upstreamRepo": "上游DSH仓库",
-  "about.packageVersion": "玲珑包版本",
-  "about.packager": "玲珑封装作者",
-  "about.repo": "玲珑封装仓库",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",
