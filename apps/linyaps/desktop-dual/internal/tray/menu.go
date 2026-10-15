@@ -326,8 +326,8 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 		// 关于只负责起一个弹窗进程，不等待用户关闭，因此可以同步做；失败由 perform
 		// 统一记录并发通知。idSettings 是子菜单入口，宿主不会给它发 clicked。
 		if show := m.parent.client.opts.About; show != nil {
-			comments := aboutComments(m.parent.client.opts.Locale, board.Status().Mode)
-			m.parent.client.perform("tray.aboutFailed", func() error { return show(comments) })
+			dialog := aboutDialog(m.parent.client.opts.Locale, board.Status().Mode, m.parent.client.opts.IconPrefix)
+			m.parent.client.perform("tray.aboutFailed", func() error { return show(dialog) })
 		}
 	case idQuit:
 		// 退出走独立 goroutine：回调要停客户端并可能等优雅退出（最长 stopGrace），
@@ -339,13 +339,29 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 	return nil
 }
 
-// aboutComments 组织「关于」对话框里的本地化信息。
+// aboutDialog 组织「关于」对话框的内容。
+//
+// 前四项与薄壳版标题栏原来的关于信息同源（DSH 版本、上游仓库、封装作者、封装仓库），
+// 因为那个弹框已移除、信息只在托盘这一处；后两项是切换器自己的诊断信息。玲珑包版本不出
+// 现在字段里——它是对话框顶部的版本行（`--version`），重复一行只会让用户对不上。
+//
+// 值的顺序即显示顺序；两个仓库地址是 http(s)，由助手渲染成可点击链接。
 // @param locale - 语言。
 // @param mode - 当前在跑的客户端形态；空串表示没有客户端在运行。
-// @returns 多行文本。
-func aboutComments(locale i18n.Locale, mode switchboard.Mode) string {
-	return i18n.T(locale, "about.mode") + ": " + modeName(locale, mode) + "\n" +
-		i18n.T(locale, "about.package") + ": " + about.PackageID
+// @param prefix - 安装前缀，用于定位随包的 harness 版本文件。
+// @returns 字段行与关闭按钮文案。
+func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about.Dialog {
+	return about.Dialog{
+		Fields: []about.Field{
+			{Label: i18n.T(locale, "about.dshVersion"), Value: about.HarnessVersion(prefix)},
+			{Label: i18n.T(locale, "about.upstreamRepo"), Value: about.UpstreamRepo},
+			{Label: i18n.T(locale, "about.packager"), Value: about.Packager},
+			{Label: i18n.T(locale, "about.repo"), Value: about.GithubRepo},
+			{Label: i18n.T(locale, "about.mode"), Value: modeName(locale, mode)},
+			{Label: i18n.T(locale, "about.package"), Value: about.PackageID},
+		},
+		CloseLabel: i18n.T(locale, "about.close"),
+	}
 }
 
 // AboutToShow 是宿主展开菜单前的询问。菜单内容始终是最新的，无需延迟构建。

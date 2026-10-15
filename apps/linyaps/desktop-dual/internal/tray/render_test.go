@@ -1,6 +1,8 @@
 package tray
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -274,15 +276,55 @@ func childLayout(t *testing.T, variant dbus.Variant) dbusmenuLayout {
 	return layout
 }
 
-// TestAboutCommentsCarryModeAndPackage 覆盖「关于」里的本地化信息：当前形态随语言与
-// 运行状态变化，包 ID 固定——用户报问题时这两项决定了排查从哪里开始。
-func TestAboutCommentsCarryModeAndPackage(t *testing.T) {
-	zh := aboutComments(i18n.Zh, switchboard.ModeOfficial)
-	if !strings.Contains(zh, "官方版") || !strings.Contains(zh, about.PackageID) {
-		t.Fatalf("中文关于信息 = %q，应含形态名与包 ID", zh)
+// TestAboutDialogCarriesFacts 覆盖「关于」的内容：DSH 版本、两个仓库、封装作者随包而来，
+// 当前形态随语言与运行状态变化，包 ID 固定；两个仓库地址必须是 http(s)，因为助手只按这个
+// 前缀决定渲染成可点击链接还是纯文本。字段顺序也要钉住——它决定用户看到的排列。
+func TestAboutDialogCarriesFacts(t *testing.T) {
+	prefix := t.TempDir()
+	harnessDir := filepath.Join(prefix, "harness")
+	if err := os.MkdirAll(harnessDir, 0o755); err != nil {
+		t.Fatalf("准备目录失败: %v", err)
 	}
-	en := aboutComments(i18n.En, "")
-	if !strings.Contains(en, "No client running") || !strings.Contains(en, about.PackageID) {
-		t.Fatalf("英文关于信息 = %q，应含未运行态与包 ID", en)
+	if err := os.WriteFile(filepath.Join(harnessDir, "package.json"),
+		[]byte(`{"name":"dsh","version":"0.2.0-rc.2"}`), 0o644); err != nil {
+		t.Fatalf("准备 package.json 失败: %v", err)
+	}
+
+	zh := aboutDialog(i18n.Zh, switchboard.ModeOfficial, prefix)
+	wantLabels := []string{"DSH版本", "上游DSH仓库", "玲珑封装作者", "玲珑封装仓库", "当前形态", "包 ID"}
+	if len(zh.Fields) != len(wantLabels) {
+		t.Fatalf("字段数 = %d，期望 %d", len(zh.Fields), len(wantLabels))
+	}
+	for i, want := range wantLabels {
+		if zh.Fields[i].Label != want {
+			t.Errorf("第 %d 行标签 = %q，期望 %q", i, zh.Fields[i].Label, want)
+		}
+	}
+	if zh.Fields[0].Value != "0.2.0-rc.2" {
+		t.Errorf("DSH 版本 = %q，期望 0.2.0-rc.2", zh.Fields[0].Value)
+	}
+	if zh.Fields[1].Value != about.UpstreamRepo || zh.Fields[3].Value != about.GithubRepo {
+		t.Errorf("仓库地址 = %q / %q", zh.Fields[1].Value, zh.Fields[3].Value)
+	}
+	if zh.Fields[2].Value != about.Packager {
+		t.Errorf("封装作者 = %q，期望 %q", zh.Fields[2].Value, about.Packager)
+	}
+	if !strings.Contains(zh.Fields[4].Value, "官方版") || zh.Fields[5].Value != about.PackageID {
+		t.Errorf("形态/包 ID = %q / %q", zh.Fields[4].Value, zh.Fields[5].Value)
+	}
+	if zh.CloseLabel == "" {
+		t.Error("关闭按钮文案为空，助手会没有可见的关闭入口")
+	}
+	// fork 与上游是两个不同的责任方，填成同一个地址会让用户把上游问题报到这里。
+	if about.GithubRepo == about.UpstreamRepo {
+		t.Error("两个仓库地址相同，必须指向不同仓库")
+	}
+
+	en := aboutDialog(i18n.En, "", prefix)
+	if en.Fields[1].Label != "Upstream DSH repository" {
+		t.Errorf("英文上游仓库标签 = %q", en.Fields[1].Label)
+	}
+	if !strings.Contains(en.Fields[4].Value, "No client running") {
+		t.Errorf("英文形态 = %q，应含未运行态", en.Fields[4].Value)
 	}
 }

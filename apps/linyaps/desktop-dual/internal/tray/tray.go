@@ -20,6 +20,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/about"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-dual/internal/switchboard"
 )
@@ -74,8 +75,8 @@ type Options struct {
 	IconPrefix string
 	// Version 是玲珑包版本，展示在「关于」里。
 	Version string
-	// About 弹出「关于」对话框，入参是本地化的附加信息；为 nil 时该菜单项不做事。
-	About func(comments string) error
+	// About 弹出「关于」对话框，入参是本地化的字段行与按钮文案；为 nil 时该菜单项不做事。
+	About func(dialog about.Dialog) error
 	// Quit 是菜单「退出」的回调。
 	Quit func()
 	// Logf 记录降级与失败，便于真机排查；为 nil 时不记录。
