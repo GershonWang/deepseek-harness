@@ -366,9 +366,10 @@ func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about
 			{Label: i18n.T(locale, "about.packager"), Value: about.Packager},
 			{Label: i18n.T(locale, "about.repo"), Value: about.GithubRepo},
 		},
-		CloseLabel:  i18n.T(locale, "about.close"),
-		CopyLabel:   i18n.T(locale, "about.copy"),
-		CopiedLabel: i18n.T(locale, "about.copied"),
+		CloseLabel:      i18n.T(locale, "about.close"),
+		CopyLabel:       i18n.T(locale, "about.copy"),
+		CopiedLabel:     i18n.T(locale, "about.copied"),
+		OpenFailedLabel: i18n.T(locale, "about.openFailed"),
 	}
 }
 

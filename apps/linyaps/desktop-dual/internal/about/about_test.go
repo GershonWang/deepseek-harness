@@ -106,16 +106,18 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 			{Label: "玲珑封装作者", Value: Packager, Copy: true},
 			{Label: "玲珑封装仓库", Value: GithubRepo},
 		},
-		CloseLabel:  "关闭",
-		CopyLabel:   "复制",
-		CopiedLabel: "已复制",
+		CloseLabel:      "关闭",
+		CopyLabel:       "复制",
+		CopiedLabel:     "已复制",
+		OpenFailedLabel: "打不开这个链接",
 	}
 	if err := New(prefix, "1.2.3").Show(dialog); err != nil {
 		t.Fatalf("Show 失败: %v", err)
 	}
 	args := waitForArgs(t, argsPath)
 	want := []string{"--program-name", productName, "--version", "1.2.3", "--title", dialog.Title,
-		"--copy-label", dialog.CopyLabel, "--copied-label", dialog.CopiedLabel}
+		"--copy-label", dialog.CopyLabel, "--copied-label", dialog.CopiedLabel,
+		"--open-failed", dialog.OpenFailedLabel}
 	for _, fields := range [][]Field{dialog.CenterFields, dialog.Fields} {
 		for _, field := range fields {
 			if field.Copy {

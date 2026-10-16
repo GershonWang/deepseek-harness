@@ -8,9 +8,9 @@
  * 为什么不用 GtkAboutDialog：它只有一个 website 字段，而「关于」要同时给出上游 DSH 与
  * 玲珑封装两个仓库地址，且都必须是可点击链接。自绘窗口用 GtkLinkButton 逐行摆放即可。
  *
- * 本程序只负责画窗口：窗口标题、产品名、版本号、居中状态行、事实行、按钮文案、图标与
- * 打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不内置任何面向用户
- * 的文案。
+ * 本程序只负责画窗口：窗口标题、产品名、版本号、居中状态行、事实行、按钮文案、打开失败
+ * 提示、图标与打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不内置
+ * 任何面向用户的文案。
  *
  * 两条内容约定，都由调用方在命令行上声明，助手不需要知道哪一行是什么：值以 http:// 或
  * https:// 开头时渲染成可点击链接；值出现在 --copy 列表里时，该行值右侧附一个一键复制
@@ -18,15 +18,27 @@
  * 打开弹框第一眼就是一段高亮（真机实测）；需要复制的值改用复制按钮，既不引入选中态，也
  * 不要求用户精确拖选。
  *
+ * 打开链接按宿主 portal、随包 xdg-open、GTK 默认处理器的顺序尝试，理由见 open_uri 的注释；
+ * 三步都失败时把原因写进弹框，绝不静默。
+ *
  * 退出码：0 正常关闭；2 参数解析失败。
  */
 #include <atk/atk.h>
 #include <gtk/gtk.h>
+#include <string.h>
+#include <sys/wait.h>
 
 /* 复制按钮优先使用的主题图标名；容器里的图标主题不保证齐全，没有它时退回文案按钮。 */
 #define COPY_ICON_NAME "edit-copy"
 /* 复制成功后按钮显示反馈的时长（毫秒）：短到不打扰，长到看得见。 */
 #define COPIED_FEEDBACK_MS 1500
+/* 宿主 portal 的会话总线名字、对象路径与接口（xdg-desktop-portal 的标准位置）。 */
+#define PORTAL_BUS_NAME "org.freedesktop.portal.Desktop"
+#define PORTAL_OBJECT_PATH "/org/freedesktop/portal/desktop"
+#define PORTAL_OPEN_URI_INTERFACE "org.freedesktop.portal.OpenURI"
+/* portal 调用超时：它只负责收下请求并立刻回一个句柄（正常在毫秒级），超时只会在会话总线
+   出问题时出现；给 3 秒是为了不让一次点击把界面卡住太久。 */
+#define PORTAL_CALL_TIMEOUT_MS 3000
 
 /* 命令行参数；未提供时保持 NULL。 */
 static gchar *option_title = NULL;
@@ -41,12 +53,21 @@ static gchar **option_center_fields = NULL;
 static gchar **option_copy_values = NULL;
 static gchar *option_copy_label = NULL;
 static gchar *option_copied_label = NULL;
+static gchar *option_open_failed_label = NULL;
 
-/* 链接点击需要的上下文：打开器路径与窗口（回退给 GTK 默认处理器时要它）。 */
+/* 对话框的共享上下文：窗口、内容容器、由调用方传入的文案，以及打开链接失败时使用的
+   那一行。这些值在窗口生命周期内不变，集中传递比逐个参数更不容易漂移。
+   failure_line 是懒创建的：没有失败就不占一行。 */
 typedef struct {
-    const gchar *opener;
     GtkWindow *window;
-} LinkContext;
+    GtkBox *box;
+    GtkBox *failure_slot;
+    GtkWidget *failure_line;
+    const gchar *opener;
+    const gchar *copy_label;
+    const gchar *copied_label;
+    const gchar *open_failed_label;
+} DialogContext;
 
 /* 把空指针收敛成空串：GTK 的属性是字符串，NULL 会让标签显示 "(null)"。 */
 static const gchar *text_or_empty(const gchar *value) {
@@ -86,31 +107,159 @@ static void on_size_allocate(GtkWidget *widget, GdkRectangle *allocation, gpoint
     center_with_size(GTK_WINDOW(widget), allocation->width, allocation->height);
 }
 
-/* 链接点击：先走随包的真实 xdg-open（与壳内 GUI 外链同一条已在真机验证的路径），失败
-   再退回 GTK/GIO 的默认处理器。返回 TRUE 表示这次点击已经处理完，不再走 GTK 默认实现，
-   否则 GTK 会自己再打开一次。 */
+/* 记录（并替换）最后一次失败原因：多步尝试里只有最后一条对用户有意义。 */
+static void set_reason(gchar **reason, gchar *detail) {
+    g_free(*reason);
+    *reason = detail;
+}
+
+/* 取输出里的第一行非空内容：外部工具把真正的原因写在自己输出的第一行（例如 xdg-open 的
+   "no method available"），转述不如原样带出来准确。 */
+static gchar *first_nonempty_line(const gchar *text) {
+    if (text == NULL) {
+        return NULL;
+    }
+    const gchar *end = strchr(text, '\n');
+    gchar *line = end != NULL ? g_strndup(text, (gsize)(end - text)) : g_strdup(text);
+    g_strstrip(line);
+    if (line[0] == '\0') {
+        g_free(line);
+        return NULL;
+    }
+    return line;
+}
+
+/* 拼出打开器失败的原因：退出状态 + 打开器自己输出的第一行。 */
+static gchar *opener_failure_reason(const gchar *opener, gint wait_status, const gchar *stderr_text) {
+    gchar *detail = first_nonempty_line(stderr_text);
+    gchar *status_text = WIFEXITED(wait_status)
+                             ? g_strdup_printf("%s exited with status %d", opener, WEXITSTATUS(wait_status))
+                             : g_strdup_printf("%s was terminated abnormally", opener);
+    gchar *reason = detail != NULL ? g_strdup_printf("%s: %s", status_text, detail)
+                                   : g_strdup(status_text);
+    g_free(status_text);
+    g_free(detail);
+    return reason;
+}
+
+/* 经宿主 portal 打开链接。
+   为什么这是首选：本程序实际运行在玲珑容器里，那里没有任何本地 URI 处理器——随包
+   xdg-open 因为拿不到 dde-open 与候选浏览器而以「no method available」退出 3，GIO 的默认
+   处理器返回 Operation not supported（两者都在真机上量过）；而宿主 portal 就在会话总线上
+   且实测能打开本机默认浏览器。parent_window 传空串：本程序不向 portal 声明父窗口，由宿主
+   自行定位浏览器窗口。
+   局限性：portal 收下请求即返回一个句柄，真正的打开结果经 org.freedesktop.portal.Request
+   的 Response 信号异步送回，这里不订阅它——调用被接受即视为成功，只有调用本身失败（服务
+   不存在、被拒绝、超时）才落到下一种手段。 */
+static gboolean open_uri_via_portal(const gchar *uri, gchar **reason) {
+    GError *error = NULL;
+    GDBusConnection *connection = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);
+    if (connection == NULL) {
+        *reason = g_strdup(error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+    GVariant *reply = g_dbus_connection_call_sync(
+        connection, PORTAL_BUS_NAME, PORTAL_OBJECT_PATH, PORTAL_OPEN_URI_INTERFACE, "OpenURI",
+        g_variant_new("(ss@a{sv})", "", uri,
+                      g_variant_new_array(G_VARIANT_TYPE("{sv}"), NULL, 0)),
+        G_VARIANT_TYPE("(o)"), G_DBUS_CALL_FLAGS_NONE, PORTAL_CALL_TIMEOUT_MS, NULL, &error);
+    g_object_unref(connection);
+    if (reply == NULL) {
+        *reason = g_strdup(error->message);
+        g_error_free(error);
+        return FALSE;
+    }
+    g_variant_unref(reply);
+    return TRUE;
+}
+
+/* 随包 xdg-open：普通桌面（非玲珑容器）上的标准路径。
+   同步等待并检查退出码，而不是只看「进程起来了」——上一版把启动成功当打开成功，容器里
+   点击毫无反应却没有任何提示，根因就在这里。 */
+static gboolean open_uri_with_opener(const gchar *opener, const gchar *uri, gchar **reason) {
+    gchar *argv[] = {(gchar *)opener, (gchar *)uri, NULL};
+    gchar *stderr_text = NULL;
+    gint wait_status = 0;
+    GError *error = NULL;
+    if (!g_spawn_sync(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &stderr_text,
+                      &wait_status, &error)) {
+        *reason = g_strdup(error->message);
+        g_error_free(error);
+        g_free(stderr_text);
+        return FALSE;
+    }
+    if (WIFEXITED(wait_status) && WEXITSTATUS(wait_status) == 0) {
+        g_free(stderr_text);
+        return TRUE;
+    }
+    *reason = opener_failure_reason(opener, wait_status, stderr_text);
+    g_free(stderr_text);
+    return FALSE;
+}
+
+/* 打开失败提示：整块弹框共用一行，第一次失败时创建，之后就地更新文本。
+   用户看得到原因，才可能把「点了没反应」变成一条能报障的信息；而容器的 stderr 用户看不到，
+   所以只打印是不够的。 */
+static void show_open_failure(DialogContext *dialog, const gchar *reason) {
+    gchar *text = g_strdup_printf("%s: %s", text_or_empty(dialog->open_failed_label),
+                                  text_or_empty(reason));
+    if (dialog->failure_line == NULL) {
+        dialog->failure_line = gtk_label_new(text);
+        gtk_label_set_line_wrap(GTK_LABEL(dialog->failure_line), TRUE);
+        gtk_label_set_xalign(GTK_LABEL(dialog->failure_line), 0.0f);
+        gtk_widget_set_halign(dialog->failure_line, GTK_ALIGN_FILL);
+        gtk_box_pack_start(dialog->failure_slot, dialog->failure_line, FALSE, FALSE, 0);
+        gtk_widget_show(dialog->failure_line);
+    } else {
+        gtk_label_set_text(GTK_LABEL(dialog->failure_line), text);
+    }
+    g_free(text);
+}
+
+/* 打开链接：按「在当前环境里最可能奏效」的顺序尝试，第一个成功的立即返回。
+   顺序理由：宿主 portal 是容器里唯一被真机验证过能打开浏览器的路径，排第一；随包
+   xdg-open 是普通桌面上的标准路径，排第二；GTK 的默认 URI 处理器最后兜底。三步都失败时
+   返回 FALSE 并给出最后一条原因，由调用方显示在弹框里——静默失败等于这个入口不存在。 */
+static gboolean open_uri(DialogContext *dialog, const gchar *uri, gchar **reason) {
+    gchar *detail = NULL;
+    if (open_uri_via_portal(uri, &detail)) {
+        return TRUE;
+    }
+    set_reason(reason, detail);
+    if (dialog->opener != NULL && dialog->opener[0] != '\0') {
+        if (open_uri_with_opener(dialog->opener, uri, &detail)) {
+            return TRUE;
+        }
+        set_reason(reason, detail);
+    }
+    if (dialog->window != NULL) {
+        GError *error = NULL;
+        if (gtk_show_uri_on_window(dialog->window, uri, GDK_CURRENT_TIME, &error)) {
+            return TRUE;
+        }
+        if (error != NULL) {
+            set_reason(reason, g_strdup(error->message));
+            g_error_free(error);
+        }
+    }
+    return FALSE;
+}
+
+/* 链接点击：交给 open_uri 按顺序尝试；全部失败就在弹框里写明原因。
+   返回 TRUE 表示这次点击已经处理完，不再走 GTK 默认实现，否则 GTK 会自己再打开一次。 */
 static gboolean on_activate_link(GtkLinkButton *button, gpointer data) {
-    LinkContext *context = (LinkContext *)data;
+    DialogContext *dialog = (DialogContext *)data;
     const gchar *uri = gtk_link_button_get_uri(button);
     if (uri == NULL) {
         return TRUE;
     }
-    if (context != NULL && context->opener != NULL && context->opener[0] != '\0') {
-        gchar *argv[] = {(gchar *)context->opener, (gchar *)uri, NULL};
-        GError *spawn_error = NULL;
-        if (g_spawn_async(NULL, argv, NULL, G_SPAWN_SEARCH_PATH, NULL, NULL, NULL, &spawn_error)) {
-            return TRUE;
-        }
-        g_printerr("dsh-about: %s\n", spawn_error->message);
-        g_error_free(spawn_error);
+    gchar *reason = NULL;
+    if (!open_uri(dialog, uri, &reason)) {
+        g_printerr("dsh-about: opening %s failed: %s\n", uri, text_or_empty(reason));
+        show_open_failure(dialog, reason);
     }
-    if (context != NULL && context->window != NULL) {
-        GError *uri_error = NULL;
-        if (!gtk_show_uri_on_window(context->window, uri, GDK_CURRENT_TIME, &uri_error) && uri_error != NULL) {
-            g_printerr("dsh-about: %s\n", uri_error->message);
-            g_error_free(uri_error);
-        }
-    }
+    g_free(reason);
     return TRUE;
 }
 
@@ -182,13 +331,13 @@ static void on_copy_clicked(GtkButton *button, gpointer data) {
 /* 生成一键复制按钮：优先用主题图标（扁平按钮，视觉上不与事实文本争注意力），主题里没有
    这个图标时退回文案按钮——显示一个「复制」也远好过显示一个破图。图标按钮没有可见文字，
    因此提示与无障碍名都必须由调用方给出，否则这个按钮对读屏用户是空白。 */
-static GtkWidget *make_copy_button(const gchar *value, const gchar *label, const gchar *copied_label) {
+static GtkWidget *make_copy_button(const DialogContext *dialog, const gchar *value) {
     GtkWidget *button = gtk_button_new();
     CopyButton *state = g_new0(CopyButton, 1);
     state->button = button;
     state->value = value;
-    state->label = label;
-    state->copied_label = copied_label;
+    state->label = dialog->copy_label;
+    state->copied_label = dialog->copied_label;
 
     GtkIconTheme *theme = gtk_icon_theme_get_for_screen(gtk_widget_get_screen(button));
     if (theme != NULL && gtk_icon_theme_has_icon(theme, COPY_ICON_NAME)) {
@@ -196,14 +345,14 @@ static GtkWidget *make_copy_button(const gchar *value, const gchar *label, const
         gtk_button_set_image(GTK_BUTTON(button),
                              gtk_image_new_from_icon_name(COPY_ICON_NAME, GTK_ICON_SIZE_BUTTON));
     } else {
-        gtk_button_set_label(GTK_BUTTON(button), text_or_empty(label));
+        gtk_button_set_label(GTK_BUTTON(button), text_or_empty(state->label));
     }
 
     gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
     gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
     gtk_style_context_add_class(gtk_widget_get_style_context(button), "flat");
-    gtk_widget_set_tooltip_text(button, text_or_empty(label));
-    atk_object_set_name(gtk_widget_get_accessible(button), text_or_empty(label));
+    gtk_widget_set_tooltip_text(button, text_or_empty(state->label));
+    atk_object_set_name(gtk_widget_get_accessible(button), text_or_empty(state->label));
     g_signal_connect(button, "clicked", G_CALLBACK(on_copy_clicked), state);
     g_signal_connect(button, "destroy", G_CALLBACK(on_copy_button_destroy), state);
     return button;
@@ -212,9 +361,8 @@ static GtkWidget *make_copy_button(const gchar *value, const gchar *label, const
 /* 字段行：标签左列弱化显示，值右列按约定给出链接或普通文本，被 --copy 点名的值再补一个
    一键复制按钮。值不做成可选中标签：可选中标签会抢初始焦点并选中整行。
    长 URL 用 xalign 0 + 换行兜底：容器里没有横向滚动，值必须能在窄窗口里断行。 */
-static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *value,
-                      GtkWindow *window, const gchar *opener, const gchar *copy_label,
-                      const gchar *copied_label) {
+static void add_field(DialogContext *dialog, GtkGrid *grid, gint row, const gchar *label,
+                      const gchar *value) {
     GtkWidget *name = gtk_label_new(text_or_empty(label));
     gtk_widget_set_halign(name, GTK_ALIGN_START);
     gtk_widget_set_valign(name, GTK_ALIGN_START);
@@ -223,14 +371,11 @@ static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *
 
     GtkWidget *entry;
     if (is_http_uri(value)) {
-        LinkContext *context = g_new0(LinkContext, 1);
-        context->opener = opener;
-        context->window = window;
         entry = gtk_link_button_new_with_label(value, value);
         gtk_widget_set_halign(entry, GTK_ALIGN_START);
-        g_signal_connect_data(GTK_LINK_BUTTON(entry), "activate-link",
-                              G_CALLBACK(on_activate_link), context,
-                              (GClosureNotify)g_free, 0);
+        /* 上下文是 main 里那份 DialogContext，生命周期覆盖整个窗口，因此不需要复制或释放。 */
+        g_signal_connect(GTK_LINK_BUTTON(entry), "activate-link",
+                         G_CALLBACK(on_activate_link), dialog);
     } else {
         entry = gtk_label_new(text_or_empty(value));
         gtk_label_set_line_wrap(GTK_LABEL(entry), TRUE);
@@ -241,7 +386,7 @@ static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *
 
     /* 复制按钮占第三列；没有它的行留空，因此不会把网格拉宽。 */
     if (is_copy_marked(value)) {
-        gtk_grid_attach(grid, make_copy_button(value, copy_label, copied_label), 2, row, 1, 1);
+        gtk_grid_attach(grid, make_copy_button(dialog, value), 2, row, 1, 1);
     }
 }
 
@@ -249,8 +394,7 @@ static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *
    为什么合成一行而不是复用两列网格：这两行是状态摘要，不是可对照的「字段—值」表；
    居中的整行读起来是一句话，也不会把下方事实网格的标签列拉宽。
    文本保持普通标签：可选中标签会抢初始焦点并让整行呈选中态，那是用户明确不要的。 */
-static void add_centered_line(GtkBox *box, const gchar *label, const gchar *value,
-                              const gchar *copy_label, const gchar *copied_label) {
+static void add_centered_line(DialogContext *dialog, const gchar *label, const gchar *value) {
     gboolean has_label = label != NULL && label[0] != '\0';
     /* 没有标签时只显示值，不留一个孤零零的分隔冒号。 */
     gchar *text = has_label ? g_strconcat(label, ": ", text_or_empty(value), NULL)
@@ -259,15 +403,15 @@ static void add_centered_line(GtkBox *box, const gchar *label, const gchar *valu
     g_free(text);
     gtk_widget_set_halign(line, GTK_ALIGN_CENTER);
     if (!is_copy_marked(value)) {
-        gtk_box_pack_start(box, line, FALSE, FALSE, 0);
+        gtk_box_pack_start(dialog->box, line, FALSE, FALSE, 0);
         return;
     }
     /* 被点名的值：文本与复制按钮组成一个水平居中组，行整体仍然居中。 */
     GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_widget_set_halign(row, GTK_ALIGN_CENTER);
     gtk_box_pack_start(GTK_BOX(row), line, FALSE, FALSE, 0);
-    gtk_box_pack_start(GTK_BOX(row), make_copy_button(value, copy_label, copied_label), FALSE, FALSE, 0);
-    gtk_box_pack_start(box, row, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), make_copy_button(dialog, value), FALSE, FALSE, 0);
+    gtk_box_pack_start(dialog->box, row, FALSE, FALSE, 0);
 }
 
 /* Esc 关窗：与标题栏关闭按钮等价，避免用户只能去点标题栏。 */
@@ -291,6 +435,7 @@ int main(int argc, char **argv) {
         {"copy", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_copy_values, "Value that gets a one-click copy button (repeatable)", NULL},
         {"copy-label", 0, 0, G_OPTION_ARG_STRING, &option_copy_label, "Copy button label, tooltip and accessible name", NULL},
         {"copied-label", 0, 0, G_OPTION_ARG_STRING, &option_copied_label, "Label shown briefly after copying", NULL},
+        {"open-failed", 0, 0, G_OPTION_ARG_STRING, &option_open_failed_label, "Prefix of the inline line reporting a failed link open", NULL},
         {"close-label", 0, 0, G_OPTION_ARG_STRING, &option_close_label, "Close button label", NULL},
         {"logo", 0, 0, G_OPTION_ARG_STRING, &option_logo, "Path to the product icon", NULL},
         {"uri-opener", 0, 0, G_OPTION_ARG_STRING, &option_uri_opener, "Path to xdg-open", NULL},
@@ -320,6 +465,17 @@ int main(int argc, char **argv) {
 
     GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 10);
     gtk_container_add(GTK_CONTAINER(window), box);
+
+    DialogContext dialog = {
+        .window = GTK_WINDOW(window),
+        .box = GTK_BOX(box),
+        .failure_slot = NULL,
+        .failure_line = NULL,
+        .opener = option_uri_opener,
+        .copy_label = option_copy_label,
+        .copied_label = option_copied_label,
+        .open_failed_label = option_open_failed_label,
+    };
 
     /* 图标按路径加载：随包图标不在容器的图标主题里，按名字查不到。文件缺失只少一张图，
        对话框本身照常显示，因此这里不把它当成失败。 */
@@ -354,12 +510,11 @@ int main(int argc, char **argv) {
     for (gint i = 0; option_center_fields != NULL && option_center_fields[i] != NULL; i++) {
         gchar *separator = g_strstr_len(option_center_fields[i], -1, "=");
         if (separator == NULL) {
-            add_centered_line(GTK_BOX(box), "", option_center_fields[i],
-                              option_copy_label, option_copied_label);
+            add_centered_line(&dialog, "", option_center_fields[i]);
             continue;
         }
         gchar *label = g_strndup(option_center_fields[i], (gsize)(separator - option_center_fields[i]));
-        add_centered_line(GTK_BOX(box), label, separator + 1, option_copy_label, option_copied_label);
+        add_centered_line(&dialog, label, separator + 1);
         g_free(label);
     }
 
@@ -375,15 +530,19 @@ int main(int argc, char **argv) {
         gchar *separator = g_strstr_len(option_fields[i], -1, "=");
         if (separator == NULL) {
             /* 没有分隔符的行无法拆成标签与值：整行当值，标签留空，绝不让它拖垮弹框。 */
-            add_field(GTK_GRID(grid), i, "", option_fields[i], GTK_WINDOW(window), option_uri_opener,
-                      option_copy_label, option_copied_label);
+            add_field(&dialog, GTK_GRID(grid), i, "", option_fields[i]);
             continue;
         }
         gchar *label = g_strndup(option_fields[i], (gsize)(separator - option_fields[i]));
-        add_field(GTK_GRID(grid), i, label, separator + 1, GTK_WINDOW(window), option_uri_opener,
-                  option_copy_label, option_copied_label);
+        add_field(&dialog, GTK_GRID(grid), i, label, separator + 1);
         g_free(label);
     }
+
+    /* 失败提示的落点固定在「关闭」按钮上方：先建空容器占位，链接打不开时再往里填一行，
+       提示因此出现在内容末尾而不是按钮下面。 */
+    GtkWidget *failure_slot = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_box_pack_start(GTK_BOX(box), failure_slot, FALSE, FALSE, 0);
+    dialog.failure_slot = GTK_BOX(failure_slot);
 
     GtkWidget *close = NULL;
     if (option_close_label != NULL && option_close_label[0] != '\0') {

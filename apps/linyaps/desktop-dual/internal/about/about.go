@@ -82,6 +82,9 @@ type Dialog struct {
 	CopyLabel string
 	// CopiedLabel 是复制成功后短暂显示的反馈文案（本地化）；为空时不做视觉反馈。
 	CopiedLabel string
+	// OpenFailedLabel 是链接打不开时，弹框里那一行提示的前缀（本地化）；助手会在它后面接上
+	// 具体原因。为空时只显示原因，仍然可见。
+	OpenFailedLabel string
 }
 
 // Presenter 弹出「关于」对话框。同一个实例同时只允许一个对话框，避免连点叠窗。
@@ -150,6 +153,9 @@ func (p *Presenter) Show(dialog Dialog) error {
 	}
 	if dialog.CopiedLabel != "" {
 		args = append(args, "--copied-label", dialog.CopiedLabel)
+	}
+	if dialog.OpenFailedLabel != "" {
+		args = append(args, "--open-failed", dialog.OpenFailedLabel)
 	}
 	// 复制标记与行分开传：助手按「值出现在 --copy 列表里」给该行补按钮，因此同一区域内
 	// 可复制行与普通行的相对顺序仍然由下面的参数顺序决定，不需要为它另开一种行类型。

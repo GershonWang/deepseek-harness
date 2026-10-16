@@ -320,6 +320,9 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	if zh.CopyLabel == "" || zh.CopiedLabel == "" {
 		t.Errorf("复制按钮文案 = %q / %q，都不能为空", zh.CopyLabel, zh.CopiedLabel)
 	}
+	if zh.OpenFailedLabel == "" {
+		t.Error("打开失败提示的前缀为空：链接打不开时用户只会看到一句技术原因")
+	}
 
 	wantLabels := []string{"DSH版本", "DSH仓库", "玲珑封装作者", "玲珑封装仓库"}
 	if len(zh.Fields) != len(wantLabels) {
