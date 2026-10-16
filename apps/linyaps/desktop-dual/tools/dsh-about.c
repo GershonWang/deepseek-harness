@@ -12,12 +12,21 @@
  * 打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不内置任何面向用户
  * 的文案。
  *
- * 唯一的内容约定：字段值以 http:// 或 https:// 开头时渲染成可点击链接，其余渲染成可选
- * 中的文本（链接打不开时用户仍能复制地址）。
+ * 两条内容约定，都由调用方在命令行上声明，助手不需要知道哪一行是什么：值以 http:// 或
+ * https:// 开头时渲染成可点击链接；值出现在 --copy 列表里时，该行值右侧附一个一键复制
+ * 按钮。其余值是普通文本，刻意不做成可选中文本——可选中标签获得焦点时会选中整行，用户
+ * 打开弹框第一眼就是一段高亮（真机实测）；需要复制的值改用复制按钮，既不引入选中态，也
+ * 不要求用户精确拖选。
  *
  * 退出码：0 正常关闭；2 参数解析失败。
  */
+#include <atk/atk.h>
 #include <gtk/gtk.h>
+
+/* 复制按钮优先使用的主题图标名；容器里的图标主题不保证齐全，没有它时退回文案按钮。 */
+#define COPY_ICON_NAME "edit-copy"
+/* 复制成功后按钮显示反馈的时长（毫秒）：短到不打扰，长到看得见。 */
+#define COPIED_FEEDBACK_MS 1500
 
 /* 命令行参数；未提供时保持 NULL。 */
 static gchar *option_title = NULL;
@@ -28,6 +37,10 @@ static gchar *option_logo = NULL;
 static gchar *option_uri_opener = NULL;
 static gchar **option_fields = NULL;
 static gchar **option_center_fields = NULL;
+/* --copy 点名的值（可重复）：这些行的值右侧附一个一键复制按钮。 */
+static gchar **option_copy_values = NULL;
+static gchar *option_copy_label = NULL;
+static gchar *option_copied_label = NULL;
 
 /* 链接点击需要的上下文：打开器路径与窗口（回退给 GTK 默认处理器时要它）。 */
 typedef struct {
@@ -101,10 +114,107 @@ static gboolean on_activate_link(GtkLinkButton *button, gpointer data) {
     return TRUE;
 }
 
-/* 字段行：标签左列弱化显示，值右列按是否链接给出 GtkLinkButton 或可选中文本。
+/* 判断值是否被 --copy 点名：精确比对即可，因为调用方标记的正是它自己传进来的同一个值。 */
+static gboolean is_copy_marked(const gchar *value) {
+    for (gint i = 0; option_copy_values != NULL && option_copy_values[i] != NULL; i++) {
+        if (g_strcmp0(option_copy_values[i], value) == 0) {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* 复制按钮的运行时状态：按钮、要复制的值、两种文案与反馈计时器。
+   单独分配并由按钮的 destroy 释放，因为它被反馈计时器异步引用。 */
+typedef struct {
+    GtkWidget *button;
+    /* value 指向命令行参数里的字符串，生命周期与进程相同，因此按借用指针保存。 */
+    const gchar *value;
+    const gchar *label;
+    const gchar *copied_label;
+    gboolean shows_icon;
+    guint feedback_timer;
+} CopyButton;
+
+/* 反馈结束：回到普通状态。图标按钮清掉临时文案即回到图标，文案按钮换回原文案。 */
+static gboolean restore_copy_button(gpointer data) {
+    CopyButton *state = (CopyButton *)data;
+    state->feedback_timer = 0;
+    if (state->shows_icon) {
+        gtk_button_set_label(GTK_BUTTON(state->button), NULL);
+    } else {
+        gtk_button_set_label(GTK_BUTTON(state->button), state->label);
+    }
+    return G_SOURCE_REMOVE;
+}
+
+/* 按钮销毁时先撤掉可能还在跑的反馈计时器，再释放状态：计时器回调持有这个指针，弹框在
+   反馈期间被关掉时不能让它落到已释放的内存上。 */
+static void on_copy_button_destroy(GtkWidget *widget, gpointer data) {
+    (void)widget;
+    CopyButton *state = (CopyButton *)data;
+    if (state->feedback_timer != 0) {
+        g_source_remove(state->feedback_timer);
+        state->feedback_timer = 0;
+    }
+    g_free(state);
+}
+
+/* 点击复制：写入 CLIPBOARD 后交给剪贴板管理器保存。弹框进程退出后内容必须还在，否则
+   用户关掉弹框再粘贴只会得到空——这正是「一键复制」要解决的场景。 */
+static void on_copy_clicked(GtkButton *button, gpointer data) {
+    (void)button;
+    CopyButton *state = (CopyButton *)data;
+    GtkClipboard *clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+    gtk_clipboard_set_text(clipboard, state->value, -1);
+    gtk_clipboard_store(clipboard);
+    /* 反馈文案可能为空（调用方只想靠图标变化提示），此时不做任何视觉切换。 */
+    if (state->copied_label == NULL || state->copied_label[0] == '\0') {
+        return;
+    }
+    gtk_button_set_label(GTK_BUTTON(state->button), state->copied_label);
+    if (state->feedback_timer != 0) {
+        g_source_remove(state->feedback_timer);
+    }
+    state->feedback_timer = g_timeout_add(COPIED_FEEDBACK_MS, restore_copy_button, state);
+}
+
+/* 生成一键复制按钮：优先用主题图标（扁平按钮，视觉上不与事实文本争注意力），主题里没有
+   这个图标时退回文案按钮——显示一个「复制」也远好过显示一个破图。图标按钮没有可见文字，
+   因此提示与无障碍名都必须由调用方给出，否则这个按钮对读屏用户是空白。 */
+static GtkWidget *make_copy_button(const gchar *value, const gchar *label, const gchar *copied_label) {
+    GtkWidget *button = gtk_button_new();
+    CopyButton *state = g_new0(CopyButton, 1);
+    state->button = button;
+    state->value = value;
+    state->label = label;
+    state->copied_label = copied_label;
+
+    GtkIconTheme *theme = gtk_icon_theme_get_for_screen(gtk_widget_get_screen(button));
+    if (theme != NULL && gtk_icon_theme_has_icon(theme, COPY_ICON_NAME)) {
+        state->shows_icon = TRUE;
+        gtk_button_set_image(GTK_BUTTON(button),
+                             gtk_image_new_from_icon_name(COPY_ICON_NAME, GTK_ICON_SIZE_BUTTON));
+    } else {
+        gtk_button_set_label(GTK_BUTTON(button), text_or_empty(label));
+    }
+
+    gtk_widget_set_halign(button, GTK_ALIGN_CENTER);
+    gtk_widget_set_valign(button, GTK_ALIGN_CENTER);
+    gtk_style_context_add_class(gtk_widget_get_style_context(button), "flat");
+    gtk_widget_set_tooltip_text(button, text_or_empty(label));
+    atk_object_set_name(gtk_widget_get_accessible(button), text_or_empty(label));
+    g_signal_connect(button, "clicked", G_CALLBACK(on_copy_clicked), state);
+    g_signal_connect(button, "destroy", G_CALLBACK(on_copy_button_destroy), state);
+    return button;
+}
+
+/* 字段行：标签左列弱化显示，值右列按约定给出链接或普通文本，被 --copy 点名的值再补一个
+   一键复制按钮。值不做成可选中标签：可选中标签会抢初始焦点并选中整行。
    长 URL 用 xalign 0 + 换行兜底：容器里没有横向滚动，值必须能在窄窗口里断行。 */
 static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *value,
-                      GtkWindow *window, const gchar *opener) {
+                      GtkWindow *window, const gchar *opener, const gchar *copy_label,
+                      const gchar *copied_label) {
     GtkWidget *name = gtk_label_new(text_or_empty(label));
     gtk_widget_set_halign(name, GTK_ALIGN_START);
     gtk_widget_set_valign(name, GTK_ALIGN_START);
@@ -123,27 +233,41 @@ static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *
                               (GClosureNotify)g_free, 0);
     } else {
         entry = gtk_label_new(text_or_empty(value));
-        gtk_label_set_selectable(GTK_LABEL(entry), TRUE);
         gtk_label_set_line_wrap(GTK_LABEL(entry), TRUE);
         gtk_label_set_xalign(GTK_LABEL(entry), 0.0f);
         gtk_widget_set_halign(entry, GTK_ALIGN_START);
     }
     gtk_grid_attach(grid, entry, 1, row, 1, 1);
+
+    /* 复制按钮占第三列；没有它的行留空，因此不会把网格拉宽。 */
+    if (is_copy_marked(value)) {
+        gtk_grid_attach(grid, make_copy_button(value, copy_label, copied_label), 2, row, 1, 1);
+    }
 }
 
 /* 居中行：分隔线上方的单行状态文本（形如「当前形态: 薄壳版」），整行水平居中。
    为什么合成一行而不是复用两列网格：这两行是状态摘要，不是可对照的「字段—值」表；
-   居中的整行读起来是一句话，也不会把下方事实网格的标签列拉宽。 */
-static void add_centered_line(GtkBox *box, const gchar *label, const gchar *value) {
+   居中的整行读起来是一句话，也不会把下方事实网格的标签列拉宽。
+   文本保持普通标签：可选中标签会抢初始焦点并让整行呈选中态，那是用户明确不要的。 */
+static void add_centered_line(GtkBox *box, const gchar *label, const gchar *value,
+                              const gchar *copy_label, const gchar *copied_label) {
     gboolean has_label = label != NULL && label[0] != '\0';
     /* 没有标签时只显示值，不留一个孤零零的分隔冒号。 */
     gchar *text = has_label ? g_strconcat(label, ": ", text_or_empty(value), NULL)
                             : g_strdup(text_or_empty(value));
     GtkWidget *line = gtk_label_new(text);
-    gtk_widget_set_halign(line, GTK_ALIGN_CENTER);
-    gtk_label_set_selectable(GTK_LABEL(line), TRUE);
-    gtk_box_pack_start(box, line, FALSE, FALSE, 0);
     g_free(text);
+    gtk_widget_set_halign(line, GTK_ALIGN_CENTER);
+    if (!is_copy_marked(value)) {
+        gtk_box_pack_start(box, line, FALSE, FALSE, 0);
+        return;
+    }
+    /* 被点名的值：文本与复制按钮组成一个水平居中组，行整体仍然居中。 */
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_widget_set_halign(row, GTK_ALIGN_CENTER);
+    gtk_box_pack_start(GTK_BOX(row), line, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), make_copy_button(value, copy_label, copied_label), FALSE, FALSE, 0);
+    gtk_box_pack_start(box, row, FALSE, FALSE, 0);
 }
 
 /* Esc 关窗：与标题栏关闭按钮等价，避免用户只能去点标题栏。 */
@@ -164,6 +288,9 @@ int main(int argc, char **argv) {
         {"version", 0, 0, G_OPTION_ARG_STRING, &option_version, "Package version", NULL},
         {"center-field", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_center_fields, "Centered line as LABEL=VALUE (repeatable)", NULL},
         {"field", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_fields, "Field as LABEL=VALUE (repeatable)", NULL},
+        {"copy", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_copy_values, "Value that gets a one-click copy button (repeatable)", NULL},
+        {"copy-label", 0, 0, G_OPTION_ARG_STRING, &option_copy_label, "Copy button label, tooltip and accessible name", NULL},
+        {"copied-label", 0, 0, G_OPTION_ARG_STRING, &option_copied_label, "Label shown briefly after copying", NULL},
         {"close-label", 0, 0, G_OPTION_ARG_STRING, &option_close_label, "Close button label", NULL},
         {"logo", 0, 0, G_OPTION_ARG_STRING, &option_logo, "Path to the product icon", NULL},
         {"uri-opener", 0, 0, G_OPTION_ARG_STRING, &option_uri_opener, "Path to xdg-open", NULL},
@@ -227,11 +354,12 @@ int main(int argc, char **argv) {
     for (gint i = 0; option_center_fields != NULL && option_center_fields[i] != NULL; i++) {
         gchar *separator = g_strstr_len(option_center_fields[i], -1, "=");
         if (separator == NULL) {
-            add_centered_line(GTK_BOX(box), "", option_center_fields[i]);
+            add_centered_line(GTK_BOX(box), "", option_center_fields[i],
+                              option_copy_label, option_copied_label);
             continue;
         }
         gchar *label = g_strndup(option_center_fields[i], (gsize)(separator - option_center_fields[i]));
-        add_centered_line(GTK_BOX(box), label, separator + 1);
+        add_centered_line(GTK_BOX(box), label, separator + 1, option_copy_label, option_copied_label);
         g_free(label);
     }
 
@@ -247,11 +375,13 @@ int main(int argc, char **argv) {
         gchar *separator = g_strstr_len(option_fields[i], -1, "=");
         if (separator == NULL) {
             /* 没有分隔符的行无法拆成标签与值：整行当值，标签留空，绝不让它拖垮弹框。 */
-            add_field(GTK_GRID(grid), i, "", option_fields[i], GTK_WINDOW(window), option_uri_opener);
+            add_field(GTK_GRID(grid), i, "", option_fields[i], GTK_WINDOW(window), option_uri_opener,
+                      option_copy_label, option_copied_label);
             continue;
         }
         gchar *label = g_strndup(option_fields[i], (gsize)(separator - option_fields[i]));
-        add_field(GTK_GRID(grid), i, label, separator + 1, GTK_WINDOW(window), option_uri_opener);
+        add_field(GTK_GRID(grid), i, label, separator + 1, GTK_WINDOW(window), option_uri_opener,
+                  option_copy_label, option_copied_label);
         g_free(label);
     }
 
@@ -268,10 +398,14 @@ int main(int argc, char **argv) {
     /* 位置提示先给一次，真正的居中在每次尺寸分配后按工作区摆。 */
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     g_signal_connect(window, "size-allocate", G_CALLBACK(on_size_allocate), NULL);
+    /* 初始焦点显式指定给关闭按钮：窗口获得焦点时 GTK 会自己挑第一个可聚焦控件，弹框里
+       除关闭按钮外还有复制按钮，不指定就会把焦点框画在复制按钮上。gtk_window_set_focus
+       在窗口显示前记录目标控件，由 GTK 在 map 时应用；显示之后再 grab 一次是加固——
+       未 map 时的 grab_focus 是否生效取决于 GTK 版本。 */
+    if (close != NULL) {
+        gtk_window_set_focus(GTK_WINDOW(window), close);
+    }
     gtk_widget_show_all(window);
-    /* 初始焦点必须落在关闭按钮上，不能交给 GTK 默认的第一个可聚焦控件：可选中标签一旦
-       获得焦点就会整段呈选中态，用户打开弹框看到的第一眼就是一段高亮（实测 DSH 版本那
-       行）。放在关闭按钮上既没有选中态，键盘用户又能直接 Enter 关窗。 */
     if (close != NULL) {
         gtk_widget_grab_focus(close);
     }

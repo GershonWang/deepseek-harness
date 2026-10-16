@@ -64,9 +64,10 @@ func TestHarnessVersion(t *testing.T) {
 	}
 }
 
-// TestShowPassesFieldsAndPaths 覆盖与助手的接口：产品名、版本号、每个字段、关闭按钮文案、
-// 图标与打开器路径都必须出现在命令行上——助手只画窗口，任何一项漏传都会在界面上表现为
-// 缺内容，而字段顺序错乱会让「DSH版本／仓库／作者」这一组重新排成别的样子。
+// TestShowPassesFieldsAndPaths 覆盖与助手的接口：产品名、版本号、每个字段、复制标记、
+// 关闭按钮文案、图标与打开器路径都必须出现在命令行上——助手只画窗口，任何一项漏传都会在
+// 界面上表现为缺内容，而字段顺序错乱会让「DSH版本／仓库／作者」这一组重新排成别的样子。
+// 两类行各标记一项需要复制的值，钉住「--copy 对居中行与事实行同样有效」这条约定。
 func TestShowPassesFieldsAndPaths(t *testing.T) {
 	prefix := t.TempDir()
 	binDir := filepath.Join(prefix, "bin")
@@ -97,21 +98,31 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 		Title: "关于",
 		CenterFields: []Field{
 			{Label: "当前形态", Value: "薄壳版"},
-			{Label: "包 ID", Value: PackageID},
+			{Label: "包 ID", Value: PackageID, Copy: true},
 		},
 		Fields: []Field{
 			{Label: "DSH版本", Value: "0.2.0-rc.2"},
-			{Label: "上游DSH仓库", Value: UpstreamRepo},
-			{Label: "玲珑封装作者", Value: Packager},
+			{Label: "DSH仓库", Value: UpstreamRepo},
+			{Label: "玲珑封装作者", Value: Packager, Copy: true},
 			{Label: "玲珑封装仓库", Value: GithubRepo},
 		},
-		CloseLabel: "关闭",
+		CloseLabel:  "关闭",
+		CopyLabel:   "复制",
+		CopiedLabel: "已复制",
 	}
 	if err := New(prefix, "1.2.3").Show(dialog); err != nil {
 		t.Fatalf("Show 失败: %v", err)
 	}
 	args := waitForArgs(t, argsPath)
-	want := []string{"--program-name", productName, "--version", "1.2.3", "--title", dialog.Title}
+	want := []string{"--program-name", productName, "--version", "1.2.3", "--title", dialog.Title,
+		"--copy-label", dialog.CopyLabel, "--copied-label", dialog.CopiedLabel}
+	for _, fields := range [][]Field{dialog.CenterFields, dialog.Fields} {
+		for _, field := range fields {
+			if field.Copy {
+				want = append(want, "--copy", field.Value)
+			}
+		}
+	}
 	for _, field := range dialog.CenterFields {
 		want = append(want, "--center-field", field.Label+"="+field.Value)
 	}

@@ -53,13 +53,17 @@ const (
 
 // Field 是「关于」里的一行：本地化的标签 + 值。
 //
-// 值以 http:// 或 https:// 开头时由助手渲染成可点击链接——这是调用方与助手之间的唯一
-// 约定，助手因此不需要知道哪些行是链接（见 tools/dsh-about.c）。
+// 值以 http:// 或 https:// 开头时由助手渲染成可点击链接，Copy 为 true 时助手在值右侧补一
+// 个一键复制按钮——这是调用方与助手之间的两条约定，助手因此不需要知道哪一行是什么（见
+// tools/dsh-about.c）。值本身刻意不做成可选中文本：选中态会让用户打开弹框第一眼看到一段
+// 高亮，需要复制的值改用复制按钮。
 type Field struct {
 	// Label 是本地化的字段名。
 	Label string
-	// Value 是值；URL 会被渲染成可点击链接。
+	// Value 是值；URL 会被渲染成可点击链接，Copy 标记的值会附带复制按钮。
 	Value string
+	// Copy 表示这一行的值需要一键复制入口（例如用户报障时要原样给出的玲珑包 ID）。
+	Copy bool
 }
 
 // Dialog 是「关于」对话框的全部内容。
@@ -73,6 +77,11 @@ type Dialog struct {
 	Fields []Field
 	// CloseLabel 是关闭按钮的文案（本地化）；为空时助手只留标题栏关闭与 Esc。
 	CloseLabel string
+	// CopyLabel 是复制按钮的文案（本地化），同时用作它的提示与无障碍名；为空时按钮只是没有
+	// 文字提示，复制本身仍然可用。
+	CopyLabel string
+	// CopiedLabel 是复制成功后短暂显示的反馈文案（本地化）；为空时不做视觉反馈。
+	CopiedLabel string
 }
 
 // Presenter 弹出「关于」对话框。同一个实例同时只允许一个对话框，避免连点叠窗。
@@ -135,6 +144,24 @@ func (p *Presenter) Show(dialog Dialog) error {
 	args := []string{"--program-name", productName, "--version", p.version}
 	if dialog.Title != "" {
 		args = append(args, "--title", dialog.Title)
+	}
+	if dialog.CopyLabel != "" {
+		args = append(args, "--copy-label", dialog.CopyLabel)
+	}
+	if dialog.CopiedLabel != "" {
+		args = append(args, "--copied-label", dialog.CopiedLabel)
+	}
+	// 复制标记与行分开传：助手按「值出现在 --copy 列表里」给该行补按钮，因此同一区域内
+	// 可复制行与普通行的相对顺序仍然由下面的参数顺序决定，不需要为它另开一种行类型。
+	for _, field := range dialog.CenterFields {
+		if field.Copy {
+			args = append(args, "--copy", field.Value)
+		}
+	}
+	for _, field := range dialog.Fields {
+		if field.Copy {
+			args = append(args, "--copy", field.Value)
+		}
 	}
 	for _, field := range dialog.CenterFields {
 		args = append(args, "--center-field", field.Label+"="+field.Value)

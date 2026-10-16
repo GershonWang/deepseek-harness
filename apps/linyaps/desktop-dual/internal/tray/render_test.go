@@ -277,9 +277,10 @@ func childLayout(t *testing.T, variant dbus.Variant) dbusmenuLayout {
 }
 
 // TestAboutDialogCarriesFacts 覆盖「关于」的内容与分组：窗口标题是本地化的「关于」；当前
-// 形态与包 ID 是分隔线上方的居中行，随语言与运行状态变化；DSH 版本、两个仓库与封装作者是
-// 分隔线下方的事实行，两个仓库地址必须是 http(s)——助手只按这个前缀决定渲染成可点击链接
-// 还是纯文本。两组的顺序也要钉住，它决定用户看到的排列。
+// 形态与包 ID 是分隔线上方的居中行，随语言与运行状态变化，其中包 ID 是唯一带一键复制标记
+// 的值（形态名不需要抄给别人）；DSH 版本、两个仓库与封装作者是分隔线下方的事实行，两个仓库
+// 地址必须是 http(s)——助手只按这个前缀决定渲染成可点击链接还是纯文本。两组的顺序也要钉住，
+// 它决定用户看到的排列。
 func TestAboutDialogCarriesFacts(t *testing.T) {
 	prefix := t.TempDir()
 	harnessDir := filepath.Join(prefix, "harness")
@@ -310,8 +311,17 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	if zh.CenterFields[1].Value != about.PackageID {
 		t.Errorf("居中包 ID = %q，期望 %q", zh.CenterFields[1].Value, about.PackageID)
 	}
+	if !zh.CenterFields[1].Copy {
+		t.Error("包 ID 没有复制标记：值不再可选中，没有复制入口就只能手抄")
+	}
+	if zh.CenterFields[0].Copy {
+		t.Error("形态名不该带复制按钮：它不是需要原样转述的标识")
+	}
+	if zh.CopyLabel == "" || zh.CopiedLabel == "" {
+		t.Errorf("复制按钮文案 = %q / %q，都不能为空", zh.CopyLabel, zh.CopiedLabel)
+	}
 
-	wantLabels := []string{"DSH版本", "上游DSH仓库", "玲珑封装作者", "玲珑封装仓库"}
+	wantLabels := []string{"DSH版本", "DSH仓库", "玲珑封装作者", "玲珑封装仓库"}
 	if len(zh.Fields) != len(wantLabels) {
 		t.Fatalf("事实行数 = %d，期望 %d", len(zh.Fields), len(wantLabels))
 	}
@@ -341,8 +351,14 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	if en.Title != "About" {
 		t.Errorf("英文窗口标题 = %q，期望 About", en.Title)
 	}
-	if en.Fields[1].Label != "Upstream DSH repository" {
-		t.Errorf("英文上游仓库标签 = %q", en.Fields[1].Label)
+	if en.Fields[1].Label != "DSH repository" {
+		t.Errorf("英文 DSH 仓库标签 = %q", en.Fields[1].Label)
+	}
+	if en.CopyLabel != "Copy" || en.CopiedLabel != "Copied" {
+		t.Errorf("英文复制文案 = %q / %q，期望 Copy / Copied", en.CopyLabel, en.CopiedLabel)
+	}
+	if !en.CenterFields[1].Copy {
+		t.Error("英文包 ID 没有复制标记")
 	}
 	if !strings.Contains(en.CenterFields[0].Value, "No client running") {
 		t.Errorf("英文形态 = %q，应含未运行态", en.CenterFields[0].Value)

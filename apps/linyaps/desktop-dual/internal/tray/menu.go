@@ -347,17 +347,18 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 // 信息只在托盘这一处）。玲珑包版本不出现在任何一组里——它是对话框顶部的版本行
 // （`--version`），重复一行只会让用户对不上。
 //
-// 各组的顺序即显示顺序；两个仓库地址是 http(s)，由助手渲染成可点击链接。
+// 各组的顺序即显示顺序；两个仓库地址是 http(s)，由助手渲染成可点击链接；包 ID 是不可选中
+// 文本里唯一需要原样抄给别人的值（报障时要写清是哪个包），因此只有它带一键复制按钮。
 // @param locale - 语言。
 // @param mode - 当前在跑的客户端形态；空串表示没有客户端在运行。
 // @param prefix - 安装前缀，用于定位随包的 harness 版本文件。
-// @returns 窗口标题、居中行、事实行与关闭按钮文案。
+// @returns 窗口标题、居中行、事实行、复制按钮文案与关闭按钮文案。
 func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about.Dialog {
 	return about.Dialog{
 		Title: i18n.T(locale, "about.title"),
 		CenterFields: []about.Field{
 			{Label: i18n.T(locale, "about.mode"), Value: modeName(locale, mode)},
-			{Label: i18n.T(locale, "about.package"), Value: about.PackageID},
+			{Label: i18n.T(locale, "about.package"), Value: about.PackageID, Copy: true},
 		},
 		Fields: []about.Field{
 			{Label: i18n.T(locale, "about.dshVersion"), Value: about.HarnessVersion(prefix)},
@@ -365,7 +366,9 @@ func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about
 			{Label: i18n.T(locale, "about.packager"), Value: about.Packager},
 			{Label: i18n.T(locale, "about.repo"), Value: about.GithubRepo},
 		},
-		CloseLabel: i18n.T(locale, "about.close"),
+		CloseLabel:  i18n.T(locale, "about.close"),
+		CopyLabel:   i18n.T(locale, "about.copy"),
+		CopiedLabel: i18n.T(locale, "about.copied"),
 	}
 }
 
