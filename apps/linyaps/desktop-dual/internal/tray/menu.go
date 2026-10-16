@@ -341,24 +341,29 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 
 // aboutDialog 组织「关于」对话框的内容。
 //
-// 前四项与薄壳版标题栏原来的关于信息同源（DSH 版本、上游仓库、封装作者、封装仓库），
-// 因为那个弹框已移除、信息只在托盘这一处；后两项是切换器自己的诊断信息。玲珑包版本不出
-// 现在字段里——它是对话框顶部的版本行（`--version`），重复一行只会让用户对不上。
+// 分组按「读一眼就知道现在是什么状态」与「要定位问题才看」来分：当前形态与包 ID 是状态
+// 摘要，放在分隔线上方、整行居中；DSH 版本、两个仓库与封装作者是定位问题用的事实，放在
+// 分隔线下方的事实网格里。这一组事实与薄壳版标题栏原来的关于信息同源（那个弹框已移除，
+// 信息只在托盘这一处）。玲珑包版本不出现在任何一组里——它是对话框顶部的版本行
+// （`--version`），重复一行只会让用户对不上。
 //
-// 值的顺序即显示顺序；两个仓库地址是 http(s)，由助手渲染成可点击链接。
+// 各组的顺序即显示顺序；两个仓库地址是 http(s)，由助手渲染成可点击链接。
 // @param locale - 语言。
 // @param mode - 当前在跑的客户端形态；空串表示没有客户端在运行。
 // @param prefix - 安装前缀，用于定位随包的 harness 版本文件。
-// @returns 字段行与关闭按钮文案。
+// @returns 窗口标题、居中行、事实行与关闭按钮文案。
 func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about.Dialog {
 	return about.Dialog{
+		Title: i18n.T(locale, "about.title"),
+		CenterFields: []about.Field{
+			{Label: i18n.T(locale, "about.mode"), Value: modeName(locale, mode)},
+			{Label: i18n.T(locale, "about.package"), Value: about.PackageID},
+		},
 		Fields: []about.Field{
 			{Label: i18n.T(locale, "about.dshVersion"), Value: about.HarnessVersion(prefix)},
 			{Label: i18n.T(locale, "about.upstreamRepo"), Value: about.UpstreamRepo},
 			{Label: i18n.T(locale, "about.packager"), Value: about.Packager},
 			{Label: i18n.T(locale, "about.repo"), Value: about.GithubRepo},
-			{Label: i18n.T(locale, "about.mode"), Value: modeName(locale, mode)},
-			{Label: i18n.T(locale, "about.package"), Value: about.PackageID},
 		},
 		CloseLabel: i18n.T(locale, "about.close"),
 	}

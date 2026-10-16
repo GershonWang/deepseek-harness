@@ -94,13 +94,16 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 	}
 
 	dialog := Dialog{
+		Title: "关于",
+		CenterFields: []Field{
+			{Label: "当前形态", Value: "薄壳版"},
+			{Label: "包 ID", Value: PackageID},
+		},
 		Fields: []Field{
 			{Label: "DSH版本", Value: "0.2.0-rc.2"},
 			{Label: "上游DSH仓库", Value: UpstreamRepo},
 			{Label: "玲珑封装作者", Value: Packager},
 			{Label: "玲珑封装仓库", Value: GithubRepo},
-			{Label: "当前形态", Value: "薄壳版"},
-			{Label: "包 ID", Value: PackageID},
 		},
 		CloseLabel: "关闭",
 	}
@@ -108,7 +111,10 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 		t.Fatalf("Show 失败: %v", err)
 	}
 	args := waitForArgs(t, argsPath)
-	want := []string{"--program-name", productName, "--version", "1.2.3"}
+	want := []string{"--program-name", productName, "--version", "1.2.3", "--title", dialog.Title}
+	for _, field := range dialog.CenterFields {
+		want = append(want, "--center-field", field.Label+"="+field.Value)
+	}
 	for _, field := range dialog.Fields {
 		want = append(want, "--field", field.Label+"="+field.Value)
 	}

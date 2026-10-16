@@ -276,9 +276,10 @@ func childLayout(t *testing.T, variant dbus.Variant) dbusmenuLayout {
 	return layout
 }
 
-// TestAboutDialogCarriesFacts 覆盖「关于」的内容：DSH 版本、两个仓库、封装作者随包而来，
-// 当前形态随语言与运行状态变化，包 ID 固定；两个仓库地址必须是 http(s)，因为助手只按这个
-// 前缀决定渲染成可点击链接还是纯文本。字段顺序也要钉住——它决定用户看到的排列。
+// TestAboutDialogCarriesFacts 覆盖「关于」的内容与分组：窗口标题是本地化的「关于」；当前
+// 形态与包 ID 是分隔线上方的居中行，随语言与运行状态变化；DSH 版本、两个仓库与封装作者是
+// 分隔线下方的事实行，两个仓库地址必须是 http(s)——助手只按这个前缀决定渲染成可点击链接
+// 还是纯文本。两组的顺序也要钉住，它决定用户看到的排列。
 func TestAboutDialogCarriesFacts(t *testing.T) {
 	prefix := t.TempDir()
 	harnessDir := filepath.Join(prefix, "harness")
@@ -291,13 +292,32 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	}
 
 	zh := aboutDialog(i18n.Zh, switchboard.ModeOfficial, prefix)
-	wantLabels := []string{"DSH版本", "上游DSH仓库", "玲珑封装作者", "玲珑封装仓库", "当前形态", "包 ID"}
+	if zh.Title != "关于" {
+		t.Errorf("窗口标题 = %q，期望 关于", zh.Title)
+	}
+	wantCenter := []string{"当前形态", "包 ID"}
+	if len(zh.CenterFields) != len(wantCenter) {
+		t.Fatalf("居中行数 = %d，期望 %d", len(zh.CenterFields), len(wantCenter))
+	}
+	for i, want := range wantCenter {
+		if zh.CenterFields[i].Label != want {
+			t.Errorf("居中第 %d 行标签 = %q，期望 %q", i, zh.CenterFields[i].Label, want)
+		}
+	}
+	if !strings.Contains(zh.CenterFields[0].Value, "官方版") {
+		t.Errorf("居中形态 = %q，应含当前形态名", zh.CenterFields[0].Value)
+	}
+	if zh.CenterFields[1].Value != about.PackageID {
+		t.Errorf("居中包 ID = %q，期望 %q", zh.CenterFields[1].Value, about.PackageID)
+	}
+
+	wantLabels := []string{"DSH版本", "上游DSH仓库", "玲珑封装作者", "玲珑封装仓库"}
 	if len(zh.Fields) != len(wantLabels) {
-		t.Fatalf("字段数 = %d，期望 %d", len(zh.Fields), len(wantLabels))
+		t.Fatalf("事实行数 = %d，期望 %d", len(zh.Fields), len(wantLabels))
 	}
 	for i, want := range wantLabels {
 		if zh.Fields[i].Label != want {
-			t.Errorf("第 %d 行标签 = %q，期望 %q", i, zh.Fields[i].Label, want)
+			t.Errorf("事实第 %d 行标签 = %q，期望 %q", i, zh.Fields[i].Label, want)
 		}
 	}
 	if zh.Fields[0].Value != "0.2.0-rc.2" {
@@ -309,9 +329,6 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	if zh.Fields[2].Value != about.Packager {
 		t.Errorf("封装作者 = %q，期望 %q", zh.Fields[2].Value, about.Packager)
 	}
-	if !strings.Contains(zh.Fields[4].Value, "官方版") || zh.Fields[5].Value != about.PackageID {
-		t.Errorf("形态/包 ID = %q / %q", zh.Fields[4].Value, zh.Fields[5].Value)
-	}
 	if zh.CloseLabel == "" {
 		t.Error("关闭按钮文案为空，助手会没有可见的关闭入口")
 	}
@@ -321,10 +338,13 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	}
 
 	en := aboutDialog(i18n.En, "", prefix)
+	if en.Title != "About" {
+		t.Errorf("英文窗口标题 = %q，期望 About", en.Title)
+	}
 	if en.Fields[1].Label != "Upstream DSH repository" {
 		t.Errorf("英文上游仓库标签 = %q", en.Fields[1].Label)
 	}
-	if !strings.Contains(en.Fields[4].Value, "No client running") {
-		t.Errorf("英文形态 = %q，应含未运行态", en.Fields[4].Value)
+	if !strings.Contains(en.CenterFields[0].Value, "No client running") {
+		t.Errorf("英文形态 = %q，应含未运行态", en.CenterFields[0].Value)
 	}
 }

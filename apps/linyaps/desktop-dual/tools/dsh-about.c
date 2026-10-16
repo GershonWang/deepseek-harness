@@ -8,8 +8,9 @@
  * 为什么不用 GtkAboutDialog：它只有一个 website 字段，而「关于」要同时给出上游 DSH 与
  * 玲珑封装两个仓库地址，且都必须是可点击链接。自绘窗口用 GtkLinkButton 逐行摆放即可。
  *
- * 本程序只负责画窗口：产品名、版本号、字段行、按钮文案、图标与打开器路径全部由命令行
- * 传入，语言由切换器（internal/i18n）决定，这里不内置任何面向用户的文案。
+ * 本程序只负责画窗口：窗口标题、产品名、版本号、居中状态行、事实行、按钮文案、图标与
+ * 打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不内置任何面向用户
+ * 的文案。
  *
  * 唯一的内容约定：字段值以 http:// 或 https:// 开头时渲染成可点击链接，其余渲染成可选
  * 中的文本（链接打不开时用户仍能复制地址）。
@@ -19,12 +20,14 @@
 #include <gtk/gtk.h>
 
 /* 命令行参数；未提供时保持 NULL。 */
+static gchar *option_title = NULL;
 static gchar *option_program = NULL;
 static gchar *option_version = NULL;
 static gchar *option_close_label = NULL;
 static gchar *option_logo = NULL;
 static gchar *option_uri_opener = NULL;
 static gchar **option_fields = NULL;
+static gchar **option_center_fields = NULL;
 
 /* 链接点击需要的上下文：打开器路径与窗口（回退给 GTK 默认处理器时要它）。 */
 typedef struct {
@@ -128,6 +131,21 @@ static void add_field(GtkGrid *grid, gint row, const gchar *label, const gchar *
     gtk_grid_attach(grid, entry, 1, row, 1, 1);
 }
 
+/* 居中行：分隔线上方的单行状态文本（形如「当前形态: 薄壳版」），整行水平居中。
+   为什么合成一行而不是复用两列网格：这两行是状态摘要，不是可对照的「字段—值」表；
+   居中的整行读起来是一句话，也不会把下方事实网格的标签列拉宽。 */
+static void add_centered_line(GtkBox *box, const gchar *label, const gchar *value) {
+    gboolean has_label = label != NULL && label[0] != '\0';
+    /* 没有标签时只显示值，不留一个孤零零的分隔冒号。 */
+    gchar *text = has_label ? g_strconcat(label, ": ", text_or_empty(value), NULL)
+                            : g_strdup(text_or_empty(value));
+    GtkWidget *line = gtk_label_new(text);
+    gtk_widget_set_halign(line, GTK_ALIGN_CENTER);
+    gtk_label_set_selectable(GTK_LABEL(line), TRUE);
+    gtk_box_pack_start(box, line, FALSE, FALSE, 0);
+    g_free(text);
+}
+
 /* Esc 关窗：与标题栏关闭按钮等价，避免用户只能去点标题栏。 */
 static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer data) {
     (void)widget;
@@ -141,8 +159,10 @@ static gboolean on_key_press(GtkWidget *widget, GdkEventKey *event, gpointer dat
 
 int main(int argc, char **argv) {
     static GOptionEntry entries[] = {
+        {"title", 0, 0, G_OPTION_ARG_STRING, &option_title, "Window title", NULL},
         {"program-name", 0, 0, G_OPTION_ARG_STRING, &option_program, "Product name", NULL},
         {"version", 0, 0, G_OPTION_ARG_STRING, &option_version, "Package version", NULL},
+        {"center-field", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_center_fields, "Centered line as LABEL=VALUE (repeatable)", NULL},
         {"field", 0, 0, G_OPTION_ARG_STRING_ARRAY, &option_fields, "Field as LABEL=VALUE (repeatable)", NULL},
         {"close-label", 0, 0, G_OPTION_ARG_STRING, &option_close_label, "Close button label", NULL},
         {"logo", 0, 0, G_OPTION_ARG_STRING, &option_logo, "Path to the product icon", NULL},
@@ -163,7 +183,11 @@ int main(int argc, char **argv) {
     g_option_context_free(context);
 
     GtkWidget *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(window), text_or_empty(option_program));
+    /* 窗口标题用调用方给的标题（切换器传本地化的「关于」）；没给时退回产品名。 */
+    gtk_window_set_title(GTK_WINDOW(window),
+                         option_title != NULL && option_title[0] != '\0'
+                             ? option_title
+                             : text_or_empty(option_program));
     gtk_window_set_resizable(GTK_WINDOW(window), FALSE);
     gtk_container_set_border_width(GTK_CONTAINER(window), 18);
 
@@ -199,6 +223,18 @@ int main(int argc, char **argv) {
         gtk_box_pack_start(GTK_BOX(box), version, FALSE, FALSE, 0);
     }
 
+    /* 居中状态行（当前形态、包 ID）：在分隔线上方、整行水平居中。 */
+    for (gint i = 0; option_center_fields != NULL && option_center_fields[i] != NULL; i++) {
+        gchar *separator = g_strstr_len(option_center_fields[i], -1, "=");
+        if (separator == NULL) {
+            add_centered_line(GTK_BOX(box), "", option_center_fields[i]);
+            continue;
+        }
+        gchar *label = g_strndup(option_center_fields[i], (gsize)(separator - option_center_fields[i]));
+        add_centered_line(GTK_BOX(box), label, separator + 1);
+        g_free(label);
+    }
+
     gtk_box_pack_start(GTK_BOX(box), gtk_separator_new(GTK_ORIENTATION_HORIZONTAL), FALSE, FALSE, 4);
 
     GtkWidget *grid = gtk_grid_new();
@@ -219,8 +255,9 @@ int main(int argc, char **argv) {
         g_free(label);
     }
 
+    GtkWidget *close = NULL;
     if (option_close_label != NULL && option_close_label[0] != '\0') {
-        GtkWidget *close = gtk_button_new_with_label(option_close_label);
+        close = gtk_button_new_with_label(option_close_label);
         gtk_widget_set_halign(close, GTK_ALIGN_CENTER);
         g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_main_quit), NULL);
         gtk_box_pack_start(GTK_BOX(box), close, FALSE, FALSE, 4);
@@ -232,6 +269,12 @@ int main(int argc, char **argv) {
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     g_signal_connect(window, "size-allocate", G_CALLBACK(on_size_allocate), NULL);
     gtk_widget_show_all(window);
+    /* 初始焦点必须落在关闭按钮上，不能交给 GTK 默认的第一个可聚焦控件：可选中标签一旦
+       获得焦点就会整段呈选中态，用户打开弹框看到的第一眼就是一段高亮（实测 DSH 版本那
+       行）。放在关闭按钮上既没有选中态，键盘用户又能直接 Enter 关窗。 */
+    if (close != NULL) {
+        gtk_widget_grab_focus(close);
+    }
     gtk_main();
     return 0;
 }

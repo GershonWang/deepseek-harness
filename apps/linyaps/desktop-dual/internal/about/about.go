@@ -64,7 +64,12 @@ type Field struct {
 
 // Dialog 是「关于」对话框的全部内容。
 type Dialog struct {
-	// Fields 按显示顺序排列，顺序即命令行参数的顺序——助手不做任何排序。
+	// Title 是窗口标题（本地化，例如「关于」）；为空时助手回落到产品名。
+	Title string
+	// CenterFields 渲染在分隔线上方、整行水平居中，用于「当前形态」「包 ID」这类状态摘要。
+	CenterFields []Field
+	// Fields 渲染在分隔线下方的事实网格里，按显示顺序排列；顺序即命令行参数的顺序——
+	// 助手不做任何排序。
 	Fields []Field
 	// CloseLabel 是关闭按钮的文案（本地化）；为空时助手只留标题栏关闭与 Esc。
 	CloseLabel string
@@ -128,6 +133,12 @@ func (p *Presenter) Show(dialog Dialog) error {
 		return fmt.Errorf("about: dialog helper unavailable (%s): %w", helper, err)
 	}
 	args := []string{"--program-name", productName, "--version", p.version}
+	if dialog.Title != "" {
+		args = append(args, "--title", dialog.Title)
+	}
+	for _, field := range dialog.CenterFields {
+		args = append(args, "--center-field", field.Label+"="+field.Value)
+	}
 	for _, field := range dialog.Fields {
 		args = append(args, "--field", field.Label+"="+field.Value)
 	}

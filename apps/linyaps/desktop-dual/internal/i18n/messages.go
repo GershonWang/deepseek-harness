@@ -27,6 +27,7 @@ var messages = map[Locale]map[string]string{
 		"tray.tooltip":          "DeepSeek Harness 切换器",
 		// 「关于」的字段名与薄壳版原来的关于弹框逐字一致：同一批事实换了位置，
 		// 用词不该跟着变，否则用户会以为看到的是另一份信息。
+		"about.title":        "关于",
 		"about.dshVersion":   "DSH版本",
 		"about.upstreamRepo": "上游DSH仓库",
 		"about.packager":     "玲珑封装作者",
@@ -51,6 +52,7 @@ var messages = map[Locale]map[string]string{
 		"tray.setDefaultFailed": "Setting the default client failed",
 		"tray.aboutFailed":      "Opening the about dialog failed",
 		"tray.tooltip":          "DeepSeek Harness switcher",
+		"about.title":           "About",
 		"about.dshVersion":      "DSH version",
 		"about.upstreamRepo":    "Upstream DSH repository",
 		"about.packager":        "Linglong packager",
