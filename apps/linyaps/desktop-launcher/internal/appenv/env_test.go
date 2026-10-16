@@ -1,6 +1,7 @@
 package appenv
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,17 +19,20 @@ func TestResolve_OverrideBin(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_PORT", "8080")
 	// overlay 落到临时目录：Resolve 会写这个文件，测试不能碰真实的 ~/.cache。
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
-	r := Resolve()
+	r := Resolve(0)
 	if r.Config.Command != "/custom/dsh" {
 		t.Errorf("expected /custom/dsh, got %s", r.Config.Command)
 	}
 	// launcher 自己的 flag 必须先于 app 的 --port（见 harnessArgs 的顺序约束），
-	// 所以首项是 web、末两项才是 --port <n>。
+	// 所以首项是 web、--port <n> 在 --no-open 之前。
 	if r.Config.Args[0] != "web" {
 		t.Errorf("expected web first, got %v", r.Config.Args)
 	}
-	if n := len(r.Config.Args); r.Config.Args[n-2] != "--port" || r.Config.Args[n-1] != "8080" {
-		t.Errorf("expected trailing --port 8080, got %v", r.Config.Args)
+	if n := len(r.Config.Args); r.Config.Args[n-3] != "--port" || r.Config.Args[n-2] != "8080" {
+		t.Errorf("expected --port 8080 before --no-open, got %v", r.Config.Args)
+	}
+	if n := len(r.Config.Args); r.Config.Args[n-1] != "--no-open" {
+		t.Errorf("expected trailing --no-open, got %v", r.Config.Args)
 	}
 }
 
@@ -40,9 +44,9 @@ func TestResolve_InjectsSupervisorOverlay(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_PORT", "8080")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
 
-	r := Resolve()
+	r := Resolve(0)
 	overlay := filepath.Join(dir, supervisorOverlayName)
-	want := []string{"web", "--patch", overlay, "--port", "8080"}
+	want := []string{"web", "--patch", overlay, "--port", "8080", "--no-open"}
 	if !slices.Equal(r.Config.Args, want) {
 		t.Fatalf("Args = %v, want %v", r.Config.Args, want)
 	}
@@ -71,8 +75,8 @@ func TestHarnessArgs_EntryPrefixOrder(t *testing.T) {
 		entry string
 		want  []string
 	}{
-		{"no entry", "", []string{"web", "--patch", overlay, "--port", "1"}},
-		{"entry prefix", "/opt/h/bin.js", []string{"/opt/h/bin.js", "web", "--patch", overlay, "--port", "1"}},
+		{"no entry", "", []string{"web", "--patch", overlay, "--port", "1", "--no-open"}},
+		{"entry prefix", "/opt/h/bin.js", []string{"/opt/h/bin.js", "web", "--patch", overlay, "--port", "1", "--no-open"}},
 	}
 	for _, c := range cases {
 		if got := harnessArgs(c.entry, "1"); !slices.Equal(got, c.want) {
@@ -91,9 +95,25 @@ func TestHarnessArgs_OmitsOverlayWhenUnwritable(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_LOG_DIR", notADir)
 
 	got := harnessArgs("", "1234")
-	want := []string{"web", "--port", "1234"}
+	want := []string{"web", "--port", "1234", "--no-open"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("harnessArgs = %v, want %v", got, want)
+	}
+}
+
+// --no-open 必须排在 --port 之后：web 子命令启用 passThroughOptions，--port 之前
+// 的参数归 launcher 的 dsh 解析，之后才透传给 web app，而 --no-open 是 web app 的
+// flag；排错位置会让 harness 报 unknown option 而启动失败。
+func TestHarnessArgs_NoOpenFollowsPort(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+
+	got := harnessArgs("", "1234")
+	n := len(got)
+	if got[n-3] != "--port" || got[n-2] != "1234" || got[n-1] != "--no-open" {
+		t.Fatalf("harnessArgs = %v, want trailing --port 1234 --no-open", got)
+	}
+	if slices.Index(got, "--patch") > n-3 {
+		t.Fatalf("harnessArgs = %v, want the launcher flag before --port", got)
 	}
 }
 
@@ -101,18 +121,109 @@ func TestResolve_DefaultPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	os.Unsetenv("DSH_DESKTOP_PORT")
-	r := Resolve()
-	// 默认预留一个空闲 loopback 端口，保证 harness 重启时复用同一端口。
+	r := Resolve(0)
+	// 没有记录时预留一个空闲 loopback 端口，保证 harness 重启时复用同一端口。
 	if r.Port == "" || r.Port == "0" {
 		t.Errorf("expected a reserved port, got %s", r.Port)
 	}
+	// 本次挑的端口必须允许被记下来：下次启动复用它，GUI 才落在同一个 origin 上。
+	if !r.RememberPort {
+		t.Error("expected a reserved port to be remembered")
+	}
+}
+
+// 记忆端口是「上次会话」能否恢复的前提：GUI 的界面状态按 origin 存在 localStorage
+// 里，端口变了就落在空存储里，只能新建会话。
+func TestResolve_ReusesRememberedPort(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	os.Unsetenv("DSH_DESKTOP_PORT")
+
+	// 先占一个空闲端口，再放掉：这就是「上次记下的端口」在本次启动时的状态。
+	preferred := freePort(t)
+	r := Resolve(preferred)
+	if r.Port != strconv.Itoa(preferred) {
+		t.Errorf("Port = %s, want remembered %d", r.Port, preferred)
+	}
+	if !r.RememberPort {
+		t.Error("expected the reused port to stay remembered")
+	}
+}
+
+// 记忆的端口被占用（如壳被开了第二个实例、端口被别的进程长期占用）时换一个，
+// 并让调用方记下新的那个——记忆必须收敛到实际生效的端口。
+func TestResolve_ReplacesBusyRememberedPort(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	os.Unsetenv("DSH_DESKTOP_PORT")
+
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = busy.Close() }()
+	busyPort := busy.Addr().(*net.TCPAddr).Port
+
+	r := Resolve(busyPort)
+	if r.Port == strconv.Itoa(busyPort) || r.Port == "" || r.Port == "0" {
+		t.Fatalf("Port = %s, want a replacement for busy %d", r.Port, busyPort)
+	}
+	if !r.RememberPort {
+		t.Error("expected the replacement port to be remembered")
+	}
+}
+
+// 配置被改坏（越界端口）等同于没有记录：换一个空闲端口，而不是把非法值透传给
+// harness 让它启动失败。
+func TestResolve_ReplacesOutOfRangeRememberedPort(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	os.Unsetenv("DSH_DESKTOP_PORT")
+
+	r := Resolve(70000)
+	if r.Port == "70000" || r.Port == "" || r.Port == "0" {
+		t.Fatalf("Port = %s, want a replacement for out-of-range 70000", r.Port)
+	}
+	if !r.RememberPort {
+		t.Error("expected the replacement port to be remembered")
+	}
+}
+
+// 环境变量是本次运行的显式指定，不能被记成后续所有启动的稳定端口。
+func TestResolve_EnvPortIsNotRemembered(t *testing.T) {
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
+	t.Setenv("DSH_DESKTOP_PORT", "18080")
+
+	if r := Resolve(12345); r.Port != "18080" || r.RememberPort {
+		t.Errorf("Resolve = %s/%v, want 18080/remember=false", r.Port, r.RememberPort)
+	}
+
+	// `0` 要求随机端口：不读记忆，也不把随机结果记成稳定端口。
+	t.Setenv("DSH_DESKTOP_PORT", "0")
+	r := Resolve(12345)
+	if r.Port == "0" || r.Port == "12345" || r.RememberPort {
+		t.Errorf("Resolve = %s/%v, want a fresh port with remember=false", r.Port, r.RememberPort)
+	}
+}
+
+// freePort 返回一个当前空闲的 loopback 端口号。
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	_ = l.Close()
+	return port
 }
 
 func TestResolve_ExplicitPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	t.Setenv("DSH_DESKTOP_PORT", "18080")
-	r := Resolve()
+	r := Resolve(0)
 	if r.Port != "18080" {
 		t.Errorf("expected explicit port 18080, got %s", r.Port)
 	}
@@ -121,7 +232,7 @@ func TestResolve_ExplicitPort(t *testing.T) {
 func TestResolve_LogDir(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", "/tmp/test-logs")
-	r := Resolve()
+	r := Resolve(0)
 	if r.Config.LogDir != "/tmp/test-logs" {
 		t.Errorf("expected /tmp/test-logs, got %s", r.Config.LogDir)
 	}
@@ -623,7 +734,7 @@ func TestResolve_DevLayoutFindsBuiltDoctor(t *testing.T) {
 		t.Skip("doctor 未构建；先运行 node apps/linyaps/desktop-launcher/tools/doctor-build.mjs")
 	}
 
-	if got := Resolve().DoctorCLI; got != want {
+	if got := Resolve(0).DoctorCLI; got != want {
 		t.Errorf("开发态应解析到 %q,got %q", want, got)
 	}
 }

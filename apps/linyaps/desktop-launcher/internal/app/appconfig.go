@@ -39,6 +39,13 @@ func DefaultWindowState() WindowState {
 type AppConfig struct {
 	ExternalURL string      `json:"externalUrl,omitempty"`
 	Window      WindowState `json:"window"`
+	// WebPort 是 harness Web 服务最近一次实际使用的监听端口（0 表示没有记录）。
+	//
+	// 它只服务于**跨启动的身份**：harness Web GUI 的界面状态（含「上次会话」）
+	// 按 origin 存在 localStorage 里，而 origin 含端口；端口每次换一个，GUI 就
+	// 每次落在空存储里，只能新建会话。因此下次启动优先复用同一个端口，见
+	// appenv.Resolve 的 resolvePort。
+	WebPort int `json:"webPort,omitempty"`
 	// Theme 是前端回推的界面主题，取值 "dark"/"light"；空串表示尚未记录。
 	//
 	// 它只服务于**首帧**：窗口背景色必须在页面绘制之前定下来，而那时前端还没起来，
@@ -90,6 +97,12 @@ func LoadAppConfig(home string) (AppConfig, error) {
 		cfg.Window = DefaultWindowState()
 	}
 
+	// 端口越界（文件被手工改坏）按「没有记录」处理：交给 appenv 另挑一个，
+	// 而不是把一个非法端口透传给 harness 让它启动失败。
+	if cfg.WebPort < 1 || cfg.WebPort > 65535 {
+		cfg.WebPort = 0
+	}
+
 	return cfg, nil
 }
 
@@ -130,5 +143,22 @@ func LoadWindowState(home string) (WindowState, error) {
 func SaveWindowState(home string, state WindowState) error {
 	cfg, _ := LoadAppConfig(home)
 	cfg.Window = state
+	return SaveAppConfig(home, cfg)
+}
+
+// SaveWebPort 更新配置中记录的 harness 监听端口并保存。
+//
+// 端口失效（被别的进程占用）时 appenv 会另挑一个，这里记录的是**本次实际使用**的
+// 那个：记忆必须收敛到最后的有效端口，否则一旦偏好端口被长期占用，用户会永久停留在
+// 「每次启动都是新 origin」的降级状态。port 为 0（本次没拿到具体端口）时不写。
+func SaveWebPort(home string, port int) error {
+	if port == 0 {
+		return nil
+	}
+	cfg, _ := LoadAppConfig(home)
+	if cfg.WebPort == port {
+		return nil
+	}
+	cfg.WebPort = port
 	return SaveAppConfig(home, cfg)
 }

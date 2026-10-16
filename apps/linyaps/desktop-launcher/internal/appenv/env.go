@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/hosttools"
@@ -21,6 +22,13 @@ import (
 type Resolved struct {
 	Config supervisor.Config
 	Port   string
+	// RememberPort 表示 Port 应当被调用方记为下次启动的首选端口：端口决定 harness
+	// Web GUI 的 origin，而 GUI 的界面状态（含「上次会话」）按 origin 存在
+	// localStorage 里，端口每次变就等于每次从空存储开始。
+	//
+	// 环境变量覆盖时为 false：那是本次运行的显式指定（`0` 还要求随机端口），写回
+	// 会把一次调试选定的端口变成后续所有启动的稳定端口。
+	RememberPort bool
 	// DoctorNode 运行 doctor 的 node 可执行文件。
 	DoctorNode string
 	// DoctorCLI doctor 的 cli.js 路径；空表示本次安装未随包提供 doctor。
@@ -54,22 +62,26 @@ func (r Resolved) DoctorEnv() []string {
 //
 // 四条分支都经 harnessArgs 组装参数，以保证监护声明 overlay 无一遗漏。
 //
+// preferredPort 是调用方上次记下的端口（0 表示没有记录），只在环境变量未覆盖时
+// 参与选择，见 resolvePort；选中的端口是否需要记回去由 Resolved.RememberPort 说明。
+//
 // doctor 的运行环境独立解析（见 resolveDoctor）：它不再挂在 dsh 的 argv 上，
 // 因此不能从上面的分支里顺带推导。doctor 的安装锚点同理（见 resolveInstallAnchor）：
 // 它必须指向上面这些分支实际启动的那次安装，而从分支里顺带推导会把两者绑死在
 // 同一段代码上，改一处就得同时改另一处。
-func Resolve() Resolved {
-	port := resolvePort()
+func Resolve(preferredPort int) Resolved {
+	port, rememberPort := resolvePort(preferredPort)
 	logDir := resolveLogDir()
 	doctorNode, doctorCLI := resolveDoctor()
 	installAnchor := resolveInstallAnchor()
 
 	if bin := os.Getenv("DSH_DESKTOP_DSH_BIN"); bin != "" {
 		return Resolved{
-			Config:     supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
-			Port:       port,
-			DoctorNode: doctorNode,
-			DoctorCLI:  doctorCLI,
+			Config:       supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
+			Port:         port,
+			RememberPort: rememberPort,
+			DoctorNode:   doctorNode,
+			DoctorCLI:    doctorCLI,
 			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
 			InstallAnchor: installAnchor,
 		}
@@ -86,10 +98,11 @@ func Resolve() Resolved {
 			node = resolveNode()
 		}
 		return Resolved{
-			Config:     supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
-			Port:       port,
-			DoctorNode: node,
-			DoctorCLI:  doctorCLI,
+			Config:       supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
+			Port:         port,
+			RememberPort: rememberPort,
+			DoctorNode:   node,
+			DoctorCLI:    doctorCLI,
 			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
 			InstallAnchor: installAnchor,
 		}
@@ -99,10 +112,11 @@ func Resolve() Resolved {
 	devBin := filepath.Join(cwd, "..", "cli", "lib", "bin.js")
 	if _, err := os.Stat(devBin); err == nil {
 		return Resolved{
-			Config:     supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
-			Port:       port,
-			DoctorNode: resolveNode(),
-			DoctorCLI:  doctorCLI,
+			Config:       supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
+			Port:         port,
+			RememberPort: rememberPort,
+			DoctorNode:   resolveNode(),
+			DoctorCLI:    doctorCLI,
 			// 安装锚点与 harness 入口同源：打包态是 harness 树，开发态是 apps/cli。
 			InstallAnchor: installAnchor,
 		}
@@ -111,6 +125,7 @@ func Resolve() Resolved {
 	return Resolved{
 		Config:        supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
 		Port:          port,
+		RememberPort:  rememberPort,
 		DoctorNode:    resolveNode(),
 		DoctorCLI:     doctorCLI,
 		InstallAnchor: installAnchor,
@@ -236,21 +251,25 @@ func supervisorOverlayBody(extraRows string) string {
 }
 
 // harnessArgs 组装 harness 的启动参数：入口脚本（可为空）、web 子命令、声明
-// 监护关系的 overlay，以及稳定端口。
+// 监护关系的 overlay、稳定端口，以及关闭「打开默认浏览器」。
 //
 // 集中在一处是因为 Resolve 有四条入口分支，任何一条漏掉 overlay 都会让那条
 // 路径重新引入与 dsh-market 的端口竞态。
 //
-// 顺序不可调换：`web` 子命令启用了 passThroughOptions，而 `--port` 是 web app
-// 自己的 flag 而非 launcher 的选项，它一旦出现，其后所有参数都会原样透传给
-// app——排在它之后的 `--patch` 不会再被解析，overlay 静默失效（实测报
-// `error: unknown option '--patch'`）。因此 launcher 自己的 flag 必须先于
-// `--port`。
+// 顺序不可调换：`web` 子命令启用了 passThroughOptions，而 `--port` 与 `--no-open`
+// 都是 web app 自己的 flag 而非 launcher 的选项，它们一旦出现，其后所有参数都会
+// 原样透传给 app——排在 `--port` 之后的 `--patch` 不会再被解析，overlay 静默失效
+// （实测报 `error: unknown option '--patch'`）。因此 launcher 自己的 flag 必须先于
+// `--port`，而 web app 的 flag 只能排在 `--port` 之后。
+//
+// 带上 `--no-open`：GUI 由壳嵌在自己的 iframe 里，让 harness 再去拉起系统默认
+// 浏览器只会在每次启动时多开一个窗口，而那个窗口的 origin 是本次才挑的端口，
+// 与壳里的界面互不相干。
 //
 // overlay 写失败时静默省略该参数：监护本身仍然有效，只是回到"两个重启者"
 // 的旧行为，比让 harness 因缺失参数而启动不起来更可取。
 func harnessArgs(entry, port string) []string {
-	args := make([]string, 0, 6)
+	args := make([]string, 0, 7)
 	if entry != "" {
 		args = append(args, entry)
 	}
@@ -258,7 +277,7 @@ func harnessArgs(entry, port string) []string {
 	if overlay, err := writeSupervisorOverlay(); err == nil {
 		args = append(args, "--patch", overlay)
 	}
-	return append(args, "--port", port)
+	return append(args, "--port", port, "--no-open")
 }
 
 // writeSupervisorOverlay 把监护声明写入 launcher 运行时目录，返回其路径。
@@ -275,13 +294,45 @@ func writeSupervisorOverlay() (string, error) {
 	return path, nil
 }
 
-// resolvePort 稳定端口：harness 重启时复用同一端口，GUI 才能重连。
-func resolvePort() string {
-	port := os.Getenv("DSH_DESKTOP_PORT")
-	if port == "" || port == "0" {
-		port = reservePort()
+// portEnv 覆盖本次运行的监听端口：显式值直接使用，`0` 表示由系统挑一个空闲端口。
+// 两者都不参与端口记忆，理由见 resolvePort。
+const portEnv = "DSH_DESKTOP_PORT"
+
+// resolvePort 选择 harness 的监听端口，并说明该端口是否应被调用方记下来。
+//
+// 优先级：
+//  1. `DSH_DESKTOP_PORT=0`：本次随机挑一个空闲端口，不读也不写端口记忆；
+//  2. `DSH_DESKTOP_PORT=<n>`：本次就用 n（非法值照旧原样透传给 harness 报错），
+//     同样不写记忆——环境变量是本次运行的显式指定；
+//  3. preferredPort（上次记下的端口）仍然空闲：复用它；
+//  4. 其余情况：另挑一个空闲端口。
+//
+// 为什么要跨启动记住端口：harness Web GUI 把界面状态存在 localStorage，而
+// localStorage 按 origin 分区，origin 里含端口。端口每次冷启动都换一个，GUI 就
+// 每次落在空的存储里，读不到 `dsh.sessions.current`，只能按「没有上次会话」新建
+// 一个——这正是「每次启动都开新会话」的来源。同一次运行内 harness 重启仍复用
+// 同一端口（记忆值或本次挑的值），GUI 因此可以重连。
+func resolvePort(preferredPort int) (string, bool) {
+	switch override := os.Getenv(portEnv); {
+	case override == "0":
+		return reservePort(), false
+	case override != "":
+		return override, false
 	}
-	return port
+	if preferredPort > 0 && preferredPort <= 65535 && portAvailable(preferredPort) {
+		return strconv.Itoa(preferredPort), true
+	}
+	return reservePort(), true
+}
+
+// portAvailable 判断 loopback 上的端口当前是否空闲；探测用的监听随即关闭。
+func portAvailable(port int) bool {
+	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return false
+	}
+	_ = l.Close()
+	return true
 }
 
 // resolveLogDir 返回 harness 日志目录。

@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"github.com/wailsapp/wails/v2"
@@ -87,12 +88,26 @@ func runClient() {
 	// 同样须在 wails.Run 之前：GTK/WebKit 首次读取 FONTCONFIG_FILE 时即固定字体配置。
 	packaging.ConfigureFontConfig()
 
-	resolved := appenv.Resolve()
-	controller := app.New(resolved, home, app.ExternalConfigFilePath())
-
-	// 读取上次保存的窗口几何与主题（尺寸、最大化、位置、主题），读取失败时静默回退默认值。
+	// 读取上次保存的配置：窗口几何与主题沿用旧值，WebPort 让 harness 的监听端口
+	// 跨启动保持不变。读取失败时静默回退默认值。
 	cfg, _ := app.LoadAppConfig(home)
 	windowState := cfg.Window
+
+	// 端口是 harness Web GUI 的 origin 的一部分，而 GUI 的界面状态（含「上次会话」）
+	// 按 origin 存在 localStorage 里，所以这次实际用的端口要记回去，下次才能接着用
+	// 同一个 origin。写配置失败只影响下次启动的还原，不拦本次启动。
+	resolved := appenv.Resolve(cfg.WebPort)
+	if resolved.RememberPort {
+		// RememberPort 为真时端口必然是 appenv 自己挑出的数字串（环境变量覆盖时不置位），
+		// 解析失败意味着这条不变式被打破：只留痕，不拦启动。
+		port, err := strconv.Atoi(resolved.Port)
+		if err != nil {
+			log.Printf("无法记录端口 %q: %v", resolved.Port, err)
+		} else if err := app.SaveWebPort(home, port); err != nil {
+			log.Printf("端口未落盘: %v", err)
+		}
+	}
+	controller := app.New(resolved, home, app.ExternalConfigFilePath())
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	sigCh := make(chan os.Signal, 1)

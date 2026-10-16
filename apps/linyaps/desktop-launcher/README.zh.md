@@ -32,6 +32,8 @@
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
+监听端口因此必须跨启动保持不变，它记在 `~/.config/dsh-desktop/config.json` 的 `webPort`：端口是 harness Web GUI 的 origin 的一部分，而 GUI 把界面状态（含「上次会话」）存在按 origin 分区的 localStorage 里。端口每次换一个，GUI 就每次落在空存储里，只能新建会话，上次的对话、草稿、布局与快捷键一并丢失。于是启动时优先复用上次实际用过的端口，被占用时才另挑一个并记下新的那个；`--no-open` 同时阻止 harness 再去拉起系统默认浏览器——界面已经在壳的 iframe 里。
+
 harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报插件（见下一节）。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
 
 ## 内嵌 WebView 的媒体采集权限
@@ -99,7 +101,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `DSH_DESKTOP_DSH_BIN` | 未设 | 直接指定 dsh bin 路径，跳过其他解析 |
-| `DSH_DESKTOP_PORT` | 未设 | 默认保留一个空闲 loopback 端口（harness 重启复用，GUI 可重连）；显式指定则尊重，`0` 让系统选空闲端口 |
+| `DSH_DESKTOP_PORT` | 未设 | 未设时复用上次实际用过的端口（被占用才另挑一个空闲 loopback 端口并记下），harness 重启也复用它，GUI 才能重连；显式指定则本次用它，`0` 让系统选空闲端口；后两种都不改端口记忆 |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |

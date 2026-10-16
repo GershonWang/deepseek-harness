@@ -32,6 +32,8 @@ Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolch
 
 The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
+The listen port therefore has to stay the same across launches, recorded as `webPort` in `~/.config/dsh-desktop/config.json`: the port is part of the harness Web GUI's origin, and the GUI keeps its interface state — including the last Session — in origin-scoped localStorage. A new port on every launch means an empty store every time, so the GUI can only create a new Session and the previous conversation, drafts, layout, and shortcuts are all gone. Each launch therefore reuses the port actually used last time, reserving and recording a new one only when that port is taken; `--no-open` additionally stops harness from opening the system browser, because the interface already lives in the shell's iframe.
+
 Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row and inserting the startup-progress reporter (next section). Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
 
 ## Embedded WebView media permissions
@@ -99,7 +101,7 @@ Development infers the repo root from CWD rather than the executable path, becau
 | Variable | Default | Description |
 |---|---|---|
 | `DSH_DESKTOP_DSH_BIN` | unset | Directly names the dsh bin path, skipping other resolution |
-| `DSH_DESKTOP_PORT` | unset | By default reserves a free loopback port (reused across harness restarts so the GUI can reconnect); an explicit value is respected, `0` lets the system pick a free port |
+| `DSH_DESKTOP_PORT` | unset | Unset reuses the port actually used last time (reserving and recording a new free loopback port only when it is taken), which harness restarts also reuse so the GUI can reconnect; an explicit value is used for this run, `0` lets the system pick a free port; neither of the latter two changes the port memory |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | Directory where `harness.log` is written |
 | `DSH_DESKTOP_NODE` | unset | Overrides the node executable path |
 | `DSH_DESKTOP_DMABUF_RENDERER` | unset | `1` keeps webkit2gtk's DMABUF accelerated compositing on a machine with the NVIDIA driver, where the launcher otherwise disables it (see Known issues) |
