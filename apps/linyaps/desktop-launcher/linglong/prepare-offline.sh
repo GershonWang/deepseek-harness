@@ -109,6 +109,15 @@ trap 'rm -f "$INJECTED" "$INJECTED.sorted"' EXIT
 # 因此这里不猜语义，改为**把注入集合当作受审清单**：基线缺失时写入并提示（首次建立），
 # 基线存在时逐行比对，多一个或少一个都失败并给出 diff——新增包要进闭包，必须先有人看过
 # 并更新这份清单。
+#
+# 基线当前为空（2026-10-17，合并 dsh 0.2.1-rc.2 后复核）：本次 prepare 的注入清单为空，
+# 即 deploy 闭包已包含全部 peer-only workspace 包。核对方式与证据：旧基线的 49 项在
+# stage/harness/node_modules/@deepseek-ai 下逐个按 module/main/exports["."] 判据检查入口，
+# 48 项完整；第 49 项 dsh-subagent-in-process-driver 已随上游迁移改名为
+# dsh-working-directory（旧名不再被任何 manifest 引用）；移到 packages/experimental/ 的
+# 11 个包除上游主动移出默认 profile 的 schedule-bundle 外都在闭包内。因此基线归一为零，
+# 记录"当前零注入"而非删除文件（删除会让每次运行都重新"建立基线"）。若 deploy 再次漏装，
+# 注入清单会重新出现，下面仍有 diff 断言要求人工评审。
 assert_injected_inventory() {
   current=$1
   baseline=$2
