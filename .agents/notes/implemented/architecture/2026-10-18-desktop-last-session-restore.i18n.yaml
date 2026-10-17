@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for 2026-10-18-desktop-last-session-restore.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-18-desktop-last-session-restore.md
+/agent-note-desktop-last-session-restore:
+  en: e51fabfdc2ad3d65
+  zh: 4a75e517ce1fad34
+/agent-note-desktop-last-session-restore/problem:
+  en: 836052af8a983244
+  zh: 5a030966b3311548
+/agent-note-desktop-last-session-restore/decision:
+  en: 4b54e0d5b53fef54
+  zh: 7f19d662bc1de317
+/agent-note-desktop-last-session-restore/where-the-fact-lives:
+  en: f3b4b668567ce82b
+  zh: 5e12f8de1c1e0943
+/agent-note-desktop-last-session-restore/alternatives-considered:
+  en: bd08c79df5ad9a83
+  zh: bcf08e03c5ca6fea
+/agent-note-desktop-last-session-restore/consequences:
+  en: 30a0c94b172f2445
+  zh: adededbb3340dcc0
