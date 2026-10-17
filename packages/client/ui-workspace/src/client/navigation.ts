@@ -329,7 +329,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       ? undefined
       : workspace.items.find(item => item.sessionIds.includes(current))?.workspaceId
     const recent = workspace.phase === 'ready' && sessions.phase === 'ready'
-      ? recentWorkspace(workspace.items, sessions.byId)
+      ? recentWorkspace(workspace.items, sessions.byId)?.workspaceId
       : undefined
     const target = workspaceId ?? currentWorkspaceId ?? recent
     if (target === undefined) {
@@ -458,13 +458,15 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       && !workspaces.archivedSessionIds.includes(summary.id)) {
       sessionId = await this.restoreBlank(workspace.workspaceId, summary.id)
     }
-    let target = workspace?.workspaceId ?? recentWorkspace(workspaces.items, sessions.byId)
+    let target = workspace ?? recentWorkspace(workspaces.items, sessions.byId)
     if (target === undefined && workspaces.items.length === 0 && sessions.ids.length === 0) {
-      const prepared = await this.initializeDefaultWorkspace(navigation)
+      target = await this.initializeDefaultWorkspace(navigation)
       if (navigation.aborted) return
-      target = prepared?.workspaceId
     }
-    if (sessionId === undefined && target !== undefined) sessionId = await this.connectWorkspace(target)
+    if (sessionId === undefined && target !== undefined) {
+      sessionId = recentEngagedSession(target, workspaces.archivedSessionIds, sessions.byId)
+        ?? await this.connectWorkspace(target.workspaceId)
+    }
     if (sessionId !== undefined && !navigation.aborted) {
       this.replaceMain(sessionId, navigation, 'preserve')
     }
@@ -549,12 +551,49 @@ function creationFailureMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * The Workspace's most recently updated Session that already carries content.
+ *
+ * Startup selection normally follows the client's own saved selection. A client that
+ * cannot keep one — an embedded WebView whose storage is not persisted across launches
+ * starts with no saved selection every time — would otherwise open a blank Session, so
+ * the conversation the user last worked in would never come back. Reopening the newest
+ * content-bearing member is the closest available substitute for that memory.
+ *
+ * Blank members are skipped because an empty Session is indistinguishable from the new
+ * conversation the fallback already offers, and archived members because the user
+ * removed them from the list deliberately.
+ *
+ * @param workspace - Workspace whose members are considered.
+ * @param archivedSessionIds - Sessions the user archived; never reopened.
+ * @param sessions - Session list snapshot keyed by SessionId.
+ * @returns the Session to reopen, or undefined when the Workspace has no such member.
+ */
+function recentEngagedSession(
+  workspace: WorkspaceView,
+  archivedSessionIds: readonly SessionId[],
+  sessions: SessionListState['byId'],
+): SessionId | undefined {
+  let selected: SessionId | undefined
+  let selectedTime = Number.NEGATIVE_INFINITY
+  for (const sessionId of workspace.sessionIds) {
+    if (archivedSessionIds.includes(sessionId)) continue
+    const summary = sessions[sessionId]
+    if (summary === undefined || summary.blank) continue
+    if (selected === undefined || summary.updatedAt > selectedTime) {
+      selected = sessionId
+      selectedTime = summary.updatedAt
+    }
+  }
+  return selected
+}
+
 /** Stable tie-breaking follows Host Workspace order. */
 function recentWorkspace(
   workspaces: readonly WorkspaceView[],
   sessions: SessionListState['byId'],
-): WorkspaceId | undefined {
-  let selected: WorkspaceId | undefined
+): WorkspaceView | undefined {
+  let selected: WorkspaceView | undefined
   let selectedTime = Number.NEGATIVE_INFINITY
   for (const workspace of workspaces) {
     let latest = Number.NEGATIVE_INFINITY
@@ -564,7 +603,7 @@ function recentWorkspace(
     }
     if (latest === Number.NEGATIVE_INFINITY) latest = Date.parse(workspace.createdAt)
     if (selected === undefined || latest > selectedTime) {
-      selected = workspace.workspaceId
+      selected = workspace
       selectedTime = latest
     }
   }

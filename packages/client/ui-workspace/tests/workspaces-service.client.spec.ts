@@ -358,6 +358,48 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.create).not.toHaveBeenCalled()
   })
 
+  it('reopens the newest content-bearing Session when the client kept no selection', async () => {
+    const b = bench({
+      sessions: sessionState([
+        summary('older', { cwd: '/w/a', updatedAt: 10 }),
+        summary('newest', { cwd: '/w/a', updatedAt: 30 }),
+        summary('blank', { blank: true, cwd: '/w/a', updatedAt: 40 }),
+      ]),
+      workspaces: workspaceState([
+        workspace('a', [sid('older'), sid('gone'), sid('newest'), sid('blank')]),
+      ]),
+    })
+    await vi.waitFor(() => {
+      expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('newest'), { source: 'mainView' })
+    })
+    expect(b.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('skips an archived content-bearing Session when the client kept no selection', async () => {
+    const b = bench({
+      sessions: sessionState([
+        summary('done', { cwd: '/w/a', updatedAt: 30 }),
+        summary('blank', { blank: true, cwd: '/w/a', updatedAt: 5 }),
+      ]),
+      workspaces: workspaceState([workspace('a', [sid('done'), sid('blank')])], [sid('done')]),
+    })
+    await vi.waitFor(() => {
+      expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('blank'), { source: 'mainView' })
+    })
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('blank') })
+  })
+
+  it('keeps the blank policy when the Workspace has no content-bearing Session', async () => {
+    const b = bench({
+      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })]),
+      workspaces: workspaceState([workspace('a', [sid('blank')])]),
+    })
+    await vi.waitFor(() => {
+      expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('blank'), { source: 'mainView' })
+    })
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('blank') })
+  })
+
   it('publishes a startup directory failure once without creating a Session', async () => {
     const b = bench({ workspaces: workspaceState(), sessions: sessionState(), configureWorkspaces: (workspaces) => {
       workspaces.initializeDefault.mockRejectedValueOnce(new Error('denied'))
