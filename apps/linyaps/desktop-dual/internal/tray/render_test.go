@@ -342,9 +342,6 @@ func TestAboutDialogCarriesFacts(t *testing.T) {
 	if zh.Fields[2].Value != about.Packager {
 		t.Errorf("封装作者 = %q，期望 %q", zh.Fields[2].Value, about.Packager)
 	}
-	if zh.CloseLabel == "" {
-		t.Error("关闭按钮文案为空，助手会没有可见的关闭入口")
-	}
 	// fork 与上游是两个不同的责任方，填成同一个地址会让用户把上游问题报到这里。
 	if about.GithubRepo == about.UpstreamRepo {
 		t.Error("两个仓库地址相同，必须指向不同仓库")

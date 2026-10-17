@@ -65,9 +65,10 @@ func TestHarnessVersion(t *testing.T) {
 }
 
 // TestShowPassesFieldsAndPaths 覆盖与助手的接口：产品名、版本号、每个字段、复制标记、
-// 关闭按钮文案、图标与打开器路径都必须出现在命令行上——助手只画窗口，任何一项漏传都会在
-// 界面上表现为缺内容，而字段顺序错乱会让「DSH版本／仓库／作者」这一组重新排成别的样子。
+// 图标与打开器路径都必须出现在命令行上——助手只画窗口，任何一项漏传都会在界面上表现为缺内容，
+// 而字段顺序错乱会让「DSH版本／仓库／作者」这一组重新排成别的样子。
 // 两类行各标记一项需要复制的值，钉住「--copy 对居中行与事实行同样有效」这条约定。
+// 断言是全量精确比较，「不再传 --close-label」也由它覆盖（多传就会不等长而失败）。
 func TestShowPassesFieldsAndPaths(t *testing.T) {
 	prefix := t.TempDir()
 	binDir := filepath.Join(prefix, "bin")
@@ -106,7 +107,6 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 			{Label: "玲珑封装作者", Value: Packager, Copy: true},
 			{Label: "玲珑封装仓库", Value: GithubRepo},
 		},
-		CloseLabel:      "关闭",
 		CopyLabel:       "复制",
 		CopiedLabel:     "已复制",
 		OpenFailedLabel: "打不开这个链接",
@@ -131,7 +131,7 @@ func TestShowPassesFieldsAndPaths(t *testing.T) {
 	for _, field := range dialog.Fields {
 		want = append(want, "--field", field.Label+"="+field.Value)
 	}
-	want = append(want, "--close-label", "关闭", "--logo", logo, "--uri-opener", opener)
+	want = append(want, "--logo", logo, "--uri-opener", opener)
 	if len(args) != len(want) {
 		t.Fatalf("助手参数 = %q，期望 %q", args, want)
 	}

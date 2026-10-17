@@ -38,7 +38,6 @@ var messages = map[Locale]map[string]string{
 		"about.repo":         "玲珑封装仓库",
 		"about.mode":         "当前形态",
 		"about.package":      "包 ID",
-		"about.close":        "关闭",
 	},
 	En: {
 		"tray.switchToShell":    "Switch to thin shell",
@@ -66,6 +65,5 @@ var messages = map[Locale]map[string]string{
 		"about.repo":            "Linglong packaging repo",
 		"about.mode":            "Current client",
 		"about.package":         "Package ID",
-		"about.close":           "Close",
 	},
 }

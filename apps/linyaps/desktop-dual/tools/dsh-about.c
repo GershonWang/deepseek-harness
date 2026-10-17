@@ -18,6 +18,7 @@
  * 打开弹框第一眼就是一段高亮（真机实测）；需要复制的值改用复制按钮，既不引入选中态，也
  * 不要求用户精确拖选。
  *
+ * 弹框没有默认动作，也没有底部按钮：标题栏 ✕ 与 Esc 都能关，用户点链接就是要离开这一页。
  * 打开链接按宿主 portal、随包 xdg-open、GTK 默认处理器的顺序尝试，理由见 open_uri 的注释；
  * 一旦成功就关闭弹框，三步都失败则保留弹框并就地写明原因，绝不静默。
  *
@@ -44,7 +45,6 @@
 static gchar *option_title = NULL;
 static gchar *option_program = NULL;
 static gchar *option_version = NULL;
-static gchar *option_close_label = NULL;
 static gchar *option_logo = NULL;
 static gchar *option_uri_opener = NULL;
 static gchar **option_fields = NULL;
@@ -458,7 +458,6 @@ int main(int argc, char **argv) {
         {"copy-label", 0, 0, G_OPTION_ARG_STRING, &option_copy_label, "Copy button label, tooltip and accessible name", NULL},
         {"copied-label", 0, 0, G_OPTION_ARG_STRING, &option_copied_label, "Label shown briefly after copying", NULL},
         {"open-failed", 0, 0, G_OPTION_ARG_STRING, &option_open_failed_label, "Prefix of the inline line reporting a failed link open", NULL},
-        {"close-label", 0, 0, G_OPTION_ARG_STRING, &option_close_label, "Close button label", NULL},
         {"logo", 0, 0, G_OPTION_ARG_STRING, &option_logo, "Path to the product icon", NULL},
         {"uri-opener", 0, 0, G_OPTION_ARG_STRING, &option_uri_opener, "Path to xdg-open", NULL},
         {NULL}};
@@ -560,36 +559,21 @@ int main(int argc, char **argv) {
         g_free(label);
     }
 
-    /* 失败提示的落点固定在「关闭」按钮上方：先建空容器占位，链接打不开时再往里填一行，
-       提示因此出现在内容末尾而不是按钮下面。 */
+    /* 失败提示的行落在内容末尾：先建空容器占位，链接打不开时再往里填一行。 */
     GtkWidget *failure_slot = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
     gtk_box_pack_start(GTK_BOX(box), failure_slot, FALSE, FALSE, 0);
     dialog.failure_slot = GTK_BOX(failure_slot);
-
-    GtkWidget *close = NULL;
-    if (option_close_label != NULL && option_close_label[0] != '\0') {
-        close = gtk_button_new_with_label(option_close_label);
-        gtk_widget_set_halign(close, GTK_ALIGN_CENTER);
-        g_signal_connect_swapped(close, "clicked", G_CALLBACK(gtk_main_quit), NULL);
-        gtk_box_pack_start(GTK_BOX(box), close, FALSE, FALSE, 4);
-    }
 
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
     g_signal_connect(window, "key-press-event", G_CALLBACK(on_key_press), NULL);
     /* 位置提示先给一次，真正的居中在每次尺寸分配后按工作区摆。 */
     gtk_window_set_position(GTK_WINDOW(window), GTK_WIN_POS_CENTER);
     g_signal_connect(window, "size-allocate", G_CALLBACK(on_size_allocate), NULL);
-    /* 初始焦点显式指定给关闭按钮：窗口获得焦点时 GTK 会自己挑第一个可聚焦控件，弹框里
-       除关闭按钮外还有复制按钮，不指定就会把焦点框画在复制按钮上。gtk_window_set_focus
-       在窗口显示前记录目标控件，由 GTK 在 map 时应用；显示之后再 grab 一次是加固——
-       未 map 时的 grab_focus 是否生效取决于 GTK 版本。 */
-    if (close != NULL) {
-        gtk_window_set_focus(GTK_WINDOW(window), close);
-    }
     gtk_widget_show_all(window);
-    if (close != NULL) {
-        gtk_widget_grab_focus(close);
-    }
+    /* 弹框没有默认动作，这里显式取消初始焦点：GTK 在窗口 map 时会把焦点给第一个可聚焦
+       控件（事实行里的复制按钮与链接），用户一打开就先看到一个焦点框。show 之后再清空
+       即可；Esc 由窗口自己的按键处理接收，不依赖任何子控件持有焦点。 */
+    gtk_window_set_focus(GTK_WINDOW(window), NULL);
     gtk_main();
     return 0;
 }

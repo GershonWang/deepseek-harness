@@ -75,8 +75,6 @@ type Dialog struct {
 	// Fields 渲染在分隔线下方的事实网格里，按显示顺序排列；顺序即命令行参数的顺序——
 	// 助手不做任何排序。
 	Fields []Field
-	// CloseLabel 是关闭按钮的文案（本地化）；为空时助手只留标题栏关闭与 Esc。
-	CloseLabel string
 	// CopyLabel 是复制按钮的文案（本地化），同时用作它的提示与无障碍名；为空时按钮只是没有
 	// 文字提示，复制本身仍然可用。
 	CopyLabel string
@@ -132,7 +130,7 @@ func HarnessVersion(prefix string) string {
 }
 
 // Show 弹出对话框。已有对话框在显示时直接返回，不叠第二个窗口。
-// @param dialog - 字段行与按钮文案。
+// @param dialog - 字段行与复制、打开失败提示的文案。
 // @returns 助手缺失或启动失败的原因。
 func (p *Presenter) Show(dialog Dialog) error {
 	p.mu.Lock()
@@ -174,9 +172,6 @@ func (p *Presenter) Show(dialog Dialog) error {
 	}
 	for _, field := range dialog.Fields {
 		args = append(args, "--field", field.Label+"="+field.Value)
-	}
-	if dialog.CloseLabel != "" {
-		args = append(args, "--close-label", dialog.CloseLabel)
 	}
 	// 图标缺失不算失败：没有它只是少一张图，对话框本身照常显示。
 	logo := filepath.Join(p.prefix, "share", "icons", "hicolor", logoSize, "apps", logoFile)

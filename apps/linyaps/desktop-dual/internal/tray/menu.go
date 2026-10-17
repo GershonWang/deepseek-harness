@@ -352,7 +352,7 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 // @param locale - 语言。
 // @param mode - 当前在跑的客户端形态；空串表示没有客户端在运行。
 // @param prefix - 安装前缀，用于定位随包的 harness 版本文件。
-// @returns 窗口标题、居中行、事实行、复制按钮文案与关闭按钮文案。
+// @returns 窗口标题、居中行、事实行与复制按钮文案。
 func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about.Dialog {
 	return about.Dialog{
 		Title: i18n.T(locale, "about.title"),
@@ -366,7 +366,6 @@ func aboutDialog(locale i18n.Locale, mode switchboard.Mode, prefix string) about
 			{Label: i18n.T(locale, "about.packager"), Value: about.Packager},
 			{Label: i18n.T(locale, "about.repo"), Value: about.GithubRepo},
 		},
-		CloseLabel:      i18n.T(locale, "about.close"),
 		CopyLabel:       i18n.T(locale, "about.copy"),
 		CopiedLabel:     i18n.T(locale, "about.copied"),
 		OpenFailedLabel: i18n.T(locale, "about.openFailed"),
