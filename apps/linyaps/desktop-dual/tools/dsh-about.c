@@ -6,11 +6,11 @@
  * 运行时（薄壳客户端依赖它），由打包脚本在宿主机上编译成独立二进制。
  *
  * 为什么不用 GtkAboutDialog：它只有一个 website 字段，而「关于」要同时给出上游 DSH 与
- * 玲珑封装两个仓库地址，且都必须是可点击链接。自绘窗口用 GtkLinkButton 逐行摆放即可。
+ * 玲珑封装两个仓库地址，且都必须是可点击链接。自绘窗口用带链接标记的 GtkLabel 逐行摆放即可。
  *
- * 本程序只负责画窗口：窗口标题、产品名、版本号、居中状态行、事实行、按钮文案、打开失败
- * 提示、图标与打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不内置
- * 任何面向用户的文案。
+ * 本程序只负责画窗口：窗口标题、产品名、版本号、居中状态行、事实行、复制按钮文案、打开
+ * 失败提示、图标与打开器路径全部由命令行传入，语言由切换器（internal/i18n）决定，这里不
+ * 内置任何面向用户的文案。
  *
  * 两条内容约定，都由调用方在命令行上声明，助手不需要知道哪一行是什么：值以 http:// 或
  * https:// 开头时渲染成可点击链接；值出现在 --copy 列表里时，该行值右侧附一个一键复制
@@ -248,12 +248,9 @@ static gboolean open_uri(DialogContext *dialog, const gchar *uri, gchar **reason
 
 /* 链接点击：交给 open_uri 按顺序尝试；全部失败就在弹框里写明原因。
    返回 TRUE 表示这次点击已经处理完，不再走 GTK 默认实现，否则 GTK 会自己再打开一次。 */
-static gboolean on_activate_link(GtkLinkButton *button, gpointer data) {
+static gboolean on_activate_link(GtkLabel *label, const gchar *uri, gpointer data) {
+    (void)label;
     DialogContext *dialog = (DialogContext *)data;
-    const gchar *uri = gtk_link_button_get_uri(button);
-    if (uri == NULL) {
-        return TRUE;
-    }
     gchar *reason = NULL;
     if (!open_uri(dialog, uri, &reason)) {
         g_printerr("dsh-about: opening %s failed: %s\n", uri, text_or_empty(reason));
@@ -261,6 +258,29 @@ static gboolean on_activate_link(GtkLinkButton *button, gpointer data) {
     }
     g_free(reason);
     return TRUE;
+}
+
+/* 链接行：用带 <a href> 标记的 GtkLabel 渲染，而不是 GtkLinkButton。
+   两者的文本度量不同源：GtkLinkButton 是按钮，自带主题内边距与最小高度，把所在行撑高约
+   5 像素，而它的文本在这个更高的行里垂直居中；标签列按行顶对齐，链接文本因此比同一行的
+   普通值低约 4 像素（真机截图实测）。值列只保留 GtkLabel 一种部件，行高与文本位置就与
+   普通值完全一致。
+   点击、悬停、Tab 后按 Enter 激活、右键复制链接地址都由 GtkLabel 自己的链接机制提供，
+   不需要按钮。 */
+static GtkWidget *make_link_label(DialogContext *dialog, const gchar *uri) {
+    /* URI 要进 Pango 标记：& 与 < 必须转义，标记解析失败会让整行文字消失。 */
+    gchar *escaped = g_markup_escape_text(uri, -1);
+    gchar *markup = g_strdup_printf("<a href=\"%s\">%s</a>", escaped, escaped);
+    GtkWidget *label = gtk_label_new(NULL);
+    gtk_label_set_markup(GTK_LABEL(label), markup);
+    g_free(markup);
+    g_free(escaped);
+    gtk_label_set_line_wrap(GTK_LABEL(label), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(label), 0.0f);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    /* 上下文是 main 里那份 DialogContext，生命周期覆盖整个窗口，因此不需要复制或释放。 */
+    g_signal_connect(label, "activate-link", G_CALLBACK(on_activate_link), dialog);
+    return label;
 }
 
 /* 判断值是否被 --copy 点名：精确比对即可，因为调用方标记的正是它自己传进来的同一个值。 */
@@ -371,11 +391,7 @@ static void add_field(DialogContext *dialog, GtkGrid *grid, gint row, const gcha
 
     GtkWidget *entry;
     if (is_http_uri(value)) {
-        entry = gtk_link_button_new_with_label(value, value);
-        gtk_widget_set_halign(entry, GTK_ALIGN_START);
-        /* 上下文是 main 里那份 DialogContext，生命周期覆盖整个窗口，因此不需要复制或释放。 */
-        g_signal_connect(GTK_LINK_BUTTON(entry), "activate-link",
-                         G_CALLBACK(on_activate_link), dialog);
+        entry = make_link_label(dialog, value);
     } else {
         entry = gtk_label_new(text_or_empty(value));
         gtk_label_set_line_wrap(GTK_LABEL(entry), TRUE);
