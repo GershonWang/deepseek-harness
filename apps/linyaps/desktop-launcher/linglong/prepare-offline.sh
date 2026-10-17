@@ -237,6 +237,17 @@ if ! assert_injected_inventory "$INJECTED" "$LL_DIR/injected-packages.txt"; then
   exit 1
 fi
 
+# 2.1.5 把部署根清单从源码形态还原为发布形态（依据见 tools/normalize-deploy-manifest.mjs 头部）。
+#    dsh 的按需官方 bundle 安装器用「部署根名为 @deepseek-ai/dsh 且 dependencies 里存在
+#    workspace: 协议」判定当前安装是源码 checkout，命中后要求安装目录是一份完整工作区，
+#    否则抛 "requires its complete workspace checkout"；而 pnpm deploy --legacy 的产物
+#    恰好同时保留了这两点，于是玲珑包被误判，"Codex / Claude Code 子智能体"这类按需
+#    bundle 永远装不上。本步把协议值解析为具体版本，让安装器回到按 包名@版本 从 registry
+#    安装的正常分支。
+#    位置必须在 2.1 注入之后：版本取自 node_modules 内该包的实际清单，注入补进去的包也要
+#    能被看到；放在 deploy 紧后面会让后注入的包仍带协议值。
+echo "prepare-offline: 归一化部署根清单（解析 workspace: 协议）..."
+node apps/linyaps/desktop-launcher/tools/normalize-deploy-manifest.mjs "$STAGE/harness"
 
 # 2.2 stage launcher 私有的 doctor。
 #     doctor 已迁到 apps/linyaps/desktop-launcher/doctor，不再是 pnpm workspace 成员
