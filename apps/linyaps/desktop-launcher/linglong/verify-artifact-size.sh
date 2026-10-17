@@ -70,6 +70,11 @@ within() { # $1 相对路径（`.` 表示整棵） $2 上限字节
 # 1. 不该存在的：node/include 由 prepare-offline.sh 在宿主机暂存阶段删除，因此它进不进包
 #    完全取决于那一步，这里保持硬断言。
 must_be_absent node/include
+#    桌面应用包被 pnpm 11.28 的 legacy deploy 一并 hoist 进生产闭包时立刻失败：它带着
+#    .desktop-build 构建残留（本机实测 2.4 GB），不是运行时内容。prepare-offline 的
+#    「移除被 hoist 的非运行时应用包」步骤负责删除，这条断言防止那一步静默失效，
+#    也防止上游/包管理器行为再变时体积悄悄回到 4.5 GB。
+must_be_absent harness/node_modules/@deepseek-ai/dsh-desktop
 #    lib/gcc 只能告警：它由 buildext.apt.depends 的 apt 闭包带进产物，而该合并发生在 build
 #    段之后、提交之前，yaml 没有可挂的钩子——裁剪脚本改的是提交层的物化副本，不会进包
 #    （实测删掉 lib/gcc 后导出的 .uab 体积一个字节不变）。当前构建流程无法让这个目录不

@@ -88,6 +88,28 @@ if [ -d "$STAGE/harness/node_modules/typescript" ]; then
   echo "  - 已删除 typescript"
 fi
 
+# 2.0.6 清掉 pnpm 11.28 的 legacy deploy 一并 hoist 进来的非运行时应用包。
+#    新版 pnpm 在 --legacy --prod --node-linker=hoisted 下会把整个 workspace 成员装进部署
+#    目录（apps/*、benchmarks、website、native/*），而旧版 11.7 只装部署根的依赖闭包。
+#    其中 apps/desktop 还带着 .desktop-build 构建残留（本机实测 2.4 GB），会把导出树从
+#    约 2.0 GB 撑到 4.5 GB，触发 verify-artifact-size 的体积断言。
+#    名单按「明确不是运行时」划定：@deepseek-ai/dsh 是部署根，所有 packages/* 与 native/*
+#    包不动（bundle 会按包名引用它们且不写依赖）；dsh-web-frontend 保留，因为
+#    @deepseek-ai/dsh-web-app 的 dependencies 引用它。新增应用包被 hoist 时需先评审再改名单。
+echo "prepare-offline: 移除被 hoist 的非运行时应用包..."
+for apppkg in dsh-desktop dsh-desktop-host dsh-plugin-market-generator dsh-benchmarks website; do
+  appdir="$STAGE/harness/node_modules/@deepseek-ai/$apppkg"
+  if [ -d "$appdir" ]; then
+    rm -rf "$appdir"
+    echo "  - 已删除 @deepseek-ai/$apppkg"
+  fi
+done
+# 误删运行时包会让 harness 启动失败且很难定位，这里把两个必需包显式钉住。
+[ -d "$STAGE/harness/node_modules/@deepseek-ai/dsh" ] || {
+  echo "prepare-offline: 生产闭包缺少部署根 @deepseek-ai/dsh" >&2; exit 1; }
+[ -d "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend" ] || {
+  echo "prepare-offline: 生产闭包缺少 @deepseek-ai/dsh-web-frontend（dsh-web-app 依赖它）" >&2; exit 1; }
+
 # 本次注入的包名清单（供 assert_injected_inventory 比对；不写进 stage，避免混入产物）。
 INJECTED=$(mktemp)
 trap 'rm -f "$INJECTED" "$INJECTED.sorted"' EXIT

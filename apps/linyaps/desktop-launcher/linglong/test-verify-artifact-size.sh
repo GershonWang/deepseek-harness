@@ -62,14 +62,20 @@ else
   bad "干净导出树未通过"; sed 's/^/       /' "$TMP/out-healthy" >&2
 fi
 
-# --- 场景 2：lib/gcc 残留（裁剪失效）→ 失败 ---
+# --- 场景 2：lib/gcc 残留（已知无法裁剪）→ 通过并告警 ---
+# 它由 apt 闭包在 build 段之后带进产物，yaml 没有可挂的钩子；硬断言会让每次构建都失败，
+# 脚本按设计只告警。这条用例锁定「告警出现且退出码为 0」，与脚本注释里的取舍保持一致。
 new_case gcc
 mkdir -p "$PREFIX/lib/gcc/x86_64-linux-gnu/12"
 : > "$PREFIX/lib/gcc/x86_64-linux-gnu/12/cc1"
 if run_case "$TMP/out-gcc"; then
-  bad "lib/gcc 残留时应失败"
+  if grep -qF "WARN lib/gcc" "$TMP/out-gcc"; then
+    ok "lib/gcc 残留时告警但通过"
+  else
+    bad "lib/gcc 残留时未告警"; sed 's/^/       /' "$TMP/out-gcc" >&2
+  fi
 else
-  expect_fail "lib/gcc 残留非零退出并指名" "$TMP/out-gcc" "FAIL 体积断言" "lib/gcc"
+  bad "lib/gcc 残留不应导致失败（脚本设计为告警）"; sed 's/^/       /' "$TMP/out-gcc" >&2
 fi
 
 # --- 场景 3：node/include 残留（裁剪失效）→ 失败 ---
