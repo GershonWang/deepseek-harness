@@ -19,7 +19,7 @@
  * 不要求用户精确拖选。
  *
  * 打开链接按宿主 portal、随包 xdg-open、GTK 默认处理器的顺序尝试，理由见 open_uri 的注释；
- * 三步都失败时把原因写进弹框，绝不静默。
+ * 一旦成功就关闭弹框，三步都失败则保留弹框并就地写明原因，绝不静默。
  *
  * 退出码：0 正常关闭；2 参数解析失败。
  */
@@ -246,13 +246,19 @@ static gboolean open_uri(DialogContext *dialog, const gchar *uri, gchar **reason
     return FALSE;
 }
 
-/* 链接点击：交给 open_uri 按顺序尝试；全部失败就在弹框里写明原因。
+/* 链接点击：交给 open_uri 按顺序尝试。
+   成功后关闭弹框：用户已经随浏览器离开这一页，把对话框留在桌面上只是挡视线。关闭走
+   gtk_main_quit 而不是 gtk_widget_destroy——GTK 在 activate-link 信号返回后仍会访问本标签
+   的私有数据，在信号处理里销毁窗口会造成释放后使用。
+   失败时保持弹框打开并就地写明原因：静默失败等于这个入口不存在。
    返回 TRUE 表示这次点击已经处理完，不再走 GTK 默认实现，否则 GTK 会自己再打开一次。 */
 static gboolean on_activate_link(GtkLabel *label, const gchar *uri, gpointer data) {
     (void)label;
     DialogContext *dialog = (DialogContext *)data;
     gchar *reason = NULL;
-    if (!open_uri(dialog, uri, &reason)) {
+    if (open_uri(dialog, uri, &reason)) {
+        gtk_main_quit();
+    } else {
         g_printerr("dsh-about: opening %s failed: %s\n", uri, text_or_empty(reason));
         show_open_failure(dialog, reason);
     }
