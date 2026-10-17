@@ -28,7 +28,7 @@ deepin 桌面客户端运行在[玲珑沙箱](2026-08-14-desktop-launcher-linux-
 
 **让桌面启动器自己解析并启动宿主应用。** 否决：那会重复一份目录，还需要第二条通道把结果提供给菜单。注入事实让目录只有一个归属，并让同一份解析代码在沙箱内外都能运行。
 
-**沿用[子进程提供方](../../implemented/architecture/2026-08-28-subprocess-native-containment.zh.md)的 `systemd-run --user --scope` 形态。** 否决：scope 加入的是调用方的命名空间，目标仍留在容器内。只有 service 才能到达宿主。
+**沿用[子进程提供方](../../archived/architecture/2026-08-28-subprocess-native-containment.md)的 `systemd-run --user --scope` 形态。** 否决：scope 加入的是调用方的命名空间，目标仍留在容器内。只有 service 才能到达宿主。
 
 **另造一个宿主侧辅助服务。** 否决：那意味着大得多的兼容面——宿主安装、套接字协议与它自己的版本管理——而宿主根挂载与用户管理器在所有目标系统上本来就已经存在。
 
@@ -50,6 +50,6 @@ deepin 桌面客户端运行在[玲珑沙箱](2026-08-14-desktop-launcher-linux-
 
 - [通过 Go + webview_go 实现 Linux 桌面启动器](2026-08-14-desktop-launcher-linux-linglong.zh.md)——该通道所在的沙箱。
 - [玲珑容器工具链](2026-08-19-linglong-container-toolchain.zh.md)——面向命令的同族宿主挂载机制。
-- [原生所有者收容逃逸的子进程后代](../../implemented/architecture/2026-08-28-subprocess-native-containment.zh.md)——受管子进程为什么用 scope 而不是本通道。
+- [原生所有者收容逃逸的子进程后代](../../archived/architecture/2026-08-28-subprocess-native-containment.md)——受管子进程为什么用 scope 而不是本通道。
 - [为宿主浏览器打开捆绑 xdg-open](../../implemented/bug-fix/2026-08-27-bundle-xdg-open-for-host-browser-opening.zh.md)——本通道尚未替代的转发垫片。
 - 设计记录：[玲珑容器内的宿主逃逸 Open In](../../../../docs/superpowers/specs/2026-09-20-host-escape-open-in-app-design.zh.md)。

@@ -16,11 +16,14 @@ export function captureFixture(options: { empty?: boolean; recorderError?: boole
   const trackStop = vi.fn(), close = vi.fn(async () => {}), disposed = vi.fn()
   const rendering = vi.fn(async () => ({ getChannelData: () => new Float32Array([0.5, -0.5]) }))
   // 采集期中断：真实场景是采集轨道触发 ended（麦克风被拔掉/被系统回收）。
-  const trackListeners: (() => void)[] = []
-  const track = {
+  const track = new EventTarget()
+  const audioTrack = Object.assign(track, {
     stop: trackStop,
-    addEventListener: (_type: string, listener: () => void) => { trackListeners.push(listener) },
-  }
+    label: 'Fixture microphone',
+    getSettings: (): MediaTrackSettings => ({ groupId: 'fixture-input' }),
+  })
+  const stream = { getTracks: () => [audioTrack], getAudioTracks: () => [audioTrack] }
+  const getUserMedia = vi.fn(async (_constraints: MediaStreamConstraints) => stream)
   let deliver: ((quantum: Float32Array) => void) | undefined
   class Worklet {
     port: { onmessage: ((event: MessageEvent<Float32Array>) => void) | null } = { onmessage: null }
@@ -28,7 +31,7 @@ export function captureFixture(options: { empty?: boolean; recorderError?: boole
       if (options.constructError) throw new Error('recorder unavailable')
       deliver = (quantum) => {
         if (!options.empty) this.port.onmessage?.({ data: quantum } as MessageEvent<Float32Array>)
-        if (options.recorderError) trackListeners.forEach((listener) => { listener() })
+        if (options.recorderError) track.dispatchEvent(new Event('ended'))
       }
     }
     connect() {}
@@ -46,7 +49,7 @@ export function captureFixture(options: { empty?: boolean; recorderError?: boole
       startRendering: rendering,
     }
   })
-  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia: async () => ({ getTracks: () => [track], getAudioTracks: () => [track] }) } })
+  vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
   vi.stubGlobal('AudioWorkletNode', Worklet)
   vi.stubGlobal('AudioContext', function Audio() {
     return { state: 'running', sampleRate: 16000, close,
@@ -57,9 +60,9 @@ export function captureFixture(options: { empty?: boolean; recorderError?: boole
     }
   })
   vi.stubGlobal('OfflineAudioContext', offline)
-  return { recording: new Recording(disposed), trackStop, close, disposed, rendering, offline,
+  return { recording: new Recording(disposed), getUserMedia, stream, track, trackStop, close, disposed, rendering, offline,
     // 投递一个采集量子；未调用时录音为空，stop() 应报 empty。
     emit: (quantum = new Float32Array([0.25, -0.25])) => { deliver?.(quantum) },
     // 模拟采集期设备中断：真实场景由采集轨道的 ended 事件承担（origin 见 audio.ts）。
-    failRecorder: () => { trackListeners.forEach((listener) => { listener() }) } }
+    failRecorder: () => { track.dispatchEvent(new Event('ended')) } }
 }

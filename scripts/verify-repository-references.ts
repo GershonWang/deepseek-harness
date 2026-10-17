@@ -12,6 +12,18 @@ const organizationUrl = new RegExp(`\\bgithub\\.com/${organization}(?![a-z0-9-])
 // The independent kit repository owns the engine source and documentation.
 const kitRepositoryUrl = new RegExp(`\\bgithub\\.com/${organization}/libreoffice-kit(?:\\.git)?(?=/|[^a-zA-Z0-9_.-]|$)`, 'g')
 const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
+/**
+ * Whether a hexadecimal candidate can name a commit in practice.
+ *
+ * 锁文件里的十进制字节数（`size = 6344383`）同样落在十六进制字母表内，在对象库完整的
+ * 本地克隆里会偶然撞上某个提交前缀。真实提交标识几乎总含 a-f，纯数字候选按碰撞处理，
+ * 否则完整历史的仓库会在与提交无关的生成文件上报假阳性。
+ * @param candidate - The matched hexadecimal run.
+ * @returns whether the candidate contains a hexadecimal letter.
+ */
+function namesHexadecimalCommit(candidate: string): boolean {
+  return /[a-f]/i.test(candidate)
+}
 const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
 /**
  * fork 专属的取证与不可变引用文件，理由与本上游口径的差异在于"哈希就是内容本身"：
@@ -30,6 +42,8 @@ const excludedFiles = [
   'apps/linyaps/desktop-launcher/internal/toolchain/remote.go',
 ]
 const gitOutputLimit = 64 * 1024 * 1024
+// One 41-byte line per object; 1.2 million objects produce about 49 MiB.
+const objectListingLimit = 1024 * 1024 * 1024
 
 /** One prohibited reference in a maintained source file. */
 export interface RepositoryReference {
@@ -63,7 +77,8 @@ export function findRepositoryReferences(
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if ([...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
+    if ([...line.matchAll(commitCandidate)].filter(match => namesHexadecimalCommit(match[0]))
+      .some(match => commits.has(match[0].toLowerCase()))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
@@ -86,24 +101,63 @@ function readMaintainedFiles(repoRoot: string): Map<string, string> {
   return sources
 }
 
-function repositoryCommits(repoRoot: string, sources: Iterable<string>): Set<string> {
-  const candidates = [...new Set([...sources].flatMap(source =>
-    [...source.matchAll(commitCandidate)].map(match => match[0].toLowerCase())))]
-  if (candidates.length === 0) return new Set()
-  const results = execFileSync('git', ['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+function gitLines(repoRoot: string, args: readonly string[], maxBuffer: number, input?: string): string[] {
+  const output = execFileSync('git', args, {
     cwd: repoRoot,
     env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
     encoding: 'utf8',
-    input: `${candidates.join('\n')}\n`,
-    maxBuffer: gitOutputLimit,
+    input,
+    maxBuffer,
     stdio: ['pipe', 'pipe', 'pipe'],
-  }).trimEnd().split('\n')
-  // Git resolves prefixes across all available objects, including unreachable ones.
+  }).trimEnd()
+  return output === '' ? [] : output.split('\n')
+}
+
+/**
+ * Find the one object whose name starts with a prefix.
+ * @param objects - Every object name in the local object database, sorted.
+ * @param prefix - Lowercase hexadecimal prefix.
+ * @returns The matching object name, or `undefined` when none or several match.
+ */
+export function uniquePrefixMatch(objects: readonly string[], prefix: string): string | undefined {
+  let low = 0
+  let high = objects.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if ((objects[middle] ?? prefix) < prefix) low = middle + 1
+    else high = middle
+  }
+  const match = objects[low]
+  if (match?.startsWith(prefix) !== true || objects[low + 1]?.startsWith(prefix) === true) return undefined
+  return match
+}
+
+/**
+ * Resolve commit-identifier candidates in maintained sources against the local object database.
+ * @param repoRoot - Working tree whose Git objects are inspected.
+ * @param sources - File texts or symlink targets to extract candidates from.
+ * @returns Lowercase candidates that name exactly one available object, which is a commit.
+ */
+export function repositoryCommits(repoRoot: string, sources: Iterable<string>): Set<string> {
+  const candidates = [...new Set([...sources].flatMap(source =>
+    [...source.matchAll(commitCandidate)].map(match => match[0].toLowerCase())))].filter(namesHexadecimalCommit)
+  if (candidates.length === 0) return new Set()
+  // Git resolves prefixes across all available objects, including unreachable and alternate ones;
+  // one listing of those objects replaces one Git prefix lookup per candidate.
   // Ambiguous prefixes do not identify one object and cannot establish a commit reference.
-  return new Set(candidates.filter((candidate, index) => {
-    const [object, type] = results[index]?.split(' ') ?? []
-    return type === 'commit' && object?.startsWith(candidate) === true
-  }))
+  const objects = gitLines(repoRoot, ['cat-file', '--batch-all-objects', '--batch-check=%(objectname)'], objectListingLimit).sort()
+  const matches = new Map<string, string>()
+  for (const candidate of candidates) {
+    const object = uniquePrefixMatch(objects, candidate)
+    if (object !== undefined) matches.set(candidate, object)
+  }
+  if (matches.size === 0) return new Set()
+  const matched = [...new Set(matches.values())]
+  const commits = new Set(gitLines(repoRoot, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], gitOutputLimit, `${matched.join('\n')}\n`)
+    .map(line => line.split(' '))
+    .filter(([, type]) => type === 'commit')
+    .map(([object]) => object))
+  return new Set([...matches].filter(([, object]) => commits.has(object)).map(([candidate]) => candidate))
 }
 
 /**

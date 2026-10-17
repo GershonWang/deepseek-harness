@@ -68,24 +68,26 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
       aria-modal="true"
       aria-label={labels.dialog}
     >
-      <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
-      {loadState === 'error' ? (
-        <div className={css.error} role="alert">{labels.failed}</div>
-      ) : (
-        <img
-          className={css.image}
-          src={src}
-          alt={alt}
-          onLoad={() => setLoadState('ready')}
-          onError={() => setLoadState('error')}
-        />
-      )}
-      {loadState === 'loading' && (
-        <div className={css.loading} aria-hidden="true">{labels.loading}</div>
-      )}
-      <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
-        <IconCloseOutlineRegular size={16} />
-      </button>
+      <div className={css.stage}>
+        <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
+        {loadState === 'error' ? (
+          <div className={css.error} role="alert">{labels.failed}</div>
+        ) : (
+          <img
+            className={css.image}
+            src={src}
+            alt={alt}
+            onLoad={() => setLoadState('ready')}
+            onError={() => setLoadState('error')}
+          />
+        )}
+        {loadState === 'loading' && (
+          <div className={css.loading} aria-hidden="true">{labels.loading}</div>
+        )}
+        <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
+          <IconCloseOutlineRegular size={16} />
+        </button>
+      </div>
     </div>,
     document.body,
   )

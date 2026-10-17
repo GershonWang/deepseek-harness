@@ -28,7 +28,7 @@ A host launch installs the host program as a transient unit of the host user man
 
 **Let the desktop launcher resolve and launch host applications itself.** Rejected: it would duplicate the catalog and need a second channel to serve the menu. Injecting the facts keeps one owner for the catalog and lets the same resolution code run in and out of a sandbox.
 
-**`systemd-run --user --scope`, the shape the [subprocess provider](../../implemented/architecture/2026-08-28-subprocess-native-containment.md) uses.** Rejected: a scope joins the caller's namespaces, so the target would stay in the container. Only a service reaches the host.
+**`systemd-run --user --scope`, the shape the [subprocess provider](../../archived/architecture/2026-08-28-subprocess-native-containment.md) uses.** Rejected: a scope joins the caller's namespaces, so the target would stay in the container. Only a service reaches the host.
 
 **Ship a host-side helper service.** Rejected as a much larger compatibility surface — a host installation, a socket protocol, and its own versioning — where the host root mount and the user manager already exist on every target system.
 
@@ -50,6 +50,6 @@ Folding the browser and `xdg-open` forwarding onto this channel, and extending t
 
 - [Linux desktop launcher via Go + webview_go](2026-08-14-desktop-launcher-linux-linglong.md) — the sandbox this channel lives in.
 - [Linglong container toolchain](2026-08-19-linglong-container-toolchain.md) — the sibling host-mount mechanism for commands.
-- [Native owners contain escaped subprocess descendants](../../implemented/architecture/2026-08-28-subprocess-native-containment.md) — why harness-managed children use a scope instead.
+- [Native owners contain escaped subprocess descendants](../../archived/architecture/2026-08-28-subprocess-native-containment.md) — why harness-managed children use a scope instead.
 - [Bundle xdg-open for host browser opening](../../implemented/bug-fix/2026-08-27-bundle-xdg-open-for-host-browser-opening.md) — the forwarding shim this channel does not yet replace.
 - Design record: [Host-escape Open In for the Linglong container](../../../../docs/superpowers/specs/2026-09-20-host-escape-open-in-app-design.md).
