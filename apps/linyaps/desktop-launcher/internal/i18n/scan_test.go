@@ -129,6 +129,12 @@ var allowedChinese = map[string][]string{
 		"无法创建运行时目录: ",
 		"无法写入已提示记录: ",
 	},
+	"internal/app/session_memory.go": {
+		// 「上次会话」记忆的排障日志：只回答「这次为什么没记住/没落盘」，面向读启动
+		// 日志的人，不进界面字典；记忆失败只影响下次启动的还原。
+		"丢弃形状非法的会话 id: %q",
+		"会话记忆未落盘: %v",
+	},
 	"internal/packaging/webkit_linux.go": {
 		"dsh-desktop: 创建 webkit helper 符号链接失败: %v\n",
 	},

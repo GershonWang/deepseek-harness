@@ -1,4 +1,4 @@
-/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的四条职责。
+/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的五条职责。
  *
  * 桥由打包流程注入到桌面版 GUI 的 dist，在真实的 Wails WebKitGTK 里只与
  * window.parent / document / console / MutationObserver / setInterval 打交道，
@@ -11,7 +11,10 @@
  *     应用挂载完成时补报一次（服务端默认 lang 恰好等于生效语言时属性不会变化，
  *     只靠属性观察会漏掉这种组合）；
  *   - 内容存活性：挂载点连续为空、或引导页长时间不消失 → { type: "boot-stalled" }，
- *     只上报一次；正常挂载（有内容、无引导页）不上报。
+ *     只上报一次；正常挂载（有内容、无引导页）不上报；
+ *   - 会话恢复与上报：把壳注入的会话 id 写回客户端存储（只在客户端自己没有选择
+ *     时），并按周期把当前选择 → { type: "current-session", sessionId }，同一个值
+ *     不重复上报，清空后上报 null。
  * 运行：node --test linglong/test-link-bridge.cjs（工作目录 apps/linyaps/desktop-launcher）
  *
  * 为什么用桩而不是真实浏览器：桥的判据都落在它自己发出的消息上，桩能精确控制
@@ -82,10 +85,16 @@ function makeRoot() {
 
 /**
  * 在 vm 上下文里加载一次桥。
- * @param {object} options - inIframe：是否被 iframe 内嵌；ancestorOrigins：父窗口 origin 列表（null 表示浏览器不支持该 API）。
- * @returns 驱动句柄：messages、docListeners、root、observers、console 桩。
+ * @param {object} options - inIframe：是否被 iframe 内嵌；ancestorOrigins：父窗口 origin 列表（null 表示浏览器不支持该 API）；storage：客户端 localStorage 的初始内容；restoreId：壳经索引注入送进来的会话 id；storageBroken：localStorage 抛异常（被拒/私密模式）。
+ * @returns 驱动句柄：messages、docListeners、root、observers、console 桩、storage。
  */
-function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080"] } = {}) {
+function loadBridge({
+  inIframe = true,
+  ancestorOrigins = ["http://127.0.0.1:8080"],
+  storage = {},
+  restoreId = undefined,
+  storageBroken = false,
+} = {}) {
   const messages = [];
   const docListeners = {};
   const root = makeRoot();
@@ -93,12 +102,27 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
 
   // WebKitGTK 支持 location.ancestorOrigins；不支持时该属性整个不存在。
   const location = ancestorOrigins === null ? {} : { ancestorOrigins };
+  // localStorage 桩：桥读写的只有客户端的选择键（见"当前会话的恢复与上报"一节）。
+  // storageBroken 模拟存储被拒：读写都抛，桥必须当作"没有存储"继续工作。
+  const backing = new Map(Object.entries(storage));
+  const localStorage = {
+    getItem(key) {
+      if (storageBroken) throw new Error("storage denied");
+      return backing.has(key) ? backing.get(key) : null;
+    },
+    setItem(key, value) {
+      if (storageBroken) throw new Error("storage denied");
+      backing.set(key, value);
+    },
+  };
   const window = {
     location,
+    localStorage,
     postMessage(message, targetOrigin) {
       messages.push({ message, targetOrigin });
     },
   };
+  if (restoreId !== undefined) window.__DSH_DESKTOP_RESTORE_SESSION__ = restoreId;
   // 桥把消息发给 window.parent；被 iframe 内嵌时父窗口才是壳，独立打开时是它自己。
   window.parent = inIframe ? { postMessage: window.postMessage } : window;
 
@@ -142,7 +166,7 @@ function loadBridge({ inIframe = true, ancestorOrigins = ["http://127.0.0.1:8080
     for (const timer of timers) if (!timer.cleared) timer.fn();
   }
 
-  return { messages, docListeners, root, document, observers: instances, console: consoleStub, timers, tick };
+  return { messages, docListeners, root, document, observers: instances, console: consoleStub, timers, tick, storage: backing };
 }
 
 /** 造一次左键点击事件；返回的事件对象可断言 defaultPrevented。 */
@@ -354,4 +378,61 @@ test("内容存活性：空挂载点恢复后计数复位", () => {
   h.tick();
 
   assert.deepEqual(sentMessages(h), [], "中断过的空计数不应累计到阈值");
+});
+
+test("会话恢复：客户端没有选择时把壳记住的会话写回存储并上报", () => {
+  const h = loadBridge({ restoreId: "session-remembered" });
+
+  assert.deepEqual(
+    JSON.parse(h.storage.get("dsh.sessions.current")),
+    { sessionId: "session-remembered" },
+    "壳记住的会话应写回客户端的选择键",
+  );
+  assert.deepEqual(sentMessages(h), [{
+    message: { dshDesktop: true, type: "current-session", sessionId: "session-remembered" },
+    targetOrigin: "http://127.0.0.1:8080",
+  }]);
+});
+
+test("会话恢复：客户端自己有选择时不覆盖", () => {
+  const h = loadBridge({
+    restoreId: "session-remembered",
+    storage: { "dsh.sessions.current": JSON.stringify({ sessionId: "client-choice" }) },
+  });
+
+  assert.deepEqual(
+    JSON.parse(h.storage.get("dsh.sessions.current")),
+    { sessionId: "client-choice" },
+    "客户端记着的那份才是权威，壳的记忆更旧",
+  );
+  assert.equal(h.messages.length, 1);
+  assert.equal(h.messages[0].message.sessionId, "client-choice");
+});
+
+test("会话上报：选择变化各上报一次，清空后上报 null", () => {
+  const h = loadBridge({ storage: { "dsh.sessions.current": JSON.stringify({ sessionId: "first" }) } });
+  assert.equal(h.messages.length, 1, "启动时的当前选择上报一次");
+  assert.equal(h.messages[0].message.sessionId, "first");
+
+  h.tick();
+  assert.equal(h.messages.length, 1, "选择未变不重复上报");
+
+  h.storage.set("dsh.sessions.current", JSON.stringify({ sessionId: "second" }));
+  h.tick();
+  assert.equal(h.messages.length, 2);
+  assert.equal(h.messages[1].message.sessionId, "second");
+
+  h.storage.set("dsh.sessions.current", JSON.stringify({}));
+  h.tick();
+  assert.equal(h.messages.length, 3);
+  assert.equal(h.messages[2].message.sessionId, null, "清空后上报 null，壳据此清除记忆");
+});
+
+test("会话恢复：存储被拒时不崩、不写，也不上报空选择", () => {
+  const h = loadBridge({ restoreId: "session-remembered", storageBroken: true });
+
+  assert.equal(h.storage.size, 0, "被拒的存储不应被写入");
+  assert.deepEqual(sentMessages(h), [], "读不到选择时不上报，避免把壳的记忆清掉");
+  h.tick();
+  assert.deepEqual(sentMessages(h), []);
 });

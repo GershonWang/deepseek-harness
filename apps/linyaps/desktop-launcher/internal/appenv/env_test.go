@@ -19,7 +19,7 @@ func TestResolve_OverrideBin(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_PORT", "8080")
 	// overlay 落到临时目录：Resolve 会写这个文件，测试不能碰真实的 ~/.cache。
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
-	r := Resolve(0)
+	r := Resolve(Preferences{})
 	if r.Config.Command != "/custom/dsh" {
 		t.Errorf("expected /custom/dsh, got %s", r.Config.Command)
 	}
@@ -44,7 +44,7 @@ func TestResolve_InjectsSupervisorOverlay(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_PORT", "8080")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
 
-	r := Resolve(0)
+	r := Resolve(Preferences{})
 	overlay := filepath.Join(dir, supervisorOverlayName)
 	want := []string{"web", "--patch", overlay, "--port", "8080", "--no-open"}
 	if !slices.Equal(r.Config.Args, want) {
@@ -61,6 +61,55 @@ func TestResolve_InjectsSupervisorOverlay(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "allowRestart: false") {
 		t.Errorf("overlay missing allowRestart: false: %s", body)
+	}
+	// 没有记住会话时不该出现恢复行：客户端此时按自己的回退策略启动。
+	if strings.Contains(string(body), restoreSessionRowID) {
+		t.Errorf("overlay has a restore-session row without a remembered Session: %s", body)
+	}
+}
+
+// 壳记住的会话必须落进 overlay 的插入行，并以绝对路径引用写好的插件：内嵌 iframe 的
+// localStorage 不落盘，客户端读不到上次选择，恢复完全依赖这条注入。
+func TestResolve_InjectsRememberedSession(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
+	t.Setenv("DSH_DESKTOP_PORT", "8080")
+	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
+
+	Resolve(Preferences{SessionID: "session-abc-123"})
+	body, err := os.ReadFile(filepath.Join(dir, supervisorOverlayName))
+	if err != nil {
+		t.Fatalf("overlay not written: %v", err)
+	}
+	for _, want := range []string{
+		"- id: " + restoreSessionRowID,
+		"sessionId: \"session-abc-123\"",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("overlay missing %q:\n%s", want, body)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, restoreSessionFileName)); err != nil {
+		t.Errorf("restore plugin not written: %v", err)
+	}
+}
+
+// 缺少任一侧（插件没写出来、或壳没记住会话）都省略该行：恢复只是体验增强，缺了它
+// 客户端仍按自己的回退启动，而 overlay 本身必须照旧生效。
+func TestRestoreSessionOverlayRow_OmitsWithoutTarget(t *testing.T) {
+	if got := restoreSessionOverlayRow("/tmp/plugin.mjs", ""); got != "" {
+		t.Errorf("restoreSessionOverlayRow without a Session = %q, want empty", got)
+	}
+	if got := restoreSessionOverlayRow("", "session-abc"); got != "" {
+		t.Errorf("restoreSessionOverlayRow without a plugin = %q, want empty", got)
+	}
+	// 路径与 id 都是双引号标量：运行时目录可能含空格或非 ASCII 字符。
+	got := restoreSessionOverlayRow("/tmp/a b/插件.mjs", "session-abc")
+	if !strings.Contains(got, "name: \"/tmp/a b/插件.mjs\"") {
+		t.Errorf("plugin path not quoted: %q", got)
+	}
+	if !strings.Contains(got, "sessionId: \"session-abc\"") {
+		t.Errorf("session id not quoted: %q", got)
 	}
 }
 
@@ -79,7 +128,7 @@ func TestHarnessArgs_EntryPrefixOrder(t *testing.T) {
 		{"entry prefix", "/opt/h/bin.js", []string{"/opt/h/bin.js", "web", "--patch", overlay, "--port", "1", "--no-open"}},
 	}
 	for _, c := range cases {
-		if got := harnessArgs(c.entry, "1"); !slices.Equal(got, c.want) {
+		if got := harnessArgs(c.entry, "1", ""); !slices.Equal(got, c.want) {
 			t.Errorf("%s: harnessArgs = %v, want %v", c.name, got, c.want)
 		}
 	}
@@ -94,7 +143,7 @@ func TestHarnessArgs_OmitsOverlayWhenUnwritable(t *testing.T) {
 	}
 	t.Setenv("DSH_DESKTOP_LOG_DIR", notADir)
 
-	got := harnessArgs("", "1234")
+	got := harnessArgs("", "1234", "")
 	want := []string{"web", "--port", "1234", "--no-open"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("harnessArgs = %v, want %v", got, want)
@@ -107,7 +156,7 @@ func TestHarnessArgs_OmitsOverlayWhenUnwritable(t *testing.T) {
 func TestHarnessArgs_NoOpenFollowsPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 
-	got := harnessArgs("", "1234")
+	got := harnessArgs("", "1234", "")
 	n := len(got)
 	if got[n-3] != "--port" || got[n-2] != "1234" || got[n-1] != "--no-open" {
 		t.Fatalf("harnessArgs = %v, want trailing --port 1234 --no-open", got)
@@ -121,7 +170,7 @@ func TestResolve_DefaultPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	os.Unsetenv("DSH_DESKTOP_PORT")
-	r := Resolve(0)
+	r := Resolve(Preferences{})
 	// 没有记录时预留一个空闲 loopback 端口，保证 harness 重启时复用同一端口。
 	if r.Port == "" || r.Port == "0" {
 		t.Errorf("expected a reserved port, got %s", r.Port)
@@ -141,7 +190,7 @@ func TestResolve_ReusesRememberedPort(t *testing.T) {
 
 	// 先占一个空闲端口，再放掉：这就是「上次记下的端口」在本次启动时的状态。
 	preferred := freePort(t)
-	r := Resolve(preferred)
+	r := Resolve(Preferences{Port: preferred})
 	if r.Port != strconv.Itoa(preferred) {
 		t.Errorf("Port = %s, want remembered %d", r.Port, preferred)
 	}
@@ -164,7 +213,7 @@ func TestResolve_ReplacesBusyRememberedPort(t *testing.T) {
 	defer func() { _ = busy.Close() }()
 	busyPort := busy.Addr().(*net.TCPAddr).Port
 
-	r := Resolve(busyPort)
+	r := Resolve(Preferences{Port: busyPort})
 	if r.Port == strconv.Itoa(busyPort) || r.Port == "" || r.Port == "0" {
 		t.Fatalf("Port = %s, want a replacement for busy %d", r.Port, busyPort)
 	}
@@ -180,7 +229,7 @@ func TestResolve_ReplacesOutOfRangeRememberedPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	os.Unsetenv("DSH_DESKTOP_PORT")
 
-	r := Resolve(70000)
+	r := Resolve(Preferences{Port: 70000})
 	if r.Port == "70000" || r.Port == "" || r.Port == "0" {
 		t.Fatalf("Port = %s, want a replacement for out-of-range 70000", r.Port)
 	}
@@ -195,13 +244,13 @@ func TestResolve_EnvPortIsNotRemembered(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	t.Setenv("DSH_DESKTOP_PORT", "18080")
 
-	if r := Resolve(12345); r.Port != "18080" || r.RememberPort {
+	if r := Resolve(Preferences{Port: 12345}); r.Port != "18080" || r.RememberPort {
 		t.Errorf("Resolve = %s/%v, want 18080/remember=false", r.Port, r.RememberPort)
 	}
 
 	// `0` 要求随机端口：不读记忆，也不把随机结果记成稳定端口。
 	t.Setenv("DSH_DESKTOP_PORT", "0")
-	r := Resolve(12345)
+	r := Resolve(Preferences{Port: 12345})
 	if r.Port == "0" || r.Port == "12345" || r.RememberPort {
 		t.Errorf("Resolve = %s/%v, want a fresh port with remember=false", r.Port, r.RememberPort)
 	}
@@ -223,7 +272,7 @@ func TestResolve_ExplicitPort(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", t.TempDir())
 	t.Setenv("DSH_DESKTOP_PORT", "18080")
-	r := Resolve(0)
+	r := Resolve(Preferences{})
 	if r.Port != "18080" {
 		t.Errorf("expected explicit port 18080, got %s", r.Port)
 	}
@@ -232,7 +281,7 @@ func TestResolve_ExplicitPort(t *testing.T) {
 func TestResolve_LogDir(t *testing.T) {
 	t.Setenv("DSH_DESKTOP_DSH_BIN", "/custom/dsh")
 	t.Setenv("DSH_DESKTOP_LOG_DIR", "/tmp/test-logs")
-	r := Resolve(0)
+	r := Resolve(Preferences{})
 	if r.Config.LogDir != "/tmp/test-logs" {
 		t.Errorf("expected /tmp/test-logs, got %s", r.Config.LogDir)
 	}
@@ -424,7 +473,7 @@ func TestWriteSupervisorOverlay_InjectsStartupProgress(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("DSH_DESKTOP_LOG_DIR", dir)
 
-	path, err := writeSupervisorOverlay()
+	path, err := writeSupervisorOverlay("")
 	if err != nil {
 		t.Fatalf("writeSupervisorOverlay: %v", err)
 	}
@@ -734,7 +783,7 @@ func TestResolve_DevLayoutFindsBuiltDoctor(t *testing.T) {
 		t.Skip("doctor 未构建；先运行 node apps/linyaps/desktop-launcher/tools/doctor-build.mjs")
 	}
 
-	if got := Resolve(0).DoctorCLI; got != want {
+	if got := Resolve(Preferences{}).DoctorCLI; got != want {
 		t.Errorf("开发态应解析到 %q,got %q", want, got)
 	}
 }

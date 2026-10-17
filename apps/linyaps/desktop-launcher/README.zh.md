@@ -22,7 +22,7 @@
 │   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
-│   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
+│   appenv      环境解析 + 注入插件（bin/端口/日志/会话恢复）   │
 │   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
@@ -32,9 +32,14 @@
 
 渲染层只是 Chromium/WebKit 加载 `dsh web` 服务的 loopback origin，完全复用现有 Web GUI，不重写任何 UI。由于 harness 页面现在以 iframe 方式加载、拥有真实的 `http://127.0.0.1` origin，旧的 opaque `location.origin` webkit 兼容问题不再适用。
 
-监听端口因此必须跨启动保持不变，它记在 `~/.config/dsh-desktop/config.json` 的 `webPort`：端口是 harness Web GUI 的 origin 的一部分，而 GUI 把界面状态（含「上次会话」）存在按 origin 分区的 localStorage 里。端口每次换一个，GUI 就每次落在空存储里，只能新建会话，上次的对话、草稿、布局与快捷键一并丢失。于是启动时优先复用上次实际用过的端口，被占用时才另挑一个并记下新的那个；`--no-open` 同时阻止 harness 再去拉起系统默认浏览器——界面已经在壳的 iframe 里。
+监听端口因此必须跨启动保持不变，它记在 `~/.config/dsh-desktop/config.json` 的 `webPort`：端口是 harness Web GUI 的 origin 的一部分，而 GUI 的界面状态（含「上次会话」）存在按 origin 分区的 localStorage 里。端口每次换一个，GUI 就每次落在空存储里。于是启动时优先复用上次实际用过的端口，被占用时才另挑一个并记下新的那个；`--no-open` 同时阻止 harness 再去拉起系统默认浏览器——界面已经在壳的 iframe 里。
 
-harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报插件（见下一节）。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
+**但 origin 稳定并不足以让 GUI 记住「上次会话」**：实测这份 localStorage 在内嵌 iframe 里按第三方存储对待，退出后根本不落盘（`~/.local/share/dsh-desktop-launcher/localstorage/` 里 2026-09-28 之后再没有任何 harness origin 的写入），客户端于是每次启动都读不到上次选择，只能开一个空会话。恢复因此由两条互补的路径承担：
+
+- **客户端的回退**：没有本地选择时打开该工作区**最近更新的非空会话**，而不是复用或新建空会话（`packages/client/ui-workspace` 的启动选择）。它不依赖任何存储，覆盖所有记不住自己的客户端。
+- **壳自己的记忆**：链接桥把 GUI 当前选中的会话周期上报（`{ type: "current-session", sessionId }`），壳存进 config.json 的 `lastSessionId`；下次启动由 `internal/appenv/restore_session.go` 写出的注入插件送进首屏 HTML，桥在客户端入口执行前写回存储键，客户端便按常规的「上次选择」路径恢复。注入只在客户端自己没有选择时填入，**不覆盖**客户端已有的选择——存储可用的环境（普通浏览器、官方 Electron 客户端）里，客户端记着的那份更权威。
+
+harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 spawn 时向 launcher 运行时目录写入一份 patch overlay 并以 `--patch` 传入，把 `dsh-market` 行的 `allowRestart` 置为 false，并插入启动进度上报（见下一节）与「上次会话」恢复两个插件。没有它，插件市场的「立即重启」会用同一份 argv（也就是同一个稳定 `--port`）重新拉起 harness，而 supervisor 同时也在重启，两者必有一方死于 `EADDRINUSE`；若市场一方胜出，还会留下一个 launcher 既看不见也管不着的 harness。launcher 自己的 flag 必须排在 `--port` 之前，因为 `web` 子命令会原样转发其后的所有参数。插件变更通过服务器弹框的 重启 按钮（`App.RestartServer`）生效。
 
 ## 内嵌 WebView 的媒体采集权限
 
@@ -74,7 +79,7 @@ main.go                 Wails 入口：环境 → 控制器 → wails.Run（内�
 frontend/               壳 UI：index.html / styles.css / app.js / i18n.js / locales/（无 Node 构建链）
 internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
 internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
-internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
+internal/appenv/        环境解析 + 注入插件（bin/端口/日志目录/会话恢复/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
@@ -144,8 +149,9 @@ cd apps/linyaps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
-node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性上报）
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性 + 会话恢复与上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
+node --test internal/appenv/restore_session.test.mjs      # 会话恢复插件（索引注入行）
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_PREVIEW_LOCALE=en node frontend/tools/preview.mjs verify  # 同一组不变量按英文文案再量一遍（英文更长）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
@@ -187,6 +193,8 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 桥还负责第三件事：把 GUI 的生效语言上报给壳。壳渲染的每一处文案都跟随 iframe 内 harness GUI 的语言，而 GUI 的语言由它自己的 `<html lang>` 表达（客户端 locale 服务在每次语言快照变化时同步该属性），因此桥在属性变化时、以及应用挂载完成时各上报一次 `{ dshDesktop: true, type: "locale", id }`；`frontend/app.js` 转交 `frontend/i18n.js`，壳据此切换文案并把语言回推给 Go 侧（`App.SetLocale`）。挂载后的补报不可省略：服务端 `index.html` 的默认 `lang` 恰好等于生效语言时（中文系统 + 用户在 GUI 里选英文），属性自始至终不变，只观察变化会漏掉这种组合。真源选型与分期实施见 `docs/i18n.md`。
 
 桥还负责第四件事：判断 GUI 的内容还在不在。白屏的另一种形态是文档还在、客户端内容整个不见了——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空——此时壳只看得到 iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。桥按周期检查挂载点里还有没有内容（连续为空，或引导页长时间不消失），确认后上报 `{ dshDesktop: true, type: "boot-stalled", message }`；`frontend/app.js` 收到后重载 iframe（最多两次），仍不成功才带上原因走上面的失败页链路。与第二件事的边界：第二件判"上游自己报了失败"，这一件判"上游没有报错、内容只是不出现"。
+
+桥还负责第五件事：恢复并上报 GUI 当前打开的会话。客户端把「上次打开的会话」写在 localStorage 里，而内嵌 iframe 的这份存储退出后不落盘（见上文渲染层），客户端自己记不住；因此壳把 id 记在 config.json 的 `lastSessionId`，下次启动由 `internal/appenv/restore_session.go` 经索引注入以 `__DSH_DESKTOP_RESTORE_SESSION__` 送进首屏 HTML，桥在客户端入口执行前把它写回选择键（仅在客户端自己没有选择时），并按周期把当前选择上报给壳（`frontend/app.js` → `App.RememberSession`；`sessionId` 为 `null` 表示当前没有选中会话，壳据此清除记忆）。客户端私有的键名 `dsh.sessions.current` 是这条通路的代价：它一旦改名，恢复与上报都会静默失效，只剩客户端自己的回退策略，不会更糟。
 
 ## 容器可用性（工具链/挂载）
 

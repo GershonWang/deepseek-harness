@@ -18,6 +18,17 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/supervisor"
 )
 
+// Preferences 是 launcher 跨启动记住的客户端状态，决定本次如何起 harness 与 GUI。
+//
+// 两项都不是「用户偏好」，而是本次运行要还原的事实：端口是 harness Web GUI 的
+// origin 身份，会话 id 是 GUI 上次打开的那段对话。零值表示没有记录。
+type Preferences struct {
+	// Port 是上次实际使用的监听端口（0 表示没有记录）。
+	Port int
+	// SessionID 是上次 GUI 中打开的会话（空串表示没有记录）。
+	SessionID string
+}
+
 // Resolved 是一次环境解析的结果。
 type Resolved struct {
 	Config supervisor.Config
@@ -62,22 +73,23 @@ func (r Resolved) DoctorEnv() []string {
 //
 // 四条分支都经 harnessArgs 组装参数，以保证监护声明 overlay 无一遗漏。
 //
-// preferredPort 是调用方上次记下的端口（0 表示没有记录），只在环境变量未覆盖时
-// 参与选择，见 resolvePort；选中的端口是否需要记回去由 Resolved.RememberPort 说明。
+// prefs 是调用方上次记下的客户端状态：端口只在环境变量未覆盖时参与选择（见
+// resolvePort，选中的端口是否需要记回去由 Resolved.RememberPort 说明），会话 id
+// 则交给注入插件的 overlay 行（见 restore_session.go）。
 //
 // doctor 的运行环境独立解析（见 resolveDoctor）：它不再挂在 dsh 的 argv 上，
 // 因此不能从上面的分支里顺带推导。doctor 的安装锚点同理（见 resolveInstallAnchor）：
 // 它必须指向上面这些分支实际启动的那次安装，而从分支里顺带推导会把两者绑死在
 // 同一段代码上，改一处就得同时改另一处。
-func Resolve(preferredPort int) Resolved {
-	port, rememberPort := resolvePort(preferredPort)
+func Resolve(prefs Preferences) Resolved {
+	port, rememberPort := resolvePort(prefs.Port)
 	logDir := resolveLogDir()
 	doctorNode, doctorCLI := resolveDoctor()
 	installAnchor := resolveInstallAnchor()
 
 	if bin := os.Getenv("DSH_DESKTOP_DSH_BIN"); bin != "" {
 		return Resolved{
-			Config:       supervisor.Config{Command: bin, Args: harnessArgs("", port), LogDir: logDir},
+			Config:       supervisor.Config{Command: bin, Args: harnessArgs("", port, prefs.SessionID), LogDir: logDir},
 			Port:         port,
 			RememberPort: rememberPort,
 			DoctorNode:   doctorNode,
@@ -98,7 +110,7 @@ func Resolve(preferredPort int) Resolved {
 			node = resolveNode()
 		}
 		return Resolved{
-			Config:       supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port), LogDir: logDir},
+			Config:       supervisor.Config{Command: node, Args: harnessArgs(packagedBin, port, prefs.SessionID), LogDir: logDir},
 			Port:         port,
 			RememberPort: rememberPort,
 			DoctorNode:   node,
@@ -112,7 +124,7 @@ func Resolve(preferredPort int) Resolved {
 	devBin := filepath.Join(cwd, "..", "cli", "lib", "bin.js")
 	if _, err := os.Stat(devBin); err == nil {
 		return Resolved{
-			Config:       supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port), LogDir: logDir},
+			Config:       supervisor.Config{Command: resolveNode(), Args: harnessArgs(devBin, port, prefs.SessionID), LogDir: logDir},
 			Port:         port,
 			RememberPort: rememberPort,
 			DoctorNode:   resolveNode(),
@@ -123,7 +135,7 @@ func Resolve(preferredPort int) Resolved {
 	}
 
 	return Resolved{
-		Config:        supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port), LogDir: logDir},
+		Config:        supervisor.Config{Command: resolveNode(), Args: harnessArgs("bin.js", port, prefs.SessionID), LogDir: logDir},
 		Port:          port,
 		RememberPort:  rememberPort,
 		DoctorNode:    resolveNode(),
@@ -251,7 +263,8 @@ func supervisorOverlayBody(extraRows string) string {
 }
 
 // harnessArgs 组装 harness 的启动参数：入口脚本（可为空）、web 子命令、声明
-// 监护关系的 overlay、稳定端口，以及关闭「打开默认浏览器」。
+// 监护关系的 overlay（内含启动进度上报与「上次会话」恢复两个注入插件）、稳定
+// 端口，以及关闭「打开默认浏览器」。
 //
 // 集中在一处是因为 Resolve 有四条入口分支，任何一条漏掉 overlay 都会让那条
 // 路径重新引入与 dsh-market 的端口竞态。
@@ -268,13 +281,13 @@ func supervisorOverlayBody(extraRows string) string {
 //
 // overlay 写失败时静默省略该参数：监护本身仍然有效，只是回到"两个重启者"
 // 的旧行为，比让 harness 因缺失参数而启动不起来更可取。
-func harnessArgs(entry, port string) []string {
+func harnessArgs(entry, port, sessionID string) []string {
 	args := make([]string, 0, 7)
 	if entry != "" {
 		args = append(args, entry)
 	}
 	args = append(args, "web")
-	if overlay, err := writeSupervisorOverlay(); err == nil {
+	if overlay, err := writeSupervisorOverlay(sessionID); err == nil {
 		args = append(args, "--patch", overlay)
 	}
 	return append(args, "--port", port, "--no-open")
@@ -283,12 +296,14 @@ func harnessArgs(entry, port string) []string {
 // writeSupervisorOverlay 把监护声明写入 launcher 运行时目录，返回其路径。
 // 内容每次启动覆写即可，无需比较或保留旧版本。
 //
-// 启动进度上报插件在同一处写入并作为插入行附加：两者同生共死，任一步失败都只
-// 降级该能力（监护仍有效），不阻断 harness 启动。
-func writeSupervisorOverlay() (string, error) {
+// 两个注入插件（启动进度上报、会话恢复）在同一处写入并作为插入行附加：各自独立
+// 降级，任一步失败都只失去该能力（监护仍有效），不阻断 harness 启动。
+func writeSupervisorOverlay(sessionID string) (string, error) {
 	path := filepath.Join(resolveLogDir(), supervisorOverlayName)
-	pluginPath, _ := writeStartupProgressPlugin()
-	if err := os.WriteFile(path, []byte(supervisorOverlayBody(startupProgressOverlayRow(pluginPath))), 0o644); err != nil {
+	progressPath, _ := writeStartupProgressPlugin()
+	restorePath, _ := writeRestoreSessionPlugin()
+	rows := startupProgressOverlayRow(progressPath) + restoreSessionOverlayRow(restorePath, sessionID)
+	if err := os.WriteFile(path, []byte(supervisorOverlayBody(rows)), 0o644); err != nil {
 		return "", err
 	}
 	return path, nil

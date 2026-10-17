@@ -46,6 +46,13 @@ type AppConfig struct {
 	// 每次落在空存储里，只能新建会话。因此下次启动优先复用同一个端口，见
 	// appenv.Resolve 的 resolvePort。
 	WebPort int `json:"webPort,omitempty"`
+	// LastSessionID 是 GUI 上次打开的会话 id（空串表示没有记录）。
+	//
+	// 它只服务于**跨启动的还原**：GUI 把「上次打开的会话」写在 localStorage 里，
+	// 而内嵌 iframe 的这份存储退出后不落盘（见 README 的渲染层一节），客户端自己
+	// 记不住。壳因此记在自己这里，下次启动由 appenv 的注入插件送回页面；页面若已
+	// 打不开这段对话（被删除、归档或换了 harness），客户端退回自己的回退策略。
+	LastSessionID string `json:"lastSessionId,omitempty"`
 	// Theme 是前端回推的界面主题，取值 "dark"/"light"；空串表示尚未记录。
 	//
 	// 它只服务于**首帧**：窗口背景色必须在页面绘制之前定下来，而那时前端还没起来，
@@ -101,6 +108,12 @@ func LoadAppConfig(home string) (AppConfig, error) {
 	// 而不是把一个非法端口透传给 harness 让它启动失败。
 	if cfg.WebPort < 1 || cfg.WebPort > 65535 {
 		cfg.WebPort = 0
+	}
+
+	// 会话 id 形状非法同理按「没有记录」处理：这个值会被写进 overlay 的插件 config，
+	// 宁可这次不还原，也不让一次手改污染下次启动的启动参数。
+	if !validSessionID(cfg.LastSessionID) {
+		cfg.LastSessionID = ""
 	}
 
 	return cfg, nil

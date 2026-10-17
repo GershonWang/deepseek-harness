@@ -36,6 +36,13 @@
  * 没有内容，确认消失后以 { dshDesktop: true, type: "boot-stalled", message } 上报，
  * 由壳重载 iframe（不重启 harness）。与职责二的边界：职责二判"上游自己报了失败"，
  * 这里判"上游没有报错、内容只是不出现"。
+ *
+ * 职责五：当前会话的恢复与上报。客户端把「上次打开的会话」记在 localStorage，而内嵌
+ * iframe 的这份存储退出后不落盘（见 README 的渲染层一节），客户端自己记不住这件事，
+ * 每次启动都只能开一个空会话。本桥启动时把壳送进来的
+ * `__DSH_DESKTOP_RESTORE_SESSION__`（索引注入，见 internal/appenv/restore_session.go）
+ * 写回存储键——先于客户端入口，因为它延迟执行——并按周期把当前选择以
+ * { dshDesktop: true, type: "current-session", sessionId } 上报，由壳存进 config.json。
  */
 (function () {
   "use strict";
@@ -204,4 +211,59 @@
     attributes: true,
     attributeFilter: ["lang"],
   });
+
+  /* ---------- 当前会话的恢复与上报 ---------- */
+
+  // 为什么要由壳记住这个 id：客户端把「上次打开的会话」写在 localStorage 里，而这
+  // 份存储在内嵌 iframe 中按第三方存储对待，退出后不落盘（见 README 的渲染层一节）。
+  // 客户端于是每次启动都读不到上次的选择，只能开一个空会话。壳把 id 记在自己的
+  // config.json 里，下次启动经索引注入以 __DSH_DESKTOP_RESTORE_SESSION__ 送进来，
+  // 这里在客户端启动前写回存储键，客户端便照常恢复。
+  //
+  // 客户端私有的键名是这条通路的代价：它一旦改名，恢复与上报都会静默失效，只剩下
+  // 客户端自己的回退（打开该工作区最近的非空会话），不会更糟。
+  var SELECTION_KEY = "dsh.sessions.current";
+
+  /** 读取客户端记录的当前会话 id；取不到或形状不对时返回 null。 */
+  function readSelection() {
+    try {
+      var raw = window.localStorage.getItem(SELECTION_KEY);
+      if (raw === null) return null;
+      var parsed = JSON.parse(raw);
+      var id = parsed !== null && typeof parsed === "object" ? parsed.sessionId : null;
+      return typeof id === "string" && id !== "" ? id : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  // 写回壳记住的 id，只在客户端自己没有选择时填进去：在存储仍然可用的环境里
+  // （普通浏览器、官方 Electron 客户端），客户端记着的那份才是权威，壳的记忆最多
+  // 比它旧 2 秒，覆盖它只会倒退。
+  var restoreId = window.__DSH_DESKTOP_RESTORE_SESSION__;
+  if (typeof restoreId === "string" && restoreId !== "" && readSelection() === null) {
+    try {
+      window.localStorage.setItem(SELECTION_KEY, JSON.stringify({ sessionId: restoreId }));
+    } catch (err) {
+      // 忽略：恢复失败不该影响页面本身。
+    }
+  }
+
+  // 上报当前会话：壳据此更新自己的记忆。
+  //
+  // 用轮询而不是监听 storage 事件：同一文档内的 setItem 不触发 storage 事件，而写
+  // 这个键的正是同一个文档里的客户端。选择变化是用户动作，2 秒的粒度足够。
+  var SESSION_TICK_MS = 2000;
+  var reportedSession = null;
+
+  /** 会话选择变化时上报一次；null 表示当前没有选中的会话。 */
+  function reportCurrentSession() {
+    var id = readSelection();
+    if (id === reportedSession) return;
+    reportedSession = id;
+    window.parent.postMessage({ dshDesktop: true, type: "current-session", sessionId: id }, targetOrigin());
+  }
+
+  setInterval(reportCurrentSession, SESSION_TICK_MS);
+  reportCurrentSession();
 })();

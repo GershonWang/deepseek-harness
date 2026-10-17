@@ -88,15 +88,15 @@ func runClient() {
 	// 同样须在 wails.Run 之前：GTK/WebKit 首次读取 FONTCONFIG_FILE 时即固定字体配置。
 	packaging.ConfigureFontConfig()
 
-	// 读取上次保存的配置：窗口几何与主题沿用旧值，WebPort 让 harness 的监听端口
-	// 跨启动保持不变。读取失败时静默回退默认值。
+	// 读取上次保存的配置：窗口几何与主题沿用旧值；WebPort 让 harness 的监听端口跨
+	// 启动保持不变，LastSessionID 让 GUI 恢复上次打开的会话。读取失败时静默回退默认值。
 	cfg, _ := app.LoadAppConfig(home)
 	windowState := cfg.Window
 
 	// 端口是 harness Web GUI 的 origin 的一部分，而 GUI 的界面状态（含「上次会话」）
 	// 按 origin 存在 localStorage 里，所以这次实际用的端口要记回去，下次才能接着用
 	// 同一个 origin。写配置失败只影响下次启动的还原，不拦本次启动。
-	resolved := appenv.Resolve(cfg.WebPort)
+	resolved := appenv.Resolve(appenv.Preferences{Port: cfg.WebPort, SessionID: cfg.LastSessionID})
 	if resolved.RememberPort {
 		// RememberPort 为真时端口必然是 appenv 自己挑出的数字串（环境变量覆盖时不置位），
 		// 解析失败意味着这条不变式被打破：只留痕，不拦启动。

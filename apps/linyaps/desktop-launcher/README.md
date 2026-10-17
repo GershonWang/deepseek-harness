@@ -22,7 +22,7 @@ English | [中文](README.zh.md)
 │   supervisor  监护 harness 子进程（spawn/杀进程组/退避重启）  │
 │   connector   外部服务连接状态机（探测/确认记忆/持久化）       │
 │   toolchain   工具链自检 + 按需安装                          │
-│   appenv      环境解析（bin/端口/日志目录/子进程环境变量）     │
+│   appenv      环境解析 + 注入插件（bin/端口/日志/会话恢复）   │
 │   packaging   打包态路径、版本、webkit 平台适配               │
 │   domain      共享领域模型（纯类型）                          │
 └───────────────────────────────────────────────────────────┘
@@ -32,9 +32,14 @@ Layering rules: `domain` has zero dependencies; `supervisor`/`connector`/`toolch
 
 The rendering tier is Chromium/WebKit loading the loopback origin served by `dsh web`, fully reusing the existing Web GUI without rewriting any UI. Because the harness page now lives in an iframe with a real `http://127.0.0.1` origin, the legacy opaque-`location.origin` webkit quirk no longer applies.
 
-The listen port therefore has to stay the same across launches, recorded as `webPort` in `~/.config/dsh-desktop/config.json`: the port is part of the harness Web GUI's origin, and the GUI keeps its interface state — including the last Session — in origin-scoped localStorage. A new port on every launch means an empty store every time, so the GUI can only create a new Session and the previous conversation, drafts, layout, and shortcuts are all gone. Each launch therefore reuses the port actually used last time, reserving and recording a new one only when that port is taken; `--no-open` additionally stops harness from opening the system browser, because the interface already lives in the shell's iframe.
+The listen port therefore has to stay the same across launches, recorded as `webPort` in `~/.config/dsh-desktop/config.json`: the port is part of the harness Web GUI's origin, and the GUI keeps its interface state — including the last Session — in origin-scoped localStorage. A new port on every launch means an empty store every time. Each launch therefore reuses the port actually used last time, reserving and recording a new one only when that port is taken; `--no-open` additionally stops harness from opening the system browser, because the interface already lives in the shell's iframe.
 
-Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row and inserting the startup-progress reporter (next section). Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
+**A stable origin is still not enough for the GUI to remember the last Session.** In practice that localStorage is treated as third-party storage inside the embedded iframe and never reaches disk at all (after 2026-09-28 nothing under `~/.local/share/dsh-desktop-launcher/localstorage/` is written for the harness origin), so every launch starts with no saved selection and opens an empty Session. Restoring the last Session therefore rests on two complementary paths:
+
+- **The client fallback**: with no local selection the client opens the Workspace's **most recently updated content-bearing Session** instead of reusing or creating a blank one (startup selection in `packages/client/ui-workspace`). It depends on no storage and covers every client that cannot remember itself.
+- **The shell's own memory**: the link bridge periodically reports the Session the GUI has open (`{ type: "current-session", sessionId }`) and the shell stores it as `lastSessionId` in config.json; on the next launch the injection plugin written by `internal/appenv/restore_session.go` carries that id into the first HTML response, and the bridge writes it back into the selection key before the client entry runs, so the client restores it through the ordinary saved-selection path. The injection only fills a gap — it never overwrites a selection the client already has, because wherever storage does work (an ordinary browser, the official Electron client) the client's own record is the more authoritative one.
+
+Harness has exactly one lifecycle owner: the supervisor. `appenv` writes a patch overlay into the launcher runtime directory on every spawn and passes it as `--patch`, setting `allowRestart: false` on the `dsh-market` row and inserting two plugins: the startup-progress reporter (next section) and last-Session restoration. Without it the plugin market's one-click restart relaunches harness from the same argv — hence the same stable `--port` — while the supervisor is restarting it too, so one of the two dies with `EADDRINUSE`; a market-side win additionally leaves a harness the launcher cannot see or manage. Launcher flags precede `--port`, because the `web` subcommand forwards everything after it verbatim. Plugin changes reload through the server dialog's restart (重启) button, `App.RestartServer`.
 
 ## Embedded WebView media permissions
 
@@ -74,7 +79,7 @@ main.go                 Wails 入口：环境 → 控制器 → wails.Run（内�
 frontend/               壳 UI：index.html / styles.css / app.js / i18n.js / locales/（无 Node 构建链）
 internal/domain/        纯领域模型（HarnessStatus/ToolCheck/Mode）
 internal/supervisor/    harness 进程监护（含 process_unix.go / process_windows.go）
-internal/appenv/        环境解析（bin/端口/日志目录/子进程环境变量）
+internal/appenv/        环境解析 + 注入插件（bin/端口/日志目录/会话恢复/子进程环境变量）
 internal/connector/     外部服务连接（探测/校验/确认记忆/持久化）
 internal/toolchain/     工具链自检 + 按需安装（tar.gz 校验解包）
 internal/packaging/     打包态路径、版本、webkit 平台适配（webkit_linux.go）
@@ -144,8 +149,9 @@ cd apps/linyaps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
-node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性上报）
+node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性 + 会话恢复与上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
+node --test internal/appenv/restore_session.test.mjs      # 会话恢复插件（索引注入行）
 node frontend/tools/preview.mjs verify   # 前端布局不变量（无头 Chromium）
 DSH_PREVIEW_LOCALE=en node frontend/tools/preview.mjs verify  # 同一组不变量按英文文案再量一遍（英文更长）
 DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场清单审计（需外网）
@@ -187,6 +193,8 @@ The same bridge reports a client-side plugin load failure to the shell. The host
 The same bridge reports the GUI's active language to the shell. Every string the shell renders follows the language of the harness GUI in the iframe, and that language is expressed by the GUI's own `<html lang>` (the client locale service syncs the attribute on every locale snapshot), so the bridge sends `{ dshDesktop: true, type: "locale", id }` both when the attribute changes and once when the app finishes mounting; `frontend/app.js` hands it to `frontend/i18n.js`, which switches the shell's copy and pushes the language back to Go (`App.SetLocale`). The post-mount report is not optional: when the served `index.html` default `lang` already equals the active language (a Chinese system with English chosen in the GUI), the attribute never changes and watching for changes alone misses that combination. Source selection and phasing live in `docs/i18n.md`.
 
 The same bridge decides whether the GUI still has content. A blank harness area can also mean the document is still there while the client content is gone — the client module entry never ran (the mount point stays empty), or the app was mounted and then cleared. The shell only sees that the iframe exists and has no criterion of its own, so the user has to restart the harness. The bridge periodically checks whether the mount point still has content (empty on consecutive checks, or a boot page that never disappears) and reports `{ dshDesktop: true, type: "boot-stalled", message }`; `frontend/app.js` reloads the iframe (at most twice) and only then hands the reason to the failure-page path above. The boundary against the second duty: that one decides "upstream reported a failure itself", this one decides "upstream reported nothing, the content just never appears".
+
+The same bridge restores and reports the Session the GUI has open. The client keeps the last opened Session in localStorage, and that storage never reaches disk inside the embedded iframe (see the rendering section above), so the client cannot remember it on its own. The shell therefore records the id as `lastSessionId` in config.json, and on the next launch `internal/appenv/restore_session.go` injects it into the first HTML response as `__DSH_DESKTOP_RESTORE_SESSION__`; the bridge writes it back into the selection key before the client entry runs (only when the client has no selection of its own) and periodically reports the current selection to the shell (`frontend/app.js` → `App.RememberSession`; a `null` sessionId means nothing is selected, which makes the shell clear its memory). The client-private key name `dsh.sessions.current` is the cost of this path: rename it and both the restore and the report go silently dead, leaving only the client's own fallback — never anything worse.
 
 ## Container usability (toolchain/mounts)
 

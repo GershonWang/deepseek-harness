@@ -178,6 +178,20 @@ function bindExternalLinks() {
       return;
     }
 
+    // iframe 内 GUI 当前选中的会话（桥读客户端的选择记录后上报，见
+    // dsh-link-bridge.js 职责五）：壳把它记进 config.json，下次启动经索引注入送回
+    // 页面，GUI 才能恢复「上次会话」——内嵌 iframe 的 localStorage 不落盘，客户端
+    // 自己记不住这件事。sessionId 为 null 表示当前没有选中会话，交给 Go 侧清除。
+    if (d.type === "current-session") {
+      const id = typeof d.sessionId === "string" ? d.sessionId : "";
+      if (window.go && window.go.app && window.go.app.App && window.go.app.App.RememberSession) {
+        // 记忆只影响下次启动，写失败无需打扰用户：壳二进制若比前端旧，
+        // 方法不存在也不会影响页面本身的行为。
+        window.go.app.App.RememberSession(id).catch(() => {});
+      }
+      return;
+    }
+
     // 内嵌 WebKitGTK 的 paste 事件不暴露剪贴板位图，harness 前端在
     // 输入框请求“从剪贴板取图”时走壳进程（宿主侧可直接读 X selection）。
     if (d.type === "clipboard-read-image") {
