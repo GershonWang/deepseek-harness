@@ -1,0 +1,119 @@
+version: "1"
+# 本包是薄壳版（com.deepseek.dsh-desktop）的升级款，而不是另一个应用：包 ID 与薄壳版
+# 相同、版本号更高，商店据此按「同一应用升级」处理——桌面图标、用户固定的启动项与家
+# 目录数据都原样延续。用独立 ID 打包会变成货架上的第二个应用，用户要重装、状态也不
+# 继承，那正是本包要消除的问题。
+#
+# 与双客户端包（linglong.yaml）的区别只在内容：本包不含官方 Electron 客户端，stage 里
+# 也就没有 electron/ 目录——宿主机侧用 prepare-offline.sh --without-official 跳过那条
+# 全链。切换器运行期按包内是否存在该客户端决定菜单，因此打包层不需要给它传任何开关。
+package:
+  id: com.deepseek.dsh-desktop
+  name: deepseek-harness-desktop
+  version: 0.1.6.1
+  kind: app
+  description: |
+    DeepSeek Harness 桌面客户端（薄壳版 + 托盘切换器）。
+    包内是 Go + Wails 薄壳客户端：常驻托盘切换器负责拉起并守护它，托盘菜单提供
+    显示、关于与退出。本变体不含官方 Electron 客户端。
+
+# 入口是切换器（常驻托盘进程，无窗口）。薄壳客户端是它的子进程。
+command:
+  - /opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher
+
+base: org.deepin.base/25.2.2
+
+# 组装式构建：薄壳客户端的重工具链都在宿主机跑（desktop-launcher 自己的
+# prepare-offline.sh），本模块把那份 stage 合并过来，容器内只做复制组装。
+#
+# 为什么不再带一份运行时：薄壳版的 harness 树与 Node 由本包复用（客户端就是同一个
+# 二进制），本包只比单客户端包多出切换器与「关于」助手两个小二进制。
+build: |
+  STAGE=/project/apps/linyaps/desktop-dual/stage
+  if [ ! -d "$STAGE" ]; then
+    echo "stage 缺失：先在仓库根运行 sh apps/linyaps/desktop-dual/prepare-offline.sh --without-official" >&2
+    exit 1
+  fi
+
+  # 薄壳客户端：容器内处理与单客户端包完全一致，走同一份脚本。其中 webkit 的实体
+  # 搬运与 exec-path 字节补丁尤其关键——漏掉它，包能装上、进程能起来，但 WebKit 的
+  # helper 进程路径指向容器内不存在的 /usr/lib/...，窗口一创建就崩，且构建期毫无报错。
+  sh /project/apps/linyaps/desktop-launcher/linglong/install-shell-runtime.sh "$STAGE"
+
+  # 桌面入口的**文件名与薄壳版保持一致**：升级是同 ID 换层，文件名一致才能让用户固定在
+  # 任务栏/启动器上的那条入口继续指向同一个应用（换成别的名字等于入口消失、重来一次）。
+  # 变的只有 Exec——上面那份脚本装的是薄壳版入口，绕过切换器，用户点它就会在切换器之外
+  # 再拉起一个客户端，托盘再也管不住它。因此先删掉它，再装本包自己的同名入口。
+  rm -f ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
+
+  # 切换器：纯 Go、无 cgo，与薄壳客户端同处 <PREFIX>/bin——它按自身路径的兄弟节点
+  # 定位客户端，因此两者必须同目录。缺了它包照样能装，只是应用启动不了。
+  SWITCHER=${PREFIX}/bin/dsh-desktop-switcher
+  install -m755 "$STAGE/bin/dsh-desktop-switcher" "$SWITCHER"
+  if [ ! -x "$SWITCHER" ]; then
+    echo "切换器缺失：$SWITCHER（stage 里的产物未生成）" >&2
+    exit 1
+  fi
+
+  # 「关于」对话框助手：切换器不带窗口工具链，这个几十行的 GTK3 小助手由
+  # prepare-offline.sh 在宿主机编译。它同样按兄弟节点定位，因此也放 <PREFIX>/bin。
+  ABOUT=${PREFIX}/bin/dsh-desktop-about
+  install -m755 "$STAGE/bin/dsh-desktop-about" "$ABOUT"
+  if [ ! -x "$ABOUT" ]; then
+    echo "「关于」对话框助手缺失：$ABOUT（prepare-offline.sh 的编译步骤未生效）" >&2
+    exit 1
+  fi
+
+  # 图标不在这里安装：上面那份脚本已把薄壳版的 dsh-desktop.png 铺到同一批尺寸目录。
+  # 图标名与 .desktop 的 Icon=、托盘读图、关于弹框读图三处必须对齐，本包因此不再有
+  # 第二套图标名（多一个名字就多一处会漂移的引用）。
+  install -Dm644 /project/apps/linyaps/desktop-dual/com.deepseek.dsh-desktop.desktop \
+    ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
+
+buildext:
+  apt:
+    # 只保留薄壳版所需：本包不含 Electron，任何 Electron 运行库都不该出现在这里——
+    # 它们会把整条 apt 闭包（含 lib/gcc）带进产物层，换不来本包用得上的东西。
+    build_depends:
+      - libwebkit2gtk-4.1-0
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libjavascriptcoregtk-4.1-0
+      - libgtk-3-0
+      - libglib2.0-0
+      # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
+      # /usr 不随 layer 导出；因此文泉驿微米黑由 install-shell-runtime.sh 从 .deb 里
+      # 自行解出后随包，既不新增 build_depends，也不触碰 verify-container-deps.sh 的
+      # /usr `*.dpkg-new` 全局扫描（AUDIT N26）。
+      # harness 容器化运行（bash 工具链在胶囊内执行），仓库 git 操作经 `git`
+      # 完成；基础运行时不含 git，必须随包带入。buildext 会把 git 及其依赖
+      # 合并进 ${PREFIX}（/usr/bin → ${PREFIX}/bin，已在容器 PATH 上；
+      # /usr/lib → ${PREFIX}/lib，已进 ld 搜索目录）。
+      - git
+      # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子
+      # 调用 git-lfs；不随包则钩子报错、推送需 --no-verify 绕过。
+      - git-lfs
+      # 层1 工具链自包含:随包工具与其运行时依赖。
+      # 注意：不带 python3-pip —— pip 的 Recommends(build-essential + python3-dev)
+      # 会经 apt 拉进完整 gcc-12 编译器（cc1/cc1plus/lto1 + 静态库，约 121 MB）
+      # 与 python3-dev 头文件/静态库（约 46 MB）。运行时不需要编译能力，pip 由
+      # L2 工具链（~/.dsh-tools 热插拔 python，自带 pip）提供，避免 ~167 MB 浪费。
+      - python3
+      - curl
+      - wget
+      - unzip
+      - zip
+      - jq
+      - xxd   # 独立二进制包;beige/noble 的 vim-common 已不含 xxd
+      - ca-certificates   # git/https/python 校验
+      # 打开外部链接需要真实的 xdg-open：基础运行时的 /bin/xdg-open 只是个
+      # systemd-run 转发壳（实测递归失败，打不开任何东西）。随包合并真实的
+      # xdg-utils（deepin fork）到 ${PREFIX}/bin（容器 PATH 首位，盖过该壳），
+      # 由其在 XDG_CURRENT_DESKTOP=DDE 下经宿主 portal 打开本机默认浏览器。
+      - xdg-utils
+      # Wayland 会话下的粘贴图片只能经 Wayland 剪贴板拿到：实测 XWayland 不把
+      # Wayland 侧的 image/png 暴露成 X11 selection（同一张 12420 字节 PNG，
+      # wl-paste 读到 12453 字节，X11 CLIPBOARD/PRIMARY 读到 0 字节）。宿主、
+      # 基础运行时与产物层三处都没有 wl-clipboard，不随包则 readWaylandImage
+      # 找不到 wl-paste，截图粘贴静默失效。合并进 ${PREFIX}/bin（容器 PATH 上）。
+      - wl-clipboard
