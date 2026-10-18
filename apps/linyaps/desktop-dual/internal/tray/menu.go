@@ -22,6 +22,11 @@ const (
 	idSeparatorBottom int32 = 6
 	idAbout           int32 = 7
 	idQuit            int32 = 8
+	// idShow 是单客户端形态独有的首项。双客户端形态里「显示」由左键承担，菜单保留
+	// 「切换」（切换本身就包含把另一个客户端显示出来），因此那边没有这一项。
+	// 取值追加在末尾而不是插到开头：这组 ID 是菜单与动作之间唯一的约定，重排会让
+	// 既有编号失去对照，而两种形态的菜单结构本来就不同，不需要共用同一套序号。
+	idShow int32 = 9
 )
 
 // toggle 是菜单项的勾选形态。零值表示该项不是单选项，宿主不会画标记。
@@ -49,15 +54,28 @@ type menuEntry struct {
 
 // menuEntries 按当前状态生成菜单。
 //
-// 结构固定为「切换 / 设置▸ / 关于 / 退出」：切换是破坏性动作，保留在首项但必须显式点；
-// 默认形态属于设置而不是常用动作，收进设置子菜单；关于与退出各自独立成项。
+// 双客户端形态的结构固定为「切换 / 设置▸ / 关于 / 退出」：切换是破坏性动作，保留在首项
+// 但必须显式点；默认形态属于设置而不是常用动作，收进设置子菜单；关于与退出各自独立成项。
 //
 // 「默认启动」两项是单选项（dbusmenu 的 toggle-type=radio）：当前默认那一项带勾选标记、
 // 另一项空白，两项都保持可点。为什么不用「当前项置灰」：置灰看起来像功能不可用，而它
 // 表达的只是一个状态；单选标记既说清状态，又不牺牲可点性。
+//
+// 单客户端形态收敛为「显示 / 关于 / 退出」：包里没有第二种形态，切换没有目标、默认形态
+// 也没有第二个可选，留着只会是点了必然失败的入口（clientCommand 会以「可执行文件不存在」
+// 拒绝）。这里仍然给出「显示」是因为托盘左键并不总是可靠——SNI 宿主缺失或未被宿主接管
+// 时左键到不了 Activate，菜单是唯一入口。
 // @param state - 当前状态。
 // @returns 菜单项，顺序即显示顺序。
 func menuEntries(state trayState) []menuEntry {
+	if !state.switchable {
+		return []menuEntry{
+			{ID: idShow, Label: i18n.T(state.locale, "tray.show"), Enabled: true},
+			{ID: idSeparatorTop, Separator: true},
+			{ID: idAbout, Label: i18n.T(state.locale, "tray.about"), Enabled: true},
+			{ID: idQuit, Label: i18n.T(state.locale, "tray.quit"), Enabled: true},
+		}
+	}
 	return []menuEntry{
 		{ID: idSwitch, Label: i18n.T(state.locale, switchLabelKey(state.nextMode())), Enabled: !state.switching},
 		{ID: idSeparatorTop, Separator: true},
@@ -183,12 +201,10 @@ type menuObject struct {
 // @returns 菜单对象。
 func newMenuObject(it *item) *menuObject {
 	m := &menuObject{parent: it}
-	// 初始内容按「无客户端、默认薄壳版」渲染；Register 紧接的第一次刷新会覆盖它，
-	// 但两帧之间宿主可能已经来取布局，给出一棵完整菜单比给空树安全。
-	m.entries = menuEntries(trayState{
-		defaultMode: switchboard.ModeShell,
-		locale:      it.client.opts.Locale,
-	})
+	// 初始内容直接取切换器的真实状态，而不是硬编码一份：菜单结构现在取决于包里随带了
+	// 几个客户端，硬编码会在首次刷新到达之前让宿主取到一棵结构错误的菜单（双客户端包
+	// 短暂显示成单客户端菜单）。Register 紧接的第一次刷新会再写一次，两次内容一致。
+	m.entries = menuEntries(trayStateOf(it.client.opts.Board, it.client.opts.Locale))
 	return m
 }
 
@@ -316,6 +332,9 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 	}
 	board := m.parent.client.opts.Board
 	switch id {
+	case idShow:
+		// 与左键、中键同义：单客户端形态下这是菜单里唯一的客户端入口。
+		m.parent.client.perform("tray.showFailed", board.Present)
 	case idSwitch:
 		m.parent.client.perform("tray.switchFailed", board.Switch)
 	case idDefaultShell:

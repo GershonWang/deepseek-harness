@@ -113,12 +113,19 @@ type item struct {
 }
 
 // trayState 是驱动渲染的最小状态：切换器快照加语言。
+//
+// 必须是可比较的：item.refreshLocked 用 `state == it.last` 抑制重复的 D-Bus 属性变更，
+// 因此这里不能挂切片。包里随带的形态集合由 switchable 这一个布尔承载——菜单只需要知道
+// 「有没有另一种形态可切」，而在跑的形态本身已经由 mode 表达了。
 type trayState struct {
 	mode        switchboard.Mode
 	defaultMode switchboard.Mode
 	switching   bool
 	err         string
 	locale      i18n.Locale
+	// switchable 为假表示包里只有一种客户端形态。零值是假，也就是往「少给一个入口」
+	// 的方向降级：宁可菜单里没有切换，也不要给出一个点了必然失败的入口。
+	switchable bool
 }
 
 // Connect 连接会话总线并申请单实例名。
@@ -345,5 +352,6 @@ func trayStateOf(board *switchboard.Switchboard, locale i18n.Locale) trayState {
 		switching:   status.Switching,
 		err:         status.Error,
 		locale:      locale,
+		switchable:  status.Switchable,
 	}
 }

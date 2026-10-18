@@ -4,12 +4,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // TestNormalizeKeepsKnownModes 覆盖形态合法性：只有两种客户端形态被承认，
 // 其余（含空串，即配置缺字段）一律回退薄壳版——切换器不能去启动一个不存在的形态。
+// 这里传空的可用形态：探测不到包内客户端时只做合法性收敛，保留用户的选择。
 func TestNormalizeKeepsKnownModes(t *testing.T) {
 	cases := map[Mode]Mode{
 		ModeShell:    ModeShell,
@@ -18,9 +20,75 @@ func TestNormalizeKeepsKnownModes(t *testing.T) {
 		"wat":        ModeShell,
 	}
 	for input, want := range cases {
-		if got := normalize(Config{DefaultMode: input}).DefaultMode; got != want {
+		if got := normalize(Config{DefaultMode: input}, nil).DefaultMode; got != want {
 			t.Errorf("normalize(%q) = %q，期望 %q", input, got, want)
 		}
+	}
+}
+
+// TestNormalizeFallsBackToShippedMode 覆盖跨包保留的配置：配置文件住在宿主家目录，
+// 用户可能先装过含官方客户端的包、再换成只含薄壳的包。旧的 defaultMode=official 必须
+// 回退到包内确实存在的形态——单客户端形态的菜单里没有「默认形态」入口可以改回来，
+// 这里是唯一能自愈的地方。
+func TestNormalizeFallsBackToShippedMode(t *testing.T) {
+	if got := normalize(Config{DefaultMode: ModeOfficial}, []Mode{ModeShell}).DefaultMode; got != ModeShell {
+		t.Fatalf("默认形态不在包内时应回退薄壳版，得到 %q", got)
+	}
+	if got := normalize(Config{DefaultMode: ModeShell}, []Mode{ModeOfficial}).DefaultMode; got != ModeOfficial {
+		t.Fatalf("应回退到包内实际随带的形态，得到 %q", got)
+	}
+	// 一个客户端都探测不到（开发态或安装异常）时不改写配置：启动失败会带着路径报出来，
+	// 比在这里猜一个形态更好诊断。
+	if got := normalize(Config{DefaultMode: ModeOfficial}, nil).DefaultMode; got != ModeOfficial {
+		t.Fatalf("探测不到形态时不应改写配置，得到 %q", got)
+	}
+}
+
+// TestAvailableModesReportsShippedClients 覆盖「包里随带了哪些客户端」的探测：
+// 托盘菜单结构由它决定，判据必须与启动客户端时的解析规则一致——两处各写一份 os.Stat
+// 迟早会漂移，而漂移的结果是菜单给出一个点了必然失败的入口。
+func TestAvailableModesReportsShippedClients(t *testing.T) {
+	prefix := t.TempDir()
+	bin := filepath.Join(prefix, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("准备目录失败: %v", err)
+	}
+	exe := filepath.Join(bin, "dsh-desktop-switcher")
+
+	if got := availableModes(exe); len(got) != 0 {
+		t.Fatalf("两个客户端都不在时不应报告可用形态，得到 %q", got)
+	}
+
+	// 只装薄壳：不含 Electron 的那个包。
+	if err := os.WriteFile(filepath.Join(bin, shellExecutable), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("准备薄壳客户端失败: %v", err)
+	}
+	if got := availableModes(exe); !slices.Equal(got, []Mode{ModeShell}) {
+		t.Fatalf("只随带薄壳时应报告 [shell]，得到 %q", got)
+	}
+
+	// 再补上官方客户端：双客户端包。薄壳仍排在前，即菜单优先级。
+	electron := filepath.Join(prefix, "electron")
+	if err := os.MkdirAll(electron, 0o755); err != nil {
+		t.Fatalf("准备目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(electron, officialExecutable), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("准备官方客户端失败: %v", err)
+	}
+	if got := availableModes(exe); !slices.Equal(got, []Mode{ModeShell, ModeOfficial}) {
+		t.Fatalf("两个客户端都在时应报告 [shell official]，得到 %q", got)
+	}
+}
+
+// TestStatusSwitchableFollowsShippedClients 覆盖对外事实：托盘据此决定菜单给不给
+// 「切换」与「默认启动」。
+func TestStatusSwitchableFollowsShippedClients(t *testing.T) {
+	home := t.TempDir()
+	if newSwitchboard(home, []Mode{ModeShell}).Status().Switchable {
+		t.Fatal("只随带一个客户端时不应报告可切换")
+	}
+	if !newSwitchboard(home, []Mode{ModeShell, ModeOfficial}).Status().Switchable {
+		t.Fatal("两个客户端都在时应报告可切换")
 	}
 }
 
@@ -28,12 +96,15 @@ func TestNormalizeKeepsKnownModes(t *testing.T) {
 // 用户的选择只能靠配置文件跨启动保留。
 func TestConfigRoundTrip(t *testing.T) {
 	home := t.TempDir()
-	board := New(home)
+	// 显式声明两个形态都在包里：本用例断言的是持久化本身，不该依赖探测结果——
+	// 探测在测试环境里恒为空，会把「形态是否随包」这层语义混进来。
+	both := []Mode{ModeShell, ModeOfficial}
+	board := newSwitchboard(home, both)
 	if err := board.SetDefault(ModeOfficial); err != nil {
 		t.Fatalf("写入默认形态失败: %v", err)
 	}
 
-	reopened := New(home)
+	reopened := newSwitchboard(home, both)
 	if got := reopened.Status().DefaultMode; got != ModeOfficial {
 		t.Fatalf("默认形态未持久化: %q", got)
 	}
@@ -55,7 +126,8 @@ func TestConfigIgnoresLegacyBubbleFields(t *testing.T) {
 		t.Fatalf("写入旧配置失败: %v", err)
 	}
 
-	if got := New(home).Status().DefaultMode; got != ModeOfficial {
+	// 两个形态都随包，因此旧配置里的 official 是可用值，必须原样保留。
+	if got := newSwitchboard(home, []Mode{ModeShell, ModeOfficial}).Status().DefaultMode; got != ModeOfficial {
 		t.Fatalf("旧配置的默认形态应保留，得到 %q", got)
 	}
 }

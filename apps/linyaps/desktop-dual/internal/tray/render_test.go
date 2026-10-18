@@ -93,7 +93,7 @@ func TestNextModeIsAlwaysTheOther(t *testing.T) {
 // TestMenuEntriesReflectState 覆盖菜单结构：条目顺序、分隔线位置，以及收进「设置」子菜单
 // 的「默认启动」两项用单选标记表达当前默认形态、且两项都保持可点。
 func TestMenuEntriesReflectState(t *testing.T) {
-	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeShell, defaultMode: switchboard.ModeShell})
+	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeShell, defaultMode: switchboard.ModeShell, switchable: true})
 	if len(entries) != 6 {
 		t.Fatalf("菜单项数 = %d，期望 6", len(entries))
 	}
@@ -134,7 +134,7 @@ func TestMenuEntriesReflectState(t *testing.T) {
 // TestMenuEntriesFollowRunningMode 覆盖「切换到」的文案随当前形态翻转，以及单选标记
 // 跟着默认形态走。
 func TestMenuEntriesFollowRunningMode(t *testing.T) {
-	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeOfficial, defaultMode: switchboard.ModeOfficial})
+	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeOfficial, defaultMode: switchboard.ModeOfficial, switchable: true})
 	if entries[0].Label != "切换到薄壳版" {
 		t.Fatalf("当前跑官方版时首项 = %q，期望「切换到薄壳版」", entries[0].Label)
 	}
@@ -146,13 +146,47 @@ func TestMenuEntriesFollowRunningMode(t *testing.T) {
 	}
 }
 
+// TestMenuEntriesCollapseToSingleClient 覆盖只随带薄壳客户端的包：包里没有第二种形态，
+// 切换没有目标、默认形态也没有第二个可选，菜单必须收敛为「显示 / 关于 / 退出」。
+// 留着切换项会是一个点了必然失败的入口——clientCommand 以「可执行文件不存在」拒绝，
+// 用户看到的是托盘通知而不是一个能用的功能。
+func TestMenuEntriesCollapseToSingleClient(t *testing.T) {
+	entries := menuEntries(trayState{locale: i18n.Zh, mode: switchboard.ModeShell})
+	if len(entries) != 4 {
+		t.Fatalf("单客户端菜单项数 = %d，期望 4", len(entries))
+	}
+	if entries[0].ID != idShow || entries[0].Label != "显示" {
+		t.Fatalf("首项 = %+v，期望「显示」", entries[0])
+	}
+	// 「显示」必须可点：SNI 宿主缺失或未被宿主接管时左键到不了 Activate，
+	// 菜单里这一项是该形态下唯一的客户端入口。
+	if !entries[0].Enabled {
+		t.Error("「显示」应保持可点")
+	}
+	if !entries[1].Separator {
+		t.Error("第 2 项应为分隔线")
+	}
+	if entries[2].Label != "关于" || entries[3].Label != "退出" {
+		t.Fatalf("后两项 = %q/%q，期望「关于」「退出」", entries[2].Label, entries[3].Label)
+	}
+	for _, entry := range entries {
+		if entry.ID == idSwitch || entry.ID == idSettings || len(entry.Children) > 0 {
+			t.Fatalf("单客户端菜单不应出现切换或默认形态入口: %+v", entry)
+		}
+	}
+	// 文案两个语言都要有：缺键时 T 回落到键名本身，用户会看到 "tray.show"。
+	if got := menuEntries(trayState{locale: i18n.En})[0].Label; got != "Show" {
+		t.Fatalf("英文首项 = %q，期望 Show", got)
+	}
+}
+
 // TestDiffEntriesReportsPropertyChange 覆盖通知种类的选择：只有勾选态变化时发
 // ItemsPropertiesUpdated（宿主原地更新那两项），形状变化才发 LayoutUpdated（宿主重建整树）。
 // 分错种类会出两种事故：发整树会重建用户正在交互的弹窗（实测能把 DDE 的托盘弹窗打进
 // 坏状态），漏发则出现「配置改了、菜单里的圆点没动」。
 func TestDiffEntriesReportsPropertyChange(t *testing.T) {
-	shell := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})
-	official := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeOfficial})
+	shell := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell, switchable: true})
+	official := menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeOfficial, switchable: true})
 
 	change := diffEntries(shell, official)
 	if change.StructureChanged {
@@ -188,7 +222,7 @@ func TestDiffEntriesReportsPropertyChange(t *testing.T) {
 // TestDiffEntriesSeesStructureChange 覆盖形状变化：项数或层级变了必须让宿主重取整树，
 // 否则宿主会继续用旧的那棵树。
 func TestDiffEntriesSeesStructureChange(t *testing.T) {
-	full := menuEntries(trayState{locale: i18n.Zh})
+	full := menuEntries(trayState{locale: i18n.Zh, switchable: true})
 	if change := diffEntries(full, full[:2]); !change.StructureChanged {
 		t.Fatal("项数变化应判定为形状变化")
 	}
@@ -200,7 +234,7 @@ func TestDiffEntriesSeesStructureChange(t *testing.T) {
 // TestMenuEntriesDisableSwitchWhileSwitching 覆盖防重复触发：切换期间禁用首项，
 // 避免排队出第二次切换（切换会中断会话，误触代价高）。
 func TestMenuEntriesDisableSwitchWhileSwitching(t *testing.T) {
-	entries := menuEntries(trayState{locale: i18n.Zh, switching: true})
+	entries := menuEntries(trayState{locale: i18n.Zh, switching: true, switchable: true})
 	if entries[0].Enabled {
 		t.Fatal("切换进行中首项应置灰")
 	}
@@ -209,7 +243,7 @@ func TestMenuEntriesDisableSwitchWhileSwitching(t *testing.T) {
 // TestMenuLayoutServesSubmenu 覆盖子菜单的 dbusmenu 协议面：父项标成 submenu，宿主用
 // 父项 ID 再取一次布局时返回它的子项，子项属性也要能按 ID 查到（否则子菜单显示为空白）。
 func TestMenuLayoutServesSubmenu(t *testing.T) {
-	m := &menuObject{entries: menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell})}
+	m := &menuObject{entries: menuEntries(trayState{locale: i18n.Zh, defaultMode: switchboard.ModeShell, switchable: true})}
 
 	_, root, dbusErr := m.GetLayout(0, -1, nil)
 	if dbusErr != nil {

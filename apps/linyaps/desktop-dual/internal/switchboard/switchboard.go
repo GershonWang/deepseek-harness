@@ -1,6 +1,10 @@
-// Package switchboard 实现双客户端切换器：在同一个玲珑包内的两种客户端形态
-// ——随包的 Go + Wails 薄壳客户端与官方 Electron 客户端——之间互斥切换，
-// 并记录默认形态。
+// Package switchboard 实现玲珑包的客户端切换器：在同包内随带的客户端形态
+// ——Go + Wails 薄壳客户端与官方 Electron 客户端——之间互斥切换，并记录默认形态。
+//
+// 随带哪些形态是安装事实，由构造时探测包内可执行文件得出：两个都在时提供完整切换，
+// 只随带薄壳时切换没有目标，对外只报告 Switchable=false，由托盘收敛菜单。探测而不是
+// 编译期开关，是为了让「含 Electron」与「不含 Electron」两个包共用同一份切换器代码，
+// 不存在会各自漂移的第二份实现。
 //
 // 为什么必须分成进程：切换器是常驻的托盘进程，客户端是它拉起的子进程。切换器要能在
 // 客户端自行退出后继续存活（否则用户再无入口管理后台客户端），而客户端有自己完整的
@@ -16,6 +20,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -66,6 +71,13 @@ type Status struct {
 	Switching bool `json:"switching"`
 	// Error 保留最近一次失败的原因，成功后清空。
 	Error string `json:"error"`
+	// Switchable 表示包里随带了两种客户端形态，托盘据此决定菜单给不给「切换」与
+	// 「默认启动」。它是安装事实而不是运行状态：包一旦装好就不会变，因此只在构造时
+	// 探测一次，菜单结构在一次进程生命周期内也不会变形。
+	//
+	// 只有一个客户端时这个值为假，菜单收敛为「显示 / 关于 / 退出」——切换没有目标，
+	// 默认形态也没有第二种可选，留着只会是点了必然失败或被置灰的入口。
+	Switchable bool `json:"switchable"`
 }
 
 // Switchboard 管理客户端进程与切换状态。所有导出方法都可能被托盘回调并发调用，
@@ -83,6 +95,9 @@ type Switchboard struct {
 	exited    chan struct{}
 	switching bool
 	lastError string
+	// available 是包里实际随带的客户端形态，顺序即菜单优先级（薄壳在前）。
+	// 它是安装事实，构造时探测一次后不再变化。
+	available []Mode
 }
 
 // New 构造切换器并读取持久化配置。配置文件缺失或损坏时回退默认值，
@@ -90,26 +105,73 @@ type Switchboard struct {
 // @param home - 用户主目录，容器内与宿主是同一目录，因此配置可跨启动保留。
 // @returns 就绪的切换器。
 func New(home string) *Switchboard {
+	return newSwitchboard(home, detectAvailableModes())
+}
+
+// newSwitchboard 按给定的可用形态构造切换器。可用形态由调用方给出而不是在这里探测，
+// 是为了让「默认形态回退」这条规则能脱离真实安装布局被断言。
+// @param home - 用户主目录。
+// @param available - 包里随带的客户端形态；为空表示探测不到。
+// @returns 就绪的切换器。
+func newSwitchboard(home string, available []Mode) *Switchboard {
 	s := &Switchboard{
 		home:       home,
 		configPath: filepath.Join(home, ".config", "dsh-desktop", "switch.json"),
 		cfg:        Config{DefaultMode: ModeShell},
+		available:  available,
 	}
 	if raw, err := os.ReadFile(s.configPath); err == nil {
 		var loaded Config
 		if json.Unmarshal(raw, &loaded) == nil {
-			s.cfg = normalize(loaded)
+			s.cfg = normalize(loaded, available)
 		}
 	}
 	return s
 }
 
+// detectAvailableModes 探测当前安装里随带的客户端形态。
+// @returns 随包的形态；无法解析自身路径时为空切片，由调用方走保守路径。
+func detectAvailableModes() []Mode {
+	exe, err := switcherExecutable()
+	if err != nil {
+		return nil
+	}
+	return availableModes(exe)
+}
+
+// availableModes 列出 switcherExe 所在安装前缀里实际存在的客户端形态。
+//
+// 判据复用 clientCommand：它解析时已经确认对应可执行文件存在，因此「这个形态在不在包里」
+// 只有一处定义——另写一份 os.Stat 迟早会和解析规则漂移，而漂移的结果是菜单给出一个
+// 必然失败的入口。
+// @param switcherExe - 切换器自身的可执行文件路径。
+// @returns 按菜单优先级排列的形态；一个都没有时为空切片。
+func availableModes(switcherExe string) []Mode {
+	var modes []Mode
+	for _, mode := range []Mode{ModeShell, ModeOfficial} {
+		if _, _, err := clientCommand(switcherExe, mode); err == nil {
+			modes = append(modes, mode)
+		}
+	}
+	return modes
+}
+
 // normalize 把缺失或越界的配置收敛到可用值。
+//
+// 默认形态不在 available 里时必须回退。配置文件住在宿主家目录、跨包保留：用户可能先装过
+// 含官方客户端的包，再换成只含薄壳的包，此时旧的 defaultMode=official 会让每次启动都去
+// 拉一个包内不存在的二进制；而单客户端形态的菜单里没有「默认形态」入口可以改回来，
+// 这里因此是唯一能自愈的地方。
 // @param cfg - 从磁盘读到的配置。
+// @param available - 包里随带的客户端形态；为空表示探测不到，只做合法性收敛。
 // @returns 可直接使用的配置。
-func normalize(cfg Config) Config {
+func normalize(cfg Config, available []Mode) Config {
 	if cfg.DefaultMode != ModeShell && cfg.DefaultMode != ModeOfficial {
 		cfg.DefaultMode = ModeShell
+		return cfg
+	}
+	if len(available) > 0 && !slices.Contains(available, cfg.DefaultMode) {
+		cfg.DefaultMode = available[0]
 	}
 	return cfg
 }
@@ -216,7 +278,7 @@ func (s *Switchboard) SetDefault(mode Mode) error {
 }
 
 // Status 返回当前快照，供托盘按固定间隔刷新。
-// @returns 客户端形态、默认形态、切换中标志与最近的错误。
+// @returns 客户端形态、默认形态、切换中标志、最近的错误与包内是否可切换。
 func (s *Switchboard) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -225,6 +287,7 @@ func (s *Switchboard) Status() Status {
 		DefaultMode: s.cfg.DefaultMode,
 		Switching:   s.switching,
 		Error:       s.lastError,
+		Switchable:  len(s.available) > 1,
 	}
 }
 

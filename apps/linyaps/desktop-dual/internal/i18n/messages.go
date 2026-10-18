@@ -10,6 +10,7 @@ package i18n
 // 说明「刚才那一下为什么没成」的渠道，笼统的一句「操作失败」会让用户不知道是哪一步。
 var messages = map[Locale]map[string]string{
 	Zh: {
+		"tray.show":             "显示",
 		"tray.switchToShell":    "切换到薄壳版",
 		"tray.switchToOfficial": "切换到官方版",
 		"tray.modeShell":        "薄壳版",
@@ -40,6 +41,7 @@ var messages = map[Locale]map[string]string{
 		"about.package":      "包 ID",
 	},
 	En: {
+		"tray.show":             "Show",
 		"tray.switchToShell":    "Switch to thin shell",
 		"tray.switchToOfficial": "Switch to official client",
 		"tray.modeShell":        "Thin shell",
