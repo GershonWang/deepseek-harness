@@ -350,5 +350,17 @@ if command -v strip >/dev/null 2>&1 && [ -x "$STAGE/node/bin/node" ]; then
   echo "  - 已 strip node 二进制 ($(du -h "$STAGE/node/bin/node" | cut -f1))"
 fi
 
+# 7. 派生容器工具清单 overlay 到 stage/。
+#    为什么放在 stage 生产侧而不是各包的 build-linglong.sh：这个文件是 stage 的产物，
+#    却由容器内的 install-shell-runtime.sh 按 launcher 的 stage 路径读取。薄壳版自己在
+#    构建前生成它所以看不出来，但双客户端包只调用本脚本、从不生成，容器里 install 取
+#    不到源文件——而 install-shell-runtime.sh 刻意没有 set -e，于是失败被咽掉、产物
+#    静默沿用上游原版 preset，容器工具清单不注入而构建照常成功（AUDIT N17 同类静默缺陷）。
+#    生成放在这里，三条打包链路（薄壳版、双客户端、tray）都能拿到；ll-builder 的 --no-prepare
+#    复用旧 stage 时由各包的 build-linglong.sh 再生成一次，两处都幂等。
+#    必须晚于第 1 步的 `pnpm run build`：派生出的 persona 要用随包 dsh-persona 的 schema 校验。
+echo "prepare-offline: 派生容器工具清单 overlay..."
+node apps/linyaps/desktop-launcher/linglong/gen-preset-overlay.mjs
+
 echo "prepare-offline: 产物已暂存到 $STAGE"
 echo "  下一步：ll-builder build -f apps/linyaps/desktop-launcher/linglong/linglong.yaml"

@@ -66,7 +66,9 @@ expect_reject "点名未声明工具" "tools.yaml 的 tools: 没有它" "$SRC" "
 expect_reject "段落文件缺失" "段落文件不存在或不可读" "$SRC" "$TMP/missing-out.yml" "$TMP/no-such-paragraph.txt"
 
 # schema 拒绝:结构检查都通过,但随包 dsh-persona 不接受该值。
-sed "s/^              suffix: Your working directory is {{cwd}}\.$/              suffix: Your working directory is {{cwd}}.\n              includeRuntimeContext: 'yes'/" "$SRC" > "$TMP/bad-schema.yml"
+# 注入点挂在 prefix 行上:上游预设自 2026-10 起省略了 suffix,挂在 suffix 行上的话
+# 这条 sed 会静默失配,用例退化成「拿规范源当坏输入」,永远等不到 schema 拒绝。
+sed 's/^              prefix: You are a coding agent powered by the {{model}} model\.$/              prefix: You are a coding agent powered by the {{model}} model.\n              includeRuntimeContext: "yes"/' "$SRC" > "$TMP/bad-schema.yml"
 expect_reject "schema 拒绝" "随包 dsh-persona 拒绝" "$TMP/bad-schema.yml" "$TMP/bad-out.yml" "$PARA"
 
 # 上游自带段落:再追加会变成重复段落,属于需人工确认的岔口。

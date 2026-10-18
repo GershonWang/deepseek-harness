@@ -77,8 +77,15 @@ if [ ! -f "$PRESETS/standard.patch.yml" ]; then
   echo "预设包布局变化：$PRESETS/standard.patch.yml 不存在，overlay 无法注入" >&2
   exit 1
 fi
-install -Dm644 /project/apps/linyaps/desktop-launcher/linglong/stage/preset-overlay/standard.patch.yml \
-  "$PRESETS/standard.patch.yml"
+# 源文件同样要显式断言：本脚本刻意没有 set -e（见文件头），install 失败不会中断，
+# 产物会静默沿用上游原版 preset——容器工具清单不注入，而构建照常成功、能出包。源文件
+# 由 launcher 的 prepare-offline.sh 派生到 stage/preset-overlay/。
+OVERLAY=/project/apps/linyaps/desktop-launcher/linglong/stage/preset-overlay/standard.patch.yml
+if [ ! -f "$OVERLAY" ]; then
+  echo "overlay 未生成：$OVERLAY 不存在，请先运行 sh apps/linyaps/desktop-launcher/linglong/prepare-offline.sh" >&2
+  exit 1
+fi
+install -Dm644 "$OVERLAY" "$PRESETS/standard.patch.yml"
 cp -a "$STAGE/node/." ${PREFIX}/node/
 # node/pnpm 上 PATH:玲珑只自动把 $PREFIX/bin 加进容器 PATH($PREFIX/node/bin 不在)。
 # harness 自身经 $PREFIX/node/bin/node 绝对路径启动,但模型 bash 工具需要 PATH 上的

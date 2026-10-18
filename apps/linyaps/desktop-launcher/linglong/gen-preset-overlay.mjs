@@ -168,8 +168,16 @@ let delta
 if (persona) {
   const config = persona.config ?? {}
   if ('text' in config) fail(`源 patch 的 persona 用了 text 字段；dsh-persona 的 schema 是 prefix/suffix`)
-  if (typeof config.prefix !== 'string' || typeof config.suffix !== 'string') {
-    fail(`源 patch 的 persona 必须同时给出 prefix 与 suffix 字符串`)
+  // suffix 是可选的：dsh-persona 的 Config 里写作 `suffix?: string`（缺省为空串），而
+  // 上游 standard 预设自 2026-10 起已把它省略。此前这里要求 prefix 与 suffix 同时为
+  // 字符串，于是上游删掉 suffix 后派生对所有输入都恒定失败——薄壳版的构建直接卡在
+  // 这一步，而闸门自身的用例也因为拿不到 suffix 行而全部报错。派生真正需要的只是
+  // prefix（容器说明追加到它末尾），因此只强制它；suffix 存在时仍必须是字符串，
+  // 否则它会被 YAML 里的别的类型顶掉却看不出来。
+  if (typeof config.prefix !== 'string') {
+    fail(`源 patch 的 persona 必须给出字符串 prefix`)
+  } else if (config.suffix !== undefined && typeof config.suffix !== 'string') {
+    fail(`源 patch 的 persona.suffix 存在时必须是字符串`)
   } else {
     let paragraph
     try {
