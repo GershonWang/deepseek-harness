@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-18-desktop-launcher-preflight-gate-first-spawn.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-18-desktop-launcher-preflight-gate-first-spawn.md
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics:
+  en: 903dda2c4b06b2dc
+  zh: 6977a9ff17dc7f2f
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/problem:
+  en: 4d70c95acd5f5f3f
+  zh: bad5d428a771496a
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/decision:
+  en: 550fd8bb92d39e6c
+  zh: 8a556b37ff0276a2
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/alternatives-considered:
+  en: ea3bb7c67d472c5e
+  zh: 30d87366b5c3f40d
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/consequences:
+  en: fd424e6ec2d8f9df
+  zh: 1c43557fb79c285e
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/testing:
+  en: 8c03e51d1b2a9734
+  zh: 1ed97aff945d4ad5
+/agent-note-desktop-launcher-preflight-gate-and-release-semantics/related:
+  en: e5591ad1a14444a9
+  zh: 7d0092315793b326

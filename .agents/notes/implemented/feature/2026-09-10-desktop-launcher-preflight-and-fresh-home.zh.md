@@ -12,7 +12,7 @@ English | [中文](2026-09-10-desktop-launcher-preflight-and-fresh-home.md)
 
 桌面启动器在 harness 首次启动前插入**启动前预检**（preflight gate），并在预检穷尽时提供**全新环境降级启动**路径：
 
-- **门控**（`internal/supervisor`）：`Config` 增加 `Env`（per-spawn 子进程环境，nil 继承）；supervisor 增加 `Gate()`/`Release()`——`Gate()` 后 run 循环在首次 spawn 前等待 startCh token，使 `New()` 可以把首次启动挂到预检决策完成。`SetEnv` 在各次 spawn 间替换子进程环境，不影响正在运行的进程。
+- **门控**（`internal/supervisor`）：`Config` 增加 `Env`（per-spawn 子进程环境，nil 继承）；supervisor 增加**构造期**门控——`Options.GateFirstStart` 让 run 循环在首个 spawn 前等待 startCh token，使 `New()` 可以把首次启动挂到预检决策完成；`Release()` 返回本次调用是否命中门控期，据此区分「只需放行」与「重启已在跑的进程」（[门控为何是构造期输入、放行允许做什么](../bug-fix/2026-10-18-desktop-launcher-preflight-gate-first-spawn.zh.md)）。`SetEnv` 在各次 spawn 间替换子进程环境，不影响正在运行的进程。
 - **预检编排**（新增 `internal/preflight` 包 + `internal/app/preflight.go`）：app gate 在首次 spawn 前运行 `dsh doctor --json --quick`（仅静态检查），剥离 `DSH_SAFE_MODE` 并将 `DSH_HOME` 固定指向真实 `~/.dsh`。报告无 fatal 直接放行；有 fatal 时先自动执行 level-1 修复（低风险可逆：注释 `.env` 违规行）并快速复查；仍有 fatal 则挂到 `needs-confirm` 阶段，问题清单渲染在专用舞台页面，由用户选择：深度修复（`--repair 2`，含真实 boot 探测 + 全量复查）、仍然启动（保留现有事后诊断兜底）、安全模式（`config` 级，跳过第三方 bundle 和用户补丁层）、或全新环境启动。
 - **全新环境降级**（`StartFreshHome`）：后续 spawn 注入 `DSH_HOME=<home>/.dsh-fallback`，harness 在空目录自动自举完整的模板 profile 与默认设置。原始 `~/.dsh` 原样保留，永不写入或删除；fallback 目录持久化以保留降级期间的配置。凭证**不迁移**（含 API Key 等敏感信息），降级环境通过继承的环境变量或重新配置取得密钥。
 - **时序约束**：快速诊断限时 15s，修复 60s，全量复查 3 分钟；doctor 子进程均登记到现有 doctor 追踪（shutdown 可取消）。doctor 本身失败或超时**绝不阻塞启动**，门控直接放行，事后诊断兜底。预检定位为尽力而为的前置检查。
@@ -34,8 +34,10 @@ English | [中文](2026-09-10-desktop-launcher-preflight-and-fresh-home.md)
 
 ## Testing
 
-`go test`（`apps/desktop-launcher`）覆盖：门控语义与环境注入（`internal/supervisor/gated_env_test.go`，用 canary-through-ready-URL mock）；doctor argv/env 组装、JSON 解析、严重/修复级别分桶（`internal/preflight/preflight_test.go`）；编排状态机（`internal/app/preflight_test.go`，mock doctor 脚本覆盖：健康放行、fatal-without-autofix 挂在 needs-confirm、doctor 失败不阻塞、fresh-home 环境注入清除安全模式）。`node --test frontend/test-app.cjs` 覆盖舞台切换、问题清单渲染与 Kind 徽标、操作按钮显示规则、服务器弹框中 fresh-home 标识。
+`go test`（`apps/desktop-launcher`）覆盖：门控语义（构造期门控、放行返回值、门控期按下停止）与环境注入（`internal/supervisor/gated_env_test.go`，用 canary-through-ready-URL mock）；doctor argv/env 组装、JSON 解析、严重/修复级别分桶（`internal/preflight/preflight_test.go`）；编排状态机（`internal/app/preflight_test.go`，mock doctor 脚本覆盖：健康放行、fatal-without-autofix 挂在 needs-confirm、doctor 失败不阻塞、fresh-home 环境注入清除安全模式）。`node --test frontend/test-app.cjs` 覆盖舞台切换、问题清单渲染与 Kind 徽标、操作按钮显示规则、服务器弹框中 fresh-home 标识。
 
 ## Related
 
 本次新增的事前预检复用并前置了现有事后诊断机制：[Doctor live-load check for third-party plugins](2026-08-28-doctor-plugin-dynamic-load.zh.md)。
+
+门控的构造期定位与它支撑的两个放行入口：[桌面启动器预检门控与放行语义](../bug-fix/2026-10-18-desktop-launcher-preflight-gate-first-spawn.zh.md)。
