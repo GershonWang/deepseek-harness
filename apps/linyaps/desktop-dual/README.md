@@ -6,9 +6,13 @@ English | [中文](README.zh.md)
 
 ## What this module produces
 
-One `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher`, a tray process with no window. It starts the client selected as default, exposes switching on the system tray, and terminates the client's whole process group when it exits, so no client is left running without a visible control point.
+The module builds two variants that share one switcher. `dual` packages the thin shell and the official Electron client; `tray` packages the thin shell alone, so it carries no Electron runtime, its image is correspondingly smaller, and its tray menu narrows to Show, About, and Quit. Both keep the thin shell's package ID `com.deepseek.dsh-desktop`.
 
-The bundle carries no third runtime: the thin shell's harness tree and Node come from the launcher stage, the Electron client brings its own Electron runtime and dsh tree. Together the two runtimes take about 1.8 GB, which is the price of switching inside one package. The one extra binary the switcher needs is `dsh-desktop-about`, a small GTK3 helper that draws the About dialog, because the switcher itself carries no window toolkit.
+Which tray entries the switcher offers follows from what the package actually contains: at startup it probes for `<PREFIX>/bin/dsh-desktop-launcher` and `<PREFIX>/electron/dsh-desktop-official`, so a variant needs no build-time switch to select its menu.
+
+Each variant builds one `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher`, a tray process with no window. It starts a client and gives it a tray item, then terminates the client's whole process group when it exits, so no client is left running without a visible control point.
+
+The bundle carries no third runtime: the thin shell's harness tree and Node come from the launcher stage, and in `dual` the Electron client brings its own Electron runtime and dsh tree. Together those two runtimes take about 1.8 GB, which is the price of switching inside one package; `tray` drops the Electron half. The one extra binary the switcher needs is `dsh-desktop-about`, a small GTK3 helper that draws the About dialog, because the switcher itself carries no window toolkit.
 
 ## Why the bundle keeps the thin shell's package ID
 
@@ -30,6 +34,8 @@ Switching is mutually exclusive and destructive by design: the switcher stops th
 
 The tray item reports the running mode through a corner badge, a tooltip, and the first menu entry, which always names the other mode. A left click shows the client instead of switching: it starts the default client when none runs, and asks the official client to bring back its hidden window when one is already running, so a client closed by mistake is one click away. The right-click menu carries the switch entry, a Settings submenu whose two entries are radio items marking the current default (both stay clickable), About, and Quit; quitting stops the client with it.
 
+The menu follows what the package carries, decided by the same startup probe. `dual` holds both clients, so the switch entry and the Settings submenu are available. `tray` holds the thin shell alone: there is no other client to switch to and no default form to choose, so neither entry appears.
+
 About is drawn by the bundled GTK3 helper, whose window title is "About", centered on the monitor work area. Above the separator sit the package version line and two centered facts: current client and package ID; below it are four rows: DSH version, DSH repository, Linglong packager, and Linglong packaging repo. Those facts used to live in the thin shell's title-bar about dialog, which is gone; the DSH version is resolved from the `${PREFIX}/harness/package.json` this bundle reuses (an unreadable file shows `unknown`, never a blank row). Every value, the two repository URLs included, is rendered by the same kind of GtkLabel and is deliberately not selectable: a selectable label selects its whole line, so the dialog would open on a highlighted row, which is exactly what had to go, and drawing the links with the same widget as the other values is what keeps the fact grid strictly aligned with a uniform row height. The package ID, the one value users have to quote verbatim, therefore carries a one-click copy button that briefly reads "Copied". There is no Close button and the dialog has no default action: the title bar's ✕ and Esc are the ways out, and no control takes focus when it opens. A click on either repository row tries the host portal, the bundled `xdg-open`, then GTK's default handler in that order: the Linglong container has no local URI handler at all (the bundled `xdg-open` lacks `dde-open` and every candidate browser, exiting 3 with "no method available", and GIO's default handler returns `Operation not supported`), whereas the host portal sits on the session bus and was measured opening the machine's default browser, so it goes first. As soon as one of the three opens the link the dialog closes, since handing the link to the browser is all it was opened for; when all three fail it stays open and writes the reason in place instead of leaving the click with no visible effect.
 
 A failed action raises a desktop notification naming what failed and marks the item as needing attention; the error also reaches the tooltip, so the reason is never silent.
@@ -43,15 +49,24 @@ sh apps/linyaps/desktop-dual/prepare-offline.sh
 ll-builder build -f apps/linyaps/desktop-dual/linglong.yaml
 ```
 
-`prepare-offline.sh` calls the two client modules' own preparation scripts, then builds the switcher and the About dialog helper into `stage/bin/`. The launcher stage requires GTK and WebKit development files on the host, exactly as the thin-shell bundle does; the helper is compiled against the same GTK development files, so it adds no new host requirement.
+The `tray` variant skips the official Electron client: `--without-official` leaves it out of `stage/`, and `linglong-tray.yaml` assembles the thin shell and the switcher alone.
 
-The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.sh dual`.
+```sh
+sh apps/linyaps/desktop-dual/prepare-offline.sh --without-official
+ll-builder build -f apps/linyaps/desktop-dual/linglong-tray.yaml
+```
+
+`prepare-offline.sh` calls the packaged clients' own preparation scripts, then builds the switcher and the About dialog helper into `stage/bin/`. The launcher stage requires GTK and WebKit development files on the host, exactly as the thin-shell bundle does; the helper is compiled against the same GTK development files, so it adds no new host requirement.
+
+The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.sh dual` for the dual-client package, and `sh apps/linyaps/build-linglong.sh tray` for the thin-shell-only variant.
 
 ## Known limits
 
 The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and checks again every five seconds, so the entry point returns when the desktop shell does. The check also compares the watcher's unique bus name with the one recorded at registration, so a shell that crashes and is replaced gets the entry point back within five seconds instead of leaving the clients unreachable. Until a host is present, the clients cannot be switched.
 
 Switching is only available through the tray while a switcher process runs. A second launch exits immediately instead of starting a second client.
+
+`dual` and `tray` share the package ID but not a version line: `tray` (0.1.6.1) continues the thin shell's line (0.1.5.4), while `dual` (0.2.0.6) stays the higher version under the same ID. `tray` is therefore only an upgrade of the thin shell: on a machine that already has `dual` it is a lower version, which the store does not accept as an upgrade, so it cannot be installed over `dual`. Moving a machine from `dual` to `tray` means uninstalling `dual` first.
 
 The dual-client package from before the unified identity (`com.deepseek.dsh-desktop-dual`) can live on the same machine as this bundle, but only one of them should: they install the same switcher, and the single-instance name is deliberately kept identical so the two exclude each other. Without that, both switchers would start a client and fight over the same dsh port and `~/.dsh` state. The visible effect is that only whichever started first owns the tray entry. On a test machine, run `ll-cli uninstall com.deepseek.dsh-desktop-dual` first.
 

@@ -4,10 +4,12 @@ Type=Application
 # 本包是薄壳版的升级款，同 ID 换层后用户固定在启动器/任务栏上的那条入口必须继续可用，
 # 任何一处改名都表现为「应用换了个身份」。真正变化的只有 Exec——它指向切换器，由切换器
 # 再按默认形态拉起客户端。
+# 同一份文件由 dual 与 tray 两个变体共用，而 tray 不含官方 Electron 客户端，托盘上也没有
+# 切换项；Comment 因此只描述桌面客户端本身，不写只在 dual 成立的能力。
 Name=DeepSeek Harness
 Name[zh_CN]=DeepSeek Harness
-Comment=DeepSeek Harness desktop client; switch between the thin shell and the official client from the tray
-Comment[zh_CN]=DeepSeek Harness 桌面客户端，可在托盘切换薄壳版与官方版
+Comment=DeepSeek Harness desktop client
+Comment[zh_CN]=DeepSeek Harness 桌面客户端
 Exec=/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop-switcher
 Icon=dsh-desktop
 # 实际显示的窗口是客户端窗口（WM_CLASS 与薄壳版一致，客户端仍是同一个二进制）；
