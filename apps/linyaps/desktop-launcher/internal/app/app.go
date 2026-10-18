@@ -211,7 +211,7 @@ type App struct {
 	startupEmittedAt time.Time
 }
 
-// New 创建应用控制器：门控 harness 首次启动，先跑启动前预检（preflight），
+// New 创建应用控制器：构造期即门控 harness 首次启动，先跑启动前预检（preflight），
 // 由预检结果决定放行或等待用户决策。
 //
 // doctor 的运行环境（node 与 cli.js）由 appenv 一并解析后传入，本层不再从
@@ -220,8 +220,14 @@ func New(resolved appenv.Resolved, home, configPath string) *App {
 	cfg := resolved.Config
 	term := terminal.NewManager()
 
+	// 预检先于 harness 首次启动：门控随构造期参数一次确定。监护循环在
+	// NewSupervisor 内即刻启动，构造后再补置位会被它抢跑，首个 spawn 就会
+	// 绕过预检（见 supervisor.Options.GateFirstStart）。
+	supOptions := supervisor.DefaultOptions()
+	supOptions.GateFirstStart = true
+
 	a := &App{
-		sup:             supervisor.NewSupervisor(cfg, supervisor.DefaultOptions()),
+		sup:             supervisor.NewSupervisor(cfg, supOptions),
 		conn:            connector.New(),
 		configPath:      configPath,
 		home:            home,
@@ -231,8 +237,7 @@ func New(resolved appenv.Resolved, home, configPath string) *App {
 	}
 	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
 	a.sup.SetStartupProgressListener(a.emitStartupProgress)
-	// 预检先于 harness 首次启动：门控监护循环，预检通过/降级决策后放行。
-	a.sup.Gate()
+	// 预检通过/降级决策后由 resumeAfterPreflight 放行首次 spawn。
 	go a.runPreflightGate()
 	return a
 }

@@ -39,11 +39,16 @@ func newGateTestApp(t *testing.T, doctorScript string) *App {
 
 // newGateTestAppWithCLI 与 newGateTestApp 同源，额外暴露 doctor 的 cli 入口。
 // doctorCLI 为空串即"本次安装没提供 doctor"，是 resolveDoctor 解析失败时的真实取值。
+//
+// supervisor 按构造期门控参数构造，与 app.New 的时序契约一致：门控必须在
+// NewSupervisor 之前确定，构造后补置位会被监护循环抢跑。
 func newGateTestAppWithCLI(t *testing.T, cmd, doctorCLI string) *App {
 	t.Helper()
+	supOptions := supervisor.DefaultOptions()
+	supOptions.GateFirstStart = true
 	return &App{
 		conn:            connector.New(),
-		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-gate-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
+		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-gate-no-such-bin", LogDir: t.TempDir()}, supOptions),
 		preflightRunner: preflight.NewRunner(cmd, doctorCLI, nil, t.TempDir()),
 	}
 }
@@ -81,7 +86,6 @@ func (a *App) safeModeState() string {
 
 func TestPreflightGate_HealthyReportReleases(t *testing.T) {
 	a := newGateTestApp(t, writeDoctorMock(t, doctorJSONOK))
-	a.sup.Gate()
 	a.runPreflightGate()
 
 	waitPreflightPhase(t, a, PreflightOK)
@@ -105,7 +109,6 @@ func TestPreflightGate_FatalWithoutAutoFixWaitsForUser(t *testing.T) {
 	// fatal + suggestedLevel 2（需确认）→ 停在 needs-confirm，不放行。
 	fatalConfirm := `{"dshHome":"/tmp/fake","checks":[{"id":"plugin-dynamic-load","name":"p","category":"plugin","severity":"fatal","result":{"ok":false,"message":"bad plugin","fixable":true,"suggestedLevel":2}}],"summary":{"total":1,"ok":0,"failed":1,"fatal":1,"fixable":1}}`
 	a := newGateTestApp(t, writeDoctorMock(t, fatalConfirm))
-	a.sup.Gate()
 	a.runPreflightGate()
 
 	waitPreflightPhase(t, a, PreflightNeedsConfirm)
@@ -126,7 +129,6 @@ func TestPreflightGate_FatalWithoutAutoFixWaitsForUser(t *testing.T) {
 func TestPreflightGate_DoctorFailureDoesNotBlock(t *testing.T) {
 	// doctor 无输出（脚本空跑）→ 预检 error 但仍放行（尽力而为原则）。
 	a := newGateTestApp(t, "/dev/null") // sh /dev/null 无输出
-	a.sup.Gate()
 	a.runPreflightGate()
 
 	waitPreflightPhase(t, a, PreflightError)
@@ -138,7 +140,6 @@ func TestPreflightGate_DoctorNotConfiguredDoesNotBlock(t *testing.T) {
 	// notConfigured 而非 noOutput：前者是"根本没跑起来"，后者是"跑了但没说话"，
 	// 排查方向不同，合并会把用户引向错误的方向。
 	a := newGateTestAppWithCLI(t, "", "")
-	a.sup.Gate()
 	a.runPreflightGate()
 
 	waitPreflightPhase(t, a, PreflightError)

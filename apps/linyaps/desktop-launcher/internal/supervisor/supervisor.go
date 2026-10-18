@@ -42,6 +42,11 @@ type Options struct {
 	MaxRestartDelayMs int
 	KillTimeoutMs     int
 	StartupTimeoutMs  int
+	// GateFirstStart 让首个 spawn 先等 Release()：启动前预检必须先于 harness
+	// 启动完成。门控是监护循环首轮就要读到的状态，只能随构造期参数确定；早期
+	// 实现是构造后再置位，监护循环会抢在置位前读到未门控值并直接 spawn，预检
+	// 门控因此形同虚设（2026-10-18 首启故障的成因之一）。
+	GateFirstStart bool
 }
 
 // DefaultOptions 返回默认监护参数。
@@ -84,7 +89,7 @@ type Supervisor struct {
 	lastExit        string
 	manuallyStopped bool
 	startCh         chan struct{}
-	gated           bool // 首次 spawn 前等待 Release（预检编排用）；消耗后不再生效
+	gated           bool // 首个 spawn 前等待 Release（预检编排用）；构造期由 Options 确定，消耗后不再生效
 	sawReady        bool // 当前 spawn 周期是否已匹配就绪行
 	sawFatalLoad    bool // 当前 spawn 周期是否已出现确定性加载失败特征
 	// startup 是本轮 spawn 的启动进度事实（见 domain.StartupProgress）；随
@@ -96,12 +101,16 @@ type Supervisor struct {
 
 // NewSupervisor 创建监护器并启动监护循环（初始态为 StateStarting，首次
 // Start() 由"仅停止态生效"守卫拦下，避免重复 spawn）。
+//
+// options.GateFirstStart 为 true 时首个 spawn 等 Release() 放行，见 Options 的
+// 门控字段说明：门控必须在这里一次确定，不能靠构造后的补调用。
 func NewSupervisor(cfg Config, options Options) *Supervisor {
 	s := &Supervisor{
 		cfg:     cfg,
 		options: options,
 		ready:   make(chan string, 1),
 		startCh: make(chan struct{}, 1),
+		gated:   options.GateFirstStart,
 	}
 	go s.run()
 	return s
@@ -167,28 +176,22 @@ func (s *Supervisor) Start() {
 	}
 }
 
-// Gate 要求首次 spawn 前等待 Release：启动前预检需要先于 harness 启动完成，
-// 门控让监护循环构造后挂起，直到预检给出放行/降级决策。必须在 NewSupervisor
-// 之后、监护循环消费 startCh 之前调用（App 构造内紧接着完成）。
-func (s *Supervisor) Gate() {
-	s.mu.Lock()
-	s.gated = true
-	s.mu.Unlock()
-}
-
-// Release 放行门控的首次 spawn；未门控时是无害 no-op，因此预检通过路径与
-// 现有 StartServer 手动恢复路径可以共用同一调用点。
-func (s *Supervisor) Release() {
+// Release 放行门控的首次 spawn，并返回本次调用是否命中门控期。调用方靠返回值
+// 区分两种收尾语义：门控期只需放行（首个子进程归监护循环拉起），非门控期才允许
+// 重启已有进程。未门控时返回 false 且无副作用，因此预检放行与手动恢复可以共用
+// 同一个调用点。
+func (s *Supervisor) Release() bool {
 	s.mu.Lock()
 	gated := s.gated
 	s.mu.Unlock()
 	if !gated {
-		return
+		return false
 	}
 	select {
 	case s.startCh <- struct{}{}:
 	default:
 	}
+	return true
 }
 
 // SetEnv 原子替换后续 spawn 的子进程环境（nil 恢复继承当前环境）。替换只影响
@@ -295,6 +298,10 @@ func (s *Supervisor) run() {
 			<-s.startCh
 			s.mu.Lock()
 			s.gated = false
+			// 门控等待期间用户可能已经按下停止（StopHarness 会置位
+			// manuallyStopped），而上面的快照早于这次等待，必须重读；否则预检
+			// 放行会先把 harness 拉起一次，再进入停止等待。
+			manuallyStopped = s.manuallyStopped
 			stop := s.stopping
 			s.mu.Unlock()
 			if stop {
