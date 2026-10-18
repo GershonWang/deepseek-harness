@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-18-desktop-launcher-webview-hardware-acceleration.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-18-desktop-launcher-webview-hardware-acceleration.md
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy:
+  en: fad24cc7ee28cb96
+  zh: 45854e07cc626d5b
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/problem:
+  en: 84f4c606e9da38ff
+  zh: d5f02ce7f0d5aea7
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/decision:
+  en: e83933e86ee64cc6
+  zh: c4ce4fb62ca5ee9b
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/alternatives-considered:
+  en: 12389272b8160f8f
+  zh: ebca913b3f85dd79
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/consequences:
+  en: 7d64bef97be489b2
+  zh: 5464146eca0f9c05
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/testing:
+  en: 7a7e2650720b0855
+  zh: e46518c2f87e8479
+/agent-note-desktop-launcher-webview-hardware-acceleration-policy/related:
+  en: a34d4089be76f059
+  zh: adfd34ae955568b5

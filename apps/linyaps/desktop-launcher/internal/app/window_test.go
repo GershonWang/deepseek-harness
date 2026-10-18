@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -98,5 +99,24 @@ func TestLoadWindowState_MissingPosition(t *testing.T) {
 	}
 	if got.Width != 1000 || got.Height != 700 {
 		t.Fatalf("尺寸应保留: %+v", got)
+	}
+}
+
+// 硬件加速策略必须显式给出：Wails 在 options.Linux 为 nil 时把 WebviewGpuPolicy 强制
+// 设为 Never，内嵌 WebView 的加速合成会被整体关闭、页面退回 CPU 绘制（也正是「复杂界面
+// 卡顿 + CPU 高」的成因）。同时固定 Go 侧数值 1——Wails 的 Go 枚举序与 C switch 并不
+// 一致，C 侧 ON_DEMAND 只认数值 1；升级 Wails 若修正了映射，这条用例会失败并提示重核。
+func TestWailsLinuxOptionsEnablesWebviewAcceleration(t *testing.T) {
+	opts := WailsLinuxOptions()
+	if opts == nil {
+		t.Fatal("Linux 选项不得为 nil：Wails 会因此把 WebviewGpuPolicy 强制设为 Never")
+	}
+	if opts.WebviewGpuPolicy == linux.WebviewGpuPolicyNever {
+		t.Fatalf("策略不得为 Never（加速合成会被整体关闭），得到 %d", int(opts.WebviewGpuPolicy))
+	}
+	if got, want := int(opts.WebviewGpuPolicy), 1; got != want {
+		t.Fatalf("C 侧 ON_DEMAND 对应的 Go 侧数值应为 %d，得到 %d；"+
+			"Wails 升级可能已修正枚举映射，请重新核对 window.c 的 switch 与 pkg/options/linux 的枚举",
+			want, got)
 	}
 }

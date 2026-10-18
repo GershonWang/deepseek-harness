@@ -70,4 +70,4 @@ Not verified: a real-window comparison after the change, since the running clien
 
 ## Related
 
-[WebKitGTK DMABUF compositing flicker on NVIDIA machines](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md) owns the flicker this trigger protects against and the escape hatches this note extends. [Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.md) owns the packaging architecture this platform adaptation lives in.
+[WebView hardware acceleration](2026-10-18-desktop-launcher-webview-hardware-acceleration.md) owns whether compositing happens at all: the launcher now passes an explicit on-demand policy because Wails otherwise disables acceleration outright, which is why changing the renderer transport alone could not recover the fast path. [WebKitGTK DMABUF compositing flicker on NVIDIA machines](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md) owns the flicker this trigger protects against and the escape hatches this note extends. [Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.md) owns the packaging architecture this platform adaptation lives in.

@@ -70,4 +70,4 @@ Status: implemented
 
 ## Related
 
-[WebKitGTK DMABUF compositing flicker on NVIDIA machines](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md) 拥有这条触发条件所要防的闪烁，以及本笔记扩展的那几个逃生舱。[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。
+[内嵌 WebView 的硬件加速策略](2026-10-18-desktop-launcher-webview-hardware-acceleration.zh.md) 拥有「合成到底发不发生」：launcher 现在显式传按需策略，因为 Wails 默认会把加速整体关掉——这也是只改渲染器传输救不回快路径的原因。[WebKitGTK DMABUF compositing flicker on NVIDIA machines](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md) 拥有这条触发条件所要防的闪烁，以及本笔记扩展的那几个逃生舱。[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。

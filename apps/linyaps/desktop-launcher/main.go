@@ -138,6 +138,10 @@ func runClient() {
 		// 通过 --wails-draggable 拖拽、边缘自动 resize。
 		Frameless:        true,
 		WindowStartState: startState,
+		// Linux 选项必须非 nil：Wails 在 nil 时会把 webview 的硬件加速策略强制设为
+		// WebviewGpuPolicyNever（对 wails#2977 的规避），内嵌页面的加速合成因此整体
+		// 关闭、退回 CPU 绘制。取值理由与枚举错位见 internal/app/window.go。
+		Linux: app.WailsLinuxOptions(),
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
