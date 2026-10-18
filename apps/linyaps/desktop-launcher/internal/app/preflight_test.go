@@ -4,12 +4,14 @@
 package app
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/connector"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/supervisor"
 )
@@ -195,5 +197,90 @@ func TestStartSafeModeLevel_ConfigLevel(t *testing.T) {
 	if os.Getenv("DSH_SAFE_MODE") != "config" {
 		t.Fatal("应设置进程级 DSH_SAFE_MODE=config")
 	}
+	a.sup.Stop()
+}
+
+// waitHarnessRunning 等待子进程进入运行态并返回其 PID。
+func waitHarnessRunning(t *testing.T, a *App) int {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st := a.sup.Status()
+		if st.State == domain.StateRunning && st.PID != 0 {
+			return st.PID
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("等待 harness 运行态超时: %+v", st)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// TestResumeAfterPreflight_GatedReleaseStartsOnce 门控期放行只应拉起一次，且不得
+// 对自己刚拉起的子进程再发终止信号：放行入口早期是无条件 Release + Restart，而
+// Restart 会对存活子进程发 SIGTERM——2026-10-18 首启"服务刚起就被杀"即此。
+func TestResumeAfterPreflight_GatedReleaseStartsOnce(t *testing.T) {
+	logDir := t.TempDir()
+	a := newGatedLongRunApp(t, logDir)
+
+	a.resumeAfterPreflight() // 预检放行
+	pid := waitHarnessRunning(t, a)
+
+	// 稳定期：同一子进程持续运行，且日志不得出现终止/重试行（Stop 会补记终止行，
+	// 因此必须在 Stop 之前检查）。
+	time.Sleep(800 * time.Millisecond)
+	if st := a.sup.Status(); st.State != domain.StateRunning || st.PID != pid {
+		t.Fatalf("放行后应保持同一子进程: pid %d→%d state %v", pid, st.PID, st.State)
+	}
+	assertNoHarnessKill(t, logDir)
+	a.sup.Stop()
+}
+
+// newGatedLongRunApp 构造门控 supervisor + 长跑 mock harness 的 App（无 Wails ctx），
+// 用于验证放行路径对子进程的影响。
+func newGatedLongRunApp(t *testing.T, logDir string) *App {
+	t.Helper()
+	supOptions := supervisor.DefaultOptions()
+	supOptions.GateFirstStart = true
+	return &App{
+		conn: connector.New(),
+		sup: supervisor.NewSupervisor(
+			supervisor.Config{Command: "sh", Args: []string{"../supervisor/testdata/mock-dsh-web.sh"}, LogDir: logDir},
+			supOptions,
+		),
+	}
+}
+
+// assertNoHarnessKill 断言 harness 日志中没有终止或重试行。
+func assertNoHarnessKill(t *testing.T, logDir string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(logDir, "harness.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"harness killed by signal", "restarting harness"} {
+		if bytes.Contains(raw, []byte(bad)) {
+			t.Fatalf("不应终止或重启子进程,日志出现 %q", bad)
+		}
+	}
+}
+
+// TestResumeAfterPreflight_KeepsRunningChild 门控被用户操作提前消费时（例如预检
+// 窗口内点了重启），harness 已经在跑；此时预检收尾只是"可以启动"的结论，不得把
+// 正在跑的进程杀掉重启。
+func TestResumeAfterPreflight_KeepsRunningChild(t *testing.T) {
+	logDir := t.TempDir()
+	a := newGatedLongRunApp(t, logDir)
+
+	// 用户操作提前消费门控并拉起子进程。
+	a.sup.Restart()
+	pid := waitHarnessRunning(t, a)
+
+	a.resumeAfterPreflight() // 预检收尾
+	time.Sleep(500 * time.Millisecond)
+	if st := a.sup.Status(); st.State != domain.StateRunning || st.PID != pid {
+		t.Fatalf("预检收尾不应重启已在运行的子进程: pid %d→%d state %v", pid, st.PID, st.State)
+	}
+	assertNoHarnessKill(t, logDir)
 	a.sup.Stop()
 }

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/preflight"
 )
 
@@ -90,11 +91,34 @@ func (a *App) setPreflight(mutate func(s *PreflightSummary)) {
 	a.emitStatus()
 }
 
-// resumeAfterPreflight 统一的预检后放行入口：门控期由 Release 唤醒首次
-// spawn；其余场景（用户在 failed/stopped 态操作）由 Restart 恢复。两个调用
-// 对不适用的场景都是 no-op，组合覆盖所有放行路径。
+// resumeAfterPreflight 纯预检放行入口（预检通过/doctor 自身失败/忽略问题直接
+// 放行）：门控期由 Release 唤醒首次 spawn；门控已被消费时说明首个子进程已经在
+// 跑或已停止——已经在跑就什么都不做，只有停止/失败态才需要唤醒。
+//
+// 这里不能无条件 Restart：Restart 会先给存活的子进程发 SIGTERM，放行时若已经有
+// harness 在跑（用户在预检窗口内点过重启，门控因此被提前消费），预检收尾就会把
+// 它杀掉——2026-10-18 首启故障即此。
 func (a *App) resumeAfterPreflight() {
-	a.sup.Release()
+	if a.sup.Release() {
+		a.emitStatus()
+		return
+	}
+	if st := a.sup.Status(); st.State == domain.StateRunning && st.PID != 0 {
+		a.emitStatus()
+		return
+	}
+	a.sup.Restart()
+	a.emitStatus()
+}
+
+// resumeAfterEnvChange 换环境后的放行入口（安全模式/全新运行时目录/深度修复）：
+// 运行时环境或数据已被 SetEnv 或修复动作改变，正在跑的进程必须重启才会带上新
+// 环境，因此这里在非门控期允许 Restart，与纯放行的 resumeAfterPreflight 区分开。
+func (a *App) resumeAfterEnvChange() {
+	if a.sup.Release() {
+		a.emitStatus()
+		return
+	}
 	a.sup.Restart()
 	a.emitStatus()
 }
@@ -149,7 +173,8 @@ func (a *App) runPreflightGate() {
 		a.setPreflight(func(s *PreflightSummary) { s.Busy = false })
 		if !action.HasFatal() {
 			a.setPreflight(func(s *PreflightSummary) { s.Phase = PreflightAutoFixed })
-			a.resumeAfterPreflight()
+			// 自动修复改写了磁盘上的配置/补丁：已在跑的进程必须重启才会带上修复。
+			a.resumeAfterEnvChange()
 			return
 		}
 	}
@@ -204,7 +229,8 @@ func (a *App) ConfirmDeepRepair() FrontendStatus {
 				s.Phase = PreflightAutoFixed
 				s.Issues = nil
 			})
-			a.resumeAfterPreflight()
+			// 深度修复改动了插件/配置，运行中的进程必须重启才会带上修复结果。
+			a.resumeAfterEnvChange()
 			return
 		}
 		a.setPreflight(func(s *PreflightSummary) {
@@ -237,7 +263,8 @@ func (a *App) StartFreshHome() FrontendStatus {
 	a.safeMode = ""
 	a.freshHome = true
 	a.mu.Unlock()
-	a.resumeAfterPreflight()
+	// 换了运行时目录：已在跑的进程必须重启才会用上新 DSH_HOME。
+	a.resumeAfterEnvChange()
 	return a.snapshot()
 }
 

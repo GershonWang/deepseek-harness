@@ -776,7 +776,8 @@ func (a *App) StartSafeModeLevel(level string) FrontendStatus {
 	a.freshHome = false
 	a.mu.Unlock()
 	a.sup.SetEnv(nil) // 安全模式回到默认 home；与全新环境互斥
-	a.resumeAfterPreflight()
+	// 安全模式改变了子进程环境：已在跑的进程必须重启才会生效。
+	a.resumeAfterEnvChange()
 	return a.snapshot()
 }
 
