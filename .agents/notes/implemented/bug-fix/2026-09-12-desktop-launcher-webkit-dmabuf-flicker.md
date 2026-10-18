@@ -50,7 +50,7 @@ Removing the override is a one-function deletion once webkit2gtk fixes the upstr
 
 ## Testing
 
-`go test ./internal/packaging/` covers all three branches through the injectable probe path: with the probe absent, `ConfigureWebKitRendering` leaves `WEBKIT_DISABLE_DMABUF_RENDERER` unset; once the path exists, it sets `1`; and with the probe present but `DSH_DESKTOP_DMABUF_RENDERER=1`, it leaves the variable untouched. The tests save and restore the probe variable and both environment entries, so they neither depend on the host having an NVIDIA driver nor leak settings into sibling tests.
+The fallback and its probe recorded here were taken over by [render-backend selection on hybrid GPU machines](2026-10-18-desktop-launcher-webkit-render-backend-selection.md): `nvidiaModulePath` and `WEBKIT_DISABLE_DMABUF_RENDERER` no longer appear in the launcher, and that note owns the branch coverage now.
 
 The container-side preconditions were checked before the probe was written, not assumed: inside the Linglong sandbox `/sys/module/nvidia` and `/proc/driver/nvidia/version` are both readable, the latter reporting the same 580.119.02 module version as the host.
 
@@ -58,4 +58,4 @@ Still unverified: the packaged artifact was validated through `ll-cli run --env`
 
 ## Related
 
-[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.md) owns the packaging architecture this platform adaptation sits in. [Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.md) is the other place where the launcher compensates for a webkit2gtk behavior the harness UI cannot observe itself.
+[Render-backend selection on hybrid GPU machines](2026-10-18-desktop-launcher-webkit-render-backend-selection.md) partially supersedes the trigger and switch recorded here: it applies the fallback only where the render path is NVIDIA's alone and does so with `WEBKIT_DMABUF_RENDERER_FORCE_SHM`. [Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.md) owns the packaging architecture this platform adaptation sits in. [Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.md) is the other place where the launcher compensates for a webkit2gtk behavior the harness UI cannot observe itself.

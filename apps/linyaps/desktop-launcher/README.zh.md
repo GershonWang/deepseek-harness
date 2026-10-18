@@ -109,8 +109,9 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_PORT` | 未设 | 未设时复用上次实际用过的端口（被占用才另挑一个空闲 loopback 端口并记下），harness 重启也复用它，GUI 才能重连；显式指定则本次用它，`0` 让系统选空闲端口；后两种都不改端口记忆 |
 | `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
-| `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 在带 NVIDIA 驱动的机器上保留 webkit2gtk 的 DMABUF 加速合成（launcher 默认会关闭，见已知事项） |
-| `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于关掉 DMABUF 后 web 区域仍然花屏的机器（见已知事项） |
+| `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 保留 webkit2gtk 的硬件 DMABUF 路径，跳过 launcher 的共享内存回退（见已知事项） |
+| `DSH_DESKTOP_SHM_RENDERER` | 未设 | `1` 在任何机器上强制共享内存缓冲传输（`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`），供确实出现闪烁、又不愿放弃加速合成的机器使用（见已知事项） |
+| `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于改用共享内存传输后 web 区域仍然花屏的机器（见已知事项） |
 | `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
 | `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
 
@@ -238,5 +239,5 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 ## 已知事项
 
 - **不同版本 harness 共享 `~/.dsh`**：外部 harness（如 `npx @deepseek-ai/dsh web`、发布版）与 launcher 内置 harness 共用同一 `~/.dsh` 主目录。版本不一致时，外部 harness 可能把 `~/.dsh/.credentials.yaml` 写成当前版本无法解析的格式（`version` 键的值不是字符串），导致内置 harness 启动即崩、进入重启循环。若使用外部 harness 后内置 harness 陷入重启循环，先看 `~/.cache/dsh-desktop/harness.log` 是否报 `credentials-local` 错误；备份并删除 `~/.dsh/.credentials.yaml` 让 harness 重建空 store（已存凭据会丢失）。
-- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：内核加载了 NVIDIA 专有驱动时，WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。因此只要 `/sys/module/nvidia` 存在，launcher 就设置 `WEBKIT_DISABLE_DMABUF_RENDERER=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用），仅在这些机器上放弃零拷贝的合成路径，其余机器保持默认。设置 `DSH_DESKTOP_DMABUF_RENDERER=1` 可在这类机器上重新启用 DMABUF 路径，适用于命中驱动条件但从未受影响的机器。再设 `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 会进一步彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），适用于关掉 DMABUF 后 web 区域仍然花屏的机器；代价是滚动与动画走 CPU。
+- **NVIDIA 环境下的 WebKitGTK DMABUF 合成**：WebKitGTK 默认的 DMABUF 加速合成可能在窗口被遮挡后重新暴露、合成层重建时构造 framebuffer 失败，整个 web 区域短暂变成纯色（浅色主题白、深色主题黑）再自行恢复。故障为偶发，harness 进程与正在运行的任务都不受影响。launcher 的判据是机器的渲染节点而不是已加载的内核模块：只有 `/sys/class/drm` 下的 `renderD*` 节点全部报告 NVIDIA 的厂商号 `0x10de` 时才写 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`（`packaging.ConfigureWebKitRendering`，在 `wails.Run` 之前调用）；只要存在任何非 NVIDIA 渲染节点就保持默认，那正是 Optimus 的形态——WebKit 走显示 GPU（本机 `renderD128` 为 Intel、`renderD129` 为 NVIDIA）。launcher 有意不用上游的 `WEBKIT_DISABLE_DMABUF_RENDERER`：webkit2gtk 2.44+ 在共享内存传输加入之前就读这个变量，transport mode 因而被留空、连加速合成一起失去（上游 bug 324730）；`WEBKIT_DMABUF_RENDERER_FORCE_SHM` 在共享内存加入之后才生效，只去掉零拷贝呈现路径。混合机上若仍然闪烁，用 `DSH_DESKTOP_SHM_RENDERER=1` 强制同一条共享内存传输，用 `DSH_DESKTOP_DMABUF_RENDERER=1` 则跳过回退、保留硬件 DMABUF 路径。再设 `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 会彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），适用于共享内存传输下 web 区域仍然花屏的机器；代价是滚动与动画走 CPU。
 - **GUI 整块空白时壳自动重载 iframe**：容器内 harness 的 GUI 是 iframe 里的另一份文档，它可能整块变白，而壳自己的标题栏与状态栏照常渲染——用户看到的就是「只有 harness 区域白」。壳按每秒状态快照计数：约 25 秒收不到桥的挂载握手（或桥发现挂载点连续为空、引导页长时间不消失）就自动重载 iframe，最多两次；仍不成功则切到既有失败页并触发诊断。重载只动 iframe、不重启 harness，因此不会打断正在跑的任务；手动恢复入口仍是服务器弹框里的「重启服务」。

@@ -50,7 +50,7 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 ## Testing
 
-`go test ./internal/packaging/` 通过可注入的探测路径覆盖全部三个分支：探测目标不存在时，`ConfigureWebKitRendering` 不设置 `WEBKIT_DISABLE_DMABUF_RENDERER`；该路径出现后，它设置为 `1`；探测命中但 `DSH_DESKTOP_DMABUF_RENDERER=1` 时，它完全不碰该变量。测试保存并恢复探测变量与两个环境变量，因此既不依赖宿主机真的装了 NVIDIA 驱动，也不会把设置泄漏给同包的其他测试。
+本笔记记录的回退与它的探测已由[混合显卡机器上的渲染后端选择](2026-10-18-desktop-launcher-webkit-render-backend-selection.zh.md)接管：`nvidiaModulePath` 与 `WEBKIT_DISABLE_DMABUF_RENDERER` 不再出现在 launcher 里，当前的分支覆盖由那份笔记拥有。
 
 容器侧的前置条件是先核查、后写码，而不是假设：玲珑沙箱内 `/sys/module/nvidia` 与 `/proc/driver/nvidia/version` 均可读，后者报出的模块版本与宿主一致，同为 580.119.02。
 
@@ -58,4 +58,4 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 ## Related
 
-[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。[Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md) 是 launcher 为 harness UI 自身无法观察到的 webkit2gtk 行为做补偿的另一处。
+[混合显卡机器上的渲染后端选择](2026-10-18-desktop-launcher-webkit-render-backend-selection.zh.md) 部分取代了这里的触发条件与旋钮：它只在渲染路径只剩 NVIDIA 的机器上回退，且改用 `WEBKIT_DMABUF_RENDERER_FORCE_SHM`。[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。[Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md) 是 launcher 为 harness UI 自身无法观察到的 webkit2gtk 行为做补偿的另一处。
