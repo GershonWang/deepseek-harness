@@ -42,7 +42,9 @@ launcher 从来没有给 Wails 传过 Linux 选项。Wails v2.15.0 在 `options.
 
 `TestWailsLinuxOptionsEnablesWebviewAcceleration` 固定本决策依赖的两个事实：选项非 nil，且策略槽位是能到达 `WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND` 的那个数值。`CGO_ENABLED=0 go test ./internal/...` 与渲染后端的用例一起覆盖它。
 
-尚未验证：重新构建后的真实窗口。验收判据就是当初定位缺陷用的那套文件描述符与 CPU 证据——客户端的 UI 进程应开始打开 DRM 渲染节点并持有合成缓冲，WebProcess 的 CPU 应低于关闭加速时持续观察到的 57–75%——外加在 NVIDIA-only 机器上目视确认没有闪烁。
+随后在报障机器上验收了打包产物，启动时不带任何环境变量覆盖：UI 进程打开了 `renderD128`（Intel 显示 GPU）并持有两个 dmabuf 描述符——修复前为零；WebProcess 的 CPU 从持续 57–75% 降到六次一秒采样下的约 36%；全程没有打开任何 NVIDIA 设备节点。这就是显示 GPU 上的零拷贝硬件路径，而只改渲染器传输的规则永远到不了这一步。
+
+仍未观测：NVIDIA-only 机器上的目视闪烁——本机是混合机，不会走那条回退。
 
 ## Related
 

@@ -42,7 +42,9 @@ Enabling acceleration also re-exposes the rendering hazards the acceleration wor
 
 `TestWailsLinuxOptionsEnablesWebviewAcceleration` pins both facts the decision depends on: the options value is non-nil, and its policy slot is the numeric one that reaches `WEBKIT_HARDWARE_ACCELERATION_POLICY_ON_DEMAND`. `CGO_ENABLED=0 go test ./internal/...` covers it alongside the render-backend tests.
 
-Not yet verified: the real window after a rebuild. The acceptance check is the same file-descriptor and CPU evidence used to diagnose the defect — the client's UI process should start opening a DRM render node and holding compositing buffers, with the web process CPU dropping below the sustained 57–75% seen with acceleration off — plus a visual check for flicker on an NVIDIA-only machine.
+The packaged client was then verified on the reporting machine, launched with no environment overrides. Its UI process opened `renderD128` (the Intel display GPU) and held two dmabuf descriptors where the pre-fix client held none, the web process CPU fell from the sustained 57–75% to about 36% over six one-second samples, and no NVIDIA device node was opened at all. That is the zero-copy hardware path on the display GPU, which the renderer-transport rules alone never reached.
+
+Still unobserved: visual flicker on an NVIDIA-only machine, since this host is the hybrid case that no longer takes the fallback.
 
 ## Related
 
