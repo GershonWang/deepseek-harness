@@ -32,11 +32,11 @@ Turning acceleration off deliberately stays with `DSH_DESKTOP_WEBKIT_DISABLE_COM
 
 ## Consequences
 
-The embedded page regains WebKitGTK's on-demand accelerated compositing, which on a hybrid machine means compositing on the display GPU rather than the discrete GPU, matching the render-node rule recorded in the DMABUF note.
+The embedded page regains WebKitGTK's on-demand accelerated compositing, which on a hybrid machine means compositing on the display GPU rather than the discrete GPU, matching the render-node probe recorded in the DMABUF note.
 
 The policy value depends on a Wails enumeration quirk. A Wails upgrade that fixes the mapping fails `TestWailsLinuxOptionsEnablesWebviewAcceleration` instead of silently changing the policy, and the test message names the two places to re-check.
 
-Enabling acceleration also re-exposes the rendering hazards the acceleration work was hiding: a machine that previously painted on the CPU can now show the occlusion flicker or compositing artifacts that motivated [the earlier flicker fix](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md). The render-node fallback recorded there still applies, and `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` remains the per-machine escape hatch, but the real-window behavior on an NVIDIA-only machine is not yet observed.
+Enabling acceleration also re-exposes the rendering hazards the acceleration work was hiding: a machine that previously painted on the CPU can now show the occlusion flicker or compositing artifacts that motivated [the earlier flicker fix](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.md). The render-node fallback recorded there still applies — to every machine with an NVIDIA render node, not only NVIDIA-only ones — and `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` remains the per-machine escape hatch; the real-window behavior on an NVIDIA-only machine is still unobserved.
 
 ## Testing
 
@@ -44,7 +44,7 @@ Enabling acceleration also re-exposes the rendering hazards the acceleration wor
 
 The packaged client was then verified on the reporting machine, launched with no environment overrides. Its UI process opened `renderD128` (the Intel display GPU) and held two dmabuf descriptors where the pre-fix client held none, the web process CPU fell from the sustained 57–75% to about 36% over six one-second samples, and no NVIDIA device node was opened at all. That is the zero-copy hardware path on the display GPU, which the renderer-transport rules alone never reached.
 
-Still unobserved: visual flicker on an NVIDIA-only machine, since this host is the hybrid case that no longer takes the fallback.
+Now observed on this host: the hybrid machine measured above does take the fallback, and [WebKitGTK DMABUF flicker on hybrid GPU machines](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md) records the occlusion flicker and input loss that follow without it. An NVIDIA-only machine's real-window behavior is still unobserved.
 
 ## Related
 

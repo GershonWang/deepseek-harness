@@ -17,13 +17,13 @@ The shipped code caused the first half of that directly. `packaging.ConfigureWeb
 
 `ConfigureWebKitRendering` selects the backend from the machine's render nodes instead of the loaded kernel module, and downgrades with the lighter knob:
 
-- The fallback applies when `nvidiaOnlyRenderStack()` is true: at least one `/sys/class/drm/renderD*` node reports PCI vendor `0x10de` and no node reports anything else. An unreadable `/sys/class/drm` returns false, so a machine the probe cannot inspect is left alone rather than downgraded.
+- The fallback applies when `hasNvidiaRenderNode()` is true: any `/sys/class/drm/renderD*` node reports PCI vendor `0x10de`, whatever the other nodes report. An unreadable `/sys/class/drm` returns false, so a machine the probe cannot inspect is left alone rather than downgraded. The narrower NVIDIA-only form of this predicate was [reverted](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md) once a hybrid machine reproduced the flicker its own premise had ruled out.
 - The fallback sets `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`. The launcher no longer writes `WEBKIT_DISABLE_DMABUF_RENDERER` anywhere, and a test asserts that absence.
 - `DSH_DESKTOP_DMABUF_RENDERER=1` keeps its meaning: skip the fallback and keep the hardware DMABUF path.
 - `DSH_DESKTOP_SHM_RENDERER=1` is the new reverse escape hatch: force the shared-memory transfer on any machine, for a hybrid host that does reproduce the flicker without giving up accelerated compositing entirely.
 - `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` is unchanged.
 
-On a hybrid machine the launcher now selects nothing, so WebKit keeps its default DMA-BUF path on the display GPU.
+On a hybrid machine the launcher now writes `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` as well, so WebKit keeps accelerated compositing while dropping the zero-copy present path.
 
 ## Evidence
 
@@ -46,7 +46,7 @@ Both the shared-memory and the disabled-renderer arms keep their GL context on t
 
 **Keep `WEBKIT_DISABLE_DMABUF_RENDERER` and only narrow the trigger.** Rejected: narrowing fixes the hybrid misjudgement but keeps a knob that empties the transport mode on every machine it does hit, which is a worse outcome than the flicker it prevents.
 
-**Drop the fallback and always leave WebKit at its default.** Rejected: NVIDIA-only machines and builds without the distribution's `disable-nvidia-dmabuf.patch` would lose the protection the earlier fix added, and the flicker reproduces there.
+**Drop the fallback and always leave WebKit at its default.** Rejected: every machine with an NVIDIA render node — hybrid machines included — and builds without the distribution's `disable-nvidia-dmabuf.patch` would lose the protection the earlier fix added, and the flicker reproduces there.
 
 **Re-enable the hardware DMA-BUF path unconditionally.** Rejected: the flicker returns, and the earlier note's reproduction on this hardware class still stands.
 
@@ -56,15 +56,15 @@ Both the shared-memory and the disabled-renderer arms keep their GL context on t
 
 ## Consequences
 
-The hybrid machine that filed the report keeps WebKit's zero-copy DMA-BUF path on its display GPU, which is the state the earlier note's own measurement showed to be the intended one. Machines whose only render path is NVIDIA keep a fallback that no longer risks losing accelerated compositing.
+The hybrid machine that filed the report keeps accelerated compositing but gives up the zero-copy DMA-BUF path on its display GPU — the price the [hybrid-GPU flicker note](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md) records. Machines with an NVIDIA render node, not only NVIDIA-only ones, keep a fallback that no longer risks losing accelerated compositing.
 
-The flicker workaround now does **not** apply to hybrid machines. The earlier reproduction happened on exactly this machine class, so a hybrid host that still flickers must opt in with `DSH_DESKTOP_SHM_RENDERER=1`; that gap is real and is recorded here rather than silently accepted. The distribution-compiled `disable-nvidia-dmabuf.patch` in the bundled webkit2gtk already empties the transport mode on genuinely NVIDIA-only machines, so the launcher's own branch is a no-op there and exists for builds without the patch.
+The flicker workaround applies to hybrid machines again. The earlier reproduction happened on exactly this machine class, and the NVIDIA-only narrowing left it unprotected, so the trigger was [widened to any NVIDIA render node](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md); `DSH_DESKTOP_SHM_RENDERER=1` now covers the machine whose render nodes match nothing yet shows the same symptom. The distribution-compiled `disable-nvidia-dmabuf.patch` in the bundled webkit2gtk already empties the transport mode on genuinely NVIDIA-only machines, so the launcher's own branch is a no-op there and exists for builds without the patch.
 
 Two escape hatches (`DSH_DESKTOP_DMABUF_RENDERER`, `DSH_DESKTOP_SHM_RENDERER`) still cannot be set by a user who does not launch the client from a shell, because neither the packaged desktop entry nor the switcher writes environment variables. Closing that gap needs the settings surface that was deferred above.
 
 ## Testing
 
-`CGO_ENABLED=0 go test ./internal/...` covers the new decision: the trigger table (NVIDIA-only true; Intel plus NVIDIA false; non-NVIDIA only false; no render nodes false), an unreadable `/sys/class/drm` returning false, the opt-out escape hatch, the shared-memory opt-in, the compositing opt-out, and the guard that the launcher never sets `WEBKIT_DISABLE_DMABUF_RENDERER`. The probe was also resolved against the live host, where it returns false for the Intel plus NVIDIA render-node pair.
+`CGO_ENABLED=0 go test ./internal/...` covers the new decision: the trigger table (NVIDIA only true; Intel plus NVIDIA true; non-NVIDIA only false; no render nodes false), an unreadable `/sys/class/drm` returning false, the opt-out escape hatch, the shared-memory opt-in, the compositing opt-out, and the guard that the launcher never sets `WEBKIT_DISABLE_DMABUF_RENDERER`. The probe was also resolved against the live host, where it returns true for the Intel plus NVIDIA render-node pair.
 
 Not verified: a real-window comparison after the change, since the running client was deliberately left untouched, and which process faults first on the stress page, which no core dump or kernel log was available to establish. The stress-page and file-descriptor measurements come from WebKitGTK's own MiniBrowser rather than the Wails embedding, so their absolute figures do not transfer; the one-variable crash flip does not depend on the embedding.
 

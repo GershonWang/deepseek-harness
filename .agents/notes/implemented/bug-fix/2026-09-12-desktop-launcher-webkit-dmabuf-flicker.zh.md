@@ -58,4 +58,4 @@ WebKitGTK 什么都没打：stderr 里只有启动那一段，而 framebuffer �
 
 ## Related
 
-[混合显卡机器上的渲染后端选择](2026-10-18-desktop-launcher-webkit-render-backend-selection.zh.md) 部分取代了这里的触发条件与旋钮：它只在渲染路径只剩 NVIDIA 的机器上回退，且改用 `WEBKIT_DMABUF_RENDERER_FORCE_SHM`。[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。[Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md) 是 launcher 为 harness UI 自身无法观察到的 webkit2gtk 行为做补偿的另一处。
+[混合显卡机器上的渲染后端选择](2026-10-18-desktop-launcher-webkit-render-backend-selection.zh.md) 部分取代了这里的触发条件与旋钮：它在存在 NVIDIA 渲染节点的机器上回退，且改用 `WEBKIT_DMABUF_RENDERER_FORCE_SHM`；[混合 GPU 机上的 WebKitGTK DMABUF 闪烁](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.zh.md) 记录了该判据为何也覆盖混合机。[Desktop launcher on Linux/Linglong](../feature/2026-08-14-desktop-launcher-linux-linglong.zh.md) 拥有这项平台适配所处的打包架构。[Clipboard image bridging](2026-08-30-clipboard-paste-large-image-and-file-copy.zh.md) 是 launcher 为 harness UI 自身无法观察到的 webkit2gtk 行为做补偿的另一处。

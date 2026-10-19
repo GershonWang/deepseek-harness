@@ -32,11 +32,11 @@ launcher 从来没有给 Wails 传过 Linux 选项。Wails v2.15.0 在 `options.
 
 ## Consequences
 
-内嵌页面重新拿到 WebKitGTK 的按需加速合成；在混合显卡机器上，这意味着合成落在显示 GPU 而不是独显，与渲染后端那份笔记记录的判据一致。
+内嵌页面重新拿到 WebKitGTK 的按需加速合成；在混合显卡机器上，这意味着合成落在显示 GPU 而不是独显，与渲染后端那份笔记记录的渲染节点探针一致。
 
 策略取值依赖 Wails 的这处枚举错位。将来修好映射的 Wails 升级会让 `TestWailsLinuxOptionsEnablesWebviewAcceleration` 失败，而不是无声改变策略；用例的报错信息点名了要重新核对的两处。
 
-开启加速也重新暴露了此前被关闭的加速合成所掩盖的渲染风险：过去在 CPU 上绘制的机器，现在可能显现当初促成[闪烁修复](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md)的遮挡闪烁或合成花屏。那份笔记记录的渲染节点回退依然生效，`DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 仍是按机器的逃生舱，但 NVIDIA-only 机器上的真实窗口表现尚未观测。
+开启加速也重新暴露了此前被关闭的加速合成所掩盖的渲染风险：过去在 CPU 上绘制的机器，现在可能显现当初促成[闪烁修复](2026-09-12-desktop-launcher-webkit-dmabuf-flicker.zh.md)的遮挡闪烁或合成花屏。那份笔记记录的渲染节点回退依然生效——覆盖所有存在 NVIDIA 渲染节点的机器，而不只是 NVIDIA-only——`DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 仍是按机器的逃生舱；NVIDIA-only 机器上的真实窗口表现仍未观测。
 
 ## Testing
 
@@ -44,7 +44,7 @@ launcher 从来没有给 Wails 传过 Linux 选项。Wails v2.15.0 在 `options.
 
 随后在报障机器上验收了打包产物，启动时不带任何环境变量覆盖：UI 进程打开了 `renderD128`（Intel 显示 GPU）并持有两个 dmabuf 描述符——修复前为零；WebProcess 的 CPU 从持续 57–75% 降到六次一秒采样下的约 36%；全程没有打开任何 NVIDIA 设备节点。这就是显示 GPU 上的零拷贝硬件路径，而只改渲染器传输的规则永远到不了这一步。
 
-仍未观测：NVIDIA-only 机器上的目视闪烁——本机是混合机，不会走那条回退。
+本机现已观测到：上面测量的这台混合机会走那条回退，[混合 GPU 机上的 WebKitGTK DMABUF 闪烁](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.zh.md)记录了不走回退时出现的遮挡闪烁与界面失去响应。NVIDIA-only 机器上的同类表现仍未观测。
 
 ## Related
 

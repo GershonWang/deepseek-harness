@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.md
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines:
+  en: c8d0f71edb894b3f
+  zh: d532220a422ee920
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/problem:
+  en: 352b798efe4e63d4
+  zh: 51e00018bd0eeb32
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/decision:
+  en: a6ca85d5109711db
+  zh: 2c7c02f4f50807fd
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/evidence:
+  en: 9af9df379ac5d2f4
+  zh: b6710b4ba6182243
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/alternatives-considered:
+  en: a11f90c09d57b7ee
+  zh: ec69ac7f66a08b77
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/consequences:
+  en: 4626e607fa3b06a5
+  zh: 55c476d02285b145
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/testing:
+  en: 652d388272bacb9a
+  zh: a9ea90eade2e17f8
+/agent-note-webkitgtk-dmabuf-flicker-on-hybrid-gpu-machines/related:
+  en: 51939d9ed0e55404
+  zh: a44ad738c0dbdec0

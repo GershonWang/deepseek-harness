@@ -17,13 +17,13 @@ Status: implemented
 
 `ConfigureWebKitRendering` 改为按机器的渲染节点而不是已加载的内核模块选择后端，并用更轻的旋钮降级：
 
-- 回退的触发条件是 `nvidiaOnlyRenderStack()` 为真：`/sys/class/drm/renderD*` 中至少一个节点报告 PCI 厂商号 `0x10de`，且没有任何节点报告别的厂商号。`/sys/class/drm` 读不到时返回 false——探针看不透的机器宁可不动，也不降级。
+- 回退的触发条件是 `hasNvidiaRenderNode()` 为真：`/sys/class/drm/renderD*` 中只要有任一节点报告 PCI 厂商号 `0x10de`，与其余节点报告什么无关。`/sys/class/drm` 读不到时返回 false——探针看不透的机器宁可不动，也不降级。这条判据一度收窄为「只有 NVIDIA」，已被[混合机闪烁那份笔记](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.zh.md)推翻：那台机器的形态正是收窄前提所排除的，却照样复现闪烁。
 - 回退写入 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`。launcher 不再在任何分支写 `WEBKIT_DISABLE_DMABUF_RENDERER`，并有测试守住这条缺席。
 - `DSH_DESKTOP_DMABUF_RENDERER=1` 语义不变：跳过回退，保留硬件 DMABUF 路径。
 - 新增 `DSH_DESKTOP_SHM_RENDERER=1` 反向逃生舱：任何机器上强制共享内存传输，供确实复现闪烁、又不愿整体放弃加速合成的混合机用户使用。
 - `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1` 不变。
 
-在混合显卡机器上 launcher 现在什么都不选，WebKit 因而保持默认的、跑在显示 GPU 上的 DMA-BUF 路径。
+在混合显卡机器上 launcher 现在同样写 `WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`，WebKit 因而保留加速合成、只放弃零拷贝呈现路径。
 
 ## Evidence
 
@@ -46,7 +46,7 @@ Status: implemented
 
 **保留 `WEBKIT_DISABLE_DMABUF_RENDERER`，只收窄触发条件。** 否决：收窄解决了混合机的误判，却留下一个只要命中就会清空 transport mode 的旋钮，结果比它要防的闪烁更糟。
 
-**去掉回退，完全交给 WebKit 默认。** 否决：只有 NVIDIA 渲染路径的机器，以及没有发行版 `disable-nvidia-dmabuf.patch` 的构建，会失去先前修复带来的保护，而闪烁在那些机器上会复现。
+**去掉回退，完全交给 WebKit 默认。** 否决：凡是有 NVIDIA 渲染节点的机器——混合机也在内——以及没有发行版 `disable-nvidia-dmabuf.patch` 的构建，都会失去先前修复带来的保护，而闪烁在那些机器上会复现。
 
 **无条件恢复硬件 DMA-BUF 路径。** 否决：闪烁会回来，先前笔记在这类硬件上的复现仍然成立。
 
@@ -56,15 +56,15 @@ Status: implemented
 
 ## Consequences
 
-提交问题的混合机重新拿到 WebKit 在显示 GPU 上的零拷贝 DMA-BUF 路径，这正是先前笔记自己的实测所显示的应然状态。只有 NVIDIA 渲染路径的机器保留一条不再冒「连加速合成一起失去」风险的回退。
+提交问题的混合机保留加速合成，但让出了显示 GPU 上的零拷贝 DMA-BUF 路径——[混合机闪烁那份笔记](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.zh.md)记录了这份代价。凡是存在 NVIDIA 渲染节点的机器（而不只是 NVIDIA-only）都保留一条不再冒「连加速合成一起失去」风险的回退。
 
-闪烁回退现在**不再**对混合机生效。先前的复现恰恰发生在这类机器上，所以仍然闪烁的混合机必须用 `DSH_DESKTOP_SHM_RENDERER=1` 显式打开；这个缺口是真实的，记录在此而不是默认接受。随包 webkit2gtk 里由发行版编译进去的 `disable-nvidia-dmabuf.patch` 在真正的 NVIDIA-only 机器上本来就会清空 transport mode，因此 launcher 自己这一支在那里是空操作，存在的意义是没有该补丁的构建。
+闪烁回退重新对混合机生效。先前的复现恰恰发生在这类机器上，而「只有 NVIDIA」的收窄让它失去保护，判据因此[放宽为「存在任一 NVIDIA 渲染节点」](2026-10-19-desktop-launcher-hybrid-gpu-dmabuf-flicker.zh.md)；`DSH_DESKTOP_SHM_RENDERER=1` 现在的适用对象是渲染节点一个都不匹配、却出现同样症状的机器。随包 webkit2gtk 里由发行版编译进去的 `disable-nvidia-dmabuf.patch` 在真正的 NVIDIA-only 机器上本来就会清空 transport mode，因此 launcher 自己这一支在那里是空操作，存在的意义是没有该补丁的构建。
 
 两个逃生舱（`DSH_DESKTOP_DMABUF_RENDERER`、`DSH_DESKTOP_SHM_RENDERER`）对不从 shell 启动客户端的用户依然不可达，因为打包的桌面项与切换器都不写环境变量。补上这个缺口需要上面推迟的设置界面。
 
 ## Testing
 
-`CGO_ENABLED=0 go test ./internal/...` 覆盖了新决策：触发条件表（只有 NVIDIA 为真；Intel 加 NVIDIA 为假；只有非 NVIDIA 为假；没有渲染节点为假）、`/sys/class/drm` 不可读返回假、正向逃生舱、反向逃生舱（强制共享内存）、关掉合成的逃生舱，以及「launcher 从不写 `WEBKIT_DISABLE_DMABUF_RENDERER`」这条守卫。探针也在真实宿主上解过一次：面对 Intel 与 NVIDIA 两个渲染节点返回假。
+`CGO_ENABLED=0 go test ./internal/...` 覆盖了新决策：触发条件表（只有 NVIDIA 为真；Intel 加 NVIDIA 为真；只有非 NVIDIA 为假；没有渲染节点为假）、`/sys/class/drm` 不可读返回假、正向逃生舱、反向逃生舱（强制共享内存）、关掉合成的逃生舱，以及「launcher 从不写 `WEBKIT_DISABLE_DMABUF_RENDERER`」这条守卫。探针也在真实宿主上解过一次：面对 Intel 与 NVIDIA 两个渲染节点返回真。
 
 未验证：改动后的真实窗口对照——运行中的客户端被有意保持不动；以及压力页上究竟哪个进程先崩——当时拿不到 core 与内核日志。压力页与文件描述符的测量来自 WebKitGTK 自带的 MiniBrowser，而不是 Wails 的 embedding，因此绝对值不可外推；「只改一个变量就翻转崩与不崩」这个结论不依赖 embedding。
 
