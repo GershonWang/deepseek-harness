@@ -64,6 +64,14 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 插件文件写不出来、或 harness 尚未注入它时（在途版本），加载页退回前两档粗粒度文案与转圈，不显示进度块，也绝不补一个按时间估算的百分比。WebView 里 harness 自己的 `Loading plugins…` 属于浏览器侧的另一段，不在本机制范围内。
 
+## 关窗行为
+
+设置了 `DSH_DESKTOP_HIDE_ON_CLOSE=1` 时，关闭窗口——自绘标题栏的 ✕（走 Wails `runtime.Quit`）或窗口管理器的关闭——会保存窗口几何、隐藏窗口，launcher 与它的 harness 子进程继续运行。该变量只有桌面切换器（`apps/linyaps/desktop-dual`）拉起 launcher 时才会注入。
+
+唤回隐藏的窗口靠切换器向 launcher 发 `SIGUSR1`；launcher 收到后取消最小化并显示窗口，且无条件注册该处理器，因此无论变量是否设置，这个信号都生效。切换器的左键与「显示」走的就是这条通路。
+
+没有该变量时 launcher 保持默认行为：关窗即结束进程——单独出包的 `web` 就是这样，它不带切换器也不带托盘。装了切换器的包里真正的退出是托盘「退出」，它停掉整棵进程组；关窗不会结束客户端，也没有任何「客户端仍在后台运行」的桌面通知。
+
 ## 插件不兼容时的自动禁用与启动后提示
 
 不兼容的第三方插件不会拦住 harness 进程（宿主对非必需条目的激活失败只告警），但会让客户端插件树起不来。这条链路两端各占一半：doctor 判定插件与当前版本不兼容后把它从 profile 的 bundle 层禁用（安装与依赖保留），并把留痕追加到 `<dshHome>/doctor/auto-disabled.json`；壳在 harness 启动成功后读这份留痕，在主界面上方给出一条常驻提示，逐条列出被禁用的插件与原因，并说明安装与依赖仍在、可在「插件」页重新启用或自行卸载——卸不卸载由用户决定，壳不代劳。
@@ -112,6 +120,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 保留 webkit2gtk 的硬件 DMABUF 路径，跳过 launcher 的共享内存回退（见已知事项） |
 | `DSH_DESKTOP_SHM_RENDERER` | 未设 | `1` 在任何机器上强制共享内存缓冲传输（`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`），供确实出现闪烁、又不愿放弃加速合成的机器使用（见已知事项） |
 | `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于改用共享内存传输后 web 区域仍然花屏的机器（见已知事项） |
+| `DSH_DESKTOP_HIDE_ON_CLOSE` | 未设 | 为 `1` 时关窗只隐藏窗口，launcher 与 harness 子进程继续运行；由桌面切换器注入，直接启动的 launcher 不会设置它 |
 | `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
 | `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
 

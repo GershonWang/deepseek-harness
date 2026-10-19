@@ -14,6 +14,9 @@
 /deepseek-harness-linux-desktop-launcher/startup-phases-and-loading-page-progress:
   en: d9e000ed7e0e9728
   zh: 8c0ac8b716c37e9e
+/deepseek-harness-linux-desktop-launcher/window-close-behavior:
+  en: 304bc7e15b3e4807
+  zh: ec9a3f072f8d2363
 /deepseek-harness-linux-desktop-launcher/auto-disabling-incompatible-plugins-and-the-post-startup-notice:
   en: 78a84f7d3c9193ae
   zh: 8614e51f557d999a
@@ -24,8 +27,8 @@
   en: 87085cf85ec62dc6
   zh: b25b5e8c498d314d
 /deepseek-harness-linux-desktop-launcher/environment-variables:
-  en: 201c9b7662567f4e
-  zh: c336694c25aeda8b
+  en: 4381d9c6302dc2cd
+  zh: 0a116eaf2b97b955
 /deepseek-harness-linux-desktop-launcher/connecting-to-an-external-service:
   en: d26b4fcc05761252
   zh: e561cce0618d79e0

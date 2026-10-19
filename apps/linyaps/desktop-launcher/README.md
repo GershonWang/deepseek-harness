@@ -64,6 +64,14 @@ The counts come from `internal/appenv/startup_progress.mjs`: `appenv` writes it 
 
 When the plugin file cannot be written, or an in-flight harness build does not inject it, the loading page falls back to the first two coarse phases with its spinner and shows no progress block — it never invents a time-based percentage. The harness's own `Loading plugins…` inside the WebView is a separate, browser-side segment and is not part of this mechanism.
 
+## Window close behavior
+
+With `DSH_DESKTOP_HIDE_ON_CLOSE=1` set, closing the window — the custom title bar's ✕, which goes through Wails `runtime.Quit`, or the window manager's close — saves the window geometry, hides the window, and leaves the launcher and its harness child running. Only the desktop switcher (`apps/linyaps/desktop-dual`) injects that variable when it starts the launcher.
+
+The switcher brings a hidden window back by sending `SIGUSR1`; the launcher unminimizes and shows the window, and it registers that handler unconditionally, so the signal works whether or not the variable is set. The switcher's left click and its Show entry send that signal.
+
+Without the variable the launcher keeps its default behavior, where closing the window ends it. That is what the standalone `web` package does, since it ships neither switcher nor tray. In the packages that install the switcher, the real exit is the tray's Quit, which stops the whole process group; closing the window does not end the client, and no desktop notification announces that it still runs.
+
 ## Auto-disabling incompatible plugins and the post-startup notice
 
 An incompatible third-party plugin does not stop the harness process — the host only warns about non-required entries that fail to activate — but it does keep the client-side plugin tree from loading. This chain has one half on each side: after judging a plugin incompatible with the current version, doctor disables it from the profile's bundle layer (installation and dependencies stay in place) and appends a record to `<dshHome>/doctor/auto-disabled.json`; once harness has started, the shell reads that ledger and shows a persistent notice above the main interface listing each disabled plugin with its reason, stating that installation and dependencies remain and that the plugin can be re-enabled on the plugins page or uninstalled by hand. Whether to uninstall it is the user's decision; the shell does not do it for them.
@@ -112,6 +120,7 @@ Development infers the repo root from CWD rather than the executable path, becau
 | `DSH_DESKTOP_DMABUF_RENDERER` | unset | `1` keeps webkit2gtk's hardware DMABUF path, skipping the launcher's shared-memory fallback (see Known issues) |
 | `DSH_DESKTOP_SHM_RENDERER` | unset | `1` forces shared-memory buffer transport on any machine (`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`), for a machine that does show the flicker but should keep accelerated compositing on (see Known issues) |
 | `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | unset | `1` turns accelerated compositing off entirely (`WEBKIT_DISABLE_COMPOSITING_MODE=1`), for a machine where the shared-memory transport still corrupts the web area (see Known issues) |
+| `DSH_DESKTOP_HIDE_ON_CLOSE` | unset | `1` makes closing the window hide it and keep the launcher and its harness child running; the desktop switcher sets it, so a directly started launcher leaves it unset |
 | `DSH_HOST_ROOTFS` | `/run/host/rootfs` when that mount exists | Written for the harness child process, not read by the launcher: the sandbox's read-only mount of the host root, which together with the next variable declares the host-escape channel. An existing value is never overwritten, so an empty one disables the channel |
 | `DSH_HOST_LAUNCH` | `systemd-run` when that forwarder resolves on `PATH` | Written for the harness child process, not read by the launcher: the forwarder that starts a process on the host, which is what lets the Open In menu offer host applications ([rationale](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.md)) |
 
