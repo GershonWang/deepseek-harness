@@ -1,14 +1,15 @@
 // 关窗行为与托盘唤回的用例。
 //
-// 这一组行为跨了两个进程（切换器发 SIGUSR1，本进程收下并显示窗口）与一次部署选择
+// 这一组行为跨了两个进程（切换器连唤回 socket，本进程收下并显示窗口）与一次部署选择
 // （DSH_DESKTOP_HIDE_ON_CLOSE），因此测试分三层钉住：环境变量到 closeAction 的解析、
 // OnBeforeClose 两条分支、以及唤回报文本身的安全性。
 package app
 
 import (
 	"context"
+	"net"
 	"os"
-	"syscall"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -114,28 +115,71 @@ func TestShowWindowWaitsForAReadyWindow(t *testing.T) {
 	}
 }
 
-// TestWatchShowSignalInvokesAction 覆盖信号到动作的接线，以及通道关闭后消费协程退出。
-func TestWatchShowSignalInvokesAction(t *testing.T) {
-	signals := make(chan os.Signal, 1)
-	called := make(chan struct{})
-	go WatchShowSignal(signals, func() { close(called) })
-	signals <- syscall.SIGUSR1
+// TestShowSocketRelIsPinned 钉死唤回通道的相对路径。
+//
+// 名字在 desktop-dual 的 switchboard 里另有一份字面量（两个模块互相无法 import）。改一边
+// 而另一边没跟上的表现是「点托盘没反应」，而切换器那边会把拨号失败当成客户端已死、再拉起
+// 一个——既不报错也没有明显日志。这个用例让改名必须同时改两处，各自失败一次。
+func TestShowSocketRelIsPinned(t *testing.T) {
+	if ShowSocketRel != ".cache/dsh-desktop/show.sock" {
+		t.Fatalf("唤回通道相对路径 = %q，期望 %q；改名必须同步 desktop-dual 的 switchboard",
+			ShowSocketRel, ".cache/dsh-desktop/show.sock")
+	}
+}
+
+// TestServeShowRequestsInvokesShow 覆盖唤回通道的主路径：连上并写一行即触发显示。
+func TestServeShowRequestsInvokesShow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "show.sock")
+	called := make(chan struct{}, 1)
+	stop, err := ServeShowRequests(path, func() { called <- struct{}{} })
+	if err != nil {
+		t.Fatalf("建立唤回通道失败: %v", err)
+	}
+	defer stop()
+
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("连接唤回通道失败: %v", err)
+	}
+	if _, err := conn.Write([]byte("show\n")); err != nil {
+		t.Fatalf("写唤回请求失败: %v", err)
+	}
+	_ = conn.Close()
 
 	select {
 	case <-called:
 	case <-time.After(2 * time.Second):
-		t.Fatal("收到 SIGUSR1 后未执行唤回动作")
+		t.Fatal("收到唤回请求后未执行显示动作")
 	}
+}
 
-	// 没有动作时也必须继续消费：否则信号会堆在通道里，看起来「注册了却不生效」。
-	closed := make(chan os.Signal, 1)
-	done := make(chan struct{})
-	go func() { WatchShowSignal(closed, nil); close(done) }()
-	closed <- syscall.SIGUSR1
-	close(closed)
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("通道关闭后 WatchShowSignal 应退出")
+// TestServeShowRequestsReplacesStaleSocket 覆盖上一次运行遗留 socket 文件的情形。
+//
+// 进程被 SIGKILL 或走 os.Exit 收尾时不会执行 stop，文件会留在原地；此时 bind 会因
+// EADDRINUSE 失败，而那正是「客户端从此唤不回来」的静默故障。
+func TestServeShowRequestsReplacesStaleSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "show.sock")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stop, err := ServeShowRequests(path, nil)
+	if err != nil {
+		t.Fatalf("已存在的陈旧 socket 文件不应阻止监听: %v", err)
+	}
+	stop()
+}
+
+// TestServeShowRequestsStopRemovesSocket 覆盖停止后通道确实消失：否则切换器会连上一个
+// 没有监听者的文件，把「客户端已退出」误判成「唤回成功」，窗口不动而用户以为点了没用。
+func TestServeShowRequestsStopRemovesSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "show.sock")
+	stop, err := ServeShowRequests(path, nil)
+	if err != nil {
+		t.Fatalf("建立唤回通道失败: %v", err)
+	}
+	stop()
+	stop() // 幂等
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("stop 之后 socket 文件应被删除, stat err = %v", err)
 	}
 }

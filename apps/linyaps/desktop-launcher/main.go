@@ -120,14 +120,20 @@ func runClient() {
 		os.Exit(0)
 	}()
 
-	// 托盘唤回：切换器向本进程发 SIGUSR1，表示「把窗口显示出来」。
+	// 托盘唤回：切换器连本进程的唤回 socket，表示「把窗口显示出来」。
 	//
-	// 与关窗行为是否启用无关地注册：未处理的 SIGUSR1 默认动作是终止进程，注册本身就把
-	// 「切换器发来一次信号」从「客户端被杀」降级为「窗口被显示」。必须早于 wails.Run——
-	// 窗口一旦可能出现，信号就可能到达，而覆盖期之外的信号没有任何补救机会。
-	showSig := make(chan os.Signal, 1)
-	signal.Notify(showSig, syscall.SIGUSR1)
-	go app.WatchShowSignal(showSig, controller.ShowWindow)
+	// 为什么不是信号：SIGUSR1 已被 WebKit 的 JavaScriptCore 接管（Go 收不到它），发过来
+	// 不是「显示窗口」而是打进 JSC 的 GC 机制——实测客户端进程当场消失、没有任何日志，
+	// harness 变成孤儿。见 internal/app 的 ShowSocketRel。
+	//
+	// 必须在 wails.Run 之前监听：窗口就绪之前到达的请求会被 ShowWindow 丢掉，但通道
+	// 本身要尽早可用，否则客户端刚起来的那段时间点托盘会被切换器误判成「客户端没在跑」。
+	// 建立失败不拦启动，只留痕：客户端仍然可用，那一次运行的唤回会退化为切换器报错。
+	if stopShow, err := app.ServeShowRequests(app.ShowSocketPath(home), controller.ShowWindow); err != nil {
+		log.Printf("唤回通道未建立: %v", err)
+	} else {
+		defer stopShow()
+	}
 
 	// 起始窗口状态：上次是最大化则本次也最大化
 	startState := options.Normal

@@ -68,7 +68,7 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 设置了 `DSH_DESKTOP_HIDE_ON_CLOSE=1` 时，关闭窗口——自绘标题栏的 ✕（走 Wails `runtime.Quit`）或窗口管理器的关闭——会保存窗口几何、隐藏窗口，launcher 与它的 harness 子进程继续运行。该变量只有桌面切换器（`apps/linyaps/desktop-dual`）拉起 launcher 时才会注入。
 
-唤回隐藏的窗口靠切换器向 launcher 发 `SIGUSR1`；launcher 收到后取消最小化并显示窗口，且无条件注册该处理器，因此无论变量是否设置，这个信号都生效。切换器的左键与「显示」走的就是这条通路。
+唤回隐藏的窗口走本地 Unix socket `~/.cache/dsh-desktop/show.sock`：launcher 在该路径上监听，收到请求即取消最小化并显示窗口；切换器的左键与「显示」都连它，连不上就报错，而不是再拉起一个客户端。这里不能用信号：`SIGUSR1` 已被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起，launcher 根本收不到。
 
 没有该变量时 launcher 保持默认行为：关窗即结束进程——单独出包的 `web` 就是这样，它不带切换器也不带托盘。装了切换器的包里真正的退出是托盘「退出」，它停掉整棵进程组；关窗不会结束客户端，也没有任何「客户端仍在后台运行」的桌面通知。
 

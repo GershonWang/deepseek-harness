@@ -17,6 +17,7 @@ package switchboard
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -54,16 +55,54 @@ const shellExecutable = "dsh-desktop-launcher"
 // 两边悄悄错开、表现为「点托盘显示没反应」这种没有报错也没有日志的失效。
 const hideOnCloseEnv = "DSH_DESKTOP_HIDE_ON_CLOSE"
 
-// showSignal 是要求薄壳客户端把窗口显示出来的信号。
+// showSocketRel 是薄壳客户端监听唤回请求的 Unix socket 路径，相对用户主目录。
 //
-// 取 SIGUSR1：不与客户端的其它信号用途冲突（SIGTERM 用于整组终止），而客户端无条件
-// 注册了它——未处理的 SIGUSR1 默认动作是终止进程，注册让一次误发从「客户端被杀」
-// 降级为「窗口被显示」。
-const showSignal = syscall.SIGUSR1
+// 为什么用 socket 而不是信号：薄壳客户端基于 Wails，Linux 上用的是 WebKit 的
+// JavaScriptCore，而 JSC 自己安装 SIGUSR1 处理器做 GC 线程的挂起/恢复。JSC 一旦接管，
+// Go 的 signal.Notify 就再也收不到这个信号，发出去的 SIGUSR1 等于直接打进 JSC 的 GC
+// 机制——实测第一次点托盘「显示」时客户端进程被立刻杀死、无任何日志，harness 沦为孤儿。
+// socket 客户端自己监听，触发语义与所有权都在我们手里，不再与运行时抢信号。
+//
+// 路径在 desktop-launcher 侧另有一份字面量（两个模块互相无法 import），两边互为镜像，
+// 各有一个用例把字面量钉死：改名时至少有一边的测试会红，而不是悄悄错开、表现为「点显示
+// 没反应」这种既没有报错也没有日志的失效。
+const showSocketRel = ".cache/dsh-desktop/show.sock"
 
-// signalProcess 是发信号的实现，抽成变量以便单测断言「显示」分支真的发了信号，
-// 而不必真的去启动一个客户端进程。
-var signalProcess = syscall.Kill
+// showPayload 是拨通唤回 socket 后写入的字节。
+//
+// 服务端只把「收到连接」当作唤回请求，内容不参与语义；固定写 "show\n" 是为了抓包或日志里
+// 一眼能看出这条连接的用途，同时避免服务端哪天改成按行读取时收到一个没有结束符的请求。
+const showPayload = "show\n"
+
+// showDialTimeout 是连接唤回 socket 的超时。
+//
+// 2s 远大于本机 Unix socket 的连接耗时，只用来兜住客户端正在退出、socket 文件已不可连的
+// 窗口期：没有超时的话 Present 会一直挂着，而它持着 s.mu，托盘之后的每次刷新与点击都会被
+// 一起堵死。
+const showDialTimeout = 2 * time.Second
+
+// dialShow 是唤回薄壳客户端的实现，抽成变量以便单测断言「显示」走的是拨号唤回，
+// 而不必真的拉起客户端或监听 socket。
+var dialShow = dialShowSocket
+
+// dialShowSocket 拨通 path 上的唤回 socket 并写入 showPayload。
+//
+// 只负责把请求送达：写完即关闭，不等服务端回应——客户端收到连接后显示窗口，那条路径与
+// 这里无关。连接或写入失败都原样返回，调用方必须报给用户，绝不回退成启动新客户端（薄壳
+// 客户端没有单实例锁，回退会与已在运行的那个抢同一个 dsh 端口与 ~/.dsh 状态）。
+// @param path - 唤回 socket 的绝对路径。
+// @returns 连接或写入失败的原因。
+func dialShowSocket(path string) error {
+	conn, err := net.DialTimeout("unix", path, showDialTimeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(showPayload)); err != nil {
+		return err
+	}
+	return nil
+}
 
 // stopGrace 是终止客户端进程组时等待优雅退出的时长；超时后整组强杀。
 //
@@ -236,7 +275,7 @@ func (s *Switchboard) Start() error {
 // 两种客户端的关闭语义不同，「显示」的含义因此也不同：官方 Electron 客户端有自己的
 // 单实例锁，再启动一次它会把请求转交给已运行的实例去还原窗口、随后自己退出；薄壳客户端
 // 没有单实例锁，再启动会真的多出一个进程去抢同一个 dsh 端口与 ~/.dsh 状态，所以要靠
-// showSignal 让已在运行的那个把窗口显示出来。
+// 唤回 socket（showShellLocked）让已在运行的那个把窗口显示出来。
 //
 // 薄壳客户端只有在由本切换器拉起时才关窗隐藏（见 hideOnCloseEnv）：其余情形关窗即退出，
 // 那时 runningLocked 已经是假，这里会走启动分支。
@@ -255,16 +294,21 @@ func (s *Switchboard) Present() error {
 
 // showShellLocked 让已在运行的薄壳客户端把窗口显示出来。调用方必须持有 s.mu。
 //
-// 没有可发送的子进程时为空操作而不是报错：runningLocked 与这里读的是同一个字段，中间
+// 唤回走本地 Unix socket：薄壳客户端启动时监听它，路径由 showSocketRel 钉死、两端互为
+// 镜像。拨号失败只把错误往上报，绝不回退成启动新客户端——那正是「点一下显示就叠出第二个
+// harness」的老毛病，两个进程会抢同一个 dsh 端口与 ~/.dsh 状态。
+//
+// 没有可唤回的子进程时为空操作而不是报错：runningLocked 与这里读的是同一个字段，中间
 // 不存在另一条改动路径，真走到那个分支说明状态刚被复位，此时报错只会给用户一条没有
 // 可操作内容的通知。
-// @returns 发送失败的原因；没有子进程时为空操作。
+// @returns 拨号或写入失败的原因；没有子进程时为空操作。
 func (s *Switchboard) showShellLocked() error {
 	if s.child == nil || s.child.Process == nil {
 		return nil
 	}
-	if err := signalProcess(s.child.Process.Pid, showSignal); err != nil {
-		return fmt.Errorf("showing the %s client: %w", ModeShell, err)
+	path := filepath.Join(s.home, showSocketRel)
+	if err := dialShow(path); err != nil {
+		return fmt.Errorf("showing the %s client through %s: %w", ModeShell, path, err)
 	}
 	return nil
 }

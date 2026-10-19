@@ -2,12 +2,13 @@ package switchboard
 
 import (
 	"errors"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -349,59 +350,149 @@ func TestClientEnvEnablesHideOnCloseForTheShellOnly(t *testing.T) {
 }
 
 // runningShell 造一个「薄壳客户端正在运行」的切换器状态，Present 的唤回分支据此进入。
+// @param home - 用户主目录，唤回 socket 的绝对路径由它推出。
 // @returns 已处于运行态的切换器。
-func runningShell() *Switchboard {
-	board := &Switchboard{}
+func runningShell(home string) *Switchboard {
+	board := &Switchboard{home: home}
 	board.child = &exec.Cmd{Process: &os.Process{Pid: 4242}}
 	board.exited = make(chan struct{})
 	board.current = ModeShell
 	return board
 }
 
-// TestPresentSignalsARunningShellToShowItself 覆盖「左键/显示」对薄壳客户端的落点。
+// TestPresentDialsARunningShellToShowItself 覆盖「左键/显示」对薄壳客户端的落点。
 //
 // 它在由切换器拉起时关窗只隐藏、进程仍在，因此这里不能再像以前那样空操作返回——那样
-// 用户点「显示」不会有任何反应。发信号而不是再启动一次：薄壳客户端没有单实例锁，
+// 用户点「显示」不会有任何反应。走唤回 socket 而不是再启动一次：薄壳客户端没有单实例锁，
 // 再启动会真的多出一个进程去抢同一个 dsh 端口与 ~/.dsh 状态。本用例因此同时守着
 // 「不重复启动」：唤回之后跟踪的子进程必须还是原来那一个。
-func TestPresentSignalsARunningShellToShowItself(t *testing.T) {
-	board := runningShell()
-	var gotPid int
-	var gotSig syscall.Signal
-	defer stubSignalProcess(func(pid int, sig syscall.Signal) error {
-		gotPid, gotSig = pid, sig
+//
+// 拨号路径必须正好由主目录推出：它和 desktop-launcher 侧的监听路径互为镜像，错开的表现
+// 是「点显示没反应」，没有任何报错可查。
+func TestPresentDialsARunningShellToShowItself(t *testing.T) {
+	home := t.TempDir()
+	board := runningShell(home)
+	var gotPath string
+	defer stubDialShow(func(path string) error {
+		gotPath = path
 		return nil
 	})()
 
 	if err := board.Present(); err != nil {
 		t.Fatalf("唤回薄壳客户端失败: %v", err)
 	}
-	if gotPid != 4242 || gotSig != showSignal {
-		t.Fatalf("发送 = (pid %d, sig %v)，期望 (4242, %v)", gotPid, gotSig, showSignal)
+	if want := filepath.Join(home, ".cache", "dsh-desktop", "show.sock"); gotPath != want {
+		t.Fatalf("唤回路径 = %q，期望 %q", gotPath, want)
 	}
 	if board.current != ModeShell || board.child == nil {
 		t.Fatal("唤回不应改动正在跟踪的客户端状态")
 	}
 }
 
-// TestPresentReportsShowSignalFailure 覆盖发送失败：不能静默当作已唤回，否则用户点了
+// TestPresentReportsShowDialFailure 覆盖拨号失败：不能静默当作已唤回，否则用户点了
 // 「显示」既没反应也没提示。
-func TestPresentReportsShowSignalFailure(t *testing.T) {
-	board := runningShell()
-	defer stubSignalProcess(func(int, syscall.Signal) error {
-		return errors.New("no such process")
+func TestPresentReportsShowDialFailure(t *testing.T) {
+	board := runningShell(t.TempDir())
+	defer stubDialShow(func(string) error {
+		return errors.New("connection refused")
 	})()
 
 	if err := board.Present(); err == nil {
-		t.Fatal("发信号失败时应返回错误")
+		t.Fatal("拨号失败时应返回错误")
 	}
 }
 
-// TestShowShellWithoutChildIsNoOp 覆盖子进程刚被复位的那一瞬：没有可发的进程时空操作，
+// TestPresentDoesNotLaunchOnShowDialFailure 覆盖关键回归：唤回失败绝不允许回退成
+// 「再启动一个客户端」。
+//
+// 薄壳客户端没有单实例锁，回退会真的多出一个进程去抢同一个 dsh 端口与 ~/.dsh 状态，
+// 也就是用户看到的「点一次显示就叠出第二个 harness」；本用例钉住原跟踪的子进程在失败后
+// 仍是同一个，而不是被 launchLocked 换成了新进程。
+func TestPresentDoesNotLaunchOnShowDialFailure(t *testing.T) {
+	board := runningShell(t.TempDir())
+	tracked := board.child
+	defer stubDialShow(func(string) error {
+		return errors.New("connection refused")
+	})()
+
+	err := board.Present()
+	if err == nil {
+		t.Fatal("拨号失败时应返回错误")
+	}
+	if board.child != tracked {
+		t.Fatal("唤回失败不得改为启动新客户端：跟踪的子进程被换掉了")
+	}
+	if board.current != ModeShell {
+		t.Fatalf("唤回失败不得改动当前形态，得到 %q", board.current)
+	}
+	if !strings.Contains(err.Error(), showSocketRel) {
+		t.Fatalf("错误应带上是哪条唤回通道出的问题，得到 %v", err)
+	}
+}
+
+// TestShowSocketPathIsPinned 钉死唤回 socket 的相对路径。
+//
+// 路径在 desktop-launcher 侧另有一份字面量（两个模块互相无法 import），改一边而另一边
+// 没跟上的表现是「托盘点了显示没反应」——既没有报错也没有日志。这个用例让改名必须同时改
+// 两处，且各自模块的测试都会失败一次。
+func TestShowSocketPathIsPinned(t *testing.T) {
+	if showSocketRel != ".cache/dsh-desktop/show.sock" {
+		t.Fatalf("唤回 socket 路径 = %q，期望 %q；改名必须同步 desktop-launcher 的监听路径",
+			showSocketRel, ".cache/dsh-desktop/show.sock")
+	}
+}
+
+// TestDialShowSocketWritesShowPayload 覆盖默认拨号实现的协议：真起一个 Unix socket
+// 监听端，断言它收到约定的请求字节。服务端按「收到连接」触发唤回，因此连接本身不能拨错
+// 地址，写入也不能是空字节——两者都会让客户端看不到请求。
+func TestDialShowSocketWritesShowPayload(t *testing.T) {
+	// 用短路径建目录：t.TempDir() 的名字带用例名，容易顶到 Unix socket 路径长度上限。
+	dir, err := os.MkdirTemp("", "show")
+	if err != nil {
+		t.Fatalf("准备临时目录失败: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	path := filepath.Join(dir, "show.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		t.Fatalf("监听唤回 socket 失败: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	received := make(chan string, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			received <- ""
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, len(showPayload))
+		if _, err := io.ReadFull(conn, buf); err != nil {
+			received <- ""
+			return
+		}
+		received <- string(buf)
+	}()
+
+	if err := dialShowSocket(path); err != nil {
+		t.Fatalf("拨号唤回 socket 失败: %v", err)
+	}
+	select {
+	case payload := <-received:
+		if payload != showPayload {
+			t.Fatalf("唤回请求 = %q，期望 %q", payload, showPayload)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("监听端未在限时内收到唤回请求")
+	}
+}
+
+// TestShowShellWithoutChildIsNoOp 覆盖子进程刚被复位的那一瞬：没有可唤回的进程时空操作，
 // 而不是给用户一条没有可操作内容的失败通知。
 func TestShowShellWithoutChildIsNoOp(t *testing.T) {
-	defer stubSignalProcess(func(int, syscall.Signal) error {
-		t.Fatal("没有子进程时不应发送信号")
+	defer stubDialShow(func(string) error {
+		t.Fatal("没有子进程时不应拨唤回 socket")
 		return nil
 	})()
 
@@ -410,11 +501,11 @@ func TestShowShellWithoutChildIsNoOp(t *testing.T) {
 	}
 }
 
-// stubSignalProcess 替换发送信号的实现。
+// stubDialShow 替换拨号唤回的实现。
 // @param fn - 替身实现。
 // @returns 还原函数。
-func stubSignalProcess(fn func(int, syscall.Signal) error) func() {
-	prev := signalProcess
-	signalProcess = fn
-	return func() { signalProcess = prev }
+func stubDialShow(fn func(path string) error) func() {
+	prev := dialShow
+	dialShow = fn
+	return func() { dialShow = prev }
 }

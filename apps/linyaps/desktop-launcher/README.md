@@ -68,7 +68,7 @@ When the plugin file cannot be written, or an in-flight harness build does not i
 
 With `DSH_DESKTOP_HIDE_ON_CLOSE=1` set, closing the window — the custom title bar's ✕, which goes through Wails `runtime.Quit`, or the window manager's close — saves the window geometry, hides the window, and leaves the launcher and its harness child running. Only the desktop switcher (`apps/linyaps/desktop-dual`) injects that variable when it starts the launcher.
 
-The switcher brings a hidden window back by sending `SIGUSR1`; the launcher unminimizes and shows the window, and it registers that handler unconditionally, so the signal works whether or not the variable is set. The switcher's left click and its Show entry send that signal.
+The switcher brings a hidden window back over a local Unix socket at `~/.cache/dsh-desktop/show.sock`: the launcher listens there and, on a request, unminimizes and shows the window. The switcher's left click and its Show entry both connect to it; if that connection fails the switcher reports the error instead of starting another client. A signal cannot carry this request, because `SIGUSR1` is claimed by WebKit's JavaScriptCore for GC thread suspension, so the launcher never receives it.
 
 Without the variable the launcher keeps its default behavior, where closing the window ends it. That is what the standalone `web` package does, since it ships neither switcher nor tray. In the packages that install the switcher, the real exit is the tray's Quit, which stops the whole process group; closing the window does not end the client, and no desktop notification announces that it still runs.
 

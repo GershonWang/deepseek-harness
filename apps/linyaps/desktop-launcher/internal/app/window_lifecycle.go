@@ -1,13 +1,18 @@
 // 本文件收敛「关窗之后如何把窗口唤回来」这一组动作：窗口层的注入点、供托盘触发的
-// ShowWindow，以及把信号接到动作上的接线。
+// ShowWindow，以及切换器用来触发它的本地通道。
 //
 // 为什么单独成文件：关窗行为现在由 closeAction 分叉（见 app.go 的 OnBeforeClose），
-// 而「隐藏之后还能被叫回来」这件事跨了两个进程——切换器发 SIGUSR1，本进程收下并显示。
+// 而「隐藏之后还能被叫回来」这件事跨了两个进程——切换器连唤回 socket，本进程收下并显示。
 // 把这一来一回的约定集中在一处，改的时候不容易只改一半。
 package app
 
 import (
+	"io"
+	"net"
 	"os"
+	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -68,18 +73,78 @@ func (a *App) ShowWindow() {
 	windowShow(ctx)
 }
 
-// WatchShowSignal 把「显示窗口」信号接到动作上，直到通道关闭。
+// ShowSocketRel 是唤回通道在用户家目录下的相对路径。
 //
-// 为什么注册信号的调用点必须在 main 里而不是本函数里：signal.Notify 要在任何一次隐藏
-// 之前生效，否则未处理的 SIGUSR1 会按默认动作终止进程——表现为「点托盘显示，客户端被
-// 杀」。main 在 wails.Run 之前注册，覆盖了窗口可能出现之前的整个窗口期；本函数只负责
-// 「收到就执行」，因此可以在没有 Wails 上下文的环境里被断言。
-// @param signals - 已由 signal.Notify 注册的通知通道。
-// @param show - 收到信号时执行的动作；为 nil 时只消费信号，不做任何事。
-func WatchShowSignal(signals <-chan os.Signal, show func()) {
-	for range signals {
-		if show != nil {
-			show()
-		}
+// 为什么不用信号：SIGUSR1 在 WebKit 里已经被 JavaScriptCore 拿走做 GC 线程的挂起与恢复
+// （Wails 的 Linux 前端在 install_signal_handlers 里专门注明：一旦 JSC 装上自己的
+// SIGUSR1 处理器，Go 就收不到它了）。发出去的那一下因此不是「显示窗口」，而是打进 JSC 的
+// GC 机制——实测客户端进程当场消失、没有任何日志，harness 变成孤儿，用户看到的是
+// 「点一次没反应、点第二次才开，而且开的是新进程」。换成另一个信号只是把同一个赌注再押
+// 一次：第三方库会占用哪些信号，是我们无法枚举的。
+//
+// 名字在 desktop-dual 的 switchboard 里另有一份字面量：两个模块各自独立，切换器无法
+// import 本包，共享常量要引入第三方模块。两边各写一份并互相点名，各自再有一个用例把
+// 字面量钉死——改名时至少有一个模块的测试失败，而不是两边悄悄错开、表现为「点托盘没反应」。
+const ShowSocketRel = ".cache/dsh-desktop/show.sock"
+
+// showRequestTimeout 是单个唤回请求从连上到读完的超时。
+//
+// 设上限只为防御：切换器连上就写一行然后关闭，正常路径立刻 EOF。没有它，一个连上却不
+// 发数据也不关闭的客户端会把 accept 循环堵在这里，后续唤回全部排队。
+const showRequestTimeout = 2 * time.Second
+
+// ShowSocketPath 把唤回通道的相对路径拼成绝对路径。
+// @param home - 用户主目录。
+// @returns 唤回通道的绝对路径。
+func ShowSocketPath(home string) string {
+	return filepath.Join(home, filepath.FromSlash(ShowSocketRel))
+}
+
+// ServeShowRequests 在 path 上监听唤回请求：每收到一次请求就执行 show，直到 stop 被调用。
+//
+// 协议刻意做到最简——连上、写任意内容、关闭即表示唤回，因此没有版本协商，也没有解析
+// 失败的分支要维护。服务端会读到 EOF 再动作，这样客户端「写成功」才是有意义的确认，
+// 而不是在服务端提前关闭时拿到一个假的 EPIPE。
+//
+// 监听建立失败不拦启动：客户端照常可用，只是这一次运行的唤回会退化为「切换器报错」，
+// 而不是悄悄再拉起一个客户端。调用方据此决定是记日志还是放弃。
+// @param path - socket 绝对路径；父目录不存在时会创建。
+// @param show - 收到请求时执行的动作；为 nil 时只消费请求。
+// @returns stop - 停止监听并删除 socket 文件（幂等）；err - 监听建立失败的原因。
+func ServeShowRequests(path string, show func()) (stop func(), err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
 	}
+	// 上一次运行留下的 socket 文件会让 bind 失败（EADDRINUSE），而它已经没有任何监听者。
+	// 进程被 SIGKILL 时不会执行 stop，所以这一步是常规路径，不是异常补救。
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	// 家目录通常已是 0700，这里再收一次：唤回通道能让窗口弹出来，不该开放给别的本地用户。
+	_ = os.Chmod(path, 0o600)
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return // 监听已关闭
+			}
+			_ = conn.SetDeadline(time.Now().Add(showRequestTimeout))
+			_, _ = io.Copy(io.Discard, conn)
+			_ = conn.Close()
+			if show != nil {
+				show()
+			}
+		}
+	}()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			_ = ln.Close()
+			_ = os.Remove(path)
+		})
+	}, nil
 }
