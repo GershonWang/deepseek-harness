@@ -1,11 +1,13 @@
 package switchboard
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -233,19 +235,6 @@ func TestPresentFocusesRunningOfficialClient(t *testing.T) {
 	}
 }
 
-// TestPresentIsNoOpForRunningShellClient 覆盖薄壳版：它关窗即退出，运行中说明窗口就在
-// 桌面上，没有可唤回的状态；此时再启动一个会撞 dsh 端口，因此必须是空操作。
-func TestPresentIsNoOpForRunningShellClient(t *testing.T) {
-	board := New(t.TempDir())
-	board.child = &exec.Cmd{}
-	board.exited = make(chan struct{})
-	board.current = ModeShell
-
-	if err := board.Present(); err != nil {
-		t.Fatalf("薄壳版运行中 Present 应为空操作，得到 %v", err)
-	}
-}
-
 // TestClientCommandRejectsUnknownMode 覆盖未知形态不会退化成「启动自己」：
 // 返回错误而不是一个看似可用的命令。
 func TestClientCommandRejectsUnknownMode(t *testing.T) {
@@ -317,4 +306,99 @@ func TestClientCommandReportsMissingClients(t *testing.T) {
 			t.Fatalf("%s 形态在客户端缺失时应报错，却返回 %q", mode, path)
 		}
 	}
+}
+
+// TestHideOnCloseEnvNameIsPinned 钉死环境变量名。
+//
+// 名字在 desktop-launcher 的 internal/app 里另有一份字面量（两个模块互相无法 import），
+// 改一边而另一边没跟上的表现是「托盘点了没反应」——既没有报错也没有日志。这个用例让改名
+// 必须同时改两处，且各自模块的测试都会失败一次。
+func TestHideOnCloseEnvNameIsPinned(t *testing.T) {
+	if hideOnCloseEnv != "DSH_DESKTOP_HIDE_ON_CLOSE" {
+		t.Fatalf("环境变量名 = %q，期望 %q；改名必须同步 desktop-launcher 的 HideOnCloseEnv",
+			hideOnCloseEnv, "DSH_DESKTOP_HIDE_ON_CLOSE")
+	}
+}
+
+// TestClientEnvEnablesHideOnCloseForTheShellOnly 覆盖环境注入：只有薄壳客户端需要被告知
+// 「关窗只隐藏」（托盘是隐藏之后唯一能把它叫回来的入口）；官方客户端自带 Electron 的
+// 关窗隐藏语义，多带一份用不上的变量只会让排查时多一个干扰项。
+func TestClientEnvEnablesHideOnCloseForTheShellOnly(t *testing.T) {
+	if shell := clientEnv(ModeShell); !slices.Contains(shell, hideOnCloseEnv+"=1") {
+		t.Fatalf("薄壳客户端的环境里应含 %s=1，实际 %v", hideOnCloseEnv, shell)
+	}
+	if official := clientEnv(ModeOfficial); official != nil {
+		t.Fatalf("官方客户端应继承本进程环境（nil），实际 %v", official)
+	}
+}
+
+// runningShell 造一个「薄壳客户端正在运行」的切换器状态，Present 的唤回分支据此进入。
+// @returns 已处于运行态的切换器。
+func runningShell() *Switchboard {
+	board := &Switchboard{}
+	board.child = &exec.Cmd{Process: &os.Process{Pid: 4242}}
+	board.exited = make(chan struct{})
+	board.current = ModeShell
+	return board
+}
+
+// TestPresentSignalsARunningShellToShowItself 覆盖「左键/显示」对薄壳客户端的落点。
+//
+// 它在由切换器拉起时关窗只隐藏、进程仍在，因此这里不能再像以前那样空操作返回——那样
+// 用户点「显示」不会有任何反应。发信号而不是再启动一次：薄壳客户端没有单实例锁，
+// 再启动会真的多出一个进程去抢同一个 dsh 端口与 ~/.dsh 状态。本用例因此同时守着
+// 「不重复启动」：唤回之后跟踪的子进程必须还是原来那一个。
+func TestPresentSignalsARunningShellToShowItself(t *testing.T) {
+	board := runningShell()
+	var gotPid int
+	var gotSig syscall.Signal
+	defer stubSignalProcess(func(pid int, sig syscall.Signal) error {
+		gotPid, gotSig = pid, sig
+		return nil
+	})()
+
+	if err := board.Present(); err != nil {
+		t.Fatalf("唤回薄壳客户端失败: %v", err)
+	}
+	if gotPid != 4242 || gotSig != showSignal {
+		t.Fatalf("发送 = (pid %d, sig %v)，期望 (4242, %v)", gotPid, gotSig, showSignal)
+	}
+	if board.current != ModeShell || board.child == nil {
+		t.Fatal("唤回不应改动正在跟踪的客户端状态")
+	}
+}
+
+// TestPresentReportsShowSignalFailure 覆盖发送失败：不能静默当作已唤回，否则用户点了
+// 「显示」既没反应也没提示。
+func TestPresentReportsShowSignalFailure(t *testing.T) {
+	board := runningShell()
+	defer stubSignalProcess(func(int, syscall.Signal) error {
+		return errors.New("no such process")
+	})()
+
+	if err := board.Present(); err == nil {
+		t.Fatal("发信号失败时应返回错误")
+	}
+}
+
+// TestShowShellWithoutChildIsNoOp 覆盖子进程刚被复位的那一瞬：没有可发的进程时空操作，
+// 而不是给用户一条没有可操作内容的失败通知。
+func TestShowShellWithoutChildIsNoOp(t *testing.T) {
+	defer stubSignalProcess(func(int, syscall.Signal) error {
+		t.Fatal("没有子进程时不应发送信号")
+		return nil
+	})()
+
+	if err := (&Switchboard{}).showShellLocked(); err != nil {
+		t.Fatalf("没有子进程时应为空操作，得到 %v", err)
+	}
+}
+
+// stubSignalProcess 替换发送信号的实现。
+// @param fn - 替身实现。
+// @returns 还原函数。
+func stubSignalProcess(fn func(int, syscall.Signal) error) func() {
+	prev := signalProcess
+	signalProcess = fn
+	return func() { signalProcess = prev }
 }

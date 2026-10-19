@@ -46,6 +46,25 @@ const officialExecutable = "dsh-desktop-official"
 // 变成运行期才知道的事。
 const shellExecutable = "dsh-desktop-launcher"
 
+// hideOnCloseEnv 是告诉薄壳客户端「关窗只隐藏窗口」的环境变量名。
+//
+// 名字在 desktop-launcher 的 internal/app 里另有一份字面量（见那边的 HideOnCloseEnv）：
+// 两个模块各自独立，切换器无法 import 它，为共享一个字符串引入第三方模块不划算。
+// 两边互相点名，并各有一个用例把字面量钉死——改名时至少有一个模块的测试失败，而不是
+// 两边悄悄错开、表现为「点托盘显示没反应」这种没有报错也没有日志的失效。
+const hideOnCloseEnv = "DSH_DESKTOP_HIDE_ON_CLOSE"
+
+// showSignal 是要求薄壳客户端把窗口显示出来的信号。
+//
+// 取 SIGUSR1：不与客户端的其它信号用途冲突（SIGTERM 用于整组终止），而客户端无条件
+// 注册了它——未处理的 SIGUSR1 默认动作是终止进程，注册让一次误发从「客户端被杀」
+// 降级为「窗口被显示」。
+const showSignal = syscall.SIGUSR1
+
+// signalProcess 是发信号的实现，抽成变量以便单测断言「显示」分支真的发了信号，
+// 而不必真的去启动一个客户端进程。
+var signalProcess = syscall.Kill
+
 // stopGrace 是终止客户端进程组时等待优雅退出的时长；超时后整组强杀。
 // 客户端自身已有较长的优雅退出路径（保存窗口状态、停 harness），过短会留下残留。
 const stopGrace = 5 * time.Second
@@ -192,12 +211,16 @@ func (s *Switchboard) Start() error {
 	return s.launchLocked(s.cfg.DefaultMode)
 }
 
-// Present 把客户端显示给用户，是托盘左键的唯一入口。
+// Present 把客户端显示给用户，是托盘左键与菜单「显示」的唯一入口。
 //
-// 三种情形对应两种客户端各自的关闭语义：薄壳客户端关窗即退出进程，官方客户端关窗只是
-// 隐藏窗口、进程仍在（Linux 上它没有自己的托盘，唯一回得来的方式就是再被叫一次）。
-// 因此「显示」在官方版上等于唤回已隐藏的窗口，在薄壳版上等于重新启动。
-// @returns 启动或唤回失败的原因；薄壳客户端已在运行时为空操作并返回 nil。
+// 两种客户端的关闭语义不同，「显示」的含义因此也不同：官方 Electron 客户端有自己的
+// 单实例锁，再启动一次它会把请求转交给已运行的实例去还原窗口、随后自己退出；薄壳客户端
+// 没有单实例锁，再启动会真的多出一个进程去抢同一个 dsh 端口与 ~/.dsh 状态，所以要靠
+// showSignal 让已在运行的那个把窗口显示出来。
+//
+// 薄壳客户端只有在由本切换器拉起时才关窗隐藏（见 hideOnCloseEnv）：其余情形关窗即退出，
+// 那时 runningLocked 已经是假，这里会走启动分支。
+// @returns 启动或唤回失败的原因。
 func (s *Switchboard) Present() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,9 +228,25 @@ func (s *Switchboard) Present() error {
 		if s.current == ModeOfficial {
 			return s.focusOfficialLocked()
 		}
-		return nil
+		return s.showShellLocked()
 	}
 	return s.launchLocked(s.cfg.DefaultMode)
+}
+
+// showShellLocked 让已在运行的薄壳客户端把窗口显示出来。调用方必须持有 s.mu。
+//
+// 没有可发送的子进程时为空操作而不是报错：runningLocked 与这里读的是同一个字段，中间
+// 不存在另一条改动路径，真走到那个分支说明状态刚被复位，此时报错只会给用户一条没有
+// 可操作内容的通知。
+// @returns 发送失败的原因；没有子进程时为空操作。
+func (s *Switchboard) showShellLocked() error {
+	if s.child == nil || s.child.Process == nil {
+		return nil
+	}
+	if err := signalProcess(s.child.Process.Pid, showSignal); err != nil {
+		return fmt.Errorf("showing the %s client: %w", ModeShell, err)
+	}
+	return nil
 }
 
 // runningLocked 报告当前是否真有一个客户端在跑。调用方必须持有 s.mu。
@@ -312,6 +351,7 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 		return err
 	}
 	cmd := exec.Command(path, args...)
+	cmd.Env = clientEnv(mode)
 	// 独立进程组：客户端自己还会拉起 harness 与 Electron 的辅助进程，
 	// 只有整组终止才能保证切换后不残留占着 dsh 端口的孤儿。
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -324,8 +364,9 @@ func (s *Switchboard) launchLocked(mode Mode) error {
 	s.child = cmd
 	s.current = mode
 	s.exited = exited
-	// 回收子进程，避免僵尸；客户端被用户直接关窗时这里也会醒来，
-	// 把状态复位成「没有客户端在跑」，托盘随之反映未运行态。
+	// 回收子进程，避免僵尸；客户端进程结束时这里也会醒来，把状态复位成「没有客户端
+	// 在跑」，托盘随之反映未运行态。注意薄壳客户端的关窗不再必然走到这里：由本切换器
+	// 拉起时它只隐藏窗口、进程继续运行（见 hideOnCloseEnv 与 showShellLocked）。
 	go s.reap(cmd, exited)
 	return nil
 }
@@ -427,6 +468,20 @@ func (s *Switchboard) saveLocked() error {
 		return err
 	}
 	return os.WriteFile(s.configPath, append(raw, '\n'), 0o644)
+}
+
+// clientEnv 返回拉起某种客户端形态时附加的环境。
+//
+// 薄壳客户端只有在由本切换器拉起时才关窗隐藏：托盘是隐藏之后唯一能把它叫回来的入口，
+// 而这条通道只有本进程提供。官方客户端自带 Electron 的关窗隐藏语义，不需要这个变量，
+// 因此返回 nil 让它继承本进程环境，而不是带上一份用不上的变量。
+// @param mode - 客户端形态。
+// @returns 子进程环境；nil 表示继承。
+func clientEnv(mode Mode) []string {
+	if mode != ModeShell {
+		return nil
+	}
+	return append(os.Environ(), hideOnCloseEnv+"=1")
 }
 
 // clientCommand 解析一种客户端形态的可执行文件与参数。
