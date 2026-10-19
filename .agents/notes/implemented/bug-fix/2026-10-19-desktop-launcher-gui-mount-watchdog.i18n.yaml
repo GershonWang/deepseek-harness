@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for 2026-10-19-desktop-launcher-gui-mount-watchdog.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-10-19-desktop-launcher-gui-mount-watchdog.md
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget:
+  en: d2cb14b3b7724db6
+  zh: 6b425dcb501f5132
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/problem:
+  en: 6ed7e318f478423c
+  zh: 11ca8775309df2ba
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/decision:
+  en: c90e0be7e0094561
+  zh: 521bde382bd8bbfb
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/alternatives-considered:
+  en: afdc4f2e2695885b
+  zh: d4fcc59d2316628c
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/consequences:
+  en: e97666cad992ab02
+  zh: 43ca1c17c2bc0e3f
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/testing:
+  en: 045347e6aee2b5b1
+  zh: 4c41faf0012dfa5f
+/agent-note-desktop-launcher-gui-mount-watchdog-time-basis-and-reload-budget/related:
+  en: 73200d38c65d935a
+  zh: 55596220a52b0152
