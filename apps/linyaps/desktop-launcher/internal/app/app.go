@@ -186,9 +186,9 @@ type App struct {
 	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
 	closeAction CloseAction
 
-	// windowGone 在 OnShutdown 入口置位：那一刻 Wails 已经销毁窗口、GTK 主循环也已
-	// 退出，此后任何窗口读取都会永久阻塞（见 Shutdown）。信号路径据此跳过可选的
-	// 窗口状态保存，避免在一个已经不可读的窗口上等到进程被强杀。
+	// windowGone 在 OnShutdown 入口置位：那一刻 Wails 已经销毁窗口，此后窗口读不得
+	// （见 Shutdown）。信号路径据此跳过可选的窗口状态保存，不做一次注定读不到东西、
+	// 还可能反过来把进程退出拖住的尝试。
 	windowGone atomic.Bool
 
 	// showCtxMu 保护 showCtx。单独一把锁而不是复用 mu：唤回由 main 里的信号 goroutine
@@ -473,8 +473,8 @@ func (a *App) OnBeforeClose(ctx context.Context) bool {
 // OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
 // 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
 //
-// 窗口状态不在这里保存：OnBeforeClose 已经存过，而此刻窗口已被 Wails 销毁、
-// GTK 主循环也已退出，任何窗口读取都不会返回（见 Shutdown 的说明）。
+// 窗口状态不在这里保存：OnBeforeClose 已经存过，而此刻窗口已被 Wails 销毁，读它要么
+// 等不到 GTK 主线程执行、要么是在读已释放的对象（见 Shutdown 的说明）。
 func (a *App) OnShutdown(_ context.Context) {
 	a.windowGone.Store(true)
 	a.logf("shutdown: 进入 OnShutdown（窗口已销毁）")
@@ -532,8 +532,9 @@ func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
 }
 
 // saveWindowState 读取当前窗口状态并写入配置文件。
-// 最大化时用 tick 记录的还原几何代替全屏几何；窗口已不可读（SIGTERM 等
-// 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
+// 最大化时用 tick 记录的还原几何代替全屏几何；读到的几何不可用（窗口刚建好、已最小化
+// 等情形会给出 0 或过小的值）时跳过，以免覆盖配置里已有的好数据。这个兜底处理的是
+// 「能读但没用」的读数，不涉及窗口已销毁的情形——那种情形压根不该走到这里。
 //
 // 每个窗口读取都只能在窗口存活、且 GTK 主循环还能把请求排空时发起：窗口已销毁时，
 // 等待主线程的那条路无人唤醒，绕过等待的那条路则是在读已释放的对象。这正是它不能被

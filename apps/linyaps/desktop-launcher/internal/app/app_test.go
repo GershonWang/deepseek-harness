@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -715,19 +716,17 @@ func TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown(t *testing.T) {
 func TestShutdownFromSignal_BoundsWindowReadWait(t *testing.T) {
 	prevSize, prevPos, prevMax := windowGetSize, windowGetPosition, windowIsMaximised
 	release := make(chan struct{})
-	// readDone 在桩里被拖住的那次读取返回时关闭。没有它，收尾 goroutine 可能在注入点
-	// 已还原之后才继续跑，去调真正的 runtime（那会用无效 context 触发 Wails 的致命守卫）。
-	readDone := make(chan struct{})
-	windowGetSize = func(context.Context) (int, int) {
-		defer close(readDone)
-		<-release
-		return 0, 0 // 越界，saveWindowState 随即提前返回，不会再碰另外两个注入点
-	}
-	windowGetPosition = func(context.Context) (int, int) { return 0, 0 }
-	windowIsMaximised = func(context.Context) bool { return false }
+	// saveWindowState 先无条件读三项，越界早退发生在三次读取之后。因此必须等满三次再
+	// 还原注入点：只等第一次就还原，那条仍在跑的收尾 goroutine 还会拿 context.Background()
+	// 去调真正的 runtime，触发 Wails 的致命守卫，把整个测试二进制带走。
+	var reads sync.WaitGroup
+	reads.Add(3)
+	windowGetSize = func(context.Context) (int, int) { defer reads.Done(); <-release; return 0, 0 }
+	windowGetPosition = func(context.Context) (int, int) { defer reads.Done(); <-release; return 0, 0 }
+	windowIsMaximised = func(context.Context) bool { defer reads.Done(); <-release; return false }
 	t.Cleanup(func() {
 		close(release)
-		<-readDone
+		reads.Wait()
 		windowGetSize, windowGetPosition, windowIsMaximised = prevSize, prevPos, prevMax
 	})
 
