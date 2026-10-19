@@ -124,6 +124,17 @@ var cjk = regexp.MustCompile(`[\x{3000}-\x{303F}\x{3400}-\x{4DBF}\x{4E00}-\x{9FF
 // 键是仓库相对路径，值是允许出现在该文件里的字面量原文；精确到字面量而非整个文件，
 // 是为了让「同一个文件里新写的用户文案」仍然被拦下。
 var allowedChinese = map[string][]string{
+	"internal/app/app.go": {
+		// 生命周期诊断日志：写在 ~/.cache/dsh-desktop/harness.log（经 supervisor.Logf），
+		// 只回答「关窗走的是隐藏还是退出、收尾从哪条路径进入」。它面向读日志排障的人，
+		// 不随界面语言变化，界面里也不会出现——正是这几行把「窗口没了、进程还在、
+		// harness 变孤儿」这类终止路径故障变成可判读的事实。
+		"shutdown: 开始收尾",
+		"shutdown: 收尾完成",
+		"shutdown: 进入 OnShutdown（窗口已销毁）",
+		"close: 关窗即退出（该部署未启用隐藏）",
+		"close: 关窗仅隐藏窗口，进程与 harness 继续运行",
+	},
 	"internal/app/autodisabled.go": {
 		"无法序列化已提示记录: ",
 		"无法创建运行时目录: ",

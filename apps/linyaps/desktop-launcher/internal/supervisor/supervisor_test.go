@@ -382,3 +382,30 @@ func TestLogSink_UnavailableIsNoop(t *testing.T) {
 	}
 	s.Close() // 幂等，不应 panic
 }
+
+// TestLogf_WritesCallerTagAndMessage 覆盖 Logf 作为启动器唯一落盘通道的两个要点：
+// 行首带调用方标记（同一份文件里要能分清监护循环与 App 层），以及日志未打开时静默丢弃。
+func TestLogf_WritesCallerTagAndMessage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "harness.log")
+	sink := newLogSink(path)
+	s := &Supervisor{stdoutLog: newTimedWriter(sink, "stdout")}
+
+	s.Logf("launcher", "close: %s", "关窗仅隐藏窗口")
+	sink.Close()
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "[launcher] close: 关窗仅隐藏窗口") {
+		t.Fatalf("日志行缺少标记或正文, got %q", raw)
+	}
+}
+
+// TestLogf_NoopBeforeLogOpen 覆盖日志尚未打开（首个 harness 还没 spawn）时的降级：
+// 丢弃而不是 panic，否则启动早期的生命周期事件会让进程崩在写日志上。
+func TestLogf_NoopBeforeLogOpen(t *testing.T) {
+	s := &Supervisor{}
+	s.Logf("launcher", "shutdown: %s", "开始收尾") // 不应 panic
+}

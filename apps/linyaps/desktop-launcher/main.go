@@ -110,11 +110,13 @@ func runClient() {
 	controller := app.New(resolved, home, app.ExternalConfigFilePath(), app.CloseActionFromEnv())
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
+	// 走 ShutdownFromSignal 而不是 Shutdown：这条路进来时窗口通常还活着，可以补存
+	// 一次窗口几何；而 OnShutdown 那条路窗口已销毁，读窗口会永久阻塞（见它的说明）。
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		controller.Shutdown()
+		controller.ShutdownFromSignal()
 		os.Exit(0)
 	}()
 

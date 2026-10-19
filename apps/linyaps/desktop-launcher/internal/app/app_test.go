@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -599,5 +600,107 @@ func TestPackageVersion_MatchesPackaging(t *testing.T) {
 	}
 	if packaging.Version == "" {
 		t.Error("packaging.Version 为空，标题栏会显示空白")
+	}
+}
+
+// stubWindowReads 把三个窗口读取动作换成桩，返回「是否被读过」的查询入口。
+//
+// 读窗口是同步等 GTK 主线程的调用（Wails 的 window.Size() 内部是 invokeOnMainThread
+// 加 wg.Wait），主循环退出后不会返回——真踩上去用例会挂死而不是失败，所以这条不变式
+// 只能在 seam 上断言。桩返回可用几何，避免「读到越界值提前 return」把调用事实掩盖掉。
+// @param t - 测试上下文，用于收尾时还原注入点。
+// @returns 是否至少读过一次窗口几何。
+func stubWindowReads(t *testing.T) func() bool {
+	t.Helper()
+	var read atomic.Bool
+	prevSize, prevPos, prevMax := windowGetSize, windowGetPosition, windowIsMaximised
+	windowGetSize = func(context.Context) (int, int) { read.Store(true); return 1200, 800 }
+	windowGetPosition = func(context.Context) (int, int) { read.Store(true); return 10, 20 }
+	windowIsMaximised = func(context.Context) bool { read.Store(true); return false }
+	t.Cleanup(func() {
+		windowGetSize, windowGetPosition, windowIsMaximised = prevSize, prevPos, prevMax
+	})
+	return read.Load
+}
+
+// shutdownTestApp 造一个收尾路径用得到的 App：harness 命令不存在（spawn 立即失败，
+// Stop 快速安全），并带上 doctor 执行器与独立的临时家目录。
+// @param t - 测试上下文。
+// @returns 就绪的 App 与它的家目录。
+func shutdownTestApp(t *testing.T) (*App, string) {
+	t.Helper()
+	home := t.TempDir()
+	return &App{
+		conn:            connector.New(),
+		sup:             supervisor.NewSupervisor(supervisor.Config{Command: "dsh-no-such-bin", LogDir: t.TempDir()}, supervisor.DefaultOptions()),
+		home:            home,
+		preflightRunner: preflight.NewRunner("sh", writeBusyLoop(t), nil, t.TempDir()),
+	}, home
+}
+
+// TestShutdown_DoesNotReadWindowGeometry 钉住「收尾路径绝不读窗口」。
+//
+// 窗口关闭路径上 Wails 的次序是「GTK 主循环退出 → 销毁窗口 → OnShutdown」，而窗口
+// 查询要回主线程执行，主循环既已退出就永不返回。这条路径曾经第一句就是
+// saveWindowState()，于是 harness 的停止被挡在一个不返回的调用身后：窗口没了、
+// 启动器进程还在、harness 变成孤儿继续占着 dsh 端口与 ~/.dsh，用户看到的是
+// 「退出不干净，ll-cli ps 还有进程」以及下一次启动叠出第二个 harness。
+func TestShutdown_DoesNotReadWindowGeometry(t *testing.T) {
+	readWindow := stubWindowReads(t)
+	a, _ := shutdownTestApp(t)
+	defer a.sup.Stop()
+	// ctx 必须非空：saveWindowState 以 a.ctx == nil 提前返回，不设它这条用例会空转
+	// ——曾经就是这样漏掉了根因（反向探针把 saveWindowState 放回去仍然通过）。
+	a.ctx = context.Background()
+
+	a.Shutdown()
+
+	if readWindow() {
+		t.Fatal("Shutdown 读了窗口几何：OnShutdown 路径上 GTK 主循环已退出，该调用不会返回（见 Shutdown 的说明）")
+	}
+}
+
+// TestShutdownFromSignal_SavesWindowState 钉住信号路径仍会补存窗口几何。
+//
+// 与 OnShutdown 相反，这条路进来时窗口通常还活着，它是进程被外部信号杀掉时唯一还能
+// 存下窗口几何的时机——OnBeforeClose 只有 CloseQuits 那条路才会先存一次。
+func TestShutdownFromSignal_SavesWindowState(t *testing.T) {
+	readWindow := stubWindowReads(t)
+	a, home := shutdownTestApp(t)
+	defer a.sup.Stop()
+	a.ctx = context.Background()
+
+	a.ShutdownFromSignal()
+
+	if !readWindow() {
+		t.Fatal("ShutdownFromSignal 未读窗口：窗口仍存活时应当补存窗口几何")
+	}
+	st, err := LoadWindowState(home)
+	if err != nil {
+		t.Fatalf("读取窗口状态失败: %v", err)
+	}
+	if st.Width != 1200 || st.Height != 800 || st.X != 10 || st.Y != 20 {
+		t.Fatalf("窗口状态未按当前窗口写入: %+v", st)
+	}
+}
+
+// TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown 钉住窗口已销毁时不再读窗口。
+//
+// OnShutdown 已置位 windowGone，此时读取同样永不返回；信号路径本身只负责清理，
+// 跳过这一步不影响它要保证的事（harness 必须被停掉）。
+func TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown(t *testing.T) {
+	readWindow := stubWindowReads(t)
+	a, home := shutdownTestApp(t)
+	defer a.sup.Stop()
+	a.ctx = context.Background()
+	a.windowGone.Store(true)
+
+	a.ShutdownFromSignal()
+
+	if readWindow() {
+		t.Fatal("窗口已销毁时 ShutdownFromSignal 仍读了窗口几何")
+	}
+	if st, err := LoadWindowState(home); err == nil && st.Width == 1200 {
+		t.Fatal("窗口已销毁时不应把当前窗口几何写进配置")
 	}
 }

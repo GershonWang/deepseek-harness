@@ -15,10 +15,18 @@ import (
 // Wails 的窗口动作以包级变量暴露，供单测替换：runtime 是一组包级函数，没有接口可注入，
 // 而 OnBeforeClose 与 ShowWindow 的分支行为必须能被断言。同 internal/clipboard 里
 // socketDial 的做法。
+//
+// 读取类的三个动作（尺寸/位置/最大化）也在这里收口，理由不只是可测：它们是同步等
+// GTK 主线程的调用（Wails 的 window.Size() 是 invokeOnMainThread + wg.Wait），
+// 主循环退出后不会返回。谁在什么时机读窗口因此是一条需要被断言的不变式，
+// 见 app.go 的 Shutdown 与 saveWindowState。
 var (
-	windowHide       = runtime.WindowHide
-	windowShow       = runtime.WindowShow
-	windowUnminimise = runtime.WindowUnminimise
+	windowHide        = runtime.WindowHide
+	windowShow        = runtime.WindowShow
+	windowUnminimise  = runtime.WindowUnminimise
+	windowGetSize     = runtime.WindowGetSize
+	windowGetPosition = runtime.WindowGetPosition
+	windowIsMaximised = runtime.WindowIsMaximised
 )
 
 // HideOnCloseEnv 是切换器用来指定「关窗只隐藏」的环境变量名。

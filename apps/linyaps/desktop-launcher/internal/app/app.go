@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -185,6 +186,11 @@ type App struct {
 	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
 	closeAction CloseAction
 
+	// windowGone 在 OnShutdown 入口置位：那一刻 Wails 已经销毁窗口、GTK 主循环也已
+	// 退出，此后任何窗口读取都会永久阻塞（见 Shutdown）。信号路径据此跳过可选的
+	// 窗口状态保存，避免在一个已经不可读的窗口上等到进程被强杀。
+	windowGone atomic.Bool
+
 	// showCtxMu 保护 showCtx。单独一把锁而不是复用 mu：唤回由 main 里的信号 goroutine
 	// 触发，它与 OnStartup 并发；a.ctx 的其它读者都住在 OnStartup 之后才启动的
 	// goroutine 里，没有这个问题，因此不动它们。
@@ -283,15 +289,54 @@ func ExternalConfigFilePath() string {
 
 // Shutdown 停止 harness 子进程、后台 doctor 和所有终端会话
 // （窗口关闭与外置信号两路共用；幂等）。
-// SIGTERM 路径不经过 OnBeforeClose，这里补一次窗口状态保存；正常关闭
-// 路径 OnBeforeClose 已保存过，saveWindowState 内部对无效读数会跳过。
+//
+// 这里绝不读取窗口。窗口关闭路径上 Wails 的顺序是「GTK 主循环退出 → 销毁窗口 →
+// 调用 OnShutdown」（internal/app/app_production.go 的 Run），而窗口查询要在 GTK
+// 主线程上执行（Wails 的 window.Size() 内部是 invokeOnMainThread + wg.Wait），
+// 主循环既已退出，那个等待就永远不会返回。这条路径曾经第一句是 saveWindowState()，
+// 于是 harness 的停止被一个永不返回的调用挡在身后：窗口没了、启动器进程还在、
+// harness 变成孤儿继续占着 dsh 端口与 ~/.dsh 状态。用户看到的是「退出不干净，
+// ll-cli ps 还有进程」，以及下一次启动叠出第二个 harness、会话被报「正在使用中」。
+//
+// 顺序同样是契约：harness 必须第一个停。它后面两步各自有界（doctor 最长 2s；
+// 终端每会话最长 5s 且串行），一旦它们拖长，harness 也已经停了——切换器在宽限期
+// 之后强杀启动器时，就不会留下孤儿。
 func (a *App) Shutdown() {
-	a.saveWindowState()
+	a.logf("shutdown: 开始收尾")
 	a.sup.Stop()
 	a.stopDoctor()
 	if a.term != nil {
 		a.term.CloseAll()
 	}
+	a.logf("shutdown: 收尾完成")
+}
+
+// ShutdownFromSignal 在进程被外部信号终止（SIGTERM/SIGINT，如桌面管理器退出）时收尾。
+//
+// 与窗口关闭路径的唯一差别是：这条路进来时窗口通常还活着、主循环也在，因此可以补存
+// 一次窗口几何——CloseQuits 下 OnBeforeClose 已经存过，但进程被直接杀掉或崩溃时走不到
+// 那一步，靠这里兜底；窗口已经销毁（OnShutdown 已置位 windowGone）时跳过，因为那时
+// 任何窗口读取都会永久阻塞。
+//
+// 顺序刻意是「先清理、后读窗口」：读窗口是唯一可能阻塞的一步，不能让它挡在 harness
+// 停止之前——这正是 Shutdown 的注释里记着的那次事故的成因。
+func (a *App) ShutdownFromSignal() {
+	a.Shutdown()
+	if a.windowGone.Load() {
+		return
+	}
+	a.saveWindowState()
+}
+
+// logf 记录启动器级生命周期事件，落在 harness.log（见 supervisor.Logf）。
+//
+// 关窗走的是「隐藏」还是「退出」、收尾从哪条路径进入，这两件事决定了窗口关掉之后
+// 进程与 harness 该不该还在；没有这行记录，事后只能靠猜。
+func (a *App) logf(format string, args ...any) {
+	if a.sup == nil {
+		return
+	}
+	a.sup.Logf("launcher", format, args...)
 }
 
 // stopDoctor 取消正在运行的 doctor 进程并等待它退出。
@@ -391,16 +436,22 @@ func (a *App) OnStartup(ctx context.Context) {
 func (a *App) OnBeforeClose(ctx context.Context) bool {
 	a.saveWindowState()
 	if a.closeAction != CloseHides {
+		a.logf("close: 关窗即退出（该部署未启用隐藏）")
 		return false
 	}
+	a.logf("close: 关窗仅隐藏窗口，进程与 harness 继续运行")
 	windowHide(ctx)
 	return true
 }
 
 // OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
 // 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
-// 窗口状态已在 OnBeforeClose 保存，这里不再重复（窗口已销毁，读取必然为 0）。
+//
+// 窗口状态不在这里保存：OnBeforeClose 已经存过，而此刻窗口已被 Wails 销毁、
+// GTK 主循环也已退出，任何窗口读取都不会返回（见 Shutdown 的说明）。
 func (a *App) OnShutdown(_ context.Context) {
+	a.windowGone.Store(true)
+	a.logf("shutdown: 进入 OnShutdown（窗口已销毁）")
 	a.Shutdown()
 }
 
@@ -411,14 +462,14 @@ func (a *App) trackWindowGeometry() {
 	if a.ctx == nil {
 		return
 	}
-	if runtime.WindowIsMaximised(a.ctx) {
+	if windowIsMaximised(a.ctx) {
 		return
 	}
-	w, h := runtime.WindowGetSize(a.ctx)
+	w, h := windowGetSize(a.ctx)
 	if w < 400 || h < 300 {
 		return
 	}
-	x, y := runtime.WindowGetPosition(a.ctx)
+	x, y := windowGetPosition(a.ctx)
 	a.winMu.Lock()
 	a.winRestoredWidth = w
 	a.winRestoredHeight = h
@@ -457,13 +508,17 @@ func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
 // saveWindowState 读取当前窗口状态并写入配置文件。
 // 最大化时用 tick 记录的还原几何代替全屏几何；窗口已不可读（SIGTERM 等
 // 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
+//
+// 每个窗口读取都必须在 GTK 主循环存活时发起：Wails 的窗口查询要回主线程执行，
+// 主循环退出后调用不返回，而本函数是同步的——这正是它不能被 OnShutdown 路径
+// 调用的原因（见 Shutdown）。
 func (a *App) saveWindowState() {
 	if a.ctx == nil {
 		return
 	}
-	w, h := runtime.WindowGetSize(a.ctx)
-	x, y := runtime.WindowGetPosition(a.ctx)
-	maximized := runtime.WindowIsMaximised(a.ctx)
+	w, h := windowGetSize(a.ctx)
+	x, y := windowGetPosition(a.ctx)
+	maximized := windowIsMaximised(a.ctx)
 	if maximized {
 		a.winMu.Lock()
 		rw, rh := a.winRestoredWidth, a.winRestoredHeight

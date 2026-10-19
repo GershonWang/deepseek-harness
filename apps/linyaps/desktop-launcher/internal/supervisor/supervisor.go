@@ -265,18 +265,32 @@ func (s *Supervisor) Wait() {
 	}
 }
 
-// logf 向 harness.log 追加一行（带时间戳和 supervisor 标记）；日志未打开时静默丢弃。
-func (s *Supervisor) logf(format string, args ...any) {
+// Logf 向 harness.log 追加一行启动器级日志（带时间戳与调用方标记）。
+//
+// 为什么导出：这是启动器唯一的落盘日志通道。启动器其余部分用的是标准 log 包，
+// 输出到容器的 stdout/stderr——实测那条流没有任何文件承载，用户报障时抓不到。
+// 而 harness.log 已经由本包打开并带轮转，把生命周期事件接到同一条流上，
+// 排障时只需要看一个文件。
+//
+// 标记由调用方给出而不是写死 supervisor：同一份文件里要能一眼分清「监护循环说的」
+// 与「App 层说的」。日志尚未打开（首个 harness 还没 spawn）时静默丢弃。
+// @param tag - 行首来源标记，如 "supervisor"、"launcher"。
+// @param format - 同 fmt.Printf 的格式串。
+// @param args - 格式参数。
+func (s *Supervisor) Logf(tag, format string, args ...any) {
 	s.mu.Lock()
 	w := s.stdoutLog
 	s.mu.Unlock()
 	if w == nil {
 		return
 	}
-	// supervisor 内部日志统一走 stdoutLog 的 writer，
-	// 标记为 supervisor，格式与 stdout/stderr 一致。
 	ts := time.Now().Format("2006-01-02 15:04:05.000")
-	_, _ = fmt.Fprintf(w.out, "[%s] [supervisor] "+format+"\n", append([]any{ts}, args...)...)
+	_, _ = fmt.Fprintf(w.out, "[%s] [%s] "+format+"\n", append([]any{ts, tag}, args...)...)
+}
+
+// logf 是监护循环内部日志的便捷入口，等价于 Logf("supervisor", ...)。
+func (s *Supervisor) logf(format string, args ...any) {
+	s.Logf("supervisor", format, args...)
 }
 
 // run 是唯一的监护循环：门控等待、手动停止等待、spawn、等退出、退避重启。
