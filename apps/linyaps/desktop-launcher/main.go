@@ -111,7 +111,8 @@ func runClient() {
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	// 走 ShutdownFromSignal 而不是 Shutdown：这条路进来时窗口通常还活着，可以补存
-	// 一次窗口几何；而 OnShutdown 那条路窗口已销毁，读窗口会永久阻塞（见它的说明）。
+	// 一次窗口几何；而 OnShutdown 那条路窗口已销毁，读它要么等不到 GTK 主线程执行、
+	// 要么是在读已释放的对象（见 internal/app 的 Shutdown）。
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -127,7 +128,8 @@ func runClient() {
 	// harness 变成孤儿。见 internal/app 的 ShowSocketRel。
 	//
 	// 必须在 wails.Run 之前监听：窗口就绪之前到达的请求会被 ShowWindow 丢掉，但通道
-	// 本身要尽早可用，否则客户端刚起来的那段时间点托盘会被切换器误判成「客户端没在跑」。
+	// 本身要尽早可用——晚建的那段时间里点托盘会退化成一次拨号失败（用户看到报错），
+	// 而不是别的语义。
 	// 建立失败不拦启动，只留痕：客户端仍然可用，那一次运行的唤回会退化为切换器报错。
 	if stopShow, err := app.ServeShowRequests(app.ShowSocketPath(home), controller.ShowWindow); err != nil {
 		log.Printf("唤回通道未建立: %v", err)

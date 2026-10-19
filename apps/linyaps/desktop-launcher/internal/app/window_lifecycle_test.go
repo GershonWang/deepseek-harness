@@ -169,9 +169,12 @@ func TestServeShowRequestsReplacesStaleSocket(t *testing.T) {
 	stop()
 }
 
-// TestServeShowRequestsStopRemovesSocket 覆盖停止后通道确实消失：否则切换器会连上一个
-// 没有监听者的文件，把「客户端已退出」误判成「唤回成功」，窗口不动而用户以为点了没用。
-func TestServeShowRequestsStopRemovesSocket(t *testing.T) {
+// TestServeShowRequestsStopRefusesConnections 覆盖停止后的契约：通道不再接受请求。
+//
+// 判据是「拨号必须失败」而不是「文件消失」：切换器把拨号成功当作唤回成功，若通道关了却
+// 仍能拨通，用户会看到一次「点了没反应，也没有任何报错」。文件本身故意留着（见
+// ServeShowRequests 里关于删除归属的说明），由下次启动 bind 之前清掉。
+func TestServeShowRequestsStopRefusesConnections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "show.sock")
 	stop, err := ServeShowRequests(path, nil)
 	if err != nil {
@@ -179,7 +182,10 @@ func TestServeShowRequestsStopRemovesSocket(t *testing.T) {
 	}
 	stop()
 	stop() // 幂等
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("stop 之后 socket 文件应被删除, stat err = %v", err)
+
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("停止后仍能连上唤回通道：切换器会把这次假成功当成唤回成功")
 	}
 }

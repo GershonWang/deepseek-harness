@@ -7,6 +7,7 @@
 package app
 
 import (
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -93,6 +94,12 @@ const ShowSocketRel = ".cache/dsh-desktop/show.sock"
 // 发数据也不关闭的客户端会把 accept 循环堵在这里，后续唤回全部排队。
 const showRequestTimeout = 2 * time.Second
 
+// acceptRetryDelay 是 accept 遇到瞬时错误后的退避。
+//
+// 存在的理由与「不能直接 return」相同：句柄耗尽这类错误会反复出现，不退避就变成忙等，
+// 而退出则让通道假活（见 ServeShowRequests 里的说明）。
+const acceptRetryDelay = 100 * time.Millisecond
+
 // ShowSocketPath 把唤回通道的相对路径拼成绝对路径。
 // @param home - 用户主目录。
 // @returns 唤回通道的绝对路径。
@@ -110,7 +117,7 @@ func ShowSocketPath(home string) string {
 // 而不是悄悄再拉起一个客户端。调用方据此决定是记日志还是放弃。
 // @param path - socket 绝对路径；父目录不存在时会创建。
 // @param show - 收到请求时执行的动作；为 nil 时只消费请求。
-// @returns stop - 停止监听并删除 socket 文件（幂等）；err - 监听建立失败的原因。
+// @returns stop - 停止监听（幂等）；err - 监听建立失败的原因。
 func ServeShowRequests(path string, show func()) (stop func(), err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
@@ -128,6 +135,12 @@ func ServeShowRequests(path string, show func()) (stop func(), err error) {
 	if err != nil {
 		return nil, err
 	}
+	// 关掉 Go 自带的「Close 时删路径」：它删的是路径而不是自己那个 inode。若另一个客户端
+	// 后来抢占了同一路径（见上面对抢占的说明），本进程退出就会把别人的通道文件删掉，
+	// 结果是两个都唤不回来。陈旧文件统一交给下次 bind 之前的那次删除处理。
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(false)
+	}
 	// 家目录通常已是 0700，这里再收一次：唤回通道能让窗口弹出来，不该开放给别的本地用户。
 	_ = os.Chmod(path, 0o600)
 
@@ -135,7 +148,15 @@ func ServeShowRequests(path string, show func()) (stop func(), err error) {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				return // 监听已关闭
+				// 只有「监听被 stop 关掉」才是收工。其余都是瞬时错误（句柄耗尽、连接在
+				// accept 之前被对端放弃等）；直接退出会让通道变成假活——listener 还开着、
+				// 文件还在，拨号因此仍然成功，切换器据此认为唤回成功，而窗口纹丝不动，
+				// 用户看到的就是「点了没反应，也没有任何报错」。
+				if errors.Is(err, net.ErrClosed) {
+					return
+				}
+				time.Sleep(acceptRetryDelay)
+				continue
 			}
 			_ = conn.SetDeadline(time.Now().Add(showRequestTimeout))
 			_, _ = io.Copy(io.Discard, conn)
@@ -148,9 +169,6 @@ func ServeShowRequests(path string, show func()) (stop func(), err error) {
 
 	var once sync.Once
 	return func() {
-		once.Do(func() {
-			_ = ln.Close()
-			_ = os.Remove(path)
-		})
+		once.Do(func() { _ = ln.Close() })
 	}, nil
 }
