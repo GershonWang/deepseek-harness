@@ -148,11 +148,12 @@ func assertNoDMABufDisable(t *testing.T) {
 	}
 }
 
-// TestConfigureWebKitRenderingFallsBackOnlyOnNvidiaOnlyHosts 固定新的判据：只有渲染
-// 路径只剩 NVIDIA 的机器才回退到共享内存传输；混合机（存在非 NVIDIA 渲染节点）与没有
-// 渲染节点的机器都不许被覆盖。判据落在渲染节点而不是 /sys/module/nvidia，正是为了让
-// Optimus 机器不再被误判。
-func TestConfigureWebKitRenderingFallsBackOnlyOnNvidiaOnlyHosts(t *testing.T) {
+// TestConfigureWebKitRenderingFallsBackWhenNvidiaRenderNodePresent 固定判据：渲染节点里
+// 只要存在 NVIDIA 就回退到共享内存传输，Optimus 混合机（Intel 主显 + NVIDIA 副卡）也在
+// 覆盖范围内——本机实测该形态照样命中 DMABUF 呈现缺陷，把它排除在外是上一版的判断。
+// 完全没有 NVIDIA 渲染节点的机器不许被覆盖。判据落在渲染节点而不是 /sys/module/nvidia，
+// 是为了让「驱动装了」与「WebKit 会不会去协商缓冲」不再混为一谈。
+func TestConfigureWebKitRenderingFallsBackWhenNvidiaRenderNodePresent(t *testing.T) {
 	clearRenderingEnv(t)
 
 	cases := []struct {
@@ -161,7 +162,7 @@ func TestConfigureWebKitRenderingFallsBackOnlyOnNvidiaOnlyHosts(t *testing.T) {
 		want    bool
 	}{
 		{"只有 NVIDIA 节点", map[string]string{"renderD128": "0x10de"}, true},
-		{"Intel 主显 + NVIDIA 副卡", map[string]string{"renderD128": "0x8086", "renderD129": "0x10de"}, false},
+		{"Intel 主显 + NVIDIA 副卡", map[string]string{"renderD128": "0x8086", "renderD129": "0x10de"}, true},
 		{"只有非 NVIDIA 节点", map[string]string{"renderD128": "0x8086"}, false},
 		{"没有渲染节点", map[string]string{}, false},
 	}
@@ -180,27 +181,36 @@ func TestConfigureWebKitRenderingFallsBackOnlyOnNvidiaOnlyHosts(t *testing.T) {
 	}
 }
 
-// TestNvidiaOnlyRenderStackUnreadableDRM 固定读取失败方向的语义：探针读不到（目录不存在）
+// TestHasNvidiaRenderNodeUnreadableDRM 固定读取失败方向的语义：探针读不到（目录不存在）
 // 时必须返回 false，即「不覆盖任何机器」。反过来会在没有 DRM 信息的环境里错误降级。
-func TestNvidiaOnlyRenderStackUnreadableDRM(t *testing.T) {
+func TestHasNvidiaRenderNodeUnreadableDRM(t *testing.T) {
 	overrideDRM(t, filepath.Join(t.TempDir(), "absent"))
-	if nvidiaOnlyRenderStack() {
-		t.Error("/sys/class/drm 不可读时应判定为非 NVIDIA-only")
+	if hasNvidiaRenderNode() {
+		t.Error("/sys/class/drm 不可读时应判定为没有 NVIDIA 渲染节点")
 	}
 }
 
-// TestNvidiaOnlyRenderStackIgnoresUnknownNodes 固定另一种失配方向：与 NVIDIA 节点并存的
-// 节点如果读不到厂商号（没有 device/vendor，或读失败），它既不能证明是 NVIDIA，也不能被
-// 当作不存在——否则一台厂商未知的机器会被误判成 NVIDIA-only 而降级。
-func TestNvidiaOnlyRenderStackIgnoresUnknownNodes(t *testing.T) {
-	root := fakeDRM(t, map[string]string{"renderD128": "0x10de"})
-	if err := os.MkdirAll(filepath.Join(root, "renderD129", "device"), 0o755); err != nil {
+// TestHasNvidiaRenderNodeWithUnknownVendorNodes 固定厂商号读不出来的节点怎么算：它既不能
+// 让判据为真（否则一台厂商未知的机器会被无依据地降级），也不能挡住同机真实的 NVIDIA 节点
+// （否则混合机上少一个可读的 vendor 文件就会让回退失效）。
+func TestHasNvidiaRenderNodeWithUnknownVendorNodes(t *testing.T) {
+	onlyUnknown := fakeDRM(t, map[string]string{"renderD128": "0x10de"})
+	// 抹掉 vendor 文件，留下一个「厂商号读不出来」的节点。
+	if err := os.Remove(filepath.Join(onlyUnknown, "renderD128", "device", "vendor")); err != nil {
 		t.Fatal(err)
 	}
-	overrideDRM(t, root)
+	overrideDRM(t, onlyUnknown)
+	if hasNvidiaRenderNode() {
+		t.Error("只有厂商号不明的渲染节点时不应判定为存在 NVIDIA")
+	}
 
-	if nvidiaOnlyRenderStack() {
-		t.Error("存在厂商号不明的渲染节点时应判定为非 NVIDIA-only")
+	mixed := fakeDRM(t, map[string]string{"renderD128": "0x10de"})
+	if err := os.MkdirAll(filepath.Join(mixed, "renderD129", "device"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overrideDRM(t, mixed)
+	if !hasNvidiaRenderNode() {
+		t.Error("存在可读的 NVIDIA 节点时，同机一个厂商号不明的节点不应让判据失效")
 	}
 }
 
@@ -218,11 +228,11 @@ func TestConfigureWebKitRenderingHonorsOptOut(t *testing.T) {
 	}
 }
 
-// TestConfigureWebKitRenderingShmOptIn 固定反向逃生舱：混合机上确实复现闪烁的用户可以
-// 显式要求共享内存传输，而不必关掉整个加速合成。
+// TestConfigureWebKitRenderingShmOptIn 固定反向逃生舱：判据命不中（这里没有任何 NVIDIA
+// 渲染节点）却仍然复现同类闪烁的机器，可以显式要求共享内存传输，而不必关掉整个加速合成。
 func TestConfigureWebKitRenderingShmOptIn(t *testing.T) {
 	clearRenderingEnv(t)
-	overrideDRM(t, fakeDRM(t, map[string]string{"renderD128": "0x8086", "renderD129": "0x10de"}))
+	overrideDRM(t, fakeDRM(t, map[string]string{"renderD128": "0x8086"}))
 	t.Setenv("DSH_DESKTOP_SHM_RENDERER", "1")
 
 	ConfigureWebKitRendering()

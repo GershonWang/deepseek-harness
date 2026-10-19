@@ -58,38 +58,35 @@ func ConfigureWebKitHelperPath() {
 
 // ConfigureWebKitRendering 在 GTK/WebKit 初始化之前选择 webkit2gtk 的合成后端。
 //
-// 背景：webkit2gtk 默认启用 DMABUF 加速合成。在内核加载了 NVIDIA 专有驱动的机器
-// 上，窗口被其它程序遮挡后重新暴露、合成层重建时 DMABUF buffer 协商失败，整个
-// web 区域会短暂闪成纯色再自行恢复（浅色主题白、深色主题黑），而 harness 进程与
-// 正在运行的任务都不受影响。
+// 背景：webkit2gtk 默认启用 DMABUF 加速合成。在内核加载了 NVIDIA 专有驱动的机器上，
+// 窗口被其它程序遮挡后重新暴露、合成层重建时 DMABUF buffer 协商失败：轻则整个 web
+// 区域短暂闪成纯色再自行恢复（浅色主题白、深色主题黑），重则大面积区域在「消失↔出现」
+// 之间高频反复、页面内容不再刷新、界面点不动，只能杀掉进程重启。
 //
-// 为消除该闪烁，这里一度在「/sys/module/nvidia 存在」时就设置
-// WEBKIT_DISABLE_DMABUF_RENDERER=1。实测表明该覆盖的判据与旋钮都站不住：
+// 旋钮用 WEBKIT_DMABUF_RENDERER_FORCE_SHM，而不是上游的 WEBKIT_DISABLE_DMABUF_RENDERER：
+// webkit2gtk 2.44+ 里 AcceleratedBackingStoreDMABuf::rendererBufferMode() 是在
+// mode.add(SharedMemory) 之前响应后者的，transport mode 因而被留空，
+// AcceleratedBackingStore 拿不到可用的后备存储（上游 bug 324730 与多个下游应用的实测
+// 崩溃都指向这里）；FORCE_SHM 在该 add 之后生效，跳过硬件 dmabuf 但保留合成与后备存储，
+// 才是「只去掉零拷贝呈现」的语义。同一页面实测：DISABLE 那一臂 WebProcess 的 CPU 约为
+// 对照臂的两倍，且 GL 落到没有显示输出的 dGPU 上，形成每帧跨卡回读。
 //
-//  1. 判据过宽。Optimus 这类混合机上内核同样加载 NVIDIA 模块（本机即 Intel 主显 +
-//     GTX 960M），但 WebKit 在 DMABUF 路径里选的是显示 GPU——实测 WebProcess 持有
-//     Intel 的 renderD128，与 NVIDIA 无关，却被一并降级。
-//  2. 旋钮代价远大于「放弃一次零拷贝」。webkit2gtk 2.44+ 里
-//     AcceleratedBackingStoreDMABuf::rendererBufferMode() 是在 mode.add(SharedMemory)
-//     之前响应 WEBKIT_DISABLE_DMABUF_RENDERER 的，transport mode 因而被留空，
-//     AcceleratedBackingStore 拿不到可用的后备存储（上游 bug 324730 与多个下游应用的
-//     实测崩溃都指向这里）。同一页面实测：该变量下 WebProcess 的 CPU 约为对照臂的两倍，
-//     且 WebProcess 的 GL 落到没有显示输出的 dGPU 上，形成每帧跨卡回读。
+// 触发判据是「机器的渲染节点里存在 NVIDIA」（见 hasNvidiaRenderNode）。这条判据的形态
+// 改过两次，两次都不是措辞调整：
 //
-// 因此换成两点：
-//   - 旋钮改为 WEBKIT_DMABUF_RENDERER_FORCE_SHM：它在 mode.add(SharedMemory) 之后
-//     生效，跳过硬件 dmabuf 但保留合成与后备存储，才是「只去掉零拷贝呈现」的语义。
-//   - 判据收窄为「这台机器只有 NVIDIA 渲染节点」：混合机存在非 NVIDIA 渲染节点时
-//     WebKit 不会落到 NVIDIA 上，不该被覆盖。发行版若已带 disable-nvidia-dmabuf.patch，
-//     该分支在其上通常是空操作（补丁的 isNVIDIA() 更早返回），保留它是为了没有该补丁
-//     的构建。
+//   - 最初探 /sys/module/nvidia：模块存在只说明驱动装了，与「WebKit 是否踩到该缺陷」
+//     之间没有被验证过的关系。
+//   - 随后收窄为「只有 NVIDIA 渲染节点」，理由是混合机上 WebKit 在 DMA-BUF 路径里选的是
+//     显示 GPU（实测 WebProcess 持有 Intel 的 renderD128），因而与 NVIDIA 无关。该前提
+//     已被实测推翻：本机正是这个形态（Intel 主显 + GTX 960M），遮挡后重新暴露时照样
+//     大面积闪烁并卡死界面；同一台机器改走 FORCE_SHM 后 22 分钟零闪零冻结。判据于是
+//     回到「NVIDIA 在场」，但保留了代价更小的那个旋钮。
 //
 // DSH_DESKTOP_DMABUF_RENDERER=1 跳过上述覆盖、保留硬件 DMABUF 路径：命中条件却并未
 // 受闪烁影响的机器可以据此自救。逃生舱不主动清除已有设置，只保证 launcher 自己不写。
 //
-// DSH_DESKTOP_SHM_RENDERER=1 是反向逃生舱：任何机器上都强制走共享内存传输，供混合机
-// 上确实复现闪烁、又不想按 DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING 关掉整个加速合成的
-// 用户使用。
+// DSH_DESKTOP_SHM_RENDERER=1 是反向逃生舱：任何机器上都强制走共享内存传输，供没有
+// NVIDIA 渲染节点、却也复现了同类闪烁（又不想关掉整个加速合成）的机器使用。
 //
 // DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING=1 退到更彻底的共享内存路径
 // （WEBKIT_DISABLE_COMPOSITING_MODE=1）：同一族 GPU 驱动故障里，关掉 DMABUF 仍然
@@ -108,7 +105,7 @@ func ConfigureWebKitRendering() {
 	if os.Getenv("DSH_DESKTOP_DMABUF_RENDERER") == "1" {
 		return
 	}
-	if os.Getenv("DSH_DESKTOP_SHM_RENDERER") != "1" && !nvidiaOnlyRenderStack() {
+	if os.Getenv("DSH_DESKTOP_SHM_RENDERER") != "1" && !hasNvidiaRenderNode() {
 		return
 	}
 	_ = os.Setenv("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1")
@@ -120,36 +117,36 @@ const nvidiaPCIVendorID = "0x10de"
 // drmClassPath 是 DRM 类目录，renderD* 渲染节点在其下；测试可覆盖。
 var drmClassPath = "/sys/class/drm"
 
-// nvidiaOnlyRenderStack 判断这台机器的渲染路径是否只剩 NVIDIA：遍历 renderD* 渲染
-// 节点读其 PCI vendor，只有「至少一个 NVIDIA 节点、且没有任何非 NVIDIA 节点」才为真。
+// hasNvidiaRenderNode 判断这台机器的渲染节点里是否存在 NVIDIA：遍历 renderD* 节点读其
+// PCI vendor，任一节点为 0x10de 即为真。
 //
-// 判据落在渲染节点而不是内核模块：模块存在只说明驱动装了，与 WebKit 是否用它无关，
-// Optimus 机器正是反例（本机 renderD128 = Intel、renderD129 = NVIDIA，于是返回 false，
-// 不再降级）。读不到 vendor 的节点按「非 NVIDIA」处理，目录也读不到时同样返回 false：
-// 这个判据失配的方向必须是「不覆盖某台机器」，而不是错误地降级一台正常机器。
-func nvidiaOnlyRenderStack() bool {
+// 判据是「NVIDIA 在场」而不是「只有 NVIDIA」：本机这类 Optimus 混合机（Intel 驱动显示 +
+// GTX 960M 已加载）同样命中 DMABUF 呈现缺陷，即使 WebKit 的 DMA-BUF 路径选中的是显示
+// GPU。把混合机排除在外是上一版的判断，已被实测推翻，理由见 ConfigureWebKitRendering。
+//
+// 判据落在渲染节点而不是内核模块：模块存在只说明驱动装了，渲染节点才是 WebKit 真正会去
+// 协商缓冲的那一侧。读不到 vendor 的节点按「非 NVIDIA」处理，目录也读不到时同样返回
+// false：这个判据失配的方向必须是「不覆盖某台机器」，而不是错误地降级一台正常机器。
+func hasNvidiaRenderNode() bool {
 	entries, err := os.ReadDir(drmClassPath)
 	if err != nil {
 		return false
 	}
-	var sawNvidia, sawOther bool
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), "renderD") {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(drmClassPath, entry.Name(), "device", "vendor"))
 		if err != nil {
-			// 认不出厂商的节点既不能证明是 NVIDIA，也不能当作不存在。
-			sawOther = true
+			// 认不出厂商的节点不能证明是 NVIDIA，跳过即可：它既不该让判据为真，
+			// 也不影响其它 NVIDIA 节点让判据为真。
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(string(raw)), nvidiaPCIVendorID) {
-			sawNvidia = true
-			continue
+			return true
 		}
-		sawOther = true
 	}
-	return sawNvidia && !sawOther
+	return false
 }
 
 // webkitHelperLinkUsable 判断短路径符号链接能否直接复用：存在、指向
