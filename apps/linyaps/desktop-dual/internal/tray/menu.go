@@ -336,7 +336,9 @@ func (m *menuObject) Event(id int32, eventID string, data dbus.Variant, timestam
 		// 与左键、中键同义：单客户端形态下这是菜单里唯一的客户端入口。
 		m.parent.client.perform("tray.showFailed", board.Present)
 	case idSwitch:
-		m.parent.client.perform("tray.switchFailed", board.Switch)
+		// 与退出同因：切换要先停客户端并等它优雅退出（最长 stopGrace），在 D-Bus 方法里
+		// 同步做会把宿主那次调用一起堵住。
+		go m.parent.client.perform("tray.switchFailed", board.Switch)
 	case idDefaultShell:
 		m.parent.client.perform("tray.setDefaultFailed", func() error { return board.SetDefault(switchboard.ModeShell) })
 	case idDefaultOfficial:
