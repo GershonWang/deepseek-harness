@@ -41,6 +41,8 @@
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
+| 36 | 中危 | 客户端与 harness 均无单实例约束，残留进程会叠出第二个 harness | 未修 |
+| 37 | 中危 | 关窗后从托盘重开，窗口回到预检/加载页 | 未修（根因未定位） |
 
 ---
 
@@ -88,3 +90,23 @@
 - **修复建议**：改为在 launcher 内从 GTK 侧接管 WebKit 信号——`internal/webviewperm/permission_linux.c` 已演示「遍历顶层窗口取回 `WebKitWebView` 并连信号」的成熟做法，同一条路可连 `create`／`decide-policy`，把新窗口请求交给 `BrowserOpenURL`。这样两种模式都覆盖，且完全落在 `apps/linyaps/desktop-launcher/` 内，不需要动 `packages/client`。
 - **前置**：先做一次小 spike，确认该 Wails 版本下 `create` 与 `decide-policy` 的触发时机（Wails 自身是否已处理新窗口请求）。
 - **验收**：连接外部服务时 `target="_blank"` 外链可点击；容器模式下行为不变。
+
+## 36 客户端与 harness 均无单实例约束，残留进程会叠出第二个 harness
+
+- **状态**：未修｜✅ 已复核（2026-10-19）
+- **位置**：`apps/linyaps/desktop-dual/internal/switchboard/switchboard.go`（`runningLocked`／`Present`）、`apps/linyaps/desktop-launcher/internal/supervisor/process_unix.go`（`setProcessGroupAttr`）
+- **问题**：切换器判断「客户端在不在」只依赖自己内存里的那个子进程指针，没有任何跨进程的实例约束；而 harness 被放进**自己的进程组**，切换器向客户端进程组发的 `kill(-pid)` 根本够不到它。于是只要启动器**非正常消失**（被 SIGKILL、崩溃、OOM，或被切走），harness 就留在原地占着 dsh 端口与 `~/.dsh`，而切换器下一次「显示」会径直拉起第二个——两个 harness 谁也不让谁。
+- **影响**：第二个 harness 与第一个抢同一份 `~/.dsh`，客户端拿到 `session/writer-held`，用户看到的是「会话正在使用中」并被拒绝；同时 `ll-cli ps` 里容器不退出。实测现场：`ll-cli ps` 有容器、桌面无窗口，而 `37247` 与 `37395` 两个端口**同时** LISTEN、inspector `9230` 与 `9231` 并存。
+- **已修部分**：产生孤儿的主要通道已堵住——`OnShutdown` 不再读窗口（`App.Shutdown` 原先第一句 `saveWindowState()` 会在 GTK 主循环退出后永不返回，harness 的停止被它挡在身后），收尾次序固定为先停 harness，切换器宽限期由 5s 对齐到 20s。**但那只堵住了一条路**：本条要的是「无论启动器怎么消失，都不会出现第二个 harness」。
+- **修复建议**：优先在启动器侧做接管式启动——启动前探测是否已有 harness 在监听/持有状态目录，有则接管，无则新建；或在 harness 侧引入单实例锁（锁文件），第二个实例直接拒绝启动并把原因回报给用户。两条都要覆盖「残留进程仍在跑」这一情形，而不是只防并发启动。
+- **验收**：人为 `kill -9` 启动器后再次启动，要么接管已有 harness，要么明确报错并清理残留；任何时刻都不会出现两个同时 LISTEN 的 harness。
+
+## 37 关窗后从托盘重开，窗口回到预检/加载页
+
+- **状态**：未修｜⚠️ 现象已复核（2026-10-19），根因未定位
+- **位置**：`internal/app/app.go`（`OnBeforeClose`／`Shutdown`）、`internal/app/window_lifecycle.go`（`ShowWindow`）
+- **现象**：关掉薄壳版窗口，再从托盘点「显示」，窗口重新走一遍预检页与插件列表加载，加载完才进入界面。
+- **影响**：每次关窗再唤回都要等一次完整启动过程；若期间叠出了第二个 harness（见 36），还会连带出现会话被拒绝。
+- **已做**：`App` 的生命周期事件现在写入 `~/.cache/dsh-desktop/harness.log`（`supervisor.Logf`，启动器自身此前没有任何落盘日志）。关窗走的是「隐藏」还是「真退出」、收尾从哪条路径进入，这三行记录即可区分。注意两个关闭入口（自绘 ✕ 与窗口管理器）都经 Wails 的 `Frontend.Quit` → `OnBeforeClose`，因此这条日志覆盖两者。
+- **待定**：需要一次受控复现来区分两种候选：①关窗其实走的是真退出（隐藏未生效），托盘起的是新启动器，于是重新预检、重新拉 harness；②窗口只是隐藏，是隐藏期间 WebView 被销毁重建、壳页面整体重载。判据是窗口 id／`_NET_WM_PID`、harness 监听端口与 `dsh web` 启动记录是否变化。
+- **验收**：确定根因后，关窗再唤回应直接回到原界面，不重跑预检、不重启 harness。
