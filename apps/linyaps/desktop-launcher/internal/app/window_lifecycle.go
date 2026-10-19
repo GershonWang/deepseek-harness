@@ -16,10 +16,11 @@ import (
 // 而 OnBeforeClose 与 ShowWindow 的分支行为必须能被断言。同 internal/clipboard 里
 // socketDial 的做法。
 //
-// 读取类的三个动作（尺寸/位置/最大化）也在这里收口，理由不只是可测：它们是同步等
-// GTK 主线程的调用（Wails 的 window.Size() 是 invokeOnMainThread + wg.Wait），
-// 主循环退出后不会返回。谁在什么时机读窗口因此是一条需要被断言的不变式，
-// 见 app.go 的 Shutdown 与 saveWindowState。
+// 读取类的三个动作（尺寸/位置/最大化）也在这里收口，理由不只是可测：窗口一旦销毁就不该
+// 再被读——非主线程发起时要排队等 GTK 主线程执行（Wails 的 window.Size() 是
+// invokeOnMainThread + wg.Wait），主循环退出后没人再排空那个队列，等待无人唤醒；即便调用方
+// 正好在主线程上、绕过了等待，也只是对已释放的窗口对象取值。谁在什么时机读窗口因此是一条
+// 需要被断言的不变式，见 app.go 的 Shutdown 与 saveWindowState。
 var (
 	windowHide        = runtime.WindowHide
 	windowShow        = runtime.WindowShow

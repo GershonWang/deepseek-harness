@@ -165,7 +165,8 @@ func runClient() {
 		},
 		OnShutdown: controller.OnShutdown,
 		// 窗口关闭前保存尺寸/最大化状态：此时窗口仍存活，能读到真实值
-		// （OnShutdown 时窗口已销毁，只能读到 0）。
+		// （OnShutdown 时窗口已销毁，读它要么是在读已释放的对象、要么永远等不到
+		// GTK 主线程，见 internal/app 的 Shutdown）。
 		OnBeforeClose: controller.OnBeforeClose,
 		Bind:          []interface{}{controller},
 	})

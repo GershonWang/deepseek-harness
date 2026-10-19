@@ -224,8 +224,8 @@ type App struct {
 	doctorEpoch           int           // 诊断启动序号，用于 goroutine 收尾时归属判断
 
 	// 窗口状态跟踪（受 winMu 保护）。OnBeforeClose 是唯一可靠的保存时机
-	// （Wails 在窗口销毁之后才调用 OnShutdown，届时 WindowGetSize 只能取
-	// 到 0）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
+	// （Wails 在窗口销毁之后才调用 OnShutdown，那时窗口已经读不得了，
+	// 见 Shutdown）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
 	// 作为还原基准，避免把全屏尺寸写进配置。
 	winMu             sync.Mutex
 	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
@@ -291,10 +291,18 @@ func ExternalConfigFilePath() string {
 // （窗口关闭与外置信号两路共用；幂等）。
 //
 // 这里绝不读取窗口。窗口关闭路径上 Wails 的顺序是「GTK 主循环退出 → 销毁窗口 →
-// 调用 OnShutdown」（internal/app/app_production.go 的 Run），而窗口查询要在 GTK
-// 主线程上执行（Wails 的 window.Size() 内部是 invokeOnMainThread + wg.Wait），
-// 主循环既已退出，那个等待就永远不会返回。这条路径曾经第一句是 saveWindowState()，
-// 于是 harness 的停止被一个永不返回的调用挡在身后：窗口没了、启动器进程还在、
+// 调用 OnShutdown」（internal/app/app_production.go 的 Run），走到这里时窗口对象
+// 已经销毁，而读它是两种结局二选一，都不可接受：
+//
+//   - 调用方不在 GTK 主线程上（例如 main 里的信号 goroutine）：窗口查询会排进
+//     dispatchq 等主线程执行，而 gtk_main 已退出、没人再排空它，于是永久等待；
+//   - 调用方正好在主线程上（OnShutdown 就是主 goroutine，Wails 在 NewFrontend 里
+//     用 runtime.LockOSThread 把主 goroutine 钉在 GTK 线程上，因此这里走的是
+//     invokeOnMainThread 的当前线程快路径）：绕开等待，直接对已释放的 GtkWindow
+//     取值——读到什么由内存决定，也可能直接崩。
+//
+// 这条路径曾经第一句就是 saveWindowState()。于是 harness 的停止要么被一个不返回的
+// 调用挡在身后，要么随着崩溃一起消失：窗口没了、启动器进程不是卡住就是已经死掉、
 // harness 变成孤儿继续占着 dsh 端口与 ~/.dsh 状态。用户看到的是「退出不干净，
 // ll-cli ps 还有进程」，以及下一次启动叠出第二个 harness、会话被报「正在使用中」。
 //
@@ -311,21 +319,38 @@ func (a *App) Shutdown() {
 	a.logf("shutdown: 收尾完成")
 }
 
+// windowStateSaveTimeout 是信号路径上补存窗口几何的等待上限。
+//
+// 进程在这次收尾之后立刻 os.Exit(0)，所以超时后不必也无法回收那个仍在等主线程的
+// goroutine，它随进程一起消失。加这个上限是为了让最后一段收尾也有界：Wails 自己也
+// 监听 SIGTERM（internal/signal），两条路径并发，主循环可能已经被它叫停，届时窗口
+// 读取永远等不到执行——没有上限就会把一个停止信号拖成「启动器卡死到被切换器强杀」。
+const windowStateSaveTimeout = 2 * time.Second
+
 // ShutdownFromSignal 在进程被外部信号终止（SIGTERM/SIGINT，如桌面管理器退出）时收尾。
 //
 // 与窗口关闭路径的唯一差别是：这条路进来时窗口通常还活着、主循环也在，因此可以补存
 // 一次窗口几何——CloseQuits 下 OnBeforeClose 已经存过，但进程被直接杀掉或崩溃时走不到
-// 那一步，靠这里兜底；窗口已经销毁（OnShutdown 已置位 windowGone）时跳过，因为那时
-// 任何窗口读取都会永久阻塞。
+// 那一步，靠这里兜底；窗口已经销毁（OnShutdown 已置位 windowGone）时跳过。
 //
-// 顺序刻意是「先清理、后读窗口」：读窗口是唯一可能阻塞的一步，不能让它挡在 harness
-// 停止之前——这正是 Shutdown 的注释里记着的那次事故的成因。
+// 顺序刻意是「先清理、后读窗口」，且这一步有超时：harness 的停止不能排在任何一个可能
+// 等不到主线程的调用之后（见 Shutdown），而这次补存是可有可无的尽力而为，不能反过来
+// 把进程的退出（os.Exit）拖住。
 func (a *App) ShutdownFromSignal() {
 	a.Shutdown()
 	if a.windowGone.Load() {
 		return
 	}
-	a.saveWindowState()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.saveWindowState()
+	}()
+	select {
+	case <-done:
+	case <-time.After(windowStateSaveTimeout):
+		a.logf("shutdown: 窗口状态未保存（等 GTK 主线程超时），进程继续退出")
+	}
 }
 
 // logf 记录启动器级生命周期事件，落在 harness.log（见 supervisor.Logf）。
@@ -426,7 +451,8 @@ func (a *App) OnStartup(ctx context.Context) {
 // 并按 closeAction 决定这次关闭是真的关闭还是只把窗口藏起来。
 //
 // 这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose → 窗口销毁 → OnShutdown，
-// OnShutdown 里 WindowGetSize 只能取到 0。
+// 到 OnShutdown 时窗口已经读不得了（不是读到 0，而是读已释放的对象或永远等不到主线程，
+// 见 Shutdown）。
 //
 // 返回 true 会取消本次关闭——Wails 的 Frontend.Quit 只有在该钩子返回 false 时才真正
 // 调用 mainWindow.Quit，因此 CloseHides 下不需要改前端：自绘标题栏的关闭按钮走的是
@@ -509,9 +535,9 @@ func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
 // 最大化时用 tick 记录的还原几何代替全屏几何；窗口已不可读（SIGTERM 等
 // 路径，或 OnBeforeClose 抢先保存过）时跳过，避免把 0 写进配置覆盖好数据。
 //
-// 每个窗口读取都必须在 GTK 主循环存活时发起：Wails 的窗口查询要回主线程执行，
-// 主循环退出后调用不返回，而本函数是同步的——这正是它不能被 OnShutdown 路径
-// 调用的原因（见 Shutdown）。
+// 每个窗口读取都只能在窗口存活、且 GTK 主循环还能把请求排空时发起：窗口已销毁时，
+// 等待主线程的那条路无人唤醒，绕过等待的那条路则是在读已释放的对象。这正是它不能被
+// OnShutdown 路径调用的原因（见 Shutdown）。
 func (a *App) saveWindowState() {
 	if a.ctx == nil {
 		return

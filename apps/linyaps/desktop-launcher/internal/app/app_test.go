@@ -640,11 +640,12 @@ func shutdownTestApp(t *testing.T) (*App, string) {
 
 // TestShutdown_DoesNotReadWindowGeometry 钉住「收尾路径绝不读窗口」。
 //
-// 窗口关闭路径上 Wails 的次序是「GTK 主循环退出 → 销毁窗口 → OnShutdown」，而窗口
-// 查询要回主线程执行，主循环既已退出就永不返回。这条路径曾经第一句就是
-// saveWindowState()，于是 harness 的停止被挡在一个不返回的调用身后：窗口没了、
-// 启动器进程还在、harness 变成孤儿继续占着 dsh 端口与 ~/.dsh，用户看到的是
-// 「退出不干净，ll-cli ps 还有进程」以及下一次启动叠出第二个 harness。
+// 窗口关闭路径上 Wails 的次序是「GTK 主循环退出 → 销毁窗口 → OnShutdown」，那时窗口
+// 已经读不得了：非主线程调用会永久等一个没人再排空的 GTK dispatchq，主线程调用则直接
+// 读已释放的窗口对象。这条路径曾经第一句就是 saveWindowState()，于是 harness 的停止
+// 要么被挡在身后、要么随崩溃一起消失：窗口没了、启动器进程不是卡住就是已经死掉、
+// harness 变成孤儿继续占着 dsh 端口与 ~/.dsh，用户看到的是「退出不干净，ll-cli ps
+// 还有进程」以及下一次启动叠出第二个 harness。
 func TestShutdown_DoesNotReadWindowGeometry(t *testing.T) {
 	readWindow := stubWindowReads(t)
 	a, _ := shutdownTestApp(t)
@@ -686,8 +687,9 @@ func TestShutdownFromSignal_SavesWindowState(t *testing.T) {
 
 // TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown 钉住窗口已销毁时不再读窗口。
 //
-// OnShutdown 已置位 windowGone，此时读取同样永不返回；信号路径本身只负责清理，
-// 跳过这一步不影响它要保证的事（harness 必须被停掉）。
+// OnShutdown 已置位 windowGone；此时读取要么永远等不到主线程执行、要么是在读已释放的
+// 窗口对象（见 saveWindowState 的说明）。信号路径本身只负责清理，跳过这一步不影响它要
+// 保证的事（harness 必须被停掉）。
 func TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown(t *testing.T) {
 	readWindow := stubWindowReads(t)
 	a, home := shutdownTestApp(t)
@@ -702,5 +704,43 @@ func TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown(t *testing.T) {
 	}
 	if st, err := LoadWindowState(home); err == nil && st.Width == 1200 {
 		t.Fatal("窗口已销毁时不应把当前窗口几何写进配置")
+	}
+}
+
+// TestShutdownFromSignal_BoundsWindowReadWait 钉住收尾的最后一段也有界。
+//
+// Wails 自己也监听 SIGTERM，两条路径并发，主循环可能已被它叫停：那时窗口读取永远等不到
+// 主线程执行。这次补存是可有可无的尽力而为，不能把随后的 os.Exit 拖住——否则一个停止
+// 信号会变成「启动器卡死到被切换器强杀」。
+func TestShutdownFromSignal_BoundsWindowReadWait(t *testing.T) {
+	prevSize, prevPos, prevMax := windowGetSize, windowGetPosition, windowIsMaximised
+	release := make(chan struct{})
+	// readDone 在桩里被拖住的那次读取返回时关闭。没有它，收尾 goroutine 可能在注入点
+	// 已还原之后才继续跑，去调真正的 runtime（那会用无效 context 触发 Wails 的致命守卫）。
+	readDone := make(chan struct{})
+	windowGetSize = func(context.Context) (int, int) {
+		defer close(readDone)
+		<-release
+		return 0, 0 // 越界，saveWindowState 随即提前返回，不会再碰另外两个注入点
+	}
+	windowGetPosition = func(context.Context) (int, int) { return 0, 0 }
+	windowIsMaximised = func(context.Context) bool { return false }
+	t.Cleanup(func() {
+		close(release)
+		<-readDone
+		windowGetSize, windowGetPosition, windowIsMaximised = prevSize, prevPos, prevMax
+	})
+
+	a, _ := shutdownTestApp(t)
+	defer a.sup.Stop()
+	a.ctx = context.Background()
+
+	done := make(chan struct{})
+	go func() { a.ShutdownFromSignal(); close(done) }()
+
+	select {
+	case <-done:
+	case <-time.After(windowStateSaveTimeout + 5*time.Second):
+		t.Fatal("ShutdownFromSignal 未在窗口读取超时后返回：收尾又被一个等不到主线程的调用拖住了")
 	}
 }

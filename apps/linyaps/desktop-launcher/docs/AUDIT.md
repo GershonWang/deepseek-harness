@@ -97,7 +97,7 @@
 - **位置**：`apps/linyaps/desktop-dual/internal/switchboard/switchboard.go`（`runningLocked`／`Present`）、`apps/linyaps/desktop-launcher/internal/supervisor/process_unix.go`（`setProcessGroupAttr`）
 - **问题**：切换器判断「客户端在不在」只依赖自己内存里的那个子进程指针，没有任何跨进程的实例约束；而 harness 被放进**自己的进程组**，切换器向客户端进程组发的 `kill(-pid)` 根本够不到它。于是只要启动器**非正常消失**（被 SIGKILL、崩溃、OOM，或被切走），harness 就留在原地占着 dsh 端口与 `~/.dsh`，而切换器下一次「显示」会径直拉起第二个——两个 harness 谁也不让谁。
 - **影响**：第二个 harness 与第一个抢同一份 `~/.dsh`，客户端拿到 `session/writer-held`，用户看到的是「会话正在使用中」并被拒绝；同时 `ll-cli ps` 里容器不退出。实测现场：`ll-cli ps` 有容器、桌面无窗口，而 `37247` 与 `37395` 两个端口**同时** LISTEN、inspector `9230` 与 `9231` 并存。
-- **已修部分**：产生孤儿的主要通道已堵住——`OnShutdown` 不再读窗口（`App.Shutdown` 原先第一句 `saveWindowState()` 会在 GTK 主循环退出后永不返回，harness 的停止被它挡在身后），收尾次序固定为先停 harness，切换器宽限期由 5s 对齐到 20s。**但那只堵住了一条路**：本条要的是「无论启动器怎么消失，都不会出现第二个 harness」。
+- **已修部分**：产生孤儿的主要通道已堵住——`OnShutdown` 不再读窗口。窗口关闭路径上 Wails 的次序是「GTK 主循环退出 → 销毁窗口 → OnShutdown」，走到那里时窗口对象已经销毁，读它是两种结局二选一：非主线程调用会永久等一个没人再排空的 GTK dispatchq，主线程调用则绕过等待、直接读已释放的窗口对象（未定义行为，可能读到垃圾也可能直接崩）。原先 `App.Shutdown` 第一句正是 `saveWindowState()`，于是 harness 的停止要么被挡在身后、要么随崩溃一起消失。收尾次序现固定为先停 harness，切换器宽限期由 5s 对齐到 20s。**但那只堵住了一条路**：本条要的是「无论启动器怎么消失，都不会出现第二个 harness」。
 - **修复建议**：优先在启动器侧做接管式启动——启动前探测是否已有 harness 在监听/持有状态目录，有则接管，无则新建；或在 harness 侧引入单实例锁（锁文件），第二个实例直接拒绝启动并把原因回报给用户。两条都要覆盖「残留进程仍在跑」这一情形，而不是只防并发启动。
 - **验收**：人为 `kill -9` 启动器后再次启动，要么接管已有 harness，要么明确报错并清理残留；任何时刻都不会出现两个同时 LISTEN 的 harness。
 

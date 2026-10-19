@@ -132,6 +132,7 @@ var allowedChinese = map[string][]string{
 		"shutdown: 开始收尾",
 		"shutdown: 收尾完成",
 		"shutdown: 进入 OnShutdown（窗口已销毁）",
+		"shutdown: 窗口状态未保存（等 GTK 主线程超时），进程继续退出",
 		"close: 关窗即退出（该部署未启用隐藏）",
 		"close: 关窗仅隐藏窗口，进程与 harness 继续运行",
 	},
