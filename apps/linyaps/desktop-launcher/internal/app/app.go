@@ -156,6 +156,24 @@ type ProjectToolchainResult struct {
 	Error       string
 }
 
+// CloseAction 决定用户关闭窗口时发生什么。
+//
+// 这是一项部署选择而不是用户偏好，因此在构造期一次定死（见 New），由拉起本进程的
+// 切换器经环境变量指定：托盘是隐藏之后唯一能把它叫回来的入口，只有随包带切换器的
+// 那两个变体（dual / tray）才具备这个前提。
+type CloseAction int
+
+const (
+	// CloseQuits 关闭窗口即退出进程并停掉 harness。
+	//
+	// 零值取它而不是 CloseHides：没有托盘的包（web 变体）一旦把窗口藏起来就没有第二个
+	// 入口能把它叫回来，而用户再点一次桌面图标会拉起第二个客户端（本进程没有单实例
+	// 机制），两个 harness 共用同一份 ~/.dsh 状态。默认值必须是两条路里安全的那个。
+	CloseQuits CloseAction = iota
+	// CloseHides 只隐藏窗口，进程与 harness 子进程继续运行，由托盘唤回（见 ShowWindow）。
+	CloseHides
+)
+
 // App 是绑定给 Web 壳的应用控制器。
 type App struct {
 	sup        *supervisor.Supervisor
@@ -163,7 +181,16 @@ type App struct {
 	configPath string
 	home       string
 	ctx        context.Context
-	term       *terminal.Manager // 终端会话管理器
+
+	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
+	closeAction CloseAction
+
+	// showCtxMu 保护 showCtx。单独一把锁而不是复用 mu：唤回由 main 里的信号 goroutine
+	// 触发，它与 OnStartup 并发；a.ctx 的其它读者都住在 OnStartup 之后才启动的
+	// goroutine 里，没有这个问题，因此不动它们。
+	showCtxMu sync.RWMutex
+	showCtx   context.Context
+	term      *terminal.Manager // 终端会话管理器
 
 	mu            sync.Mutex
 	externalBusy  bool
@@ -216,7 +243,10 @@ type App struct {
 //
 // doctor 的运行环境（node 与 cli.js）由 appenv 一并解析后传入，本层不再从
 // harness 的 argv 里反推——doctor 已经不经 `dsh` 分发，两者位置无关。
-func New(resolved appenv.Resolved, home, configPath string) *App {
+//
+// closeAction 由调用方（main）从环境变量解析后传入：它是部署选择，本包不自己去读
+// 环境，免得"谁决定关窗行为"散落成两处。
+func New(resolved appenv.Resolved, home, configPath string, closeAction CloseAction) *App {
 	cfg := resolved.Config
 	term := terminal.NewManager()
 
@@ -233,6 +263,7 @@ func New(resolved appenv.Resolved, home, configPath string) *App {
 		home:            home,
 		term:            term,
 		locale:          i18n.FromEnv(),
+		closeAction:     closeAction,
 		preflightRunner: preflight.NewRunner(resolved.DoctorNode, resolved.DoctorCLI, resolved.DoctorEnv(), preflightHomePath(home)),
 	}
 	// 启动进度上报到达时即时推送前端；1s 状态轮询只作兜底（见 startup_progress.go）。
@@ -284,6 +315,11 @@ func (a *App) stopDoctor() {
 // OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
 func (a *App) OnStartup(ctx context.Context) {
 	a.ctx = ctx
+	// 单独把上下文发布给唤回路径：托盘可以在窗口就绪后的任意时刻要求显示窗口，
+	// 而那条路径由信号 goroutine 触发、与本次赋值并发，不能直接读 a.ctx。
+	a.showCtxMu.Lock()
+	a.showCtx = ctx
+	a.showCtxMu.Unlock()
 
 	// 窗口还原几何的初值取配置里保存的值：若用户全程最大化使用并直接关闭，
 	// 还原基准仍是他上次主动调整过的窗口大小与位置，而非程序默认值。
@@ -341,13 +377,24 @@ func (a *App) OnStartup(ctx context.Context) {
 	}()
 }
 
-// OnBeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或 runtime.Quit）时保存
-// 窗口状态。这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose →
-// 窗口销毁 → OnShutdown，OnShutdown 里 WindowGetSize 只能取到 0。
-// 返回 false 表示放行关闭。
+// OnBeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或 runtime.Quit）时保存窗口状态，
+// 并按 closeAction 决定这次关闭是真的关闭还是只把窗口藏起来。
+//
+// 这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose → 窗口销毁 → OnShutdown，
+// OnShutdown 里 WindowGetSize 只能取到 0。
+//
+// 返回 true 会取消本次关闭——Wails 的 Frontend.Quit 只有在该钩子返回 false 时才真正
+// 调用 mainWindow.Quit，因此 CloseHides 下不需要改前端：自绘标题栏的关闭按钮走的是
+// runtime.Quit，与窗口管理器的关闭走同一个钩子。
+// @param ctx - 应用上下文，供窗口动作使用。
+// @returns true 表示拦下这次关闭（只隐藏窗口）。
 func (a *App) OnBeforeClose(ctx context.Context) bool {
 	a.saveWindowState()
-	return false
+	if a.closeAction != CloseHides {
+		return false
+	}
+	windowHide(ctx)
+	return true
 }
 
 // OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。

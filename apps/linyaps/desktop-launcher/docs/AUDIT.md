@@ -41,7 +41,6 @@
 | 8 / 13 | 中危 | WebKit 依赖链未裁剪，`depends.yaml` 无人使用 | 未修 |
 | 23 | 中危 | 打包态与外部 harness 共享 `~/.dsh` | 未修 |
 | 35 | 中危 | 外链桥只在容器模式生效 | 未修 |
-| 25 | 低危 | 系统托盘 | 未修 |
 
 ---
 
@@ -89,14 +88,3 @@
 - **修复建议**：改为在 launcher 内从 GTK 侧接管 WebKit 信号——`internal/webviewperm/permission_linux.c` 已演示「遍历顶层窗口取回 `WebKitWebView` 并连信号」的成熟做法，同一条路可连 `create`／`decide-policy`，把新窗口请求交给 `BrowserOpenURL`。这样两种模式都覆盖，且完全落在 `apps/linyaps/desktop-launcher/` 内，不需要动 `packages/client`。
 - **前置**：先做一次小 spike，确认该 Wails 版本下 `create` 与 `decide-policy` 的触发时机（Wails 自身是否已处理新窗口请求）。
 - **验收**：连接外部服务时 `target="_blank"` 外链可点击；容器模式下行为不变。
-
-# 三、低危
-
-## 25 系统托盘
-
-- **状态**：未修｜✅ 已复核
-- **位置**：`main.go`、`apps/linyaps/desktop-launcher/go.mod`、`internal/app/app.go`（`OnBeforeClose`）
-- **问题**：无托盘库、无 `HideOnClose`，`OnBeforeClose` 只保存窗口状态。关窗即退出，后台任务随之中断。
-- **影响**：harness 跑长任务时关窗会中断。
-- **修复建议**：引入托盘（`OnBeforeClose` 返回 true 并隐藏窗口），托盘菜单提供退出。
-- **验收**：关窗后进程与 harness 继续运行，可从托盘退出。

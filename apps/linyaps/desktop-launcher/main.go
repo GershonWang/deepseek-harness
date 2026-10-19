@@ -107,7 +107,7 @@ func runClient() {
 			log.Printf("端口未落盘: %v", err)
 		}
 	}
-	controller := app.New(resolved, home, app.ExternalConfigFilePath())
+	controller := app.New(resolved, home, app.ExternalConfigFilePath(), app.CloseActionFromEnv())
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	sigCh := make(chan os.Signal, 1)
@@ -117,6 +117,15 @@ func runClient() {
 		controller.Shutdown()
 		os.Exit(0)
 	}()
+
+	// 托盘唤回：切换器向本进程发 SIGUSR1，表示「把窗口显示出来」。
+	//
+	// 与关窗行为是否启用无关地注册：未处理的 SIGUSR1 默认动作是终止进程，注册本身就把
+	// 「切换器发来一次信号」从「客户端被杀」降级为「窗口被显示」。必须早于 wails.Run——
+	// 窗口一旦可能出现，信号就可能到达，而覆盖期之外的信号没有任何补救机会。
+	showSig := make(chan os.Signal, 1)
+	signal.Notify(showSig, syscall.SIGUSR1)
+	go app.WatchShowSignal(showSig, controller.ShowWindow)
 
 	// 起始窗口状态：上次是最大化则本次也最大化
 	startState := options.Normal
