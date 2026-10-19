@@ -101,6 +101,18 @@ func main() {
 	retry := time.NewTicker(retryInterval)
 	defer retry.Stop()
 
+	// 两个定时动作都要读切换器状态，而切换期间那把锁会被占住（最长一个 stopGrace）。在事件
+	// 循环里同步做，会把同一循环里的退出与信号分支一起堵住——用户点了「退出」，托盘要等切换
+	// 跑完才有反应。交给合并执行器：循环永不阻塞，也不会按 1s 的节拍堆出并发调用。
+	refreshTray := tray.NewCoalescer(client.Refresh)
+	reregisterTray := tray.NewCoalescer(func() {
+		// 每次都用当前宿主核对一遍：宿主不在是预期状态（外壳可能比我们晚启动），
+		// 不必刷日志；其余失败说明连接或导出出了问题，要留下记录。
+		if err := client.EnsureRegistered(); err != nil && !errors.Is(err, tray.ErrWatcherUnavailable) {
+			log.Printf("switcher: tray registration failed: %v", err)
+		}
+	})
+
 	for {
 		select {
 		case <-quit:
@@ -111,13 +123,9 @@ func main() {
 			board.Shutdown()
 			return
 		case <-refresh.C:
-			client.Refresh()
+			refreshTray.Trigger()
 		case <-retry.C:
-			// 每次都用当前宿主核对一遍：宿主不在是预期状态（外壳可能比我们晚启动），
-			// 不必刷日志；其余失败说明连接或导出出了问题，要留下记录。
-			if err := client.EnsureRegistered(); err != nil && !errors.Is(err, tray.ErrWatcherUnavailable) {
-				log.Printf("switcher: tray registration failed: %v", err)
-			}
+			reregisterTray.Trigger()
 		}
 	}
 }
