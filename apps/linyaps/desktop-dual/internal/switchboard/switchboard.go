@@ -66,8 +66,28 @@ const showSignal = syscall.SIGUSR1
 var signalProcess = syscall.Kill
 
 // stopGrace 是终止客户端进程组时等待优雅退出的时长；超时后整组强杀。
-// 客户端自身已有较长的优雅退出路径（保存窗口状态、停 harness），过短会留下残留。
-const stopGrace = 5 * time.Second
+//
+// 20s 不是估出来的，而是按客户端（薄壳启动器）自身有界的收尾时间推导出的下界。前提是
+// 启动器的 Shutdown() 先停 harness、再收拾 doctor 与终端，即次序为
+// a.sup.Stop() → a.stopDoctor() → term.CloseAll()：
+//
+//   - Supervisor.Stop()：KillTimeoutMs(5000) 等优雅退出，再以同样的 5000 等 SIGKILL 后
+//     回收，最长 10s；
+//   - App.stopDoctor()：取消并等待 doctor 退出，最长 2s；
+//   - terminal CloseAll()：每个会话最长 3s 优雅退出 + 2s 强杀回收共 5s，且串行遍历全部
+//     会话，会话数不定，因此这一段的上界不可预估。
+//
+// 前两段合计 12s，20s 留出余量。次序在这里是前提：启动器先停 harness，所以 20s 到达时
+// harness 早就退出了，SIGKILL 打掉的是仍在收尾的启动器及其终端会话，而不是一个正在存盘
+// 或还在跑的 harness。这条次序前提跨模块，本文件的用例只钉得住时长下界、拦不下它，因此
+// 启动器哪天把 harness 挪到最后再停，必须同时回头核对这个数字。
+//
+// 也正因最后一段上界不可预估，stopGrace 只能是兜底网，不是「客户端一定干净退出」的硬
+// 保证：真正的退出保证由客户端自己的收尾负责（它在收到 SIGTERM 后主动停 harness），这里
+// 只兜住客户端卡死的情形——用户点了退出或切换之后，托盘不能无限期挂着。调小它必须重新
+// 核对上面三段：短于客户端收尾时间会在收尾中途强杀，留下占着 dsh 端口的孤儿 harness，
+// 表现为「退出不干净 / ll-cli ps 里还有进程」。switchboard_test.go 有用例钉住这个下界。
+const stopGrace = 20 * time.Second
 
 // Config 是切换器的持久化配置。字段缺失时取零值，由 normalize 补全。
 //
@@ -110,7 +130,7 @@ type Switchboard struct {
 	child      *exec.Cmd
 	// exited 在当前客户端进程结束时关闭。切换必须等它，而不是等 s.child 变 nil——
 	// 后者由 reap 在拿到锁之后才设置，而切换自己正持着锁，会白等到强杀超时：实测每次
-	// 切换都要卡满 stopGrace（5 秒），表现为「点了没反应」。
+	// 切换都要卡满 stopGrace，表现为「点了没反应」。
 	exited    chan struct{}
 	switching bool
 	lastError string

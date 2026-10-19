@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // TestNormalizeKeepsKnownModes 覆盖形态合法性：只有两种客户端形态被承认，
@@ -305,6 +306,21 @@ func TestClientCommandReportsMissingClients(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s 形态在客户端缺失时应报错，却返回 %q", mode, path)
 		}
+	}
+}
+
+// TestStopGraceCoversLauncherTeardown 钉死终止宽限期的下界。
+//
+// stopGrace 是按启动器自身有界的收尾时间推导出来的（Supervisor.Stop() 最长 10s、
+// stopDoctor() 最长 2s；terminal.CloseAll() 每会话最长 5s、串行且会话数不定，上界不可
+// 预估，所以只钉得下界）。调小它就会在启动器收尾中途强杀，留下占着 dsh 端口的孤儿
+// harness——表现为「退出不干净 / ll-cli ps 里还有进程」，且没有任何报错或日志。这个用例
+// 让调小必须回 switchboard.go 的 stopGrace 注释重新推导一次启动器侧的上界。
+func TestStopGraceCoversLauncherTeardown(t *testing.T) {
+	const minStopGrace = 20 * time.Second
+	if stopGrace < minStopGrace {
+		t.Fatalf("stopGrace = %v，低于下界 %v；调小必须重新推导启动器收尾上界（见 switchboard.go 中 stopGrace 的说明）",
+			stopGrace, minStopGrace)
 	}
 }
 
