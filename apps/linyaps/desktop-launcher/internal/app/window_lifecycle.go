@@ -115,8 +115,14 @@ func ServeShowRequests(path string, show func()) (stop func(), err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	// 上一次运行留下的 socket 文件会让 bind 失败（EADDRINUSE），而它已经没有任何监听者。
-	// 进程被 SIGKILL 时不会执行 stop，所以这一步是常规路径，不是异常补救。
+	// 先删掉同名文件再 bind：进程被 SIGKILL 或走 os.Exit 收尾时不会执行 stop，上一次运行
+	// 留下的 socket 文件会让 bind 直接 EADDRINUSE，而那种状态表现为「客户端从此唤不回来」，
+	// 所以清理是常规路径而不是异常补救。
+	//
+	// 代价是「后启动的那个客户端会抢走通道」：若真有另一个客户端同时在跑（本进程没有单实例
+	// 机制），它原有的监听还在、文件已被换成新的，托盘从此只唤得到新的那个。这种情形本身
+	// 就是另一个缺陷（见 docs/AUDIT.md 的第 36 条），两条路里选「最新启动的客户端可达」比
+	// 「谁都连不上」好。
 	_ = os.Remove(path)
 	ln, err := net.Listen("unix", path)
 	if err != nil {
