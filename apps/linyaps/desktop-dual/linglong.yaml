@@ -59,6 +59,16 @@ build: |
   fi
 
   # 官方 Electron 客户端：stage/electron 是完整的可运行目录树，直接铺开。
+  #
+  # 缺它必须在这里说清原因。构建段由 ll-builder 以 set -e 执行，没有这道检查时下面
+  # 那条 cp 只会报 `cannot stat .../stage/electron/.` 并中止——退出码是对的，但报错
+  # 看不出成因：stage 由两个变体共用，用 --without-official 出过 tray 包之后它就只剩
+  # 薄壳产物，而 --no-prepare 会原样复用这份暂存，于是「选了错误的复用对象」表现为
+  # 一句 cp 报错。
+  if [ ! -d "$STAGE/electron" ]; then
+    echo "官方客户端产物缺失：$STAGE/electron（stage 可能被 --without-official 的 tray 构建重写过；请完整运行 sh apps/linyaps/desktop-dual/prepare-offline.sh）" >&2
+    exit 1
+  fi
   mkdir -p ${PREFIX}/electron
   cp -a "$STAGE/electron/." ${PREFIX}/electron/
 
