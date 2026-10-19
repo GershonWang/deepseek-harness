@@ -479,6 +479,9 @@ function makeWails(runCalls, overrides = {}) {
   const localeCalls = [];
   /* 主题回推（frontend/app.js → App.SetTheme）：壳首帧窗口底色用它决定（审计 28）。 */
   const themeCalls = [];
+  /* 界面事件落盘（frontend/app.js → App.LogUiEvent，Go 侧见 internal/app/uievent.go）：
+   * 单独记账，用例据此断言「重载/换代/舞台切换确实留痕」且 detail 不带 token。 */
+  const uiEvents = [];
   const app = {
     RunDoctor: overrides.RunDoctor ?? (async () => {
       runCalls.push("run");
@@ -534,6 +537,10 @@ function makeWails(runCalls, overrides = {}) {
     SetTheme: async (dark) => {
       themeCalls.push(dark);
     },
+    // 界面事件落盘（internal/app/uievent.go 的 LogUiEvent）：只记账，不改变界面行为。
+    LogUiEvent: overrides.LogUiEvent ?? (async (kind, detail) => {
+      uiEvents.push({ kind, detail });
+    }),
     // 终端 PTY 通道：id 递增便于断言会话隔离，其余调用记入 runCalls。
     TerminalStart: async () => "pty-" + (++terminalSeq),
     TerminalWrite: async () => {},
@@ -546,6 +553,7 @@ function makeWails(runCalls, overrides = {}) {
     autoDisabled,
     localeCalls,
     themeCalls,
+    uiEvents,
     openedUrls,
     window: {
       go: { app: { App: app } },
@@ -621,9 +629,9 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
   const { document, registry } = makeDocument();
   buildHtml(document);
   const xterm = makeXtermStub();
-  const { window, events, windowEvents, autoDisabled, localeCalls, themeCalls, openedUrls } = hasWails
+  const { window, events, windowEvents, autoDisabled, localeCalls, themeCalls, uiEvents, openedUrls } = hasWails
     ? makeWails(runCalls, overrides)
-    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], themeCalls: [], openedUrls: [] };
+    : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], themeCalls: [], uiEvents: [], openedUrls: [] };
 
   const sandbox = {
     console,
@@ -678,6 +686,7 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     i18n: window.DSHI18N,
     localeCalls,
     themeCalls,
+    uiEvents,
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -1022,6 +1031,61 @@ test("外部服务模式没有注入桥：挂载看门狗不介入", async () =>
 
   assert.equal(srcSets(h), 1, "外部服务不应被看门狗重载");
   assert.deepEqual(h.runCalls, [], "外部服务不应上报失败");
+});
+
+/* ---------- 界面事件落盘（internal/app/uievent.go 的 LogUiEvent） ---------- */
+
+/** 取已记录事件的 kind 列表，便于断言"某类事件确实发生过"。 */
+function uiKinds(h) {
+  return h.uiEvents.map((e) => e.kind);
+}
+
+test("界面事件留痕：Target 换代、舞台切换、挂载握手与重载都写进 launcher.log", async () => {
+  const h = loadApp();
+  await flush();
+  resetFrameLog(h);
+
+  h.status(runningStatus());
+  await flush();
+  assert.ok(uiKinds(h).includes("target-changed"), "首次拿到 Target 应记换代: " + JSON.stringify(h.uiEvents));
+  assert.ok(uiKinds(h).includes("stage"), "进入 iframe 舞台应记 stage");
+
+  // 换 token（harness 重启）：同 origin、查询串变化。
+  h.status(runningStatus({ Target: "http://127.0.0.1:3456/?token=t2" }));
+  await flush();
+  const changed = h.uiEvents.filter((e) => e.kind === "target-changed").pop();
+  assert.match(changed.detail, /query changed/, "换代应标出查询串变化");
+  assert.match(changed.detail, /origin http:\/\/127\.0\.0\.1:3456→http:\/\/127\.0\.0\.1:3456/, "应记下 origin 是否变化");
+
+  // 挂载握手：桥挂载后补报的语言消息。
+  h.message({ dshDesktop: true, type: "locale", id: "zh" });
+  await flush();
+  assert.ok(uiKinds(h).includes("mounted"), "挂载握手应留痕");
+
+  // 桥判定内容消失：先记 bridge-stall，再重载。
+  h.message({ dshDesktop: true, type: "boot-stalled", message: "客户端界面内容为空（挂载点里没有内容）" });
+  await flush();
+  const reload = h.uiEvents.filter((e) => e.kind === "reload").pop();
+  assert.ok(reload, "桥上报后应触发重载并留痕: " + JSON.stringify(h.uiEvents));
+  assert.match(reload.detail, /reason=bridge-stall/, "重载原因应指向桥的上报");
+  assert.ok(h.uiEvents.some((e) => e.kind === "bridge-stall" && /内容为空/.test(e.detail)), "桥的原因应留痕");
+});
+
+test("界面事件不含凭据：落盘细节只描述变化，不输出 token", async () => {
+  const h = loadApp();
+  await flush();
+  const token = "v_HIdOn1QoPRmiyGHDtdr1EpB-6BPytCWBr";
+  h.status(runningStatus({ Target: "http://127.0.0.1:3456/?token=" + token }));
+  await flush();
+  h.message({ dshDesktop: true, type: "boot-stalled", message: "挂载点为空" });
+  await flush();
+
+  assert.ok(h.uiEvents.length > 0, "本条用例需要有事件才能断言");
+  for (const e of h.uiEvents) {
+    const detail = String(e.detail || "");
+    assert.ok(!detail.includes(token), "detail 不得含 token: " + e.kind + " " + detail);
+    assert.ok(!detail.includes("token="), "detail 不应出现 token 片段: " + e.kind + " " + detail);
+  }
 });
 
 /* ---------- 语言跟随（iframe 内 GUI 的 <html lang>，见 linglong/dsh-link-bridge.js） ---------- */

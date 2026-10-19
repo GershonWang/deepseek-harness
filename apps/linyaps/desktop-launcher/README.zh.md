@@ -115,7 +115,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 |---|---|---|
 | `DSH_DESKTOP_DSH_BIN` | 未设 | 直接指定 dsh bin 路径，跳过其他解析 |
 | `DSH_DESKTOP_PORT` | 未设 | 未设时复用上次实际用过的端口（被占用才另挑一个空闲 loopback 端口并记下），harness 重启也复用它，GUI 才能重连；显式指定则本次用它，`0` 让系统选空闲端口；后两种都不改端口记忆 |
-| `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 写入目录 |
+| `DSH_DESKTOP_LOG_DIR` | `~/.cache/dsh-desktop` | `harness.log` 与 `launcher.log` 的写入目录 |
 | `DSH_DESKTOP_NODE` | 未设 | 覆盖 node 可执行文件路径 |
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 保留 webkit2gtk 的硬件 DMABUF 路径，跳过 launcher 的共享内存回退（见已知事项） |
 | `DSH_DESKTOP_SHM_RENDERER` | 未设 | `1` 在任何机器上强制共享内存缓冲传输（`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`），供确实出现闪烁、又不愿放弃加速合成的机器使用（见已知事项） |
@@ -202,7 +202,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 桥还负责第三件事：把 GUI 的生效语言上报给壳。壳渲染的每一处文案都跟随 iframe 内 harness GUI 的语言，而 GUI 的语言由它自己的 `<html lang>` 表达（客户端 locale 服务在每次语言快照变化时同步该属性），因此桥在属性变化时、以及应用挂载完成时各上报一次 `{ dshDesktop: true, type: "locale", id }`；`frontend/app.js` 转交 `frontend/i18n.js`，壳据此切换文案并把语言回推给 Go 侧（`App.SetLocale`）。挂载后的补报不可省略：服务端 `index.html` 的默认 `lang` 恰好等于生效语言时（中文系统 + 用户在 GUI 里选英文），属性自始至终不变，只观察变化会漏掉这种组合。真源选型与分期实施见 `docs/i18n.md`。
 
-桥还负责第四件事：判断 GUI 的内容还在不在。白屏的另一种形态是文档还在、客户端内容整个不见了——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空——此时壳只看得到 iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。桥按周期检查挂载点里还有没有内容（连续为空，或引导页长时间不消失），确认后上报 `{ dshDesktop: true, type: "boot-stalled", message }`；`frontend/app.js` 收到后重载 iframe（最多两次），仍不成功才带上原因走上面的失败页链路。与第二件事的边界：第二件判"上游自己报了失败"，这一件判"上游没有报错、内容只是不出现"。
+桥还负责第四件事：判断 GUI 的内容还在不在。白屏的另一种形态是文档还在、客户端内容整个不见了——客户端模块入口没跑起来（挂载点一直为空），或应用挂载后被清空——此时壳只看得到 iframe 还在，没有任何判据，用户只能靠重启 harness 恢复。桥按周期检查挂载点里还有没有内容（连续为空，或引导页长时间不消失），确认后上报 `{ dshDesktop: true, type: "boot-stalled", message }`；`frontend/app.js` 收到后重载 iframe（最多两次），仍不成功才带上原因走上面的失败页链路。与第二件事的边界：第二件判"上游自己报了失败"，这一件判"上游没有报错、内容只是不出现"。界面侧事件——舞台切换、iframe 重载原因（看门狗/桥/iframe error）、Target 换代——会写进同目录的 `launcher.log`（一行一事件，时间戳格式与 `harness.log` 一致），用来把偶发闪屏与 harness 的时间线对齐；写入前强制把 `?token=…` 替换为 `?token=<redacted>`，凭据不落盘。
 
 桥还负责第五件事：恢复并上报 GUI 当前打开的会话。客户端把「上次打开的会话」写在 localStorage 里，而内嵌 iframe 的这份存储退出后不落盘（见上文渲染层），客户端自己记不住；因此壳把 id 记在 config.json 的 `lastSessionId`，下次启动由 `internal/appenv/restore_session.go` 经索引注入以 `__DSH_DESKTOP_RESTORE_SESSION__` 送进首屏 HTML，桥在客户端入口执行前把它写回选择键（仅在客户端自己没有选择时），并按周期把当前选择上报给壳（`frontend/app.js` → `App.RememberSession`；`sessionId` 为 `null` 表示当前没有选中会话，壳据此清除记忆）。客户端私有的键名 `dsh.sessions.current` 是这条通路的代价：它一旦改名，恢复与上报都会静默失效，只剩客户端自己的回退策略，不会更糟。
 

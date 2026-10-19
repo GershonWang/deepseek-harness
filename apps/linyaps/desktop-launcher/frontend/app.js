@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false, _gui: { target: "", mounted: false, ticks: 0, reloads: 0, reported: false, reason: "" } };
+const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false, _stage: "", _gui: { target: "", mounted: false, ticks: 0, reloads: 0, reported: false, reason: "" } };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
 // 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
@@ -111,6 +111,48 @@ function openExternal(url) {
   if (window.runtime && window.runtime.BrowserOpenURL) window.runtime.BrowserOpenURL(url);
 }
 
+/* ---------- 界面事件诊断日志 ---------- */
+
+// 把界面侧事件（舞台切换、iframe 重载、Target 换代、挂载握手）写进 launcher.log。
+// 闪屏/白屏这类偶发问题，只有把界面时间线与 harness.log 对齐才能定性——是"整页重载
+// 闪白"还是"合成层闪烁"，两者的修法完全不同。壳二进制可能比前端旧、没有该方法，
+// 此时静默跳过：诊断能力缺失不该影响页面本身的行为。
+function logUi(kind, detail) {
+  const app = window.go && window.go.app && window.go.app.App;
+  if (!app || typeof app.LogUiEvent !== "function") return;
+  try {
+    const pending = app.LogUiEvent(String(kind || ""), String(detail || ""));
+    if (pending && typeof pending.catch === "function") pending.catch(() => {});
+  } catch (e) {
+    console.warn("ui event log unavailable:", e && e.message);
+  }
+}
+
+/**
+ * 把两次 iframe 目标压成可落盘的描述：只保留 host:port 与"查询串是否变化"。
+ *
+ * 不输出查询串本身——地址里带 ?token=…，而 launcher.log 是磁盘文件，凭据不能进。
+ * @param {string} prev - 之前的 Target（可能为空串）。
+ * @param {string} next - 新的 Target。
+ * @returns {string} 形如 "origin http://127.0.0.1:36943→http://127.0.0.1:36943 query changed"。
+ */
+function describeTargetChange(prev, next) {
+  const originOf = (u) => {
+    try {
+      return new URL(u).origin;
+    } catch (e) {
+      return "-";
+    }
+  };
+  const queryOf = (u) => {
+    const s = String(u || "");
+    const i = s.indexOf("?");
+    return i < 0 ? "" : s.slice(i + 1);
+  };
+  return "origin " + originOf(prev) + "→" + originOf(next) +
+    " query " + (queryOf(prev) === queryOf(next) ? "unchanged" : "changed");
+}
+
 // 标题栏的玲珑包版本，取一次即可（进程生命周期内不变，因此不进 1s 状态快照）。
 // 关于弹框已移除：完整信息（DSH 版本、两个仓库、封装作者）在双客户端包的托盘「关于」，
 // 这里只显示版本号。绑定缺失（浏览器预览、测试桩没提供）或取值失败时保持空串——
@@ -152,6 +194,7 @@ function bindExternalLinks() {
     if (d.type === "locale") {
       if (typeof d.id !== "string") return;
       state._gui.mounted = true;
+      logUi("mounted", d.id);
       window.DSHI18N.applyFromGui(d.id);
       return;
     }
@@ -174,7 +217,9 @@ function bindExternalLinks() {
     // iframe，重载用尽后 reloadHarnessFrame 会带上桥给的原因走失败页链路。
     if (d.type === "boot-stalled") {
       if (typeof d.message === "string" && d.message) state._gui.reason = d.message;
-      reloadHarnessFrame();
+      // 桥自己的判据（10/30 秒）比看门狗更早，记下它的结论再重载。
+      logUi("bridge-stall", d.message || "");
+      reloadHarnessFrame("bridge-stall");
       return;
     }
 
@@ -287,10 +332,18 @@ function clearStoppedTimer() {
 }
 
 // 主舞台五选一展示：harness iframe / 引导页 / 启动加载页 / 预检页 / 启动失败页。
+// 每次真正切换都记一条 stage 事件：闪屏发生时先看它有没有在切舞台，能直接把"重载/
+// 换舞台"与"合成层闪烁"区分开。
 function showStageOnly(el) {
+  let next = "";
   for (const id of ["harness", "guidance", "loading-page", "preflight-page", "failed-page"]) {
     const node = document.getElementById(id);
     node.classList.toggle("hidden", node !== el);
+    if (node === el) next = id;
+  }
+  if (next !== state._stage) {
+    logUi("stage", (state._stage || "-") + "→" + (next || "-"));
+    state._stage = next;
   }
 }
 
@@ -425,6 +478,9 @@ function watchGuiMount(s) {
     return;
   }
   if (gui.target !== s.Target) {
+    // 换代（harness 重启换了 token、用户切了外部服务）：这是"整页重载"的另一个来源，
+    // 与看门狗无关，但同样会闪一下——记下来才能和 harness.log 的 ready 行对齐。
+    logUi("target-changed", describeTargetChange(gui.target, s.Target));
     gui.target = s.Target;
     gui.mounted = false;
     gui.ticks = 0;
@@ -437,7 +493,7 @@ function watchGuiMount(s) {
   gui.ticks += 1;
   if (gui.ticks < GUI_MOUNT_STALL_TICKS) return;
   gui.ticks = 0;
-  reloadHarnessFrame();
+  reloadHarnessFrame("watchdog");
 }
 
 /**
@@ -447,14 +503,17 @@ function watchGuiMount(s) {
  * ——与用户手动重启 harness 后壳做的事等价，但不重启 harness 进程。重载预算用尽后
  * 交给既有的客户端失败链路（Go 侧记录 + 自动诊断 + 安全模式入口），而不是无限重载：
  * 真的持续起不来时，用户需要的是诊断入口而不是循环。
+ * @param {string} reason - 触发来源（watchdog / bridge-stall / iframe-error），仅用于日志。
  */
-function reloadHarnessFrame() {
+function reloadHarnessFrame(reason) {
   const gui = state._gui;
   const frame = $("#harness");
   const target = state.status ? state.status.Target : "";
   if (!frame || !target || gui.reported) return;
+  const from = String(reason || "unknown");
   if (gui.reloads >= GUI_MOUNT_MAX_RELOADS) {
     gui.reported = true;
+    logUi("reload-exhausted", "reason=" + from + " budget=" + gui.reloads + "/" + GUI_MOUNT_MAX_RELOADS + (gui.reason ? " detail=" + gui.reason : ""));
     if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReportClientBootFailure) {
       // 桥若给出了具体原因（如引导页仍在、挂载点为空），一并带上；壳二进制比前端旧时
       // 方法不存在也不影响页面本身的行为。
@@ -464,6 +523,8 @@ function reloadHarnessFrame() {
     return;
   }
   gui.reloads += 1;
+  // 先记日志再动 src：日志时间戳必须早于重载，才能和 harness.log 的时间线对齐。
+  logUi("reload", "reason=" + from + " budget=" + gui.reloads + "/" + GUI_MOUNT_MAX_RELOADS);
   frame.removeAttribute("src");
   frame.setAttribute("src", target);
 }
@@ -1893,7 +1954,7 @@ function init() {
   // iframe 文档本身加载失败（连接被拒、响应中断）时浏览器不会给出别的信号：补一条
   // error 通道，与挂载看门狗共用同一套重载预算。桥的 boot-stalled 上报覆盖"文档在、
   // 内容没了"，这一条覆盖"文档都没加载出来"。
-  $("#harness").addEventListener("error", () => reloadHarnessFrame());
+  $("#harness").addEventListener("error", () => reloadHarnessFrame("iframe-error"));
 
   setupBuiltinToggle();
   setupHostsToggle();
