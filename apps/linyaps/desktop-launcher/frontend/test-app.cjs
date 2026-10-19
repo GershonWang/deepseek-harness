@@ -633,10 +633,28 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     ? makeWails(runCalls, overrides)
     : { window: { addEventListener() {} }, events: {}, windowEvents: {}, autoDisabled: { pending: 0, ack: [] }, localeCalls: [], themeCalls: [], uiEvents: [], openedUrls: [] };
 
+  /* 挂载看门狗按真实时间判定（app.js 的 nowMs → Date.now），并由一个 1 秒定时器驱动。
+   * 这里注入可控时钟 + "只记录不调度"的 setInterval：用例推进时间后手动驱动 tick，
+   * 阈值判定因此是确定性的，也不必等待真实时间。 */
+  const clock = { now: 1700000000000 };
+  const intervals = [];
+  class FakeDate extends Date {
+    static now() {
+      return clock.now;
+    }
+  }
+
   const sandbox = {
     console,
     setTimeout,
     clearTimeout,
+    // 定时器：记录回调供用例手动驱动，避免常驻定时器拖住 node --test 的事件循环。
+    setInterval: (fn) => {
+      intervals.push(fn);
+      return intervals.length;
+    },
+    clearInterval: () => {},
+    Date: FakeDate,
     Promise,
     // app.js 的状态栏脱敏用 URL 解析主机端口；vm 上下文默认不带这个 Web API，
     // 缺了它 hostLabel 会走解析失败的兜底分支，脱敏行为就测不到了。
@@ -687,6 +705,15 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     localeCalls,
     themeCalls,
     uiEvents,
+    /* 时钟与定时器驱动：advance(ms) 推进假时钟，tick() 触发一次 1 秒定时器回调
+     * （挂载看门狗按真实时间判定，见 app.js 的 watchGuiMount）。 */
+    advance: (ms) => {
+      clock.now += ms;
+    },
+    nowMs: () => clock.now,
+    tick: () => {
+      for (const fn of intervals) fn();
+    },
     status: (s) => {
       assert.equal(typeof events["harness:status"], "function",
         "harness:status 事件未注册（需 Wails 环境）");
@@ -897,9 +924,16 @@ test("客户端失败消息校验：非法类型不上报，非 iframe 来源不
 
 /* ---------- harness GUI 挂载看门狗（白屏自愈，见 frontend/app.js 的"挂载看门狗"） ---------- */
 
-// Go 侧每秒推一次 harness:status，看门狗按快照计数（≈25 秒），因此用例直接推快照
-// 即可跨过阈值，不必等待真实时间。
-const GUI_MOUNT_TICKS = 25;
+// 挂载看门狗按真实时间判定（≈25 秒），由 1 秒定时器驱动：用例推进假时钟后手动
+// tick 定时器，阈值判定因此是确定性的，也不必等待真实时间。
+const GUI_MOUNT_STALL_MS = 25000;
+const GUI_RELOAD_WINDOW_MS = 5 * 60 * 1000;
+
+/** 推进时间并驱动一次看门狗：等价于"过了 ms 毫秒、1 秒定时器响了一次"。 */
+function stallWatchdog(h, ms = GUI_MOUNT_STALL_MS) {
+  h.advance(ms);
+  h.tick();
+}
 
 function runningStatus(over = {}) {
   return baseStatus({
@@ -933,13 +967,13 @@ test("GUI 未挂载：到阈值重载 iframe，预算用尽后转交 Go 的失�
     "http://127.0.0.1:3456/?token=t",
     "运行态应加载 iframe");
 
-  for (let i = 0; i < GUI_MOUNT_TICKS - 1; i++) h.status(runningStatus());
-  await flush();
+  // 未到阈值：时间还差一点，不重载。
+  h.advance(GUI_MOUNT_STALL_MS - 1000);
+  h.tick();
   assert.equal(srcSets(h), 1, "未到阈值不应重载");
   assert.deepEqual(h.runCalls, [], "未到阈值不应上报");
 
-  h.status(runningStatus()); // 第 25 次快照：第一次重载
-  await flush();
+  stallWatchdog(h, 2000); // 越过阈值：第一次重载
   assert.equal(srcSets(h), 2, "到阈值应重载 iframe");
   assert.equal(
     h.document.getElementById("harness").getAttribute("src"),
@@ -947,12 +981,10 @@ test("GUI 未挂载：到阈值重载 iframe，预算用尽后转交 Go 的失�
     "重载后仍指向同一地址");
   assert.deepEqual(h.runCalls, [], "第一次重载不立即上报");
 
-  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
-  await flush();
+  stallWatchdog(h); // 第二次重载
   assert.equal(srcSets(h), 3, "预算内应再重载一次");
 
-  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
-  await flush();
+  stallWatchdog(h); // 预算用尽
   assert.equal(srcSets(h), 3, "预算用尽后不再重载");
   assert.equal(h.runCalls.length, 1, "预算用尽后应上报一次");
   assert.match(h.runCalls[0], /^client-fail:界面加载超时/);
@@ -968,8 +1000,7 @@ test("GUI 挂载握手（桥补报语言）到达后不再重载", async () => {
   h.message({ dshDesktop: true, type: "locale", id: "zh-CN" });
   await flush();
 
-  for (let i = 0; i < GUI_MOUNT_TICKS * 3; i++) h.status(runningStatus());
-  await flush();
+  stallWatchdog(h, GUI_MOUNT_STALL_MS * 3);
   assert.equal(srcSets(h), 1, "已挂载不应重载");
   assert.deepEqual(h.runCalls, [], "已挂载不应上报失败");
 });
@@ -998,24 +1029,32 @@ test("桥上报内容消失：立即重载，预算用尽后带上桥给的原�
   assert.match(h.runCalls[0], /^client-fail:界面加载超时[\s\S]*挂载点里没有内容/);
 });
 
-test("Target 换代（harness 重启换 token）重置计数与重载预算", async () => {
+test("Target 换代（harness 重启换 token）不重置时间窗重载预算", async () => {
   const h = loadApp();
   await flush();
   resetFrameLog(h);
 
   h.status(runningStatus());
   await flush();
-  for (let i = 0; i < GUI_MOUNT_TICKS; i++) h.status(runningStatus());
-  await flush();
+  stallWatchdog(h);
   assert.equal(srcSets(h), 2, "第一代到阈值应重载一次");
 
-  const next = { Target: "http://127.0.0.1:3456/?token=t2", URL: "http://127.0.0.1:3456" };
-  h.status(runningStatus(next));
+  // 换代：换 token 本身会让查看器导航一次（applyStatus 重设 src），那是 #3。
+  const gen2 = { Target: "http://127.0.0.1:3456/?token=t2", URL: "http://127.0.0.1:3456" };
+  h.status(runningStatus(gen2));
   await flush();
-  for (let i = 0; i < GUI_MOUNT_TICKS - 1; i++) h.status(runningStatus(next));
+  assert.equal(srcSets(h), 3, "换代应重新加载新地址");
+  stallWatchdog(h);
+  assert.equal(srcSets(h), 4, "第二代仍可使用时间窗内的剩余预算");
+
+  // 预算已用尽：再换代 + 再超时不得重载（旧实现按换代复位预算，会在这里继续重载）。
+  h.status(runningStatus({ Target: "http://127.0.0.1:3456/?token=t3", URL: "http://127.0.0.1:3456" }));
   await flush();
-  assert.equal(srcSets(h), 3, "新一代未到阈值不应重载（换 token 本身会导航一次）");
-  assert.deepEqual(h.runCalls, [], "换代后预算复位，不应上报");
+  const before = srcSets(h);
+  stallWatchdog(h);
+  assert.equal(srcSets(h), before, "时间窗预算用尽后，换代不得解除封顶");
+  assert.equal(h.runCalls.length, 1, "用尽后应上报一次失败");
+  assert.match(h.runCalls[0], /^client-fail:界面加载超时/);
 });
 
 test("外部服务模式没有注入桥：挂载看门狗不介入", async () => {
@@ -1024,9 +1063,9 @@ test("外部服务模式没有注入桥：挂载看门狗不介入", async () =>
   resetFrameLog(h);
 
   const target = "http://192.168.1.20:3456/";
-  for (let i = 0; i < GUI_MOUNT_TICKS * 2; i++) {
-    h.status(baseStatus({ Mode: "external", State: "running", ExternalURL: target, Target: target }));
-  }
+  h.status(baseStatus({ Mode: "external", State: "running", ExternalURL: target, Target: target }));
+  await flush();
+  stallWatchdog(h, GUI_MOUNT_STALL_MS * 3);
   await flush();
 
   assert.equal(srcSets(h), 1, "外部服务不应被看门狗重载");

@@ -3,7 +3,7 @@
 
 "use strict";
 
-const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false, _stage: "", _gui: { target: "", mounted: false, ticks: 0, reloads: 0, reported: false, reason: "" } };
+const state = { status: null, startupView: null, prevConnectError: "", _stoppedTimer: null, _startupDoctorShown: false, _autoDisabledChecked: false, _stage: "", _gui: { target: "", mounted: false, waitSince: 0, reloadCount: 0, windowStart: 0, reported: false, reason: "" } };
 
 // 诊断/修复的运行状态（跨弹窗关闭重开保持）：diagnosisRunning 期间复用同一次
 // 检测结果，repairing 期间禁止再次点击修复按钮，lastReport 缓存最近一次诊断
@@ -438,15 +438,29 @@ function renderDynamicCopy() {
 
 // 容器内 harness 的 GUI 是 iframe 里的另一份文档：它可能整块空白（文档没加载出来、
 // 客户端模块入口没跑、或应用 DOM 被清空），而壳自己的标题栏/状态栏照常渲染——用户
-// 看到的就是"只有 harness 区域白"。此时壳没有任何判据，只能靠重启 harness 换 token
-// 触发整页重载来恢复；这里把这件事自动化：按状态快照计数，超过阈值就重载 iframe。
+// 看到的就是"只有 harness 区域白"。这里把恢复自动化：等不到挂载握手就重载 iframe。
 // 重载只动壳自己的 iframe，不重启 harness 进程，因此不会打断正在跑的任务。
 //
-// 为什么按快照计数而不是 setTimeout/Date：Go 侧每秒推一次 harness:status（见
-// internal/app 的 1s ticker），用快照计数既不需要计时器，也让 DOM 桩测试能直接驱动
-// 阈值，不必等待真实时间。
-const GUI_MOUNT_STALL_TICKS = 25; // ≈25 秒仍未收到挂载握手即视为卡住
-const GUI_MOUNT_MAX_RELOADS = 2; // 连续重载上限，用尽后交给既有失败页链路
+// 为什么按真实时间而不是快照次数：Go 侧只在快照**变化**时才推 harness:status
+// （internal/app 的 emitStatusIfChanged），而 FrontendStatus 里没有随时间变化的字段
+// ——界面空白这种"什么都不变"的场景恰恰不会来快照。早期按快照计数（≈25 次）因此在
+// 最需要它的场景下几乎不会累积，真正救场的是桥自己的 boot-stalled 与 iframe error。
+// 现在改由 1 秒定时器驱动、按时间差判定。
+//
+// 为什么重载预算按时间窗而不是按 Target 分代：Target 换代（harness 重启换 token）时
+// 分代预算会被清零，"最多两次"于是被反复解除——Target 持续变化就会变成反复整页重载
+// （每次都闪一下）。时间窗预算不随换代清零，才真的封得住顶。
+const GUI_MOUNT_STALL_MS = 25000; // ≈25 秒仍等不到挂载握手即视为卡住
+const GUI_RELOAD_WINDOW_MS = 5 * 60 * 1000; // 重载预算的时间窗
+const GUI_RELOAD_MAX_IN_WINDOW = 2; // 时间窗内的重载上限，用尽后交给既有失败页链路
+
+/**
+ * 当前时间（毫秒）。集中一处，便于测试替换时钟来推进阈值。
+ * @returns {number} 当前毫秒时间戳。
+ */
+function nowMs() {
+  return Date.now();
+}
 
 /**
  * 当前快照是否处于"应当已挂载"的容器内 harness 状态。
@@ -461,9 +475,29 @@ function guiMountExpected(s) {
 }
 
 /**
- * 由每次状态快照驱动的挂载看门狗：同一 Target 内累计"未挂载"的快照数，达到阈值
- * 就重载 iframe。Target 变化（harness 重启换了 token、用户切了外部服务）视为新一代，
- * 计数器与重载预算一起复位。
+ * 取时间窗内的剩余重载预算；窗口过期则重置计数与"已上报"标记。
+ *
+ * 换代不清这个预算：只有时间窗才解除封顶。这样一个持续换 token 的 harness 不会把
+ * 界面变成反复重载的循环。
+ * @param {number} now - 当前毫秒时间戳。
+ * @returns {number} 本时间窗内还能重载的次数。
+ */
+function guiReloadBudget(now) {
+  const gui = state._gui;
+  if (gui.windowStart === 0 || now - gui.windowStart >= GUI_RELOAD_WINDOW_MS) {
+    gui.windowStart = now;
+    gui.reloadCount = 0;
+    gui.reported = false;
+  }
+  return GUI_RELOAD_MAX_IN_WINDOW - gui.reloadCount;
+}
+
+/**
+ * 挂载看门狗：由 1 秒定时器（见 init 里的 setInterval）驱动，也随每次状态快照调用。
+ *
+ * 同一 Target 内从"应当已挂载但没等到握手"开始计时，超过阈值就重载 iframe；重载后
+ * 重新计时。Target 变化（harness 重启换了 token、用户切了外部服务）只重置本代状态，
+ * 不动时间窗预算。
  * @param {Object} s - Go 侧状态快照。
  */
 function watchGuiMount(s) {
@@ -471,9 +505,7 @@ function watchGuiMount(s) {
   if (!guiMountExpected(s)) {
     gui.target = "";
     gui.mounted = false;
-    gui.ticks = 0;
-    gui.reloads = 0;
-    gui.reported = false;
+    gui.waitSince = 0;
     gui.reason = "";
     return;
   }
@@ -483,16 +515,19 @@ function watchGuiMount(s) {
     logUi("target-changed", describeTargetChange(gui.target, s.Target));
     gui.target = s.Target;
     gui.mounted = false;
-    gui.ticks = 0;
-    gui.reloads = 0;
-    gui.reported = false;
+    // 从观察到这一代就开始计时（而不是等下一次定时器）：交接时刻才是真正的起点。
+    gui.waitSince = nowMs();
     gui.reason = "";
     return;
   }
-  if (gui.mounted || gui.reported) return;
-  gui.ticks += 1;
-  if (gui.ticks < GUI_MOUNT_STALL_TICKS) return;
-  gui.ticks = 0;
+  if (gui.mounted) return;
+  const now = nowMs();
+  if (gui.waitSince === 0) {
+    gui.waitSince = now;
+    return;
+  }
+  if (now - gui.waitSince < GUI_MOUNT_STALL_MS) return;
+  gui.waitSince = now; // 重载后重新计时，避免同一轮反复触发
   reloadHarnessFrame("watchdog");
 }
 
@@ -509,22 +544,25 @@ function reloadHarnessFrame(reason) {
   const gui = state._gui;
   const frame = $("#harness");
   const target = state.status ? state.status.Target : "";
-  if (!frame || !target || gui.reported) return;
+  if (!frame || !target) return;
   const from = String(reason || "unknown");
-  if (gui.reloads >= GUI_MOUNT_MAX_RELOADS) {
-    gui.reported = true;
-    logUi("reload-exhausted", "reason=" + from + " budget=" + gui.reloads + "/" + GUI_MOUNT_MAX_RELOADS + (gui.reason ? " detail=" + gui.reason : ""));
-    if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReportClientBootFailure) {
-      // 桥若给出了具体原因（如引导页仍在、挂载点为空），一并带上；壳二进制比前端旧时
-      // 方法不存在也不影响页面本身的行为。
-      const reason = tr("failed.guiStallReason") + (gui.reason ? "\n" + gui.reason : "");
-      window.go.app.App.ReportClientBootFailure(reason).then(applyStatus).catch(() => {});
+  const left = guiReloadBudget(nowMs());
+  if (gui.reported || left <= 0) {
+    if (!gui.reported) {
+      gui.reported = true;
+      logUi("reload-exhausted", "reason=" + from + " budget=" + gui.reloadCount + "/" + GUI_RELOAD_MAX_IN_WINDOW + (gui.reason ? " detail=" + gui.reason : ""));
+      if (window.go && window.go.app && window.go.app.App && window.go.app.App.ReportClientBootFailure) {
+        // 桥若给出了具体原因（如引导页仍在、挂载点为空），一并带上；壳二进制比前端旧时
+        // 方法不存在也不影响页面本身的行为。
+        const reason = tr("failed.guiStallReason") + (gui.reason ? "\n" + gui.reason : "");
+        window.go.app.App.ReportClientBootFailure(reason).then(applyStatus).catch(() => {});
+      }
     }
     return;
   }
-  gui.reloads += 1;
+  gui.reloadCount += 1;
   // 先记日志再动 src：日志时间戳必须早于重载，才能和 harness.log 的时间线对齐。
-  logUi("reload", "reason=" + from + " budget=" + gui.reloads + "/" + GUI_MOUNT_MAX_RELOADS);
+  logUi("reload", "reason=" + from + " budget=" + gui.reloadCount + "/" + GUI_RELOAD_MAX_IN_WINDOW);
   frame.removeAttribute("src");
   frame.setAttribute("src", target);
 }
@@ -1955,6 +1993,12 @@ function init() {
   // error 通道，与挂载看门狗共用同一套重载预算。桥的 boot-stalled 上报覆盖"文档在、
   // 内容没了"，这一条覆盖"文档都没加载出来"。
   $("#harness").addEventListener("error", () => reloadHarnessFrame("iframe-error"));
+
+  // 挂载看门狗的时间基准：Go 只在快照变化时推送，界面稳定空白时不会有任何事件，
+  // 因此由一个 1 秒定时器驱动（判定逻辑见 watchGuiMount 上方的说明）。
+  setInterval(() => {
+    if (state.status) watchGuiMount(state.status);
+  }, 1000);
 
   setupBuiltinToggle();
   setupHostsToggle();
