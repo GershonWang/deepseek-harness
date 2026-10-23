@@ -31,11 +31,11 @@ import {
   canOpenNativePath, openNativePath, runNativeCommand, desktopEntryFields, desktopDataDirectories, type NativeCommandRunner,
 } from '@deepseek-ai/dsh-native-command'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
-import type { HostEscapeFact } from '@deepseek-ai/dsh-launch-environment'
 import {
   OPEN_IN_APP_CATALOG, PATH_TOKEN,
   type OpenInAppApp, type OpenInAppLaunch, type OpenInAppLocator, type OpenInAppPlatformSpec,
 } from './catalog.ts'
+import type { HostEscapeFact } from './host-escape.ts'
 
 /** Where this host holds one resolved application's icon pixels. */
 export type OpenInAppIconSource =

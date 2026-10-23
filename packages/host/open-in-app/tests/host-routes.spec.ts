@@ -530,10 +530,11 @@ describe('open-in-app host routes (real Loader composition)', () => {
     const hostRootfs = await mkdtemp(join(tmpdir(), 'dsh-open-in-app-rootfs-'))
     const applications = join(hostRootfs, 'usr', 'share', 'applications')
     await mkdir(applications, { recursive: true })
-    // VS Code is installed on the host; nothing resolves inside the sandbox.
-    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/usr/share/code/code %F\n')
-    await mkdir(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true })
-    await writeFile(join(hostRootfs, 'usr', 'share', 'code', 'code'), 'binary')
+    // The host entry names a program absent from the build host, so only the
+    // mounted host root can prove it.
+    await writeFile(join(applications, 'code.desktop'), '[Desktop Entry]\nExec=/opt/dsh-spec/code/code %F\n')
+    await mkdir(join(hostRootfs, 'opt', 'dsh-spec', 'code'), { recursive: true })
+    await writeFile(join(hostRootfs, 'opt', 'dsh-spec', 'code', 'code'), 'binary')
     // The channel probe is the channel's only host command; counting it is how
     // these reads prove they re-resolved instead of replaying the first pass.
     const probes = vi.fn(async (command: string, args: readonly string[]) => {
@@ -561,9 +562,9 @@ describe('open-in-app host routes (real Loader composition)', () => {
 
       // The user installs Sublime Text on the host while the sandbox lives; the
       // next menu read sees it without restarting the client.
-      await writeFile(join(applications, 'sublime_text.desktop'), '[Desktop Entry]\nExec=/opt/sublime_text/sublime_text %F\n')
-      await mkdir(join(hostRootfs, 'opt', 'sublime_text'), { recursive: true })
-      await writeFile(join(hostRootfs, 'opt', 'sublime_text', 'sublime_text'), 'binary')
+      await writeFile(join(applications, 'sublime_text.desktop'), '[Desktop Entry]\nExec=/opt/dsh-spec/sublime_text/sublime_text %F\n')
+      await mkdir(join(hostRootfs, 'opt', 'dsh-spec', 'sublime_text'), { recursive: true })
+      await writeFile(join(hostRootfs, 'opt', 'dsh-spec', 'sublime_text', 'sublime_text'), 'binary')
       expect(await apps()).toEqual({ apps: ['vscode', 'sublimetext'], iconless: [] })
       expect(probes).toHaveBeenCalledTimes(2)
 
@@ -573,7 +574,7 @@ describe('open-in-app host routes (real Loader composition)', () => {
 
       // Uninstalling it on the host drops it from the next menu read, and the
       // entry itself leaves the map the icon route reads.
-      await rm(join(hostRootfs, 'usr', 'share', 'code'), { recursive: true, force: true })
+      await rm(join(hostRootfs, 'opt', 'dsh-spec', 'code'), { recursive: true, force: true })
       expect(await apps()).toEqual({ apps: ['sublimetext'], iconless: [] })
       expect(probes).toHaveBeenCalledTimes(3)
       expect((await fetch(`${base}/open-in-app/icon/vscode`)).status).toBe(404)

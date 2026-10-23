@@ -37,17 +37,19 @@ export function requestClipboardImage(timeoutMs = 15000): Promise<string | null>
       if (settled) return
       settled = true
       window.removeEventListener('message', onMessage)
-      if (timer !== undefined) clearTimeout(timer)
+      clearTimeout(timer)
       resolve(data)
     }
     const onMessage = (event: MessageEvent): void => {
-      const d = event.data ?? {}
-      if (d.dshDesktop !== true || d.type !== RESPONSE_TYPE) return
       if (event.source !== window.parent) return
-      finish(typeof d.data === 'string' && d.data !== '' ? d.data : null)
+      const payload: unknown = event.data
+      if (typeof payload !== 'object' || payload === null) return
+      const message = payload as Record<string, unknown>
+      if (message.dshDesktop !== true || message.type !== RESPONSE_TYPE) return
+      finish(typeof message.data === 'string' && message.data !== '' ? message.data : null)
     }
     window.addEventListener('message', onMessage)
-    const timer = setTimeout(() => finish(null), timeoutMs)
+    const timer = setTimeout(() => { finish(null) }, timeoutMs)
     window.parent.postMessage({ dshDesktop: true, type: REQUEST_TYPE }, '*')
   })
   void inFlight.then(() => { inFlight = undefined })

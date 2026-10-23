@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import {
   base64ToImageFile, isShellEmbedded, requestClipboardImage,
 } from '../src/client/desktop-clipboard.ts'
@@ -7,9 +7,11 @@ import {
 const originalParent = window.parent
 
 /** Force the module to believe we live inside the shell iframe. */
-function fakeParent(): void {
-  const parent = { postMessage: vi.fn() } as unknown as Window
+function fakeParent(): Mock {
+  const postMessage = vi.fn()
+  const parent = { postMessage } as unknown as Window
   Object.defineProperty(window, 'parent', { value: parent, configurable: true })
+  return postMessage
 }
 
 /** Deliver a shell reply as if the parent window posted it. */
@@ -43,9 +45,9 @@ describe('requestClipboardImage', () => {
   })
 
   it('posts a clipboard-read-image request and resolves the base64 reply', async () => {
-    fakeParent()
+    const postMessage = fakeParent()
     const promise = requestClipboardImage()
-    expect(window.parent.postMessage).toHaveBeenCalledWith(
+    expect(postMessage).toHaveBeenCalledWith(
       { dshDesktop: true, type: 'clipboard-read-image' }, '*')
     replyFromParent('QUJD')
     expect(await promise).toBe('QUJD')

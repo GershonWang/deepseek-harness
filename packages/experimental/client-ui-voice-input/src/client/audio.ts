@@ -65,7 +65,7 @@ registerProcessor('dsh-pcm-collector', DshPcmCollector)`
  * @param total - the exact combined length, which the caller already tracks.
  * @returns one buffer holding every sample once.
  */
-function concatenate(parts: Float32Array<ArrayBufferLike>[], total: number): Float32Array<ArrayBuffer> {
+function concatenate(parts: Float32Array[], total: number): Float32Array<ArrayBuffer> {
   const joined = new Float32Array(total)
   let offset = 0
   for (const part of parts) { joined.set(part, offset); offset += part.length }
@@ -80,7 +80,7 @@ export class Recording {
   private worklet: AudioWorkletNode | undefined
   private samples = new Float32Array(256)
   /** Capture-rate samples received from the worklet, in arrival order. */
-  private captured: Float32Array<ArrayBufferLike>[] = []
+  private captured: Float32Array[] = []
   private capturedLength = 0
   private readonly lifetime = new AbortController()
   private disposal: Promise<void> | undefined
@@ -138,7 +138,7 @@ export class Recording {
       // 编码链（见 PCM_WORKLET_SOURCE 的说明）。
       await context.audioWorklet.addModule(`data:application/javascript,${encodeURIComponent(PCM_WORKLET_SOURCE)}`)
       this.worklet = new AudioWorkletNode(context, 'dsh-pcm-collector')
-      this.worklet.port.onmessage = (event: MessageEvent<Float32Array<ArrayBufferLike>>) => {
+      this.worklet.port.onmessage = (event: MessageEvent<Float32Array>) => {
         if (this.lifetime.signal.aborted) return
         const quantum = event.data
         this.captured.push(quantum)

@@ -779,8 +779,9 @@ describe('host-desktop locators', () => {
     const home = await tempRoot()
     const hostRootfs = await tempRoot()
     const applications = join(hostRootfs, 'usr', 'share')
-    // vscode: the entry's program is not on the host root.
-    await writeEntry(applications, 'code', '[Desktop Entry]\nExec=/usr/share/code/code\n')
+    // vscode: the entry's program is not on the host root, and the path is
+    // synthetic so a build host that happens to install VS Code cannot prove it.
+    await writeEntry(applications, 'code', '[Desktop Entry]\nExec=/opt/dsh-spec/code/code\n')
     // vscodeinsiders: a bare name cannot be verified across the sandbox.
     await writeEntry(applications, 'code-insiders', '[Desktop Entry]\nExec=code-insiders\n')
     // cursor: no Exec key at all.
@@ -920,14 +921,14 @@ describe('refreshHostEntries', () => {
     await mkdir(join(hostRootfs, 'usr', 'share', 'applications'), { recursive: true })
     await writeFile(
       join(hostRootfs, 'usr', 'share', 'applications', 'sublime_text.desktop'),
-      '[Desktop Entry]\nExec=/opt/sublime_text/sublime_text %F\n',
+      '[Desktop Entry]\nExec=/opt/dsh-spec/sublime_text/sublime_text %F\n',
     )
     const run = vi.fn(runner((command, args) =>
       command === 'systemd-run' && args[args.length - 1] === '/bin/true' ? '' : null))
     const map = new Map<string, OpenInAppResolvedLaunch>([
       ['finder', { launch: { kind: 'argv', command: '/usr/bin/xdg-open', args: [] } }],
-      ['vscode', { launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] }, hostDesktopId: 'code' }],
-      ['sublimetext', { launch: { kind: 'host-argv', command: '/opt/sublime_text/sublime_text', args: [PATH_TOKEN] }, hostDesktopId: 'sublime_text' }],
+      ['vscode', { launch: { kind: 'host-argv', command: '/opt/dsh-spec/code/code', args: [PATH_TOKEN] }, hostDesktopId: 'code' }],
+      ['sublimetext', { launch: { kind: 'host-argv', command: '/opt/dsh-spec/sublime_text/sublime_text', args: [PATH_TOKEN] }, hostDesktopId: 'sublime_text' }],
     ])
 
     const touched = await refreshHostEntries(map, TIMEOUT_MS, bare({
