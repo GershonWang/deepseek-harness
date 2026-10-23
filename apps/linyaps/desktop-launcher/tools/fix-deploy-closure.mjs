@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * 修复 pnpm deploy --legacy 产出的 dsh 闭包。
  *

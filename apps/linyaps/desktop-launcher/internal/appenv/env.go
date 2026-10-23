@@ -259,12 +259,27 @@ func supervisorOverlayBody(extraRows string) string {
 - id: dsh-market
   config:
     allowRestart: false
-` + extraRows
+` + directoryPickerOverlayRows + extraRows
 }
 
+// directoryPickerOverlayRows 把目录选择器固定为壳内嵌的浏览列表。
+//
+// 上游 web-app bundle 装的是 `directory-picker-auto`：在 loopback + 本地图形会话
+// 下它会选宿主原生对话框，而对话框在不同发行版的 WebKitGTK 与沙箱里表现不一，
+// 壳无法控制。disable + insert 与上游 apps/web/tests/pin-browse-picker.overlay.yml
+// 完全一致，因此只依赖上游已发布的两个后端包，不改 harness 源码。
+const directoryPickerOverlayRows = `- id: directory-picker
+  disabled: true
+- insert:
+    - id: directory-picker-browse
+      name: '@deepseek-ai/dsh-host-directory-picker-browse'
+    - id: ui-directory-picker-browse
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'
+`
+
 // harnessArgs 组装 harness 的启动参数：入口脚本（可为空）、web 子命令、声明
-// 监护关系的 overlay（内含启动进度上报与「上次会话」恢复两个注入插件）、稳定
-// 端口，以及关闭「打开默认浏览器」。
+// 监护关系的 overlay（内含目录选择器固定、启动进度上报与「上次会话」恢复三个
+// 注入项）、稳定端口，以及关闭「打开默认浏览器」。
 //
 // 集中在一处是因为 Resolve 有四条入口分支，任何一条漏掉 overlay 都会让那条
 // 路径重新引入与 dsh-market 的端口竞态。
@@ -296,8 +311,8 @@ func harnessArgs(entry, port, sessionID string) []string {
 // writeSupervisorOverlay 把监护声明写入 launcher 运行时目录，返回其路径。
 // 内容每次启动覆写即可，无需比较或保留旧版本。
 //
-// 两个注入插件（启动进度上报、会话恢复）在同一处写入并作为插入行附加：各自独立
-// 降级，任一步失败都只失去该能力（监护仍有效），不阻断 harness 启动。
+// 三个注入项（目录选择器固定、启动进度上报、会话恢复）在同一处写入并作为插入行
+// 附加：各自独立降级，任一步失败都只失去该能力（监护仍有效），不阻断 harness 启动。
 func writeSupervisorOverlay(sessionID string) (string, error) {
 	path := filepath.Join(resolveLogDir(), supervisorOverlayName)
 	progressPath, _ := writeStartupProgressPlugin()
@@ -463,7 +478,6 @@ func setenvIfUnset(key, value string) {
 // 容器内反而用不了。用户自己声明的宿主导入仍排在它之前——显式选择优先。
 func ConfigureChildEnv(home string) {
 	_ = os.Setenv("GTK_A11Y", "none")
-	_ = os.Setenv("DSH_DIRECTORY_PICKER", "browse")
 	configureHostEscapeEnv()
 
 	if exe, err := os.Executable(); err == nil {

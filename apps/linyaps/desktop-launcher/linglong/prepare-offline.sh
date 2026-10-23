@@ -25,6 +25,12 @@ mkdir -p "$STAGE/bin"
 # 1. harness 全量构建（lib + web 前端）
 pnpm install --frozen-lockfile
 
+# 1.-1 壳前端的两条自带门禁：上游 verify-client-ui-i18n 只覆盖 packages/client 与
+#      官方 app，布局不变量只在真实浏览器里看得见。两者都随打包在宿主机执行；
+#      preview.mjs 找不到 Chromium 时会说明原因并跳过，不阻断没有浏览器的机器。
+node apps/linyaps/desktop-launcher/tools/verify-frontend-i18n.mjs
+node apps/linyaps/desktop-launcher/frontend/tools/preview.mjs verify
+
 # 1.0 构建前先查 packages/ 的包清单。上游重命名或删除包后 git 只删文件、不删目录，遗留的
 #     空壳包目录会被 tsdown 的 workspace include 当成构建单元，报出的却是伪装成根包的
 #     "Cannot find entry"——tsdown 用 empathic 向上查找 package.json，空壳最终命中的是仓库
@@ -58,6 +64,18 @@ node apps/linyaps/desktop-launcher/tools/doctor-build.mjs
 #    node_modules 的 `pnpm install --production`，无 TTY 时即中止。
 WORKSPACE_STATE="node_modules/.pnpm-workspace-state-v1.json"
 STATE_BACKUP=""
+INJECTED=""
+# deploy 失败、Ctrl-C 或终端关闭时也要把状态文件交还：只在成功后恢复会让一次中断
+# 把仓库根的 pnpm 状态永久改成 prod + hoisted，此后所有 `pnpm run` 都判定依赖失配。
+cleanup() {
+  if [ -n "$STATE_BACKUP" ] && [ -f "$STATE_BACKUP" ]; then
+    cp -p "$STATE_BACKUP" "$WORKSPACE_STATE" || true
+    rm -f "$STATE_BACKUP"
+    STATE_BACKUP=""
+  fi
+  [ -z "$INJECTED" ] || rm -f "$INJECTED" "$INJECTED.sorted"
+}
+trap cleanup EXIT INT TERM HUP
 if [ -f "$WORKSPACE_STATE" ]; then
   STATE_BACKUP=$(mktemp)
   cp -p "$WORKSPACE_STATE" "$STATE_BACKUP"
@@ -69,10 +87,7 @@ pnpm --filter @deepseek-ai/dsh deploy --legacy --prod \
   "$STAGE/harness"
 node apps/linyaps/desktop-launcher/tools/fix-deploy-closure.mjs "$STAGE/harness"
 
-if [ -n "$STATE_BACKUP" ]; then
-  cp -p "$STATE_BACKUP" "$WORKSPACE_STATE"
-  rm -f "$STATE_BACKUP"
-fi
+cleanup
 
 # 2.0.5 生产闭包瘦身：删掉确定不是 runtime 依赖的大包。
 #    typescript：运行时全是 .js，不需要 ts 编译器（~24 MB）。
@@ -112,7 +127,6 @@ done
 
 # 本次注入的包名清单（供 assert_injected_inventory 比对；不写进 stage，避免混入产物）。
 INJECTED=$(mktemp)
-trap 'rm -f "$INJECTED" "$INJECTED.sorted"' EXIT
 
 # 2.1 补装 pnpm deploy --legacy --prod 下被遗漏的 peer-only 包。
 #     v0.1.2-alpha.1 起大量包改为 peerDependency + devDependency 模式，

@@ -222,12 +222,11 @@ describe('maintained repository reference policy', () => {
     expect(findRepositoryReferences('source.md', 'rebuild 6344383', new Set(['6344383']))).toEqual([])
   })
 
-  it('exempts exactly the listed fork files and keeps their neighbours inspected', () => {
+  it('exempts the fork audit docs and the pinned runtime index, not their neighbours', () => {
     expect(findRepositoryReferences('apps/linyaps/desktop-launcher/internal/toolchain/remote.go', organizationUrl, new Set()))
       .toEqual([])
     expect(findRepositoryReferences('apps/linyaps/desktop-launcher/docs/AUDIT.md', organizationUrl, new Set())).toEqual([])
-    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/docs/AUDIT.md.bak', organizationUrl, new Set()))
-      .toEqual([{ file: 'apps/linyaps/desktop-launcher/docs/AUDIT.md.bak', line: 1, kind: 'organization-url' }])
+    expect(findRepositoryReferences('apps/linyaps/desktop-launcher/docs/nested/NOTE.md', organizationUrl, new Set())).toEqual([])
     expect(findRepositoryReferences('apps/linyaps/desktop-launcher/internal/toolchain/remote_extra.go', organizationUrl, new Set()))
       .toEqual([{ file: 'apps/linyaps/desktop-launcher/internal/toolchain/remote_extra.go', line: 1, kind: 'organization-url' }])
   })

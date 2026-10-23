@@ -24,23 +24,19 @@ const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
 function namesHexadecimalCommit(candidate: string): boolean {
   return /[a-f]/i.test(candidate)
 }
-const excludedPrefixes = ['vendor/', '.agents/notes/archived/']
+const excludedPrefixes = [
+  'vendor/', '.agents/notes/archived/',
+  // 桌面启动器的取证文档以「分支 + 基点提交 + tree 哈希」记录审计基准，抹掉哈希
+  // 等于抹掉追溯能力；整个目录都是 fork 自有材料，不参与上游引用口径。
+  'apps/linyaps/desktop-launcher/docs/',
+]
 /**
- * fork 专属的取证与不可变引用文件，理由与本上游口径的差异在于"哈希就是内容本身"：
- * - `AUDIT.md`、`fork-divergence.md`、`i18n.md`、`index.md` 以「分支 + 基点提交 + tree 哈希」
- *   记录桌面启动器与玲珑打包链路的审计基准，抹掉哈希等于抹掉追溯能力；
- * - `remote.go` 的 `defaultIndexURL` 有意钉在不可变提交上（见该常量上方的威胁模型），
- *   属于运行时的功能依赖而非文档引用：仓库标签可被强推移动，改成标签会让"索引内容由
- *   客户端自身的发布过程锚定"这一性质退化，因此保留提交哈希。
+ * `remote.go` 的 `defaultIndexURL` 有意钉在不可变提交上（见该常量上方的威胁模型），
+ * 属于运行时的功能依赖而非文档引用：仓库标签可被强推移动，改成标签会让"索引内容由
+ * 客户端自身的发布过程锚定"这一性质退化，因此保留提交哈希。
  * 这是本 fork 的本地豁免，不改变上游文件的检查口径。
  */
-const excludedFiles = [
-  'apps/linyaps/desktop-launcher/docs/AUDIT.md',
-  'apps/linyaps/desktop-launcher/docs/fork-divergence.md',
-  'apps/linyaps/desktop-launcher/docs/i18n.md',
-  'apps/linyaps/desktop-launcher/docs/index.md',
-  'apps/linyaps/desktop-launcher/internal/toolchain/remote.go',
-]
+const excludedFiles = ['apps/linyaps/desktop-launcher/internal/toolchain/remote.go']
 const gitOutputLimit = 64 * 1024 * 1024
 // One 41-byte line per object; 1.2 million objects produce about 49 MiB.
 const objectListingLimit = 1024 * 1024 * 1024

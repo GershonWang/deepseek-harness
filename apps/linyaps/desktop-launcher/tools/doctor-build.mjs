@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * 构建 apps/linyaps/desktop-launcher/doctor。
  *

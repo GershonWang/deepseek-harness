@@ -159,6 +159,7 @@ cd apps/linyaps/desktop-launcher
 go test ./...        # 单元 + mock 子进程集成测试
 node --test frontend/test-app.cjs        # 前端 DOM 桩测试
 node --test frontend/test-i18n.cjs       # 壳前端国际化（语言解析/字典回退/DOM 回填/回推 Go）
+node tools/verify-frontend-i18n.mjs      # shell frontend copy ownership
 node --test linglong/test-link-bridge.cjs   # 注入桥（外链转发 + 启动失败上报 + 语言上报 + 内容存活性 + 会话恢复与上报）
 node --test internal/appenv/startup_progress.test.mjs   # 启动进度上报插件
 node --test internal/appenv/restore_session.test.mjs      # 会话恢复插件（索引注入行）

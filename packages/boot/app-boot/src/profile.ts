@@ -736,15 +736,14 @@ export function resolveBundleDir(
  * @param installAnchor - absolute path of the owning dsh app's package.json.
  * @param options - `userLayer: false` skips reading `cordis.patch.yml`.
  *   `skipThirdPartyBundles: true` strips non-`@deepseek-ai/` bundles from the
- *   composition. `extraPatchFiles` appends further overlay files after the user
- *   layer, for callers that bisect a profile with a temporary patch.
+ *   composition.
  * @returns the successfully loaded bundle layers and optional user patch layer.
  */
 export function loadProfileDirectory(
   binName: string,
   dir: string,
   installAnchor: string,
-  options: { userLayer?: boolean; skipThirdPartyBundles?: boolean; extraPatchFiles?: string[] } = {},
+  options: { userLayer?: boolean; skipThirdPartyBundles?: boolean } = {},
 ): Profile {
   const manifest = dropRetiredBundles(dir, readProfileManifest(binName, dir))
   const bundles = manifest.dsh?.profile?.bundles ?? []
@@ -778,16 +777,9 @@ export function loadProfileDirectory(
   const userPatches = options.userLayer !== false && existsSync(patchPath)
     ? loadOverlayPatches(binName, patchPath)
     : []
-  const extraPatches: PatchOptions[] = []
-  for (const extraPath of options.extraPatchFiles ?? []) {
-    // 缺失的额外 patch 静默跳过：调用方在探测路径上试探性传入，缺文件不是配置错误。
-    if (existsSync(extraPath)) {
-      extraPatches.push(...loadOverlayPatches(binName, extraPath))
-    }
-  }
   return {
     name: basename(dir), dir, layers: composedLayers, patchPath,
-    patches: [...userPatches, ...extraPatches], skippedBundles,
+    patches: userPatches, skippedBundles,
   }
 }
 
@@ -819,7 +811,7 @@ export function loadProfileDirectory(
  */
 export function loadProfile(
   binName: string, name: string, installAnchor: string, home: string = resolveDshHome(),
-  options: { userLayer?: boolean; skipThirdPartyBundles?: boolean; extraPatchFiles?: string[] } = {},
+  options: { userLayer?: boolean; skipThirdPartyBundles?: boolean } = {},
 ): Profile {
   const dir = resolveProfileDir(name, home)
   if (!existsSync(join(dir, 'package.json'))) {

@@ -1,0 +1,9 @@
+# 启动器构建产物与 staging 树：由 prepare-offline / go build / preview 工具生成，
+# 每次构建重写，不属于源码。
+desktop-launcher/dsh-desktop-launcher
+desktop-launcher/.preview/
+desktop-launcher/.preview-cache/
+desktop-launcher/linglong/linglong/
+desktop-launcher/linglong/stage/
+desktop-linglong/stage/
+desktop-dual/stage/

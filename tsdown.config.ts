@@ -21,17 +21,9 @@ function isBuildFaceClient(value: unknown): boolean {
  */
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
-  // workspace 成员由实际存在的 package.json 推导，因此上游重命名或删除包后残留的
-  // 空壳目录（git 只删文件、不删目录）不会成为成员 —— 它没有入口产物，解析必然失败，
-  // 且 tsdown 用 empathic 向上查找 package.json 会把错误伪装成根清单的
-  // `Cannot find entry`。同理，显式 glob 也不会连带纳入 apps/web、benchmarks、
-  // website、native 与 python（tsdown 的 auto/true 会）。Node 程序集单独追加。
   const packages = workspacePackageGlobs(globSync(['vendor/*/package.json', 'packages/*/*/package.json'], { cwd: import.meta.dirname }))
   return {
     workspace: [...packages, 'apps/cli', ...client ? [] : ['apps/desktop-host']],
-    // Host face 用这条 glob 作为「没有自己 tsdown.config.ts 的包」的默认入口，打包到
-    // 各包的 lib/ 生成 lib/index.js 等文件（Node.js exports 路径依赖它们）；Client
-    // face 传空 entry，让这批包被 tsdown 的 workspace 过滤器跳过，改由包内构建产物。
     entry: client ? '' : ['lib/types/{index,startup}.js'],
     outDir: 'lib',
     format: ['esm'],

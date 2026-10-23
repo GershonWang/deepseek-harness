@@ -37,37 +37,20 @@ python/**/__pycache__/
 python/**/.pytest_cache/
 packages/**/__pycache__/
 apps/web/dist/
-apps/linyaps/desktop-launcher/dsh-desktop-launcher
-apps/linyaps/desktop-launcher/linglong/linglong/
-apps/linyaps/desktop-launcher/linglong/stage/
-apps/linyaps/desktop-linglong/stage/
-apps/linyaps/desktop-dual/stage/
-/linglong/
-# 玲珑打包导出产物（ll-builder export）
-com.deepseek.dsh-desktop_*.uab
-com.deepseek.dsh-desktop-official_*.uab
-com.deepseek.dsh-desktop-dual_*.uab
 .artifacts/
 .dsh-build/
 .dsh-report/
-# 测试残留的 DSH home 目录（dsh doctor / profile 测试生成的根目录临时文件）
-/profiles/
-/sessions/
-/backups/
 .playwright-mcp/
 .orig
 .worktrees/
 worktrees/
 .agents/worktrees/
 .typert-*/
-
-# visual companion scratch
-.superpowers/
 native/system/test/bin/
 
-# 启动器前端预览工具的产物（截图与运行时生成的预览页）：与浏览器状态同理，
-# 必须留在 go:embed 根 `frontend/` 之外，否则会被嵌进启动器二进制
-apps/linyaps/desktop-launcher/.preview/
-# 启动器前端预览工具的浏览器状态（profile 与 HOME/XDG）：必须留在 go:embed 根
-# `frontend/` 之外，否则 Chromium 的缓存文件名会让启动器的 go build 直接失败
-apps/linyaps/desktop-launcher/.preview-cache/
+# 玲珑（Linglong）构建工作区与导出包：ll-builder 从仓库根运行（`/project` 即仓库根），
+# 工作区固定落在 ./linglong，导出产物固定落在仓库根。
+/linglong/
+com.deepseek.dsh-desktop_*.uab
+com.deepseek.dsh-desktop-official_*.uab
+com.deepseek.dsh-desktop-dual_*.uab

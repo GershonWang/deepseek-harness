@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * 为 apps/linyaps/desktop-launcher/doctor 建立依赖解析链接。
  *

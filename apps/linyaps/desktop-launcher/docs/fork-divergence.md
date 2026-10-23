@@ -4,6 +4,8 @@
 > **范围**：只做审计与统计。**本文档不包含任何代码改动**；文中的处置建议均为待批准的方案。
 > **分工**：启动器**自身**尚未修复、且修复点落在 `apps/linyaps/desktop-launcher/` 内的缺陷由 [AUDIT.md](./AUDIT.md)（5 条待办，N3/23/35 等）负责，本文档只负责"fork 与上游的偏离"这一角度，两者互补不重复。
 
+> **2026-10-23 收敛进展**：`tsdown.config.ts`、`ui-theme` 字体栈、`llm` 诊断信息、图片灯箱加载态、`directory-picker-auto` 与 `app-boot` 的 `extraPatchFiles` 已回退上游；`lefthook.yml` 恢复原样（布局门禁移入 `prepare-offline.sh`，deploy 状态改为 trap 式交还）；壳前端 i18n 检查下沉为 `tools/verify-frontend-i18n.mjs`；`verify-application-entrypoints` 的 4 条 allowlist 因去掉无用的 shebang 而删除；根 `.gitignore` 仅保留玲珑构建工作区与 `.uab`（其余移入 `apps/linyaps/.gitignore`）。本文其余统计仍以 rc.2 为基线。
+
 ---
 
 ## 一、审计基准

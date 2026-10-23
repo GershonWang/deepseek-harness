@@ -27,32 +27,11 @@
   position: relative;
   max-width: min(100%, 1600px);
   max-height: 100%;
-  min-width: 48px;
-  min-height: 48px;
   object-fit: contain;
   border-radius: var(--dsw-radius-lg);
   background: var(--dsw-specific-input-major);
   border: 0;
   box-shadow: var(--dsw-elevation-prominent);
-}
-
-.loading {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  pointer-events: none;
-}
-
-.error {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 14px;
-  padding: 16px 20px;
-  border: 0.5px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-interactive-bg-hover-danger);
 }
 
 .close {

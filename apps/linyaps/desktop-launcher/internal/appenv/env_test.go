@@ -62,6 +62,16 @@ func TestResolve_InjectsSupervisorOverlay(t *testing.T) {
 	if !strings.Contains(string(body), "allowRestart: false") {
 		t.Errorf("overlay missing allowRestart: false: %s", body)
 	}
+	// 目录选择器固定为壳内嵌列表：auto 在本地图形会话下会选宿主原生对话框。
+	for _, row := range []string{
+		"- id: directory-picker\n  disabled: true",
+		"name: '@deepseek-ai/dsh-host-directory-picker-browse'",
+		"name: '@deepseek-ai/dsh-client-ui-directory-picker-browse'",
+	} {
+		if !strings.Contains(string(body), row) {
+			t.Errorf("overlay missing directory-picker row %q: %s", row, body)
+		}
+	}
 	// 没有记住会话时不该出现恢复行：客户端此时按自己的回退策略启动。
 	if strings.Contains(string(body), restoreSessionRowID) {
 		t.Errorf("overlay has a restore-session row without a remembered Session: %s", body)

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { IconCloseOutlineRegular } from './icons/index.tsx'
 import css from './ImageLightbox.module.css'
@@ -9,10 +9,6 @@ export interface ImageLightboxLabels {
   dialog: string
   /** Accessible label of the close control. */
   close: string
-  /** Short text shown while the image is loading. */
-  loading: string
-  /** Short text shown when the image fails to load. */
-  failed: string
 }
 
 /**
@@ -22,13 +18,9 @@ export interface ImageLightboxLabels {
  * a transformed or filtered ancestor would otherwise trap the fixed backdrop
  * in that ancestor's box instead of covering the viewport.
  *
- * The lightbox exposes a loading state and an error state so the preview
- * never renders as a blank dialog — both are visible even when the image
- * itself fails to decode (e.g. a revoked blob URL or a corrupt payload).
- *
  * @param props.src - the original image URL.
  * @param props.alt - the image's alt text.
- * @param props.labels - dialog, close, loading and failure strings.
+ * @param props.labels - dialog and close-control strings.
  * @param props.onClose - dismiss callback owned by the opener.
  * @returns the modal preview dialog.
  */
@@ -40,7 +32,6 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
-  const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading')
 
   useEffect(() => {
     restoreRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
@@ -56,11 +47,6 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     }
   }, [onClose])
 
-  // Reset loading state whenever the source changes (e.g. switching images).
-  useEffect(() => {
-    setLoadState('loading')
-  }, [src])
-
   return createPortal(
     <div
       className={css.backdrop}
@@ -70,20 +56,7 @@ export function ImageLightbox({ src, alt, labels, onClose }: {
     >
       <div className={css.stage}>
         <div className={css.mask} aria-hidden="true" onMouseDown={onClose} />
-        {loadState === 'error' ? (
-          <div className={css.error} role="alert">{labels.failed}</div>
-        ) : (
-          <img
-            className={css.image}
-            src={src}
-            alt={alt}
-            onLoad={() => setLoadState('ready')}
-            onError={() => setLoadState('error')}
-          />
-        )}
-        {loadState === 'loading' && (
-          <div className={css.loading} aria-hidden="true">{labels.loading}</div>
-        )}
+        <img className={css.image} src={src} alt={alt} />
         <button ref={closeRef} type="button" className={css.close} aria-label={labels.close} onClick={onClose}>
           <IconCloseOutlineRegular size={16} />
         </button>

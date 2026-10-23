@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * doctor 的命令行入口。
  *

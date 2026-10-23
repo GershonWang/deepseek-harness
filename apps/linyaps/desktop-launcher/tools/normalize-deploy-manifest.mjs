@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * 把 pnpm deploy 生成的部署根清单从「源码形态」还原为「发布形态」。
  *
