@@ -27,6 +27,10 @@ fi
 echo "==> 由上游 standard 预设派生容器工具清单 overlay"
 node apps/linyaps/desktop-launcher/linglong/gen-preset-overlay.mjs
 
+# ll-builder 用 setuid newuidmap 映射用户命名空间；集成终端的 NoNewPrivs 会让它失败，
+# 预检在必要时改走宿主透传包装。
+. apps/linyaps/desktop-launcher/linglong/ll-builder-preflight.sh
+
 # 构建器把「拷不进去」降级成警告：实测 libwebkit2gtk-4.1.so.0 复制失败（无效的参数）
 # 之后仍照常 [Install Files]/[Commit Contents] 并导出 345 MB 产物，而包内沿用基础层
 # 的旧库——比第 33 条更隐蔽，连报错都没有（AUDIT N17）。因此保留完整日志，并在导出

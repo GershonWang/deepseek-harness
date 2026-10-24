@@ -60,6 +60,8 @@ ll-builder build -f apps/linyaps/desktop-dual/linglong-tray.yaml
 
 The aggregate entry point runs the same script: `sh apps/linyaps/build-linglong.sh dual` for the dual-client package, and `sh apps/linyaps/build-linglong.sh tray` for the thin-shell-only variant.
 
+Calling `ll-builder` directly from a VS Code/Electron integrated terminal cannot map user namespaces because of `NoNewPrivs`; the one-click scripts switch to the host passthrough wrapper automatically. See the launcher README's [packaging notes](../desktop-launcher/README.md) for the cause and the full commands.
+
 ## Known limits
 
 The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and checks again every five seconds, so the entry point returns when the desktop shell does. The check also compares the watcher's unique bus name with the one recorded at registration, so a shell that crashes and is replaced gets the entry point back within five seconds instead of leaving the clients unreachable. Until a host is present, the clients cannot be switched.

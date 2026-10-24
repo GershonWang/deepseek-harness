@@ -190,6 +190,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 打包要点：
 
+- **VS Code/Electron 集成终端**：这类终端给子进程设置 `NoNewPrivs=1`，setuid 的 `newuidmap` 无法映射用户命名空间，`ll-builder` 会以 `newuidmap: write to uid_map failed: Operation not permitted` 失败。一键脚本检测到该状态后自动改用启动器生成的 `~/.config/dsh-desktop/linglong-bin/ll-builder`（`systemd-run --user` 的服务侧 `NoNewPrivs=0`）；包装不存在时直接报错并提示改用普通终端。直接调用 `ll-builder` 的两步流程不受脚本保护，同样需要在普通终端执行。
 - `base: org.deepin.base/25.2.2`（3 段式模糊匹配 stable 仓库的 25.2.2.6；base 不接受 4 段完整版本号）
 - 运行时依赖（webkit2gtk-4.1/gtk3/libsoup3）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
 - 闭包修复（`apps/linyaps/desktop-launcher/tools/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）

@@ -66,6 +66,10 @@ fi
 echo "==> 由上游 standard 预设派生容器工具清单 overlay"
 node apps/linyaps/desktop-launcher/linglong/gen-preset-overlay.mjs
 
+# ll-builder 用 setuid newuidmap 映射用户命名空间；集成终端的 NoNewPrivs 会让它失败，
+# 预检在必要时改走宿主透传包装。
+. apps/linyaps/desktop-launcher/linglong/ll-builder-preflight.sh
+
 # 构建器把「拷不进去」降级成警告：之后照常 [Install Files]/[Commit Contents] 并导出
 # 产物，而包内那份文件停留在基础层的旧版本，两个环节都不报错（AUDIT N17）。双客户端包
 # 同时含 Electron 与薄壳两套运行时，静默丢文件的后果比单客户端包更大，因此保留完整日志

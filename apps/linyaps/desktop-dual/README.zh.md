@@ -60,6 +60,8 @@ ll-builder build -f apps/linyaps/desktop-dual/linglong-tray.yaml
 
 聚合入口执行的是同一份脚本：`sh apps/linyaps/build-linglong.sh dual` 出双客户端包，`sh apps/linyaps/build-linglong.sh tray` 出只含薄壳客户端的变体。
 
+在 VS Code/Electron 集成终端里直接调用 `ll-builder` 会因 `NoNewPrivs` 无法映射用户命名空间；一键脚本会自动改走宿主透传包装，原因与完整命令见 launcher README 的[打包要点](../desktop-launcher/README.zh.md)。
+
 ## 已知边界
 
 切换器以 StatusNotifierItem 注册。会话里没有 `org.kde.StatusNotifierWatcher` 时，它按默认形态启动客户端、记录原因，并每五秒核对一次，桌面外壳回来后入口自动恢复。核对还会把宿主的连接唯一名与注册时记下的那个比对，因此外壳崩溃后被新进程接管时，入口会在五秒内回来，而不是让客户端一直够不到。宿主不在时无法切换客户端。

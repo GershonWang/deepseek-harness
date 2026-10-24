@@ -21,6 +21,10 @@ else
   sh apps/linyaps/desktop-linglong/prepare-offline.sh
 fi
 
+# ll-builder 用 setuid newuidmap 映射用户命名空间；集成终端的 NoNewPrivs 会让它失败，
+# 预检在必要时改走宿主透传包装。
+. apps/linyaps/desktop-launcher/linglong/ll-builder-preflight.sh
+
 # 构建器把「拷不进去」降级成警告：之后照常 [Install Files]/[Commit Contents] 并导出
 # 产物，而包内那份文件停留在基础层的旧版本，两个环节都不报错（AUDIT N17）。因此保留
 # 完整日志，并在导出前把该告警升级为硬失败：能出包不等于出的是这次构建的东西。
