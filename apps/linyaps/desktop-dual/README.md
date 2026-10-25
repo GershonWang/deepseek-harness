@@ -68,7 +68,7 @@ The switcher registers as a StatusNotifierItem. When the session has no `org.kde
 
 Switching is only available through the tray while a switcher process runs. A second launch exits immediately instead of starting a second client.
 
-`dual` and `tray` share the package ID but not a version line: `tray` (0.1.6.2) continues the thin shell's line (0.1.5.5), while `dual` (0.2.0.6) stays the higher version under the same ID. `tray` is therefore only an upgrade of the thin shell: on a machine that already has `dual` it is a lower version, which the store does not accept as an upgrade, so it cannot be installed over `dual`. Moving a machine from `dual` to `tray` means uninstalling `dual` first.
+`dual` and `tray` share the package ID but not a version line: `tray` (0.1.6.2) continues the thin shell's line (0.1.5.6), while `dual` (0.2.0.6) stays the higher version under the same ID. `tray` is therefore only an upgrade of the thin shell: on a machine that already has `dual` it is a lower version, which the store does not accept as an upgrade, so it cannot be installed over `dual`. Moving a machine from `dual` to `tray` means uninstalling `dual` first.
 
 `dual` and `tray` share one host staging directory, `apps/linyaps/desktop-dual/stage/`, and the two variants require different contents in it. After a `tray` build with `--without-official`, that directory has no `stage/electron/`; running `dual` with `--no-prepare` on that staging therefore stops with an explicit report that the official client's files are missing, instead of producing a package that lacks the official client. Re-run `prepare-offline.sh` in full, without `--no-prepare`, to restore it.
 
