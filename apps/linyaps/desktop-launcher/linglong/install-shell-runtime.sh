@@ -189,6 +189,11 @@ set -- "$CJK_TMP"/${CJK_PKG}_*.deb
 dpkg-deb -x "$1" "$CJK_TMP/x"
 CJK_TTC="$CJK_TMP/x/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
 [ -f "$CJK_TTC" ] || { echo "fonts: 解包后没有 $CJK_TTC（包布局变化？）" >&2; exit 1; }
+# 下面两个字体目录都是发行包的运行依赖，不能因为「CSS 里没直接写这个名字」就当死
+# 资源删掉：noto-sans-display 的族名被 install-container-fonts.sh 的 fontconfig 别名
+# 直接引用（sans-serif/BlinkMacSystemFont/PingFang SC/Hiragino Sans GB/Microsoft
+# YaHei/Helvetica Neue → Noto Sans Display），删掉后嵌入的 Web GUI 拉丁正文会退回宿主
+# 默认字体；jetbrains-mono 是等宽、终端与诊断详情的实体。
 sh /project/apps/linyaps/desktop-launcher/linglong/install-container-fonts.sh \
   "$PREFIX" \
   /project/apps/linyaps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
