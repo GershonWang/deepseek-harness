@@ -24,6 +24,21 @@ const vm = require("node:vm");
 
 const APP_CODE = fs.readFileSync(path.join(__dirname, "app.js"), "utf8");
 
+/* 等宽字体栈的唯一来源是 styles.css 的 --mono，xterm 必须读到与 CSS 完全相同的
+ * 字符串。桩没有样式引擎，因此直接读同一份文件里的这条声明：断言覆盖的是
+ * 「CSS 与 xterm 同源」，而不是某种手写常量。 */
+const STYLES_CODE = fs.readFileSync(path.join(__dirname, "styles.css"), "utf8");
+
+/**
+ * 取出 styles.css 里 --mono 的声明值。
+ * @returns {string} 抹平换行与多余空白后的字体列表，与 getPropertyValue 的可比值一致
+ */
+function monoStackFromStylesheet() {
+  const match = STYLES_CODE.match(/--mono:\s*([^;]+);/);
+  assert.ok(match, "styles.css 必须声明 --mono");
+  return match[1].replace(/\s+/g, " ").trim();
+}
+
 /* index.html 在 app.js 之前加载的国际化脚本，顺序一致：字典先挂到全局，i18n.js
  * 建立门面，app.js 的 init 再消费。app.js 会直接调用 window.DSHI18N（无守卫），
  * 因此这里必须按真实加载顺序把它们放进同一个上下文。 */
@@ -665,6 +680,11 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
     Terminal: xterm.Terminal,
     FitAddon: xterm.FitAddon,
     requestAnimationFrame: (fn) => setTimeout(() => fn(0), 0),
+    // app.js 的 monoFontStack() 从 styles.css 的 --mono 取终端字体栈；桩没有样式
+    // 引擎，按同一份文件的声明回答，使「CSS 与 xterm 同源」这条契约可被断言。
+    getComputedStyle: () => ({
+      getPropertyValue: (name) => (name === "--mono" ? monoStackFromStylesheet() : ""),
+    }),
     window,
     document,
     // 语言 pin 为 zh：本文件的断言直接比对中文文案，必须让它们跑在键全集真源
@@ -2277,6 +2297,8 @@ test("新建终端会话：xterm 就绪、标签渲染为运行态", async () =>
   assert.equal(term.addons.length, 1, "应装载 fit 插件");
   assert.ok(term.addons[0].fitCount >= 1, "open 后应 fit 出真实行列再启动 PTY");
   assert.ok(term.options.fontFamily.includes("JetBrains Mono"), "终端应使用随包等宽字体");
+  assert.equal(term.options.fontFamily, monoStackFromStylesheet(),
+    "xterm 的字体栈应来自 styles.css 的 --mono，两处不得各写一套");
 
   const tabs = h.document.getElementById("terminal-tabs").innerHTML;
   assert.match(tabs, /class="terminal-tab terminal-tab-running active"/,

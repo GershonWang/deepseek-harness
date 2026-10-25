@@ -2272,6 +2272,12 @@ const TERMINAL_FONT_SIZE = { min: 10, max: 20, default: 14 };
 const TERMINAL_FONT_SIZE_KEY = "dsh-desktop.terminal.fontSize";
 
 /**
+ * 读不到 styles.css 时终端用的最小可用栈：只点名随包字体与通用等宽族。
+ * 完整栈由 styles.css 的 `--mono` 承担，这里刻意不复制一份，否则两份列表迟早漂移。
+ */
+const MONO_FALLBACK = "'JetBrains Mono', monospace";
+
+/**
  * 终端状态管理：每个会话持有一个独立的 xterm 实例与挂载节点。
  * 切换标签时整体搬运 DOM 节点（而非销毁重建），保留各会话的滚动历史、
  * 光标位置与进程交互状态 —— 与桌面终端多标签行为一致。
@@ -2403,6 +2409,29 @@ async function terminalPaste() {
 }
 
 /**
+ * 读出终端要用的等宽字体栈。
+ *
+ * styles.css 的 `--mono` 是等宽字的唯一来源，这里只读不写：CSS 与 xterm 各存一份
+ * 字体栈时，任何一次单边改动都会让终端落到另一套字形上，而 xterm 的行列是按主字体
+ * 单元格宽度的实测值算的，字形一漂就出现错位与重叠。桩环境（test-app.cjs 的 vm
+ * 上下文）与理论上的无样式引擎环境缺少 getComputedStyle，退回最小可用栈，保证
+ * 终端仍拿得到随包字体。
+ * @returns {string} 可直接交给 xterm 的 font-family 列表
+ */
+function monoFontStack() {
+  if (typeof getComputedStyle !== "function") return MONO_FALLBACK;
+  let declared = "";
+  try {
+    declared = getComputedStyle(document.documentElement).getPropertyValue("--mono");
+  } catch (error) {
+    // 取不到计算样式只影响字体，不阻断终端创建：退回最小栈。
+    declared = "";
+  }
+  const stack = declared.trim();
+  return stack === "" ? MONO_FALLBACK : stack;
+}
+
+/**
  * 创建新的终端会话：先挂载 xterm 实例并 fit 出真实行列，
  * 再以该尺寸启动 PTY，保证首屏布局与 shell 的 $COLUMNS/$LINES 一致。
  * @param {string} [title] - 会话标题（缺省自动编号）
@@ -2445,10 +2474,10 @@ async function createTerminalSession(title) {
 
   const term = new Terminal({
     theme: TERMINAL_THEME,
-    // JetBrains Mono 由 styles.css 的 @font-face 随包提供，不依赖系统
-    // fontconfig；其余项仅在 webview 字体加载失败时兜底。原栈里的
-    // Cascadia Code/Menlo/Consolas 在 deepin 上永远缺失，只添空查，已删。
-    fontFamily: '"JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", monospace',
+    // 字体栈取 styles.css 的 --mono（JetBrains Mono 由那里的 @font-face 随包提供，
+    // 不依赖系统 fontconfig）。CSS 与 xterm 只保留这一份定义，避免两边各写一套后
+    // 在字体缺失时落到不同字形上——那正是行列错位与字形重叠的来源。
+    fontFamily: monoFontStack(),
     // 字号取全会话共享的偏好：缩放后新建的会话与已有会话保持同一尺寸
     fontSize: terminalState.fontSize,
     fontWeight: 500,

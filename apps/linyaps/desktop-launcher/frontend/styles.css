@@ -71,8 +71,12 @@
   --on-danger: #ffffff;
   --on-warn: #1a1a1a;
 
-  /* 随包 JetBrains Mono 的字体栈：终端、地址、诊断详情等需要逐字符核对的位置共用。 */
-  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* 等宽字体栈的唯一来源：终端、地址、诊断详情、代码片段等需要逐字符核对的位置
+     共用这一份，组件与 app.js 的 xterm 都只消费它，不再各写一套内联栈。
+     JetBrains Mono 由 @font-face 随包提供但没有 CJK 字形，中文由后位的中文族接管；
+     裸 monospace 留在末尾，因为容器内的 ui-monospace 与系统等宽族都不保证存在。 */
+  --mono: 'JetBrains Mono', 'Noto Sans Mono CJK SC', 'Noto Sans Mono', ui-monospace,
+    'DejaVu Sans Mono', 'WenQuanYi Micro Hei', monospace;
 }
 
 @media (prefers-color-scheme: light) {
@@ -162,7 +166,7 @@ button, input, select, textarea { font: inherit; }
 .brand-name { font-size: 12px; color: var(--fg-strong); }
 
 /* 玲珑包版本：紧跟在产品名后面，弱化显示——它是附带信息，不该抢标题的视觉重心 */
-.brand-version { font-size: 11px; color: var(--fg-dim); }
+.brand-version { font-size: 11px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 
 .titlebar-actions {
   display: flex;
@@ -331,7 +335,7 @@ button, input, select, textarea { font: inherit; }
 .card p.intro, .card-wide p.intro { font-size: 13px; line-height: 1.7; color: var(--fg-dim); }
 .card ol, .card-wide ol { margin: 0; padding-left: 18px; }
 .card li, .card-wide li { font-size: 12px; line-height: 1.9; }
-.card code, .card-wide code { font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace; font-size: 11px; background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; }
+.card code, .card-wide code { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; background: var(--bg-hover); padding: 1px 4px; border-radius: 3px; }
 .card .hint, .card-wide .hint { font-size: 11px; line-height: 1.7; color: var(--fg-dim); margin-top: 8px; }
 
 /* ---------- 启动加载页 ---------- */
@@ -440,7 +444,7 @@ button, input, select, textarea { font: inherit; }
 .failed-log-hint {
   font-size: 11px;
   color: var(--fg-dim);
-  font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace;
+  font-family: var(--mono);
 }
 
 /* ---------- 启动前预检页 ---------- */
@@ -545,7 +549,7 @@ button, input, select, textarea { font: inherit; }
 .preflight-note {
   font-size: 11px;
   color: var(--fg-dim);
-  font-family: ui-monospace, "Noto Sans Mono CJK SC", monospace;
+  font-family: var(--mono);
   max-width: 560px;
   overflow-wrap: anywhere;
 }
@@ -726,11 +730,14 @@ button, input, select, textarea { font: inherit; }
   color: var(--fg-strong);
 }
 
-/* 服务地址、PID 这类要逐字符核对的串用随包等宽字体，避免比例字体下字形宽窄不一 */
+/* 服务地址、PID 这类要逐字符核对的串用随包等宽字体，避免比例字体下字形宽窄不一。
+   行高与字号成对写死（11.5px/17px）：等宽串换字体后行盒不能跟着字体度量漂，
+   数字列一律 tabular-nums，计数与端口才逐位对齐。 */
 .row-value.mono {
   font-family: var(--mono);
   font-size: 11.5px;
-  line-height: 1.45;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 地址整串入框，与右侧复制按钮构成「可核对 + 可复制」的一组。
@@ -1318,7 +1325,8 @@ button, input, select, textarea { font: inherit; }
 .doctor-detail {
   margin-top: 6px; padding: 8px 10px;
   background: var(--bg); border-radius: 6px;
-  font-family: var(--mono); font-size: 11.5px;
+  font-family: var(--mono); font-size: 11.5px; line-height: 17px;
+  font-variant-numeric: tabular-nums;
   white-space: pre-wrap; color: var(--fg-dim);
   max-height: 120px; overflow: auto;
 }
@@ -1428,6 +1436,7 @@ button, input, select, textarea { font: inherit; }
   border-top: 1px dashed var(--border);
   font-size: 11.5px; color: var(--fg-dim);
   font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
   word-break: break-all;
 }
 .btn-warn { background: var(--warn); color: var(--on-warn); border-color: transparent; }
