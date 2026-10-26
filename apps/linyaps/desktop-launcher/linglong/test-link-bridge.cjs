@@ -3,8 +3,9 @@
  * 桥由打包流程注入到桌面版 GUI 的 dist，在真实的 Wails WebKitGTK 里只与
  * window.parent / document / console / MutationObserver / setInterval 打交道，
  * 因此这里用 vm 上下文加最小桩加载它，断言它往上发的消息：
- *   - 外链转发：target="_blank" 的 HTTP(S) 点击 → { type: "open-external" }，
- *     非 http(s)、已 preventDefault、非左键、带 download 的都不转发；
+ *   - 外链转发：target="_blank" 的 HTTP(S) 点击、以及 HTTP(S) 目标的
+ *     window.open → { type: "open-external" }；非 http(s)、已 preventDefault、
+ *     非左键、带 download 的都不转发，非 http(s) 的 window.open 原样透传；
  *   - 启动失败上报：console.error 收到 "web boot:" 文案，或引导页出现
  *     "Failed to load plugins" → { type: "boot-failed" }，只上报一次；
  *   - 语言上报：<html lang> 变化 → { type: "locale", id }，未变化不重复上报，
@@ -86,7 +87,7 @@ function makeRoot() {
 /**
  * 在 vm 上下文里加载一次桥。
  * @param {object} options - inIframe：是否被 iframe 内嵌；ancestorOrigins：父窗口 origin 列表（null 表示浏览器不支持该 API）；storage：客户端 localStorage 的初始内容；restoreId：壳经索引注入送进来的会话 id；storageBroken：localStorage 抛异常（被拒/私密模式）。
- * @returns 驱动句柄：messages、docListeners、root、observers、console 桩、storage。
+ * @returns 驱动句柄：messages、docListeners、root、window、observers、console 桩、storage、nativeOpens（真正落到原生 window.open 的调用）。
  */
 function loadBridge({
   inIframe = true,
@@ -97,6 +98,7 @@ function loadBridge({
 } = {}) {
   const messages = [];
   const docListeners = {};
+  const nativeOpens = [];
   const root = makeRoot();
   const { instances, FakeMutationObserver } = makeObservers();
 
@@ -120,6 +122,12 @@ function loadBridge({
     localStorage,
     postMessage(message, targetOrigin) {
       messages.push({ message, targetOrigin });
+    },
+    // 原生 window.open 的替身：桥会先保存再替换它（见 dsh-link-bridge.js 职责一
+    // 的路径二），这里记录"哪些调用真的落到了 WebKit"以及返回值。
+    open(url, name, features) {
+      nativeOpens.push({ url, name, features });
+      return { stubWindow: true };
     },
   };
   if (restoreId !== undefined) window.__DSH_DESKTOP_RESTORE_SESSION__ = restoreId;
@@ -166,7 +174,10 @@ function loadBridge({
     for (const timer of timers) if (!timer.cleared) timer.fn();
   }
 
-  return { messages, docListeners, root, document, observers: instances, console: consoleStub, timers, tick, storage: backing };
+  return {
+    messages, docListeners, root, document, window, observers: instances,
+    console: consoleStub, timers, tick, storage: backing, nativeOpens,
+  };
 }
 
 /** 造一次左键点击事件；返回的事件对象可断言 defaultPrevented。 */
@@ -192,6 +203,10 @@ test("未被 iframe 内嵌时不注册任何监听", () => {
 
   assert.equal(h.docListeners.click, undefined, "独立打开页面不应接管外链点击");
   assert.equal(h.observers.length, 0, "独立打开页面不应观察引导页");
+  // window.open 同理：普通浏览器打开新标签是它自己的行为，桥只补 WebKit 壳的缺口。
+  h.window.open("https://example.com/doc");
+  assert.equal(h.nativeOpens.length, 1, "独立打开页面应保留原生 window.open");
+  assert.deepEqual(sentMessages(h), [], "独立打开页面不应向壳发消息");
 });
 
 test("外链转发：只有 HTTP(S) 的 target=_blank 左键点击才转交壳", () => {
@@ -213,6 +228,34 @@ test("外链转发：只有 HTTP(S) 的 target=_blank 左键点击才转交壳",
   fire(clickEvent(anchor, { button: 1 }));
   fire(clickEvent(new FakeElement("https://example.com/a.zip", { download: true })));
   assert.equal(h.messages.length, 1, "以上点击都不应转交壳");
+});
+
+test("外链转发：window.open 的 HTTP(S) 目标转交壳，其它目标原样透传", () => {
+  const h = loadBridge();
+
+  // 客户端的普通左键路径（MarkdownAnchor）：preventDefault 之后 window.open。
+  // WebKit 不创建新浏览上下文，这次调用必须被桥接住，而不是落回原实现。
+  assert.equal(
+    h.window.open("https://example.com/doc", "_blank", "noopener,noreferrer"),
+    null,
+    "外链没有真实窗口可返回",
+  );
+  assert.deepEqual(sentMessages(h), [{
+    message: { dshDesktop: true, type: "open-external", url: "https://example.com/doc" },
+    targetOrigin: "http://127.0.0.1:8080",
+  }]);
+  assert.deepEqual(h.nativeOpens, [], "外链不应落到 WebKit 的原生实现（它会把调用吞掉）");
+
+  // URL 对象同样按外链处理，String() 之后仍能判定协议。
+  h.window.open(new URL("https://example.com/object"));
+  assert.equal(h.messages.length, 2, "URL 对象也应转交壳");
+
+  // 非 http(s)：账号登录预开的 about:blank 必须仍由原实现处理并保留返回值，
+  // 登录弹窗靠这个返回值上的 location.replace 导航。
+  const popup = h.window.open("about:blank", "_blank");
+  assert.deepEqual(h.nativeOpens, [{ url: "about:blank", name: "_blank", features: undefined }]);
+  assert.deepEqual(popup, { stubWindow: true }, "透传调用必须返回原实现的返回值");
+  assert.equal(h.messages.length, 2, "非外链不应转交壳");
 });
 
 test("console.error 里的 web boot 失败上报，且不吞掉原始日志", () => {

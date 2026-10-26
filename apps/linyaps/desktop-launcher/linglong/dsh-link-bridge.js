@@ -7,9 +7,14 @@
  * 协议与启动器侧保持一致：{ dshDesktop: true, type: "open-external", url }。
  *
  * 职责一：外链转发。Wails WebKitGTK 不创建新浏览上下文，iframe 内
- * target="_blank" 的外链点击会被吞掉；本桥把这类点击的 URL 通过 postMessage
- * 交给宿主壳（apps/linyaps/desktop-launcher/frontend/app.js 监听），由它经
+ * target="_blank" 的外链点击与脚本发起的 window.open 都会被吞掉，因此两条路径
+ * 都要兜住：原生默认动作由点击监听接管；而客户端对普通左键是先 preventDefault
+ * 再 window.open（见 packages/client/ui-primitives 的 MarkdownAnchor），默认动作
+ * 根本不会发生，只监听点击收不到这类操作，所以还要在客户端入口之前替换
+ * window.open。两者都把 URL 通过 postMessage 交给宿主壳
+ * （apps/linyaps/desktop-launcher/frontend/app.js 监听），由它经
  * window.runtime.BrowserOpenURL → 随包 xdg-open → 宿主 portal → 本机默认浏览器打开。
+ * 非 http(s) 目标（如账号登录预开的 about:blank）原样透传给 WebKit 自己的实现。
  *
  * 职责二：客户端启动失败上报。宿主对非必需条目的激活失败只告警，harness 进程
  * 因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张
@@ -67,6 +72,12 @@
     }
   }
 
+  /** 把一条 http(s) 外链交给壳打开；调用方负责判明它确实是外链。 */
+  function forwardExternal(href) {
+    window.parent.postMessage({ dshDesktop: true, type: "open-external", url: href }, targetOrigin());
+  }
+
+  // 路径一：原生默认动作。Ctrl/⌘+点击等客户端没有接管的点击会走到这里。
   document.addEventListener("click", function (event) {
     if (event.defaultPrevented || event.button !== 0) return;
     var node = event.target;
@@ -77,8 +88,32 @@
     var href = anchor.getAttribute("href");
     if (href === null || !isHttpUrl(href)) return;
     event.preventDefault();
-    window.parent.postMessage({ dshDesktop: true, type: "open-external", url: href }, targetOrigin());
+    forwardExternal(href);
   }, false);
+
+  // 路径二：脚本打开新窗口。客户端对普通左键先 preventDefault 再 window.open，
+  // 上面那条监听因此看不到它；而 Wails 的 WebKitGTK 不创建新浏览上下文，这次
+  // 调用会被静默丢弃，链接看起来毫无反应。替换 window.open 是唯一能覆盖这条路径
+  // 的位置：客户端模块入口延迟执行，本桥是普通脚本，先于它运行。
+  //
+  // 为什么 http(s) 返回 null：壳是异步打开的，不存在可返回的真实窗口；现有调用点
+  // 都忽略该返回值，真正依赖返回值与 location 的是登录弹窗那条，而它的目标是
+  // about:blank（非 http(s)），仍走原实现。
+  var nativeOpen = typeof window.open === "function" ? window.open : null;
+  window.open = function (url, name, features) {
+    var href = "";
+    try {
+      href = url == null ? "" : String(url);
+    } catch (err) {
+      // 形如 Symbol 的不可字符串化目标：按"不是外链"处理，交给原实现。
+      href = "";
+    }
+    if (isHttpUrl(href)) {
+      forwardExternal(href);
+      return null;
+    }
+    return nativeOpen === null ? null : nativeOpen.call(window, url, name, features);
+  };
 
   /* ---------- 客户端启动失败上报 ---------- */
 
