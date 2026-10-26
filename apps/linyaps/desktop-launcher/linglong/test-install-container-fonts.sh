@@ -92,6 +92,34 @@ else
   bad "自包含配置缺少目录/缓存/中文族别名"; sed 's/^/       /' "$CONF" >&2 2>/dev/null || true
 fi
 
+# --- 场景 3b：等宽别名覆盖内嵌 GUI 终端栈的头尾 ---
+# ui-monospace 是客户端终端栈的第一个名字，generic monospace 是它的兜底；两者在
+# 容器里都没有实体字体，漏一条就会回落到比例字体（思源黑体）或宿主自带等宽字体。
+# 按「族名 + 指向 JetBrains Mono」成对断言，改坏任何一侧都会失败。
+geometry_failures=0
+for family in "SF Mono" "Fira Code" "Menlo" "Consolas" "ui-monospace" "SFMono-Regular" "monospace"; do
+  if ! grep -qF "<family>$family</family><prefer><family>JetBrains Mono</family></prefer>" "$CONF"; then
+    bad "等宽别名缺失或未指向 JetBrains Mono：$family"
+    geometry_failures=$((geometry_failures + 1))
+  fi
+done
+if [ "$geometry_failures" -eq 0 ]; then
+  ok "等宽别名覆盖 SF Mono/Fira Code/Menlo/Consolas/ui-monospace/SFMono-Regular/monospace"
+fi
+
+# --- 场景 3c：等宽段必须排在 include 之前 ---
+# fontconfig 的强别名按「先执行的规则排在 family 列表更前」生效，generic monospace 被
+# 系统 60-latin.conf 抢先接管；等宽段一旦挪到 include 之后，FR 断言的那些族名又会输给
+# Noto Mono。验证真机行为时用 fc-match ':family=ui-monospace'——直接写 fc-match
+# ui-monospace 会被 fontconfig 当成「族名-样式」拆成族名 "ui"，测不到真实解析。
+mono_line=$(grep -n "<family>monospace</family><prefer><family>JetBrains Mono</family></prefer>" "$CONF" | head -1 | cut -d: -f1)
+include_line=$(grep -n "<include ignore_missing=\"yes\">/etc/fonts/fonts.conf</include>" "$CONF" | head -1 | cut -d: -f1)
+if [ -n "$mono_line" ] && [ -n "$include_line" ] && [ "$mono_line" -lt "$include_line" ]; then
+  ok "等宽别名段排在 include 之前（否则输给系统 generic monospace 规则）"
+else
+  bad "等宽别名段必须在 include 之前（mono@${mono_line:-?} include@${include_line:-?}）"
+fi
+
 # --- 场景 4：中文字体文件不存在 → 非零退出并指名 ---
 CASE="$TMP/missing-cjk"
 if run "$TMP/out-missing-cjk" "$TMP/cjk/nope.ttc"; then

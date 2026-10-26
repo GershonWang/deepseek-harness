@@ -18,6 +18,14 @@
 #     sans-serif 与栈中其它族名一并别名，二者共同兜住正文拉丁。
 #     当前环境宿主自带的 99-deepin.conf 以 prepend+strong 把 sans-serif 指向
 #     思源黑体，我们的别名只在其后生效；分发到没有该配置的机器上则由我们这条接管。
+#  6. 内嵌 Web GUI 的侧边栏终端默认栈以 ui-monospace 开头（客户端
+#     ui-sidebar-terminal：ui-monospace, SFMono-Regular, Menlo, Consolas,
+#     monospace），Shell 里需要等宽的位置也常写 generic monospace。这两个名字在
+#     容器里都没有实体字体：fontconfig 对未知名回落到默认族（实测是思源黑体，比例
+#     字体），WebKit 照旧把它画进 xterm 按宽字形量出的单元格，字形只占格宽一半、
+#     列看着发虚。因此 ui-monospace、SFMono-Regular 与 generic monospace 一并
+#     别名到随包 JetBrains Mono；不接管 generic monospace 时它会落到宿主自带的
+#     Noto Mono，跨机器表现不一致。
 #
 # 中文族随包：fontconfig 配置早已把中文指到 WenQuanYi Micro Hei（见下面的 prefer
 # 列表），缺的只是字体实体——基础镜像清空了 /usr/share/fonts，运行容器该目录又被宿主
@@ -58,15 +66,31 @@ for d in "$LATIN_SRC" "$MONO_SRC"; do
   install -m644 "$d/OFL.txt" "$FONTDIR/OFL-$(basename "$d").txt"
 done
 
-# 自包含配置：include 系统配置（保留宿主既有的字体解析与中文回退）+ 可写缓存目录
-# + 包内字体目录 + 家族别名。
+# 自包含配置：可写缓存目录 + 包内字体目录 + 等宽别名 → include 系统配置（保留宿主
+# 既有的字体解析与中文回退）→ 正文族别名。
+#
+# 等宽段为什么必须写在 include 之前：fontconfig 的强别名按「先执行的规则排在 family
+# 列表更前面」生效（实测：同一条 generic monospace 别名写在 include 之前命中
+# JetBrains Mono，写在之后则输给系统 60-latin.conf 给出的 Noto Mono）。而 generic
+# monospace 恰恰被系统规则抢先接管，要它让位只能先写。正文段仍放在 include 之后，让
+# 宿主 99-deepin.conf 的中文字体优先（见上面第 5 条）。
 printf '%s\n' \
   '<?xml version="1.0"?>' \
   '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
   '<fontconfig>' \
-  '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>' \
   "  <cachedir>${CACHEDIR}</cachedir>" \
   "  <dir>${FONTDIR}</dir>" \
+  '  <!-- 等宽/代码：Linux 上不存在的名字统一指到 JetBrains Mono。ui-monospace 与
+       generic monospace 是客户端终端栈的头尾，不接管就会落到 fontconfig 默认族
+       （思源黑体，比例字体）或宿主自带等宽字体。本段先于 include，见上方说明。 -->' \
+  '  <alias binding="strong"><family>SF Mono</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>Fira Code</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>Menlo</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>Consolas</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>ui-monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>SFMono-Regular</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <alias binding="strong"><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
+  '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>' \
   '  <!-- 正文：拉丁走 Noto Sans Display，中文由文泉驿微米黑兜底（不与等宽混列） -->' \
   '  <alias binding="strong"><family>sans-serif</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
@@ -91,11 +115,6 @@ printf '%s\n' \
   '  <alias binding="strong"><family>Helvetica Neue</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
   '  </prefer></alias>' \
-  '  <!-- 等宽/代码：Linux 上不存在的名字统一指到 JetBrains Mono -->' \
-  '  <alias binding="strong"><family>SF Mono</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
-  '  <alias binding="strong"><family>Fira Code</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
-  '  <alias binding="strong"><family>Menlo</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
-  '  <alias binding="strong"><family>Consolas</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '</fontconfig>' > "$LOADCONF"
 
 echo "install-container-fonts: $(ls "$FONTDIR" | tr '\n' ' ')→ $FONTDIR"

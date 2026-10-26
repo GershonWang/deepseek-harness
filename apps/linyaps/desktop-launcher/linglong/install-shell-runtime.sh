@@ -193,7 +193,9 @@ CJK_TTC="$CJK_TMP/x/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
 # 资源删掉：noto-sans-display 的族名被 install-container-fonts.sh 的 fontconfig 别名
 # 直接引用（sans-serif/BlinkMacSystemFont/PingFang SC/Hiragino Sans GB/Microsoft
 # YaHei/Helvetica Neue → Noto Sans Display），删掉后嵌入的 Web GUI 拉丁正文会退回宿主
-# 默认字体；jetbrains-mono 是等宽、终端与诊断详情的实体。
+# 默认字体；jetbrains-mono 是等宽、终端与诊断详情的实体，同时被 ui-monospace 与
+# generic monospace 指向——内嵌 Web GUI 的侧边栏终端默认栈以 ui-monospace 开头，没有
+# 它就会落到 fontconfig 默认的比例字体。
 sh /project/apps/linyaps/desktop-launcher/linglong/install-container-fonts.sh \
   "$PREFIX" \
   /project/apps/linyaps/desktop-launcher/frontend/vendor/fonts/noto-sans-display \
