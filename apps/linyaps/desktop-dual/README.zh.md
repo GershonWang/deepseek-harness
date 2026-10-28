@@ -68,7 +68,7 @@ ll-builder build -f apps/linyaps/desktop-dual/linglong-tray.yaml
 
 只有切换器进程在跑时，托盘才提供切换入口。再次启动会立即退出，而不是叠出第二个客户端。
 
-`dual` 与 `tray` 共用包 ID，但不在同一条版本线上：`tray`（0.1.6.4）延续的是薄壳版那条线（0.1.5.7），`dual`（0.2.0.6）仍是同 ID 下的更高版本。因此 `tray` 只构成薄壳版的升级：在已经装过 `dual` 的机器上它是更低版本，商店不会把它当作升级，也就无法覆盖 `dual` 安装。要把一台机器从 `dual` 换成 `tray`，必须先卸载 `dual`。
+`dual` 与 `tray` 共用包 ID，但不在同一条版本线上：`tray`（0.1.6.4）延续的是薄壳版那条线（0.1.5.8），`dual`（0.2.0.6）仍是同 ID 下的更高版本。因此 `tray` 只构成薄壳版的升级：在已经装过 `dual` 的机器上它是更低版本，商店不会把它当作升级，也就无法覆盖 `dual` 安装。要把一台机器从 `dual` 换成 `tray`，必须先卸载 `dual`。
 
 `dual` 与 `tray` 共用同一份宿主暂存目录 `apps/linyaps/desktop-dual/stage/`，而两个变体要求它装的内容不同。用 `--without-official` 出过 `tray` 包之后，该目录里没有 `stage/electron/`；此时若给 `dual` 加 `--no-prepare` 复用这份暂存，构建会明确报出官方客户端产物缺失并中止，而不是产出一个缺官方客户端的包。重新完整运行一次 `prepare-offline.sh`（不带 `--no-prepare`）即可恢复。
 
