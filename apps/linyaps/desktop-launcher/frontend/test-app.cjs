@@ -312,7 +312,7 @@ function buildHtml(document) {
     "fresh-home-active", "btn-exit-fresh-home",
     "tool-summary", "bundled-list", "catalog-list", "toolchain-notice",
     "card-hosts", "host-list", "host-hint",
-    "brand-version", "win-min", "win-max", "win-close", "titlebar",
+    "win-min", "win-max", "win-close", "titlebar",
     "btn-server", "btn-tools", "btn-doctor",
     "doctor-content", "doctor-checks", "doctor-start",
     "repair-plans", "doctor-repair-output",
@@ -541,8 +541,6 @@ function makeWails(runCalls, overrides = {}) {
     AddHostTool: overrides.AddHostTool ?? (async () => ({})),
     // 宿主导入扫描（可选覆盖：用例按需给出待导入条目）。
     ScanHostTools: overrides.ScanHostTools ?? (async () => []),
-    // 标题栏版本（用例按需给出注入值；默认空串即开发态未注入）。
-    PackageVersion: overrides.PackageVersion ?? (async () => ""),
     ReadClipboardImage: async () => "",
     // 壳语言回推（frontend/i18n.js 在 applyLocale 时调用）。
     SetLocale: async (id) => {
@@ -1177,16 +1175,6 @@ test("按钮动作失败时复位按钮并提示，不留永久中间态", async
   const toast = h.document.getElementById("toast");
   assert.ok(toast && !toast.classList.contains("hidden"), "失败必须给出可见反馈");
   assert.ok(toast.textContent.includes("boom"), "提示应带失败原因");
-});
-
-test("标题栏版本取数失败时留空，不打断启动也不弹提示", async () => {
-  const h = loadApp({ overrides: { PackageVersion: async () => { throw new Error("nope"); } } });
-  await flush();
-  assert.equal(h.document.getElementById("brand-version").textContent, "",
-    "取不到版本时标题栏留空");
-  const toast = h.document.getElementById("toast");
-  assert.ok(!toast || !String(toast.textContent).includes("nope"),
-    "版本号是装饰性信息，取不到不应弹提示");
 });
 
 test("未捕获的 Promise 拒绝会提示一次", async () => {
@@ -2550,11 +2538,12 @@ test("关掉最后一个标签回到空态，并提示下一步操作", async ()
   assert.equal(h.document.getElementById("terminal-tabs").innerHTML, "", "标签栏应清空");
 });
 
-test("标题栏显示 App.PackageVersion()，且不再有关于入口", async () => {
-  const h = loadApp({ overrides: { PackageVersion: async () => "0.1.3.4" } });
+test("标题栏不再显示包版本号，也不再有关于入口", async () => {
+  const h = loadApp();
   await flush();
-  assert.equal(h.document.getElementById("brand-version").textContent, "0.1.3.4",
-    "标题栏版本应来自 App.PackageVersion()");
+  // 标题栏只留品牌与动作：包版本由玲珑包管理器与双客户端包的托盘「关于」给出，
+  // 壳里再显示一份既会与包实际版本漂移，也让标题栏多出一个与操作无关的字段。
+  assert.equal(h.document.getElementById("brand-version"), null, "标题栏不应再有版本号节点");
   // 关于弹框与标题栏关于按钮都已移除：完整信息（DSH 版本、两个仓库、封装作者）
   // 由双客户端包的托盘「关于」给出，壳里再留一份入口只会两处漂移。
   assert.equal(h.document.getElementById("btn-about"), null, "标题栏不应再有关于按钮");

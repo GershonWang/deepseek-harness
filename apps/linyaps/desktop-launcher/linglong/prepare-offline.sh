@@ -324,12 +324,8 @@ find "$STAGE" -name '*.tsbuildinfo' -delete
 # 3. Go 启动器（wails，webkit2gtk-4.1；用 -tags webkit2_41 显式选 4.1）
 #    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
 #    "cannot find main module"
-# 注入玲珑包版本供标题栏显示(从 linglong.yaml 的 package.version 提取；
-# Version 变量在 internal/packaging 包，ldflags 需带完整 import 路径)
-LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' apps/linyaps/desktop-launcher/linglong/linglong.yaml | head -1)
 ( cd apps/linyaps/desktop-launcher && CGO_ENABLED=1 \
   go build -tags "production webkit2_41" \
-  -ldflags "-X github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging.Version=$LL_VERSION" \
   -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
 # 4. 捆绑 Node（harness 运行时需要 >=24：node:zlib.createZstdDecompress、

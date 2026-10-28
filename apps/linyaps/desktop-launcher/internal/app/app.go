@@ -1533,12 +1533,6 @@ func (a *App) RemoveHostTool(name string) string {
 	return ""
 }
 
-// PackageVersion 返回打包时注入的玲珑包版本，前端在标题栏标题后面显示它。
-// 关于弹框已移除：完整信息（DSH 版本、上游仓库、封装作者与仓库）由双客户端包的
-// 托盘「关于」给出，本绑定只服务标题栏这一处展示。
-// @returns 玲珑包版本；开发态未注入时为 "dev"。
-func (a *App) PackageVersion() string { return packaging.Version }
-
 // ReadClipboardImage 读取当前 X11 CLIPBOARD 的 image/png 数据并返回
 // base64 编码结果。剪贴板空、无图片或读取超时时返回空串（前端据此
 // 判断“当前没有可粘贴的图片”），不视为错误。

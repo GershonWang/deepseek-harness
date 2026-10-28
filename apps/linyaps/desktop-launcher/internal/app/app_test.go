@@ -16,7 +16,6 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/hosttools"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/i18n"
-	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/preflight"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/supervisor"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/toolchain"
@@ -590,17 +589,6 @@ func TestResetStartupDoctor_InvalidatesInFlightRun(t *testing.T) {
 	if running || ready || doneOnce || errText != "" {
 		t.Fatalf("reset 后应保持清空态: running=%v ready=%v doneOnce=%v err=%q",
 			running, ready, doneOnce, errText)
-	}
-}
-
-// PackageVersion 是标题栏版本的唯一来源：取错或取空，用户看到的就是错版本或空白。
-// 关于弹框已移除，完整信息由双客户端包的托盘「关于」给出，这里只锚定标题栏这一处。
-func TestPackageVersion_MatchesPackaging(t *testing.T) {
-	if got := testApp().PackageVersion(); got != packaging.Version {
-		t.Errorf("PackageVersion = %q, want %q", got, packaging.Version)
-	}
-	if packaging.Version == "" {
-		t.Error("packaging.Version 为空，标题栏会显示空白")
 	}
 }
 

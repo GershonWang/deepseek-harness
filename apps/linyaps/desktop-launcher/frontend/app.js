@@ -153,22 +153,6 @@ function describeTargetChange(prev, next) {
     " query " + (queryOf(prev) === queryOf(next) ? "unchanged" : "changed");
 }
 
-// 标题栏的玲珑包版本，取一次即可（进程生命周期内不变，因此不进 1s 状态快照）。
-// 关于弹框已移除：完整信息（DSH 版本、两个仓库、封装作者）在双客户端包的托盘「关于」，
-// 这里只显示版本号。绑定缺失（浏览器预览、测试桩没提供）或取值失败时保持空串——
-// 版本号是装饰性信息，缺了不该弹提示，更不该拦住启动。
-async function renderPackageVersion() {
-  const app = api();
-  if (!app || typeof app.PackageVersion !== "function") return;
-  try {
-    const version = await app.PackageVersion();
-    const node = $("#brand-version");
-    if (node && typeof version === "string") node.textContent = version;
-  } catch (e) {
-    console.warn("package version unavailable:", e && e.message);
-  }
-}
-
 function bindExternalLinks() {
   // 打包注入的 GUI 链接桥（dsh-link-bridge.js）把 iframe 内的外链点击
   // postMessage 上来（{ dshDesktop: true, type: "open-external", url }），
@@ -1979,8 +1963,6 @@ function init() {
     $("#status-text").textContent = tr("preview.noWails");
     return;
   }
-
-  renderPackageVersion();
 
   window.runtime.EventsOn("harness:status", (s) => applyStatus(s));
   window.runtime.EventsOn("toolchain:status", (t) => renderTools(t));

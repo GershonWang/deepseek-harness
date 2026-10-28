@@ -4,17 +4,13 @@
 GO       ?= go
 TAGS     := production webkit2_41
 BIN      := dsh-desktop-launcher
-PKG_PATH := github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging.Version
-VERSION  ?= dev
 # 仓库根：doctor 的 vitest 由仓库根的 pnpm install 提供（doctor 自身不装 vitest）。
 REPO_ROOT := $(abspath ../../..)
 
 .PHONY: build test vet fmt check clean
 
 build:
-	CGO_ENABLED=1 $(GO) build -tags "$(TAGS)" \
-		-ldflags "-X $(PKG_PATH)=$(VERSION)" \
-		-o $(BIN) .
+	CGO_ENABLED=1 $(GO) build -tags "$(TAGS)" -o $(BIN) .
 
 # test 与 vet 都必须带 $(TAGS)：不带标签时 cgo 走 wails 的 !webkit2_41 分支去解析
 # webkit2gtk-4.0，而该 pc 文件只由打包脚本（linglong/prepare-pkgconfig.sh）临时生成，
