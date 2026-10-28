@@ -74,11 +74,17 @@ fi
 
 # --- 场景 3：CSS 判据——随包族名排在栈首，用户设置仍可覆盖 ---
 # 正文栈首个 family 必须是随包拉丁字体，第二个是随包中文字体：WebKit 按 family
-# 顺序为缺字形字符回退，随包中文排不进前两位就会落到宿主字体。
-if grep -qF -- "--dsh-font-family-text-default: 'Noto Sans Display', 'WenQuanYi Micro Hei'" "$STYLE"; then
-  ok "正文默认栈以随包拉丁与中文字体开头"
+# 顺序为缺字形字符回退：拉丁先命中随包 Noto Sans Display，中文再按
+# 「宿主思源黑体 → 宿主 Noto CJK → 随包文泉驿」回退。
+if grep -qF -- "--dsh-font-family-text-default: 'Noto Sans Display', 'Source Han Sans SC', 'Noto Sans CJK SC'," "$STYLE"; then
+  ok "正文默认栈以随包拉丁与宿主 CJK 字体顺序开头"
 else
-  bad "正文默认栈首不是随包字体"; sed 's/^/       /' "$STYLE" >&2
+  bad "正文默认栈首不是随包拉丁 + 宿主 CJK 顺序"; sed 's/^/       /' "$STYLE" >&2
+fi
+if grep -qF -- "'WenQuanYi Micro Hei', -apple-system" "$STYLE"; then
+  ok "随包文泉驿仍留在栈中作为无宿主 CJK 机器的兜底"
+else
+  bad "随包文泉驿兜底被移出栈"; sed 's/^/       /' "$STYLE" >&2
 fi
 if grep -qF -- "--dsh-font-family-code-default: 'JetBrains Mono'" "$STYLE"; then
   ok "代码默认栈以随包 JetBrains Mono 开头"

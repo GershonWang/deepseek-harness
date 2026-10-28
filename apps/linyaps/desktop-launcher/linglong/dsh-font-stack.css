@@ -10,11 +10,17 @@
  *
  * 为什么只覆盖「默认栈」变量：--dsh-font-family-text / --dsh-font-family-code 是用户
  * 在设置里选的字体，优先级必须高于这里；覆盖默认值让未设置的用户拿到随包字体。
+ *
+ * 为什么中文字族按「宿主思源黑体 → 宿主 Noto CJK → 随包文泉驿」排序：随包的中文只有
+ * 文泉驿微米黑（单字重、字形偏旧），而发行版普遍预装思源黑体或 Noto CJK（多字重，
+ * 与官方 Electron 客户端一致）。把宿主 CJK 放在随包之前，装了它们的机器观感与官方版
+ * 对齐；没装的机器仍由随包文泉驿兜底，不会退化成豆腐块。拉丁固定用随包的
+ * Noto Sans Display：它只有拉丁，中文由后面几个族名按字形回退。
  */
 :root:root {
-  --dsh-font-family-text-default: 'Noto Sans Display', 'WenQuanYi Micro Hei', -apple-system,
-    BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
-    'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+  --dsh-font-family-text-default: 'Noto Sans Display', 'Source Han Sans SC', 'Noto Sans CJK SC',
+    'WenQuanYi Micro Hei', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif !important;
   --dsh-font-family-code-default: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
     'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei' !important;
 }

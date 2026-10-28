@@ -6,7 +6,7 @@
 
 > **2026-10-23 收敛进展**：`tsdown.config.ts`、`ui-theme` 字体栈、`llm` 诊断信息、图片灯箱加载态、`directory-picker-auto` 与 `app-boot` 的 `extraPatchFiles` 已回退上游；`lefthook.yml` 恢复原样（布局门禁移入 `prepare-offline.sh`，deploy 状态改为 trap 式交还）；壳前端 i18n 检查下沉为 `tools/verify-frontend-i18n.mjs`；`verify-application-entrypoints` 的 4 条 allowlist 因去掉无用的 shebang 而删除；根 `.gitignore` 仅保留玲珑构建工作区与 `.uab`（其余移入 `apps/linyaps/.gitignore`）。本文其余统计仍以 rc.2 为基线。
 
-> **2026-10-28 字体栈改为发行版层接管**：字体栈那一项回退后，上游默认栈只写系统族名，容器里最终用哪个字体由宿主 fontconfig 决定——随包字体仍在层内，页面却不再引用它，正文观感随机器漂移（同一处历史上复发过三次，表现为字重/度量不一致的重叠错位）。现改为两处发行版层实现，上游 `base.css` 保持与上游逐字一致：`linglong/inject-font-stack.sh` 把 `dsh-font-stack.css` 注入打包产物 `dist`，把随包族名前置到默认栈首（`:root:root` + `!important` 压过客户端运行时插入的 base.css，只覆盖默认栈，用户设置仍优先）；`install-container-fonts.sh` 的正文别名段前移到 `<include>` 之前，兜住 CSS 未点名的族名。`prepare-offline.sh` 在注入后硬断言覆盖已落盘，注入调用被删会直接构建失败。
+> **2026-10-28 字体栈改为发行版层接管**：字体栈那一项回退后，上游默认栈只写系统族名，容器里最终用哪个字体由宿主 fontconfig 决定——随包字体仍在层内，页面却不再引用它，正文观感随机器漂移（同一处历史上复发过三次，表现为字重/度量不一致的重叠错位）。现改为两处发行版层实现，上游 `base.css` 保持与上游逐字一致：`linglong/inject-font-stack.sh` 把 `dsh-font-stack.css` 注入打包产物 `dist`，把随包族名前置到默认栈首（`:root:root` + `!important` 压过客户端运行时插入的 base.css，只覆盖默认栈，用户设置仍优先）；`install-container-fonts.sh` 的正文别名段前移到 `<include>` 之前，兜住 CSS 未点名的族名；中文族按「宿主思源黑体 → 宿主 Noto CJK → 随包文泉驿」排序（拉丁固定随包 Noto Sans Display），装了宿主 CJK 的机器与官方 Electron 客户端观感一致，没装的仍由随包文泉驿兜底。`prepare-offline.sh` 在注入后硬断言覆盖已落盘，注入调用被删会直接构建失败。
 
 ---
 

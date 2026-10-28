@@ -142,17 +142,20 @@ else
   bad "正文别名段必须在 include 之前（sans@${sans_line:-?} include@${include_line:-?}）"
 fi
 
-# --- 场景 3e：正文别名的 prefer 列表必须同时给出拉丁与中文实体 ---
-# 只给 Noto Sans Display 时中文没有可命中项，会逐字回退到宿主字体；只给中文时拉丁
-# 回到比例字体。两条一起写才是「随包字体决定正文观感」。
-if grep -qF '<family>sans-serif</family><prefer>' "$CONF" \
-   && sed -n "/<family>sans-serif<\/family><prefer>/,/<\/prefer><\/alias>/p" "$CONF" \
-      | grep -qF '<family>Noto Sans Display</family>' \
-   && sed -n "/<family>sans-serif<\/family><prefer>/,/<\/prefer><\/alias>/p" "$CONF" \
-      | grep -qF '<family>WenQuanYi Micro Hei</family>'; then
-  ok "sans-serif 的 prefer 同时覆盖拉丁与中文实体"
+# --- 场景 3e：正文别名的 prefer 列表必须按「拉丁 → 宿主 CJK → 随包中文」排序 ---
+# 只给 Noto Sans Display 时中文没有可命中项，会逐字回退到宿主默认；缺少随包文泉驿时
+# 没装宿主 CJK 的机器会退化成豆腐块；顺序颠倒则宿主 CJK 永远轮不到。三条一起成立才是
+# 「拉丁随包、中文优先宿主、最后兜底文泉驿」。
+sans_block=$(sed -n "/<family>sans-serif<\/family><prefer>/,/<\/prefer><\/alias>/p" "$CONF")
+noto_line=$(printf '%s\n' "$sans_block" | grep -n '<family>Noto Sans Display</family>' | head -1 | cut -d: -f1)
+han_line=$(printf '%s\n' "$sans_block" | grep -n '<family>Source Han Sans SC</family>' | head -1 | cut -d: -f1)
+cjk_line=$(printf '%s\n' "$sans_block" | grep -n '<family>Noto Sans CJK SC</family>' | head -1 | cut -d: -f1)
+wqy_line=$(printf '%s\n' "$sans_block" | grep -n '<family>WenQuanYi Micro Hei</family>' | head -1 | cut -d: -f1)
+if [ -n "$noto_line" ] && [ -n "$han_line" ] && [ -n "$cjk_line" ] && [ -n "$wqy_line" ] \
+   && [ "$noto_line" -lt "$han_line" ] && [ "$han_line" -lt "$cjk_line" ] && [ "$cjk_line" -lt "$wqy_line" ]; then
+  ok "sans-serif 的 prefer 按拉丁 → 思源黑体 → Noto CJK → 文泉驿排序"
 else
-  bad "sans-serif 的 prefer 缺少 Noto Sans Display 或 WenQuanYi Micro Hei"
+  bad "sans-serif 的 prefer 缺少族名或顺序不对（noto@${noto_line:-?} han@${han_line:-?} cjk@${cjk_line:-?} wqy@${wqy_line:-?}）"
 fi
 
 # --- 场景 4：中文字体文件不存在 → 非零退出并指名 ---

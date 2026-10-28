@@ -17,8 +17,13 @@
 #     generic sans-serif 指到宿主字体；正文段写在 include 之后时，sans-serif 与
 #     BlinkMacSystemFont 的别名会被它压过（实测 fc-match ':family=sans-serif'
 #     返回思源黑体），前移到 include 之前后同一查询返回 Noto Sans Display。
-#     这与宿主是否带 99-deepin.conf 无关：正文观感必须由随包字体决定，不能随
+#     这与宿主是否带 99-deepin.conf 无关：正文拉丁的观感由随包字体决定，不能随
 #     分发的机器漂移。
+#     中文族是例外：随包只有文泉驿微米黑（单字重、字形偏旧），而发行版普遍预装思源黑体
+#     或 Noto CJK（多字重，与官方 Electron 客户端同一套）。prefer 列表按
+#     Noto Sans Display → Source Han Sans SC → Noto Sans CJK SC → WenQuanYi Micro Hei
+#     排序：装了宿主 CJK 的机器观感与官方版对齐，没装的仍由随包文泉驿兜底。拉丁始终是
+#     随包 Noto Sans Display，它没有中文字形，中文按列表顺序回退。
 #     上游 CSS 栈以 -apple-system 开头，该名字是 fontconfig 内建兜底、别名改不动它
 #     （实测 fc-match 恒返回宿主默认），栈里其后能命中别名的族名才是决定因素；
 #     'Segoe UI'、Helvetica、Arial 同样在栈中，也要别名，否则会命中宿主实体字体。
@@ -98,22 +103,32 @@ printf '%s\n' \
        CSS 未点名时的族名（用户自定义字体、插件里的样式）。 -->' \
   '  <alias binding="strong"><family>sans-serif</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
+  '    <family>Source Han Sans SC</family>' \
+  '    <family>Noto Sans CJK SC</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
   '  </prefer></alias>' \
   '  <alias binding="strong"><family>BlinkMacSystemFont</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
+  '    <family>Source Han Sans SC</family>' \
+  '    <family>Noto Sans CJK SC</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
   '  </prefer></alias>' \
   '  <alias binding="strong"><family>PingFang SC</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
+  '    <family>Source Han Sans SC</family>' \
+  '    <family>Noto Sans CJK SC</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
   '  </prefer></alias>' \
   '  <alias binding="strong"><family>Hiragino Sans GB</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
+  '    <family>Source Han Sans SC</family>' \
+  '    <family>Noto Sans CJK SC</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
   '  </prefer></alias>' \
   '  <alias binding="strong"><family>Microsoft YaHei</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
+  '    <family>Source Han Sans SC</family>' \
+  '    <family>Noto Sans CJK SC</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
   '  </prefer></alias>' \
   '  <alias binding="strong"><family>Helvetica Neue</family><prefer>' \
