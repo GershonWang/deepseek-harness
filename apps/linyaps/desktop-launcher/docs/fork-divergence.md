@@ -6,6 +6,8 @@
 
 > **2026-10-23 收敛进展**：`tsdown.config.ts`、`ui-theme` 字体栈、`llm` 诊断信息、图片灯箱加载态、`directory-picker-auto` 与 `app-boot` 的 `extraPatchFiles` 已回退上游；`lefthook.yml` 恢复原样（布局门禁移入 `prepare-offline.sh`，deploy 状态改为 trap 式交还）；壳前端 i18n 检查下沉为 `tools/verify-frontend-i18n.mjs`；`verify-application-entrypoints` 的 4 条 allowlist 因去掉无用的 shebang 而删除；根 `.gitignore` 仅保留玲珑构建工作区与 `.uab`（其余移入 `apps/linyaps/.gitignore`）。本文其余统计仍以 rc.2 为基线。
 
+> **2026-10-28 字体栈改为发行版层接管**：字体栈那一项回退后，上游默认栈只写系统族名，容器里最终用哪个字体由宿主 fontconfig 决定——随包字体仍在层内，页面却不再引用它，正文观感随机器漂移（同一处历史上复发过三次，表现为字重/度量不一致的重叠错位）。现改为两处发行版层实现，上游 `base.css` 保持与上游逐字一致：`linglong/inject-font-stack.sh` 把 `dsh-font-stack.css` 注入打包产物 `dist`，把随包族名前置到默认栈首（`:root:root` + `!important` 压过客户端运行时插入的 base.css，只覆盖默认栈，用户设置仍优先）；`install-container-fonts.sh` 的正文别名段前移到 `<include>` 之前，兜住 CSS 未点名的族名。`prepare-offline.sh` 在注入后硬断言覆盖已落盘，注入调用被删会直接构建失败。
+
 ---
 
 ## 一、审计基准
@@ -100,7 +102,7 @@ git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort
 | 极高 | 40 | `packages/client/ui-primitives/src/ImageLightbox.module.css` | +18 | 上述样式的加载/失败态 |
 | 极高 | 38 | `packages/client/ui-open-in-app/README.zh.md` | +4 −4 | 文档配对 |
 | 极高 | 38 | `packages/client/ui-open-in-app/README.md` | +4 −4 | 文档配对 |
-| 极高 | 36 | `packages/client/ui-theme/src/styles/base.css` | +16 −4 | 字体栈前置 Noto/WQY |
+| 极高 | 36 | `packages/client/ui-theme/src/styles/base.css` | ~~+16 −4~~ 已回退 | 该文件已与上游一致；随包字体改由 `inject-font-stack.sh` 注入 `dist`（见文首 2026-10-28 说明） |
 | 极高 | 35 | `packages/client/ui-conversation/src/client/skeleton/InputBar.tsx` | +59 | 壳内剪贴板图片粘贴（window 捕获阶段 paste 监听） |
 | 高 | 27 | `packages/client/ui-open-in-app/tests/open-in-app-action.client.spec.tsx` | +17 −1 | 菜单动作的测试 |
 | 高 | 26 | `packages/client/ui-open-in-app/tests/browser-plugin.client.spec.ts` | +8 −1 | 客户端插件接线的测试 |
@@ -183,7 +185,7 @@ git log -m --format="" --name-only $BASE^..upstream/master | grep -v '^$' | sort
 | 5 | `apps/cli/*` + `apps/cli/src/doctor.ts`（4 文件，+207 −2） | 见 §10.5 的路径 B/D | ✅ 调研已完成 | doctor 必须在 harness 起不来时运行，插件式命令不成立 |
 | 6 | `packages/boot/app-boot/src/index.ts`（+3 −3） | 无干净替代，建议**上游化** | ✅ 已排除替代 | 上游 `loadEnv` 只 warn 不抛错（`packages/boot/app-boot/src/index.ts:~95`），无法用"调用并捕获"替代 `isBootstrapOnly` 判定 |
 | 7 | `packages/client/modules/*`（2 文件，+104 −4） | 本质是上游 bug/性能修复，建议**上游化** | 高 | `newlineCount` 逐码点遍历→`indexOf`（自称约 80× 提升）；`resolveSync` 跨 Node 版本签名差异兜底 |
-| 8 | `ui-theme/base.css`（+16 −4） | 启动器已用 `FONTCONFIG_FILE` 注册字体，改为在**启动器自己的 fontconfig** 里做 alias | 中 | 该文件上游改动次数为 **0**，风险极低，可最后处理 |
+| 8 | `ui-theme/base.css`（+16 −4） | ✅ **已完成（2026-10-28）**：`inject-font-stack.sh` 注入 `dsh-font-stack.css` 到 dist，正文别名段前移到 `install-container-fonts.sh` 的 include 之前 | 高 | 上游文件保持原样；注入是随包资产，字体实体仍由 `FONTCONFIG_FILE` 注册。只改 fontconfig 不够：上游栈首 `-apple-system` 是内建兜底、别名改不动它 |
 | 9 | `ui-conversation/InputBar.tsx` + `desktop-clipboard.ts`（+59 +118 +140） | **无法等价外移**，见 §十一 | ✅ 调研已完成 | 缺少 `File → DraftAttachmentId` 的公开接口 |
 | 10 | `ui-attachment/*`（5 文件，+56 −6） | 给灯箱加"加载中/加载失败"状态；两处 i18n key **上游已存在**，属纯增量通用改进，建议**上游化** | 高 | `image.loading`/`image.loadFailed` 上游 `ui-conversation/src/client/locales.ts:40-41` 已定义，`locales.ts` **未被 fork 修改** |
 | 11 | `scripts/fix-deploy-closure.mjs`（152） | 搬进 `apps/linyaps/desktop-launcher/`，同步改 `prepare-offline.sh` 的路径 | ✅ 已完成（2026-10-08） | 调用方只有启动器；落在 `apps/linyaps/desktop-launcher/tools/` |

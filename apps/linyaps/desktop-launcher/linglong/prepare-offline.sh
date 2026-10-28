@@ -294,6 +294,26 @@ done
 sh apps/linyaps/desktop-launcher/linglong/inject-link-bridge.sh \
   "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
 
+# 2.5b 注入随包字体栈覆盖：上游 ui-theme 的默认栈只写系统族名，容器里最终用哪个
+#      字体由宿主 fontconfig 决定；随包字体（Noto Sans Display / 文泉驿微米黑）
+#      因此可能「装了却没人引用」，正文观感随机器漂移。这一步把随包族名前置到默认
+#      栈首，属于发行版差异，放在打包侧而不改上游文件。
+sh apps/linyaps/desktop-launcher/linglong/inject-font-stack.sh \
+  "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+
+# 2.5c 断言覆盖确实落进 dist。这条样式是正文观感的唯一来源：注入调用被删或注入
+#      失效时，构建、启动、运行都不报错，只有用户看到字体又退回宿主——历史上同一处
+#      栽过三次，因此把它变成构建期硬失败。
+FONT_DIST="$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+if ! grep -q 'dsh-font-stack.css' "$FONT_DIST/index.html"; then
+  echo "prepare-offline: $FONT_DIST/index.html 缺少字体栈覆盖，正文会退回宿主字体" >&2
+  exit 1
+fi
+if [ ! -f "$FONT_DIST/assets/dsh-font-stack.css" ]; then
+  echo "prepare-offline: $FONT_DIST/assets/dsh-font-stack.css 缺失，正文会退回宿主字体" >&2
+  exit 1
+fi
+
 # 2.6 清掉随各包 lib/ 一起拷进来的 tsc 增量编译元数据（AUDIT N29）。
 #     它记录的是构建机上的文件清单与编译设置，运行时无人读取，属把构建中间态当交付物；
 #     实测 0.1.5.1 交付层有 52 个 / 2.9 MB。放在所有 staging 之后、Go 构建之前，

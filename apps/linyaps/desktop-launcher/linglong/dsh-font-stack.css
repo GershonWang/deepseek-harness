@@ -1,0 +1,20 @@
+/* 壳内 Web GUI 的默认字体栈覆盖。
+ *
+ * 为什么注入而不是改上游 base.css：宿主与容器里有哪些字体是发行版事实，这层差异
+ * 留在打包流程；上游 packages/client/ui-theme/src/styles/base.css 的默认栈保持与
+ * 上游一致，fork 的偏离面因此不再扩大。字体实体由 install-container-fonts.sh 随包
+ * 落进 ${PREFIX}/share/dsh-fonts，并由启动器以 FONTCONFIG_FILE 注册。
+ *
+ * 为什么用 :root:root 加 !important：ui-theme 的 base.css 由客户端在运行时插入
+ * <style>，DOM 顺序在本文件之后；只写 :root 会被它按「同特异性后出现者胜」覆盖。
+ *
+ * 为什么只覆盖「默认栈」变量：--dsh-font-family-text / --dsh-font-family-code 是用户
+ * 在设置里选的字体，优先级必须高于这里；覆盖默认值让未设置的用户拿到随包字体。
+ */
+:root:root {
+  --dsh-font-family-text-default: 'Noto Sans Display', 'WenQuanYi Micro Hei', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Helvetica Neue', Helvetica, Arial, sans-serif !important;
+  --dsh-font-family-code-default: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
+    'Liberation Mono', Menlo, Courier, 'PingFang SC', 'Microsoft YaHei' !important;
+}
