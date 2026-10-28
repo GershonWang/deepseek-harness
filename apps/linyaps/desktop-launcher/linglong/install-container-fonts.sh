@@ -12,12 +12,16 @@
 #  4. 正文拉丁与中文必须分开成两条：fontconfig 的 <prefer> 是整条 family 的备选
 #     列表，不是「仅缺字回退」；若把等宽字体与中文族混进同一条，同一行里会出现
 #     两套度量（等宽 7.80 与中文 13.00）并排。
-#  5. CSS 栈以 -apple-system 开头，该名字是 fontconfig 内建兜底、别名改不动它
-#     （实测 fc-match 恒返回宿主默认，加不加别名都一样）；WebKit 遇到它会落到
-#     CSS 栈里我们已别名的名字上，无法命中时才回落到栈尾的 sans-serif——故
-#     sans-serif 与栈中其它族名一并别名，二者共同兜住正文拉丁。
-#     当前环境宿主自带的 99-deepin.conf 以 prepend+strong 把 sans-serif 指向
-#     思源黑体，我们的别名只在其后生效；分发到没有该配置的机器上则由我们这条接管。
+#  5. 正文段必须与等宽段一样排在 include 之前。fontconfig 的强别名按「先执行的
+#     规则排在 family 列表更前」生效，而系统的 60-latin/49-sansserif 已经把
+#     generic sans-serif 指到宿主字体；正文段写在 include 之后时，sans-serif 与
+#     BlinkMacSystemFont 的别名会被它压过（实测 fc-match ':family=sans-serif'
+#     返回思源黑体），前移到 include 之前后同一查询返回 Noto Sans Display。
+#     这与宿主是否带 99-deepin.conf 无关：正文观感必须由随包字体决定，不能随
+#     分发的机器漂移。
+#     上游 CSS 栈以 -apple-system 开头，该名字是 fontconfig 内建兜底、别名改不动它
+#     （实测 fc-match 恒返回宿主默认），栈里其后能命中别名的族名才是决定因素；
+#     'Segoe UI'、Helvetica、Arial 同样在栈中，也要别名，否则会命中宿主实体字体。
 #  6. 内嵌 Web GUI 的侧边栏终端默认栈以 ui-monospace 开头（客户端
 #     ui-sidebar-terminal：ui-monospace, SFMono-Regular, Menlo, Consolas,
 #     monospace），Shell 里需要等宽的位置也常写 generic monospace。这两个名字在
@@ -66,14 +70,13 @@ for d in "$LATIN_SRC" "$MONO_SRC"; do
   install -m644 "$d/OFL.txt" "$FONTDIR/OFL-$(basename "$d").txt"
 done
 
-# 自包含配置：可写缓存目录 + 包内字体目录 + 等宽别名 → include 系统配置（保留宿主
-# 既有的字体解析与中文回退）→ 正文族别名。
+# 自包含配置：可写缓存目录 + 包内字体目录 + 等宽别名 + 正文别名 → include 系统配置
+# （保留宿主其余族名与中文回退）。
 #
-# 等宽段为什么必须写在 include 之前：fontconfig 的强别名按「先执行的规则排在 family
+# 为什么两段都写在 include 之前：fontconfig 的强别名按「先执行的规则排在 family
 # 列表更前面」生效（实测：同一条 generic monospace 别名写在 include 之前命中
-# JetBrains Mono，写在之后则输给系统 60-latin.conf 给出的 Noto Mono）。而 generic
-# monospace 恰恰被系统规则抢先接管，要它让位只能先写。正文段仍放在 include 之后，让
-# 宿主 99-deepin.conf 的中文字体优先（见上面第 5 条）。
+# JetBrains Mono，写在之后则输给系统 60-latin.conf 给出的 Noto Mono；正文段同理，
+# 写在之后时 sans-serif 输给系统规则指到的宿主字体）。要它们让位只能先写。
 printf '%s\n' \
   '<?xml version="1.0"?>' \
   '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
@@ -90,8 +93,9 @@ printf '%s\n' \
   '  <alias binding="strong"><family>ui-monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '  <alias binding="strong"><family>SFMono-Regular</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
   '  <alias binding="strong"><family>monospace</family><prefer><family>JetBrains Mono</family></prefer></alias>' \
-  '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>' \
-  '  <!-- 正文：拉丁走 Noto Sans Display，中文由文泉驿微米黑兜底（不与等宽混列） -->' \
+  '  <!-- 正文：拉丁走 Noto Sans Display，中文由文泉驿微米黑兜底（不与等宽混列）。
+       打包流程注入的 dsh-font-stack.css 把随包族名前置到 CSS 栈首，本段兜住
+       CSS 未点名时的族名（用户自定义字体、插件里的样式）。 -->' \
   '  <alias binding="strong"><family>sans-serif</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
   '    <family>WenQuanYi Micro Hei</family>' \
@@ -115,6 +119,10 @@ printf '%s\n' \
   '  <alias binding="strong"><family>Helvetica Neue</family><prefer>' \
   '    <family>Noto Sans Display</family>' \
   '  </prefer></alias>' \
+  '  <alias binding="strong"><family>Segoe UI</family><prefer><family>Noto Sans Display</family></prefer></alias>' \
+  '  <alias binding="strong"><family>Helvetica</family><prefer><family>Noto Sans Display</family></prefer></alias>' \
+  '  <alias binding="strong"><family>Arial</family><prefer><family>Noto Sans Display</family></prefer></alias>' \
+  '  <include ignore_missing="yes">/etc/fonts/fonts.conf</include>' \
   '</fontconfig>' > "$LOADCONF"
 
 echo "install-container-fonts: $(ls "$FONTDIR" | tr '\n' ' ')→ $FONTDIR"

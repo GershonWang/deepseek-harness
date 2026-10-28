@@ -120,6 +120,41 @@ else
   bad "等宽别名段必须在 include 之前（mono@${mono_line:-?} include@${include_line:-?}）"
 fi
 
+# --- 场景 3d：正文族名必须逐个点名，且正文段同样排在 include 之前 ---
+# 上游 CSS 栈只写系统族名（sans-serif、BlinkMacSystemFont、'Segoe UI'、Helvetica、
+# Arial 等），任何一条漏别名都会命中宿主实体字体，正文观感随机器漂移；正文段一旦
+# 挪回 include 之后，sans-serif 与 BlinkMacSystemFont 又会输给系统规则。
+text_failures=0
+for family in "sans-serif" "BlinkMacSystemFont" "PingFang SC" "Hiragino Sans GB" \
+              "Microsoft YaHei" "Helvetica Neue" "Segoe UI" "Helvetica" "Arial"; do
+  if ! grep -qF "<family>$family</family><prefer>" "$CONF"; then
+    bad "正文族名缺少别名：$family"
+    text_failures=$((text_failures + 1))
+  fi
+done
+if [ "$text_failures" -eq 0 ]; then
+  ok "正文族名覆盖 sans-serif/BlinkMacSystemFont/PingFang SC/Hiragino Sans GB/Microsoft YaHei/Helvetica Neue/Segoe UI/Helvetica/Arial"
+fi
+sans_line=$(grep -n '<family>sans-serif</family><prefer>' "$CONF" | head -1 | cut -d: -f1)
+if [ -n "$sans_line" ] && [ -n "$include_line" ] && [ "$sans_line" -lt "$include_line" ]; then
+  ok "正文别名段排在 include 之前（否则输给系统 sans-serif 规则）"
+else
+  bad "正文别名段必须在 include 之前（sans@${sans_line:-?} include@${include_line:-?}）"
+fi
+
+# --- 场景 3e：正文别名的 prefer 列表必须同时给出拉丁与中文实体 ---
+# 只给 Noto Sans Display 时中文没有可命中项，会逐字回退到宿主字体；只给中文时拉丁
+# 回到比例字体。两条一起写才是「随包字体决定正文观感」。
+if grep -qF '<family>sans-serif</family><prefer>' "$CONF" \
+   && sed -n "/<family>sans-serif<\/family><prefer>/,/<\/prefer><\/alias>/p" "$CONF" \
+      | grep -qF '<family>Noto Sans Display</family>' \
+   && sed -n "/<family>sans-serif<\/family><prefer>/,/<\/prefer><\/alias>/p" "$CONF" \
+      | grep -qF '<family>WenQuanYi Micro Hei</family>'; then
+  ok "sans-serif 的 prefer 同时覆盖拉丁与中文实体"
+else
+  bad "sans-serif 的 prefer 缺少 Noto Sans Display 或 WenQuanYi Micro Hei"
+fi
+
 # --- 场景 4：中文字体文件不存在 → 非零退出并指名 ---
 CASE="$TMP/missing-cjk"
 if run "$TMP/out-missing-cjk" "$TMP/cjk/nope.ttc"; then
