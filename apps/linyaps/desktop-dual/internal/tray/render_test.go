@@ -35,6 +35,17 @@ func TestRenderNamesCurrentMode(t *testing.T) {
 	}
 }
 
+// TestRenderTooltipTitleIsProductName 覆盖提示的标题行：标题只写产品名，当前形态由
+// 正文承载。两种语言都断言，避免中文去掉后缀、英文仍留着「switcher」。
+func TestRenderTooltipTitleIsProductName(t *testing.T) {
+	for _, locale := range []i18n.Locale{i18n.Zh, i18n.En} {
+		got := trayState{locale: locale, mode: switchboard.ModeShell}.render("").tooltip.Title
+		if got != "DeepSeek Harness" {
+			t.Errorf("render(%s, shell).tooltip.Title = %q，期望产品名", locale, got)
+		}
+	}
+}
+
 // TestRenderMarksAttentionOnError 覆盖失败可见性：托盘形态没有窗口贴错误提示，
 // 出错时必须用 SNI 的 NeedsAttention 让宿主标记图标，否则用户只会觉得「点了没反应」。
 func TestRenderMarksAttentionOnError(t *testing.T) {
