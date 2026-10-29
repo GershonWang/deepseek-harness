@@ -174,7 +174,7 @@ DSH_TC_E2E=1 go test ./internal/toolchain -run TestE2E_CatalogInstall   # 市场
 
 ## 玲珑打包
 
-**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。
+**一键脚本**：`build-linglong.sh`（玲珑 .uab，经容器组装）在仓库根直接运行；默认全量重跑 `prepare-offline.sh`，加 `--no-prepare` 可复用现有 `stage/` 只重打包。任何构建步骤之前，它会先拒绝缺少 `package.json` 的遗留包目录——上游删包后被忽略的 `lib/` 与 `node_modules/` 会原地留下残壳——点名这些目录并指向 `pnpm run clean`，而不是等后续步骤把它们报成无法构建的 workspace 入口。
 
 **组装式两步构建**：重工具链（pnpm/tsc/tsdown/go）全部在宿主机跑，容器只复制组装。规避了构建容器的环境问题（Debian npm 代理 bug、无 HOME、beige 无 Node 22、tsdown 在 Node 22 下加载配置失败），且容器不再碰仓库的 node_modules。
 

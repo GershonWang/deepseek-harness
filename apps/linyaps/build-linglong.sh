@@ -38,4 +38,10 @@ if [ "$TRAY" = "1" ]; then
   set -- --without-official "$@"
 fi
 
+# 打包前置：先查空壳包目录。四个变体都从这个入口进来，在这里查一次，就能在跑任何
+# 构建步骤（pnpm install、壳前端门禁、harness 全量构建）之前把上游删包后的残留点出来；
+# 否则同样的目录要等到约束校验或 tsdown 阶段才报错，错误信息还不指向真正原因。
+# 判断口径与清理办法见脚本自身的说明。
+sh apps/linyaps/check-orphan-packages.sh
+
 exec sh "apps/linyaps/$MODULE/build-linglong.sh" "$@"
