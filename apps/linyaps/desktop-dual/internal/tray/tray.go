@@ -12,10 +12,12 @@
 package tray
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
@@ -45,6 +47,14 @@ const (
 	sniInterface = "org.kde.StatusNotifierItem"
 	// menuInterface 是菜单接口名。
 	menuInterface = "com.canonical.dbusmenu"
+	// presentPath 是运行中的切换器暴露唤回入口的对象路径。
+	presentPath = dbus.ObjectPath("/org/deepseek/dsh/Switcher")
+	// presentInterface 是唤回入口的接口名。
+	presentInterface = "org.deepseek.dsh.Switcher"
+	// presentRequestTimeout 是第二个实例等待运行实例回复的上限。处理器把动作交给
+	// goroutine 后立即回复，正常路径在毫秒级返回；设上限只为兜住「运行实例卡住」
+	// 这类情形，不让一次点击永远没有下文。
+	presentRequestTimeout = 5 * time.Second
 )
 
 // Pixmap 是 SNI 的 (iiay) 位图：宽、高，以及 ARGB32（网络字节序）像素。
@@ -144,7 +154,54 @@ func Connect(mutexName string, opts Options) (*Client, error) {
 	if reply != dbus.RequestNameReplyPrimaryOwner {
 		return nil, ErrAlreadyRunning
 	}
-	return &Client{conn: conn, mutexName: mutexName, opts: opts}, nil
+	c := &Client{conn: conn, mutexName: mutexName, opts: opts}
+	// 拿到名字就导出唤回入口，而不是等托盘项注册：会话里没有 SNI 宿主时托盘项根本
+	// 不会注册，而那种情况下桌面图标是唯一入口，唤回必须照样可用。
+	if err := conn.Export(presenter{client: c}, presentPath, presentInterface); err != nil {
+		return nil, fmt.Errorf("tray: exporting %s: %w", presentInterface, err)
+	}
+	return c, nil
+}
+
+// presenter 是运行中的切换器在单实例名上暴露的唤回入口。
+//
+// 存在的理由：桌面入口的 Exec 就是切换器，用户再次点击图标时起来的是第二个进程。它
+// 申请单实例名失败后若只是退出，那次点击就没有任何下文——窗口此时可能已被关窗隐藏，
+// 托盘图标之外再无入口。第二个进程因此在这里请求一次「显示客户端」，与托盘左键走
+// 同一条动作。
+type presenter struct{ client *Client }
+
+// Present 处理第二次启动的切换器发来的显示请求。
+//
+// 立即回复、把动作交给 goroutine：显示动作要拿切换器状态的锁，切换期间最长被占用一个
+// stopGrace，而调用方只是一次点击后的瞬时进程，没有必要等它完成。失败由本进程发桌面
+// 通知，与托盘动作的失败处理是同一条路径。
+// @returns 恒为 nil；失败通过通知与日志表达。
+func (p presenter) Present() *dbus.Error {
+	go p.client.perform("tray.showFailed", p.client.opts.Board.Present)
+	return nil
+}
+
+// RequestPresent 请已经持有单实例名的切换器把客户端显示出来。
+//
+// 走固定对象而不是托盘项：没有 SNI 宿主时托盘项不会注册，唤回入口仍必须可达。
+// 调用方通常是第二次启动的切换器，它在拿到 ErrAlreadyRunning 后调用本函数再退出。
+// 运行实例是旧版本（没有该接口）时这里返回 UnknownMethod 一类错误，调用方记日志
+// 即可——退化成旧行为，不会更糟。
+// @param name - 切换器的单实例 well-known name。
+// @returns 运行实例不可达或没有该接口时的原因。
+func RequestPresent(name string) error {
+	conn, err := dbus.SessionBus()
+	if err != nil {
+		return fmt.Errorf("tray: connecting to the session bus: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), presentRequestTimeout)
+	defer cancel()
+	call := conn.Object(name, presentPath).CallWithContext(ctx, presentInterface+".Present", 0)
+	if call.Err != nil {
+		return fmt.Errorf("tray: asking %s to present the client: %w", name, call.Err)
+	}
+	return nil
 }
 
 // EnsureRegistered 让托盘项与当前宿主保持一致，是注册的唯一入口：未注册时注册；

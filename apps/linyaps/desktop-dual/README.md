@@ -66,7 +66,7 @@ Calling `ll-builder` directly from a VS Code/Electron integrated terminal cannot
 
 The switcher registers as a StatusNotifierItem. When the session has no `org.kde.StatusNotifierWatcher`, it starts the default client, logs the reason, and checks again every five seconds, so the entry point returns when the desktop shell does. The check also compares the watcher's unique bus name with the one recorded at registration, so a shell that crashes and is replaced gets the entry point back within five seconds instead of leaving the clients unreachable. Until a host is present, the clients cannot be switched.
 
-Switching is only available through the tray while a switcher process runs. A second launch exits immediately instead of starting a second client.
+Switching is only available through the tray while a switcher process runs. A second launch (clicking the desktop icon again, for example) does not start a second client: the new process hands a show request to the running instance and exits, so the window can be recalled from the desktop icon too. When the running instance is older and has no such entry point, that launch only adds one log line.
 
 `dual` and `tray` share the package ID but not a version line: `tray` (0.1.6.7) continues the thin shell's line (0.1.5.9), while `dual` (0.2.0.6) stays the higher version under the same ID. `tray` is therefore only an upgrade of the thin shell: on a machine that already has `dual` it is a lower version, which the store does not accept as an upgrade, so it cannot be installed over `dual`. Moving a machine from `dual` to `tray` means uninstalling `dual` first.
 

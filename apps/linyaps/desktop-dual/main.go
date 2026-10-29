@@ -76,7 +76,14 @@ func main() {
 		Logf:       log.Printf,
 	})
 	if errors.Is(err, tray.ErrAlreadyRunning) {
-		log.Print("switcher: another instance is already running; exiting")
+		// 桌面图标的 Exec 就是本进程，所以「用户再点一次图标」走到这里。不能只退出：
+		// 那一刻窗口可能已被关窗隐藏，托盘图标之外没有别的入口，静默退出表现为图标
+		// 点了没反应。把显示请求交给已运行的实例后再退。
+		if err := tray.RequestPresent(mutexName); err != nil {
+			log.Printf("switcher: %v", err)
+		} else {
+			log.Print("switcher: asked the running instance to show the client")
+		}
 		return
 	}
 	if err != nil {
