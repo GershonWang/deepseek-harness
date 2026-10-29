@@ -2,19 +2,20 @@ import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { InjectFace, PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import { APP_LABEL_KEY } from './applications.ts'
 import type { OpenInAppLaunchState } from './controller.ts'
+import type { OpenInAppOutcome } from './outcome.ts'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import { NS } from './locales.ts'
-import { OpenTargetButton } from './OpenTargetButton.tsx'
+import { OpenTargetButton, type OpenTargetReporter } from './OpenTargetButton.tsx'
 
 /** Browser operations and state shared by the Session header and file tree contributions. */
-export interface OpenInAppActionInjected {
+export interface OpenInAppActionInjected extends OpenTargetReporter {
   hooks: {
     openInAppApps: ObservableSnapshot<readonly string[] | null>
     openInAppChoice: ObservableSnapshot<string>
     openInAppLaunch: ObservableSnapshot<OpenInAppLaunchState>
     shortcuts: ObservableSnapshot<readonly ShortcutCatalogEntry[]>
   }
-  launch: (appId: string, path: string) => Promise<void>
+  launch: (appId: string, path: string) => Promise<OpenInAppOutcome>
   choose: (appId: string) => void
   /** Ask the host to re-read availability; the fresh list replaces the menu's when it lands. */
   refresh: () => void
@@ -35,7 +36,7 @@ export type OpenInAppActionProps =
  * Adapt the installed directory catalog to the shared opening control. The
  * control re-reads host availability as its menu opens, so an application the
  * host gained after this page loaded still reaches the menu.
- * @param props - displayed directory, installed catalog, and launch operations.
+ * @param props - displayed directory, installed catalog, launch operations, and the announcement seat.
  * @returns the shared control, or null without an eligible application.
  */
 export function OpenInAppAction(props: OpenInAppActionProps): React.JSX.Element | null {
@@ -54,17 +55,12 @@ export function OpenInAppAction(props: OpenInAppActionProps): React.JSX.Element 
     <OpenTargetButton
       key={absolutePath} kind="directory" applications={apps} defaultId={preferred.id} failed={false} t={t}
       refresh={props.refresh}
-      busy={operation.phase === 'busy'} shortcut={shortcut}
+      busy={operation.phase === 'busy'} shortcut={shortcut} report={props.report}
       execute={async (operation) => {
         const id = operation.kind === 'application' ? operation.id : preferred.id
-        try {
-          await props.launch(id, absolutePath)
-        } catch (_error) {
-          // Native launch failure is announced by the shared control.
-          return 'openError'
-        }
-        if (operation.kind === 'application') props.choose(id)
-        return null
+        const outcome = await props.launch(id, absolutePath)
+        if (outcome.kind === 'opened' && operation.kind === 'application') props.choose(id)
+        return outcome
       }}
     />
   )

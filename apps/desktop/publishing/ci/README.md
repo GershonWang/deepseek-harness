@@ -12,10 +12,41 @@ Publish a completed package from its original machine without downloading its in
 
 ## Table of Contents
 
+- [Setup sequence](#setup-sequence)
+- [Runner labels and queue diagnosis](#runner-labels)
 - [Machine setup](#machine-setup)
 - [Package and publish](#package-and-publish)
 - [Recovery and records](#recovery-and-records)
 - [Restore a channel](#restore-a-channel)
+
+<a id="setup-sequence"></a>
+
+## Setup sequence
+
+Use this sequence when onboarding a dedicated machine. The deployment operator owns registration, credentials, approvals and real upload acceptance; repository checks do not establish that a machine can publish.
+
+1. Prepare a runner-owned checkout and an external configuration directory. Follow [Windows machine setup and signing](../../windows-signing/README.md#machine-setup) or [macOS runner and signing setup](../../packaging/README.md#macos-actions) for tools, templates and platform credentials.
+2. Register the runner using GitHub **Settings → Actions → Runners**, or the organization's runner administration page. Record its exact registered name, grant this repository access to its runner group, and assign the [required labels](#runner-labels). Keep the default labels during registration.
+3. Install and start the platform supervisor described in the platform guide. Windows Task Scheduler and the macOS LaunchAgent require the configured user's login; they do not provide unattended startup before login. Confirm both GitHub connectivity and `Listening for Jobs`, then check the runner is online in GitHub.
+4. Complete [machine publication configuration](#machine-setup), the repository's `DESKTOP_PUBLISH_RUNNERS` variable, and the two deployment Environments. The repository administrator owns routing and reviewers; the COS administrator owns bucket configuration and object read/write permissions; production also needs the configured GitHub App.
+5. Run a signed Windows or notarized macOS **test** package using [Package and publish](#package-and-publish). Confirm the packaging job used the intended registered runner and retained its files. Dispatch publication from `master` with that run ID and attempt; confirm `prepare` actually starts on the same machine and produces the approval summary.
+6. Inspect the summary's environment, version, channel and URLs before approving the test upload. Verify the publication record, public installer download and update feed. Test acceptance does not establish production permissions: provision and approve production separately. Keep the run/attempt and acceptance results for recovery.
+
+<a id="runner-labels"></a>
+
+## Runner labels and queue diagnosis
+
+GitHub matches every label in a job's `runs-on` list. The [default-label rules](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/use-in-a-workflow) explain why registration with `--no-default-labels` can leave an online runner ineligible. The current workflows require:
+
+| Job | Required labels on the same runner |
+| --- | --- |
+| Windows packaging | `dsh-win-package-trial` |
+| macOS packaging | `self-hosted`, `macOS`, `ARM64`, `dsh-mac-package-trial` |
+| Publication `prepare` and `publish` | `self-hosted` and the selected `DESKTOP_PUBLISH_RUNNERS` entry's `label` |
+
+A runner with only `dsh-win-package-trial` can package Windows but cannot accept publication. Its routing entry does not add labels to its GitHub registration. Have a runner administrator correct the registered labels; changing the route's `target` or restarting a healthy listener does not supply a missing label.
+
+For a queued job, compare the job page's requested labels with **Settings → Actions → Runners**, then check repository/group access and whether the matching runner is online and idle. A running supervisor only establishes that its process exists. A successful hosted `route` job only establishes package selection; it does not establish that `prepare` can be assigned. A deployment waiting for approval needs its Environment reviewer, while an assigned job that fails needs its step logs. Diagnose these states separately before restarting anything.
 
 <a id="machine-setup"></a>
 
@@ -25,7 +56,7 @@ Keep `DSH_PACKAGING_CONFIG_DIR` pointed at the existing machine packaging direct
 
 Create `publishing/test.json` and, when authorized, `publishing/production.json` below the configuration directory. Each declares `bucket`, HTTPS `origin` without a path, and an absolute `credentialsFile`. The credential file contains only `secretId` and `secretKey`. macOS also requires `macOS.signingIdentity` and `macOS.teamId`; Windows requires `windows.certificateThumbprint`. Production requires the exact origin `https://download.deepseek.com` and `githubApp.clientId` plus an absolute `githubApp.privateKeyFile`. These files stay outside Git. The uploader supports permanent COS credentials, not STS session credentials. Administrators must keep test and production buckets unversioned (neither enabled nor suspended). Publication assumes this deployment prerequisite and does not call `GetBucketVersioning` or require its permission. Immutable binary PUTs retain `x-cos-forbid-overwrite`; their protection depends on administrators maintaining the bucket configuration.
 
-Set the repository variable `DESKTOP_PUBLISH_RUNNERS` to a JSON mapping of registered runner names to unique labels and targets, for example `{"mini":{"label":"dsh-mini-publish","target":"mac-arm64"}}`. Assign that label to exactly that runner. Windows uses target `win-x64`. The routing job checks the original successful job, and the publisher checks its own runner name against the recorded name. Machines need no shared filesystem or LAN connection to each other.
+Set the repository variable `DESKTOP_PUBLISH_RUNNERS` to a JSON mapping of registered runner names to unique labels and targets, for example `{"mini":{"label":"dsh-mini-publish","target":["mac-arm64","mac-x64"]}}`. Assign that label to exactly that runner. A target may be a single name or a nonempty list; the Mac entry above authorizes both packaging workflows on the same machine. Windows uses target `win-x64`. The retained target must match the selected packaging workflow. The routing job checks the original successful job, and the publisher checks its own runner name against the recorded name. Machines need no shared filesystem or LAN connection to each other.
 
 An administrator must create `desktop-test` and `desktop-production`, each with required reviewers and an allowed `master` deployment branch. The workflow checks reviewers for either deployment. Test can allow self-approval. The GitHub App needs installation access to this repository and Contents write permission, plus permission under the `desktop-v*` tag ruleset to create release tags. Reviewer approval does not transfer the reviewer's tag permissions to the App. Missing configuration stops publication; there is no personal-token fallback. The App action creates and later revokes a short-lived token. Protect the local private key and COS credential files with the publishing account's filesystem permissions. The token action accepts key contents, so the masked PEM also passes through the runner's temporary `GITHUB_OUTPUT` file during the job; masking hides logs, not local file access.
 
@@ -41,7 +72,7 @@ Select the platform's `Package Desktop` workflow, preset, source, channel and ve
 
 Packaging only retains files. After success, open **Publish Desktop · COS → Run workflow** on `master`, enter `package_run_id` from the packaging run URL, and optionally enter `package_run_attempt`. Blank selects the latest attempt, which must have succeeded; it never falls back to an older success. An explicit attempt selects that exact successful build. Windows must be signed; macOS must finish notarization and stapling. GitHub job evidence selects the original runner; its local manifest supplies the preset, version, source and channel before approval. No installer or request artifact is downloaded. Retained packages with the old `publishRequested=false` flag remain eligible; missing or changed local files stop publication.
 
-Before uploading, the publisher hashes all retained files, checks version and destination metadata, and rechecks the platform signatures. macOS verifies the DMG and extracts the ZIP to verify the app's ticket; Windows checks Authenticode, the configured signer thumbprint and the timestamp. Preparation writes a Chinese approval summary with separate version, channel, platform and deployment fields, the retained test release ID, full installer/feed URLs, a link to the original packaging attempt, source ref/SHA, platform verification results and proposed tag. Folded details include the COS bucket and file sizes/SHA-256 of the upload bytes, including rewritten YAML. Public-repository summaries expose the test prefix and download URLs; the prefix is not authentication. Both publishing jobs wait for **Review deployments → Approve and deploy**, then recheck the approved manifest and upload plan digest. Changed bytes or destinations reject. Approval cannot edit a version; reject and rebuild instead. Both deployments upload missing binaries, verify remote bytes, then update YAML. There is no files-only mode in this workflow. Production finally creates `desktop-v<version>` at the recorded packaging commit; an existing tag must name the same commit.
+Before installing dependencies on the original runner, preparation and the approved publish job check that the selected `publishing/<preset>.json` is readable JSON. Missing configuration reports its path; restore it and retry publication with the same package. Full configuration and signature validation still run afterward. Before uploading, the publisher hashes all retained files, checks version and destination metadata, and rechecks the platform signatures. macOS verifies the DMG and extracts the ZIP to verify the app's ticket; Windows checks Authenticode, the configured signer thumbprint and the timestamp. Preparation writes a Chinese approval summary with separate version, channel, platform and deployment fields, the retained test release ID, full installer/feed URLs, a link to the original packaging attempt, source ref/SHA, platform verification results and proposed tag. Folded details include the COS bucket and file sizes/SHA-256 of the upload bytes, including rewritten YAML. Public-repository summaries expose the test prefix and download URLs; the prefix is not authentication. Both publishing jobs wait for **Review deployments → Approve and deploy**, then recheck the approved manifest and upload plan digest. Changed bytes or destinations reject. Approval cannot edit a version; reject and rebuild instead. Both deployments upload missing binaries, verify remote bytes, then update YAML. There is no files-only mode in this workflow. Production finally creates `desktop-v<version>` at the recorded packaging commit; an existing tag must name the same commit.
 
 <a id="recovery-and-records"></a>
 
