@@ -20,6 +20,7 @@
     "@deepseek-ai/dsh-atomic-write": "*",
     "@deepseek-ai/dsh-cmdline": "*",
     "@deepseek-ai/dsh-home-paths": "*",
+    "@deepseek-ai/dsh-official-bundles": "*",
     "@deepseek-ai/dsh-web-app": "*",
     "js-yaml": "^4.2.0"
   },

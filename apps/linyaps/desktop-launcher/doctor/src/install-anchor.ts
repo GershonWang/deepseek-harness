@@ -4,7 +4,7 @@
  *
  * 为什么锚点会决定成败：`createRuntimeResolution` 只登记锚点包依赖闭包里的包。
  * 真实启动的锚点是 CLI 包（`apps/cli/src/profile-boot.ts` 的 INSTALL_ANCHOR），
- * 它的闭包含安装自带的 optional bundle（app-boot 的 OPTIONAL_BUNDLES）；而
+ * 它的闭包含安装自带的 optional bundle（official-bundles 的 OPTIONAL_BUNDLES）；而
  * `@deepseek-ai/dsh-web-app` 的闭包不含这些包。用 web-app 作锚点，探针会把「安装
  * 自带、可正常加载」的 bundle 报成 `ERR_MODULE_NOT_FOUND`，一条误报的 fatal 就此产生。
  *

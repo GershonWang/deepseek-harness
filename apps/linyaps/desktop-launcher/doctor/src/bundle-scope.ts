@@ -3,7 +3,8 @@
  * 「本 profile 选装」（opt-in）。
  *
  * 为什么不能用 `@deepseek-ai/` 前缀代表"安装自带"：安装自带的 optional bundle
- * （app-boot 的 OPTIONAL_BUNDLES）同样在这个命名空间下，但它们由 profile 逐个选择
+ * （official-bundles 的 OPTIONAL_BUNDLES，上游 0.2.1-rc.2 起由 app-boot 迁到这里）
+ * 同样在这个命名空间下，但它们由 profile 逐个选择
  * 启用——和第三方 bundle 一样可能坏、也一样应当能被单独停用。按前缀判定会让这类
  * bundle 永远留在二分定位的"必加载"集合里：任何子集都带着真凶，定位只能落到列表
  * 第一个第三方 bundle 上，修复也就去停用无辜的插件（一次实报：dshmarket 背了
@@ -16,7 +17,8 @@
  */
 
 import { dirname, join } from 'node:path'
-import { OPTIONAL_BUNDLES, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
+import { resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
+import { OPTIONAL_BUNDLES } from '@deepseek-ai/dsh-official-bundles'
 
 /**
  * 只问安装锚点时占位的第二锚点目录名。

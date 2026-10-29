@@ -24,6 +24,9 @@
       "path": "../../../../packages/util/home-paths"
     },
     {
+      "path": "../../../../packages/util/official-bundles"
+    },
+    {
       "path": "../../../../packages/util/atomic-write"
     }
   ]
