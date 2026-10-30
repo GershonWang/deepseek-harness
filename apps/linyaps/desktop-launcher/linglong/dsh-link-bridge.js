@@ -14,7 +14,10 @@
  * window.open。两者都把 URL 通过 postMessage 交给宿主壳
  * （apps/linyaps/desktop-launcher/frontend/app.js 监听），由它经
  * window.runtime.BrowserOpenURL → 随包 xdg-open → 宿主 portal → 本机默认浏览器打开。
- * 非 http(s) 目标（如账号登录预开的 about:blank）原样透传给 WebKit 自己的实现。
+ * 非 http(s) 目标（如账号登录预开的 about:blank）仍先交给 WebKit 自己的实现；
+ * 壳里 WebKit 不创建新浏览上下文、原实现因此返回 null 时，改返回一个只服务登录的
+ * 代理窗口，客户端随后的 location.replace(授权页) 经同一条外链通道由壳打开（见
+ * 路径二的实现注释）。
  *
  * 职责二：客户端启动失败上报。宿主对非必需条目的激活失败只告警，harness 进程
  * 因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张
@@ -97,9 +100,44 @@
   // 的位置：客户端模块入口延迟执行，本桥是普通脚本，先于它运行。
   //
   // 为什么 http(s) 返回 null：壳是异步打开的，不存在可返回的真实窗口；现有调用点
-  // 都忽略该返回值，真正依赖返回值与 location 的是登录弹窗那条，而它的目标是
-  // about:blank（非 http(s)），仍走原实现。
+  // 都忽略该返回值。
   var nativeOpen = typeof window.open === "function" ? window.open : null;
+
+  // 账号登录的预开窗口（about:blank）是唯一真正依赖返回值的调用点：客户端先
+  // window.open('about:blank') 预开标签页，再用返回窗口的 location.replace 导航到
+  // 授权页（packages/client/ui-settings-account 的 BrowserLogin）。壳里 WebKit 没有
+  // 接管 create 信号，它的默认实现直接返回 nullptr、不创建新浏览上下文，所以这次
+  // 调用只会拿到 null：登录弹框停在等待态，浏览器一直不打开。拿到 null 时改返回
+  // 一个只服务登录的代理窗口，客户端用它对授权页调用 location.replace 时，经同一条
+  // 外链通道交给壳打开真实浏览器。
+  //
+  // 代理只覆盖 about:blank（含空目标）；其余非 http(s) 目标仍交给原实现。
+  function createLoginPopup() {
+    var closed = false;
+    return {
+      opener: null,
+      get closed() {
+        return closed;
+      },
+      location: {
+        // 客户端只会把预开页导航到授权页（http(s)）；其它目标没有可承接的窗口，
+        // 忽略而不是抛异常——登录失败时客户端会自己 close() 这个代理。
+        replace: function (target) {
+          var href = "";
+          try {
+            href = target == null ? "" : String(target);
+          } catch (err) {
+            href = "";
+          }
+          if (isHttpUrl(href)) forwardExternal(href);
+        },
+      },
+      close: function () {
+        closed = true;
+      },
+    };
+  }
+
   window.open = function (url, name, features) {
     var href = "";
     try {
@@ -112,7 +150,11 @@
       forwardExternal(href);
       return null;
     }
-    return nativeOpen === null ? null : nativeOpen.call(window, url, name, features);
+    var popup = nativeOpen === null ? null : nativeOpen.call(window, url, name, features);
+    // 只有登录预开窗口需要代理兜底：原实现给了窗口就照旧返回它，返回 null 说明
+    // 壳里没有新浏览上下文，换代理让 location.replace 那条路仍然可用。
+    if (popup === null && (href === "" || href === "about:blank")) return createLoginPopup();
+    return popup;
   };
 
   /* ---------- 客户端启动失败上报 ---------- */

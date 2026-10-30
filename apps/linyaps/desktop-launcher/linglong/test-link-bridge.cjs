@@ -6,6 +6,8 @@
  *   - 外链转发：target="_blank" 的 HTTP(S) 点击、以及 HTTP(S) 目标的
  *     window.open → { type: "open-external" }；非 http(s)、已 preventDefault、
  *     非左键、带 download 的都不转发，非 http(s) 的 window.open 原样透传；
+ *     壳里 WebKit 不建新浏览上下文、预开的 about:blank 拿不到窗口时，改给登录
+ *     代理窗口，其 location.replace(授权页) → { type: "open-external" }；
  *   - 启动失败上报：console.error 收到 "web boot:" 文案，或引导页出现
  *     "Failed to load plugins" → { type: "boot-failed" }，只上报一次；
  *   - 语言上报：<html lang> 变化 → { type: "locale", id }，未变化不重复上报，
@@ -86,7 +88,7 @@ function makeRoot() {
 
 /**
  * 在 vm 上下文里加载一次桥。
- * @param {object} options - inIframe：是否被 iframe 内嵌；ancestorOrigins：父窗口 origin 列表（null 表示浏览器不支持该 API）；storage：客户端 localStorage 的初始内容；restoreId：壳经索引注入送进来的会话 id；storageBroken：localStorage 抛异常（被拒/私密模式）。
+ * @param {object} options - inIframe：是否被 iframe 内嵌；ancestorOrigins：父窗口 origin 列表（null 表示浏览器不支持该 API）；storage：客户端 localStorage 的初始内容；restoreId：壳经索引注入送进来的会话 id；storageBroken：localStorage 抛异常（被拒/私密模式）；nativeOpenNull：原生 window.open 返回 null（壳里 WebKit 不建新浏览上下文时的真实结果）。
  * @returns 驱动句柄：messages、docListeners、root、window、observers、console 桩、storage、nativeOpens（真正落到原生 window.open 的调用）。
  */
 function loadBridge({
@@ -95,6 +97,7 @@ function loadBridge({
   storage = {},
   restoreId = undefined,
   storageBroken = false,
+  nativeOpenNull = false,
 } = {}) {
   const messages = [];
   const docListeners = {};
@@ -124,10 +127,11 @@ function loadBridge({
       messages.push({ message, targetOrigin });
     },
     // 原生 window.open 的替身：桥会先保存再替换它（见 dsh-link-bridge.js 职责一
-    // 的路径二），这里记录"哪些调用真的落到了 WebKit"以及返回值。
+    // 的路径二），这里记录"哪些调用真的落到了 WebKit"以及返回值。nativeOpenNull
+    // 模拟壳里的真实结果：WebKit 不创建新浏览上下文时 window.open 返回 null。
     open(url, name, features) {
       nativeOpens.push({ url, name, features });
-      return { stubWindow: true };
+      return nativeOpenNull ? null : { stubWindow: true };
     },
   };
   if (restoreId !== undefined) window.__DSH_DESKTOP_RESTORE_SESSION__ = restoreId;
@@ -250,12 +254,53 @@ test("外链转发：window.open 的 HTTP(S) 目标转交壳，其它目标原�
   h.window.open(new URL("https://example.com/object"));
   assert.equal(h.messages.length, 2, "URL 对象也应转交壳");
 
-  // 非 http(s)：账号登录预开的 about:blank 必须仍由原实现处理并保留返回值，
-  // 登录弹窗靠这个返回值上的 location.replace 导航。
+  // 非 http(s)：账号登录预开的 about:blank 由原实现处理；原实现能给出窗口时
+  // 保留它的返回值，登录弹窗靠这个返回值上的 location.replace 导航。
   const popup = h.window.open("about:blank", "_blank");
   assert.deepEqual(h.nativeOpens, [{ url: "about:blank", name: "_blank", features: undefined }]);
   assert.deepEqual(popup, { stubWindow: true }, "透传调用必须返回原实现的返回值");
   assert.equal(h.messages.length, 2, "非外链不应转交壳");
+});
+
+test("外链转发：壳里 about:blank 预开拿不到窗口时给出登录代理，授权页仍交给壳打开", () => {
+  const h = loadBridge({ nativeOpenNull: true });
+
+  // 壳里 WebKit 不创建新浏览上下文，原实现只返回 null（见 dsh-link-bridge.js
+  // 路径二）：登录弹窗靠返回窗口的 location.replace 导航，返回 null 就等于什么
+  // 都不发生，因此桥必须给出可导航的窗口。
+  const popup = h.window.open("about:blank", "_blank");
+  assert.notEqual(popup, null, "登录预开必须拿到可导航的窗口");
+  assert.equal(popup.stubWindow, undefined, "拿不到原实现窗口时返回的是登录代理");
+  assert.deepEqual(h.nativeOpens, [{ url: "about:blank", name: "_blank", features: undefined }],
+    "仍先问原实现，只有它给不出窗口时才代理");
+  assert.equal(popup.opener, null);
+  popup.opener = null; // BrowserLogin 打开后立刻清空 opener
+  assert.deepEqual(sentMessages(h), [], "预开本身不应转交壳");
+
+  popup.location.replace("https://platform.deepseek.com/dsh/authorize?state=state-1");
+  assert.deepEqual(sentMessages(h), [{
+    message: { dshDesktop: true, type: "open-external", url: "https://platform.deepseek.com/dsh/authorize?state=state-1" },
+    targetOrigin: "http://127.0.0.1:8080",
+  }], "授权页必须交给壳打开真实浏览器");
+
+  // 非 http(s) 的导航没有可承接的窗口：忽略且不上报。
+  popup.location.replace("about:blank");
+  assert.equal(h.messages.length, 1, "非外链导航不应转交壳");
+
+  // 取消登录时客户端关闭代理；关闭不需要壳做任何事。
+  popup.close();
+  assert.equal(popup.closed, true);
+  assert.equal(h.messages.length, 1, "关闭代理不应产生额外消息");
+
+  // window.open() 不带目标同样按登录预开兜底。
+  const blank = h.window.open();
+  assert.notEqual(blank, null, "空目标同样要给出可导航的窗口");
+  blank.location.replace("https://platform.deepseek.com/dsh/authorize?state=state-2");
+  assert.equal(h.messages.length, 2, "空目标的授权页同样转交壳");
+
+  // 其它非 http(s) 目标不伪造窗口：代理只为登录预开兜底。
+  assert.equal(h.window.open("data:text/html,hello"), null);
+  assert.equal(h.messages.length, 2, "其它目标不应转交壳");
 });
 
 test("console.error 里的 web boot 失败上报，且不吞掉原始日志", () => {
