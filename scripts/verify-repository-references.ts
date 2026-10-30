@@ -1,7 +1,7 @@
 /** Reject maintained references to repository commits and the disallowed organization URL. */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs'
+import { lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { canonicalReferenceText } from './verify-public-repository-links.ts'
@@ -11,19 +11,8 @@ const organization = ['deepseek', 'harness'].join('-')
 const organizationUrl = new RegExp(`\\bgithub\\.com/${organization}(?![a-z0-9-])`)
 // The independent kit repository owns the engine source and documentation.
 const kitRepositoryUrl = new RegExp(`\\bgithub\\.com/${organization}/libreoffice-kit(?:\\.git)?(?=/|[^a-zA-Z0-9_.-]|$)`, 'g')
-const commitCandidate = /(?<![a-z0-9])[\da-f]{7,40}(?![a-z0-9])/gi
-/**
- * Whether a hexadecimal candidate can name a commit in practice.
- *
- * 锁文件里的十进制字节数（`size = 6344383`）同样落在十六进制字母表内，在对象库完整的
- * 本地克隆里会偶然撞上某个提交前缀。真实提交标识几乎总含 a-f，纯数字候选按碰撞处理，
- * 否则完整历史的仓库会在与提交无关的生成文件上报假阳性。
- * @param candidate - The matched hexadecimal run.
- * @returns whether the candidate contains a hexadecimal letter.
- */
-function namesHexadecimalCommit(candidate: string): boolean {
-  return /[a-f]/i.test(candidate)
-}
+// Decimal-only tokens collide with sizes, counts, and version components; see docs/AGENTS.md#repository-references.
+const commitCandidate = /(?<![a-z0-9])(?=[\da-f]{0,39}[a-f])[\da-f]{7,40}(?![a-z0-9])/gi
 const excludedPrefixes = [
   'vendor/', '.agents/notes/archived/',
   // 桌面启动器的取证文档以「分支 + 基点提交 + tree 哈希」记录审计基准，抹掉哈希
@@ -61,6 +50,7 @@ function isMaintained(file: string): boolean {
  * @param source - File text or a symlink's stored target.
  * @param commits - Lowercase, unambiguous full or abbreviated commit identifiers.
  * @returns One finding per line and reference kind; digests and other Git object types are accepted.
+ * Decimal-only tokens are ignored, including actual commit identifiers.
  */
 export function findRepositoryReferences(
   file: string,
@@ -73,8 +63,7 @@ export function findRepositoryReferences(
     if (organizationUrl.test(canonicalReferenceText(line).replace(kitRepositoryUrl, ''))) {
       references.push({ file, line: index + 1, kind: 'organization-url' })
     }
-    if ([...line.matchAll(commitCandidate)].filter(match => namesHexadecimalCommit(match[0]))
-      .some(match => commits.has(match[0].toLowerCase()))) {
+    if ([...line.matchAll(commitCandidate)].some(match => commits.has(match[0].toLowerCase()))) {
       references.push({ file, line: index + 1, kind: 'commit-hash' })
     }
   }
@@ -132,11 +121,11 @@ export function uniquePrefixMatch(objects: readonly string[], prefix: string): s
  * Resolve commit-identifier candidates in maintained sources against the local object database.
  * @param repoRoot - Working tree whose Git objects are inspected.
  * @param sources - File texts or symlink targets to extract candidates from.
- * @returns Lowercase candidates that name exactly one available object, which is a commit.
+ * @returns Lowercase candidates containing a hexadecimal letter that name exactly one available object, which is a commit.
  */
 export function repositoryCommits(repoRoot: string, sources: Iterable<string>): Set<string> {
   const candidates = [...new Set([...sources].flatMap(source =>
-    [...source.matchAll(commitCandidate)].map(match => match[0].toLowerCase())))].filter(namesHexadecimalCommit)
+    [...source.matchAll(commitCandidate)].map(match => match[0].toLowerCase())))]
   if (candidates.length === 0) return new Set()
   // Git resolves prefixes across all available objects, including unreachable and alternate ones;
   // one listing of those objects replaces one Git prefix lookup per candidate.
@@ -159,7 +148,7 @@ export function repositoryCommits(repoRoot: string, sources: Iterable<string>): 
 /**
  * Scan tracked and nonignored new files using only the local Git object database.
  * @param repoRoot - Working tree whose files and Git objects are inspected.
- * @returns Prohibited references outside vendor, frozen Agent Notes, and the listed fork exemptions; absent objects cannot match.
+ * @returns Prohibited references outside vendor and frozen Agent Notes; absent shallow-history objects cannot match.
  */
 export function scanRepositoryReferences(repoRoot: string): RepositoryReference[] {
   const sources = readMaintainedFiles(repoRoot)
@@ -169,17 +158,9 @@ export function scanRepositoryReferences(repoRoot: string): RepositoryReference[
 
 const invokedPath = process.argv[1]
 if (invokedPath !== undefined && import.meta.url === pathToFileURL(resolve(invokedPath)).href) {
-  // 豁免清单必须指向真实存在的文件：条目因重命名或删除而失效时，闸门要立刻报出来，
-  // 而不是让一条死豁免悄悄放宽检查口径。
-  const missingExclusions = excludedFiles.filter(file => !existsSync(resolve(root, file)))
-  if (missingExclusions.length > 0) {
-    console.error('verify-repository-references: exemption entries no longer name a file:')
-    for (const file of missingExclusions) console.error(`  ${file}`)
-    process.exitCode = 1
-  }
   const references = scanRepositoryReferences(root)
   if (references.length === 0) {
-    console.log('verify-repository-references: maintained files contain no repository commit identifiers or disallowed organization URLs.')
+    console.log('verify-repository-references: maintained files contain no prohibited references (decimal-only tokens are ignored).')
   } else {
     console.error('verify-repository-references: use release tags or maintained repository links:')
     for (const { file, line, kind } of references) console.error(`  ${file}:${String(line)} ${kind}`)

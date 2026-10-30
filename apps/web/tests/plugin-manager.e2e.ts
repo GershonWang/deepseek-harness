@@ -268,8 +268,8 @@ describe('web e2e: plugin manager', () => {
       await bar.getByRole('tablist').waitFor()
       await add.focus()
       for (const [width, icons, narrowTabs, wraps] of [
-        [1280, false, false, false], [600, true, false, false],
-        [470, true, true, false], [390, true, true, true], [300, true, true, true],
+        [1280, false, false, false], [544, true, false, false],
+        [390, true, true, false], [320, true, true, true], [244, true, true, true],
       ] as const) {
         await probe.setViewportSize({ width, height: 480 })
         await body.evaluate((element) => { element.scrollTop = 180 })
@@ -856,7 +856,10 @@ describe('web e2e: plugin manager', () => {
       .toBe(bundles.filter(bundle => bundle.name !== '@deepseek-ai/dsh-experimental-terminal-bundle'
         && bundle.name !== '@deepseek-ai/dsh-experimental-liveshare'
         && bundle.official && (bundle.listedByDefault !== false || bundle.enabled || bundle.installed)).length)
-    for (const name of ['@deepseek-ai/dsh-cua-bundle', '@deepseek-ai/dsh-experimental-session-search', '@deepseek-ai/dsh-experimental-ralph-bundle']) {
+    expect(bundles.find(bundle => bundle.name === '@deepseek-ai/dsh-cua-bundle'))
+      .toMatchObject({ enabled: false, optional: false, availability: 'missing', listedByDefault: false })
+    expect(await panel.locator('[data-plugin-package="@deepseek-ai/dsh-cua-bundle"]').count()).toBe(0)
+    for (const name of ['@deepseek-ai/dsh-experimental-session-search', '@deepseek-ai/dsh-experimental-ralph-bundle']) {
       expect((await scaffold.ctx.pluginManager.listBundles()).find(bundle => bundle.name === name))
         .toMatchObject({ enabled: false, optional: true, availability: 'installation', listedByDefault: false })
       expect(await panel.locator(`[data-plugin-package="${name}"]`).count()).toBe(0)
