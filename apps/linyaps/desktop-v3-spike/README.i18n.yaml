@@ -17,6 +17,9 @@
 /wails-v3-feasibility-spike/measured-results-2026-11-03-deepin-25-x11-intel-mesa:
   en: c0b965ce238e16b9
   zh: 8f9656adc1926041
+/wails-v3-feasibility-spike/packaging-verified-in-a-linglong-container-2026-11-03:
+  en: 35f5c33ac0a5f0d3
+  zh: 97c1035f474cf97b
 /wails-v3-feasibility-spike/running:
   en: 0382c1367a5e112c
   zh: 34e222117c6c4039
@@ -24,8 +27,8 @@
   en: 88f23108485571a0
   zh: 5155d248e2e726d8
 /wails-v3-feasibility-spike/verification-done-and-not-done:
-  en: 68ec1678ee02bdf6
-  zh: aee1e156cae8e6f3
+  en: 44b6f6905f3452f5
+  zh: 09f31d1ffc21ed36
 /wails-v3-feasibility-spike/exit-criteria-for-promoting-the-module:
   en: 69d0977deb2f68bf
   zh: f9886714c0715681

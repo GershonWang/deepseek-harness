@@ -50,6 +50,19 @@ Wails v2 and v3 differ in module path, Linux graphics stack (GTK3/WebKit2GTK 4.1
 
 **Impact of the origin change**: the client stores locale, fonts, and terminal font size in the shell origin's localStorage, so an upgrade cannot read them and falls back to defaults silently. Two options: accept a one-time reset, or move shell settings into the Go-side configuration file (the existing `AppConfig` already carries window, theme, and port, and extending it is the sturdier home). Reading the old origin directly is impossible because localStorage is isolated per origin.
 
+## Packaging Verified In A Linglong Container (2026-11-03)
+
+| Item | Result |
+| --- | --- |
+| Linglong package build | Succeeds; `buildext` merges GTK4, WebKitGTK 6.0, JSC, and the WebKit helper processes into `${PREFIX}` |
+| WebKit helper path | The build byte-patches `libwebkitgtk-6.0.so.4` (`/usr/lib/x86_64-linux-gnu/webkitgtk-6.0` to `/tmp/dsh-webkit-6.0`), and the helpers measurably launch from that path inside the container |
+| Behaviour inside the container | Same as the host: origin `wails://localhost`, localStorage works, `Call.ByName` returns `pong:spike`, pre-ready events are dropped, and `--wails-draggable` is `drag` |
+| Graphics stack version | The package takes the build container's apt candidate: GTK 4.18.6 with **WebKitGTK 2.50.4**, while the host run used 2.52.5. The two distribution lines (deb12 and deb13) differ, so a real release must pin the target version |
+| WebKit UI process sandbox | Enabled by default, it starts xdg-dbus-proxy via the compiled-in `/usr/bin/bwrap`; `/usr` is read-only in the container and lacks that path, so startup fails. This round bypasses it with `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`; **the production choice is open**: ship bwrap and xdg-dbus-proxy with the same byte-path patch, or accept that the Linglong container no longer nests a WebKit sandbox |
+| Exit and cleanup | `ll-builder run` does not pass the caller's environment into the container, so automatic exit must be the default inside the package's wrapper script; a hard kill leaves `/run/user/<uid>/linglong/<hash>` and `box/<hash>` behind, which blocks later builds and runs until removed |
+
+In one line: packaging works, and the remaining decisions are the sandbox policy and the packaged WebKit version.
+
 ## Running
 
 ```sh
@@ -57,6 +70,8 @@ sh verify.sh
 make check
 make build
 make build-gtk3
+ll-builder build -f apps/linyaps/desktop-v3-spike/linglong/linglong.yaml
+ll-builder run -f apps/linyaps/desktop-v3-spike/linglong/linglong.yaml
 ```
 
 Environment variables: `DSH_V3_SPIKE_REPORT` sets the report path, `DSH_V3_SPIKE_AUTOCLOSE=1` exits after the report is written, and `DSH_V3_SPIKE_GPU=never|always` switches the hardware acceleration policy.
@@ -71,7 +86,7 @@ The real machine ran end to end on 2026-11-03 (Deepin 25, GTK 4.18.6 + WebKitGTK
 
 Done in this repository's development sandbox: `go mod tidy`, `gofmt`, `GOOS=windows CGO_ENABLED=0 go build ./...`, and `go vet ./...` all pass, which shows the v3.1.0 API usage is correct.
 
-Still unverified: an actual title bar drag and the window control buttons (manual); the `DSH_V3_SPIKE_GPU=never` and NVIDIA rendering comparison; running inside a Linglong container (this spike ran on the host, not packaged); the microphone permission hook under GTK4; and a settings migration plan for the origin change.
+Still unverified: an actual title bar drag and the window control buttons (manual); the `DSH_V3_SPIKE_GPU=never` and NVIDIA rendering comparison; the microphone permission hook under GTK4; a settings migration plan for the origin change; and the WebKit sandbox policy (bundled bwrap versus disabled) together with pinning the packaged WebKit version.
 
 ## Exit Criteria for Promoting the Module
 

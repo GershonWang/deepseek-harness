@@ -50,6 +50,19 @@ v2 与 v3 的模块路径、Linux 图形栈（GTK3/WebKit2GTK 4.1 → GTK4/WebKi
 
 **origin 变更的影响**：客户端把 locale、字体、终端字号存在壳 origin 的 localStorage 里，升级后这些值读不到，会静默回退默认值。两条路：接受一次性重置；或把壳设置迁到 Go 侧配置文件（现有 `AppConfig` 已承载窗口/主题/端口，扩展它是更稳的落点）。直接从旧 origin 读取不可行——localStorage 按 origin 隔离。
 
+## 容器内打包验证（2026-11-03）
+
+| 项目 | 结果 |
+| --- | --- |
+| 玲珑包构建 | 成功；`buildext` 把 GTK4、WebKitGTK 6.0、JSC 与 WebKit helper 进程合并进 `${PREFIX}` |
+| WebKit helper 路径 | 打包时对 `libwebkitgtk-6.0.so.4` 做字节替换（`/usr/lib/x86_64-linux-gnu/webkitgtk-6.0` → `/tmp/dsh-webkit-6.0`），容器内实测 helper 确实从该路径启动 |
+| 容器内功能 | 与宿主一致：origin `wails://localhost`、localStorage 可读写、`Call.ByName` 返回 `pong:spike`、就绪前事件丢失、`--wails-draggable` 为 `drag` |
+| 图形栈版本 | 包内取构建容器的 apt 候选：GTK 4.18.6 + WebKitGTK **2.50.4**，而宿主验证用的是 2.52.5。两条发行线（deb12 / deb13）版本不同，正式发包需要固定目标版本 |
+| WebKit UI 沙箱 | 默认开启，按编译期路径 `/usr/bin/bwrap` 启动 xdg-dbus-proxy；容器内 `/usr` 只读且没有该路径，启动即失败。本轮用 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` 绕过，**正式方案需要决策**：随包提供 bwrap 与 xdg-dbus-proxy 并做路径字节补丁，或明确接受玲珑容器内不再嵌套 WebKit 沙箱 |
+| 退出与清理 | `ll-builder run` 不会把调用者环境变量带进容器，自动退出必须在包内包装脚本里默认开启；进程被强杀会残留 `/run/user/<uid>/linglong/<hash>` 与 `box/<hash>`，阻塞后续构建与运行，需先清理 |
+
+一句话：打包路径可行，剩余决策点是沙箱策略与包内 WebKit 版本。
+
 ## 运行方式
 
 ```sh
@@ -57,6 +70,8 @@ sh verify.sh
 make check
 make build
 make build-gtk3
+ll-builder build -f apps/linyaps/desktop-v3-spike/linglong/linglong.yaml
+ll-builder run -f apps/linyaps/desktop-v3-spike/linglong/linglong.yaml
 ```
 
 环境变量：`DSH_V3_SPIKE_REPORT` 指定报告路径，`DSH_V3_SPIKE_AUTOCLOSE=1` 拿到报告后自动退出，`DSH_V3_SPIKE_GPU=never|always` 切换硬件加速策略。
@@ -71,7 +86,7 @@ make build-gtk3
 
 已在本仓库开发沙箱完成：`go mod tidy`、`gofmt`、`GOOS=windows CGO_ENABLED=0 go build ./...` 与 `go vet ./...` 全部通过，证明对 v3.1.0 API 的用法正确。
 
-仍未验证：标题栏实际拖动与窗口控制按钮（需人工操作确认）；`DSH_V3_SPIKE_GPU=never` 与 NVIDIA 机型下的渲染对照；玲珑容器内的运行（本 spike 跑在宿主上，未进包）；GTK4 下的麦克风权限钩子；origin 变更后的设置迁移方案。
+仍未验证：标题栏实际拖动与窗口控制按钮（需人工操作确认）；`DSH_V3_SPIKE_GPU=never` 与 NVIDIA 机型下的渲染对照；GTK4 下的麦克风权限钩子；origin 变更后的设置迁移方案；WebKit 沙箱策略（随包 bwrap vs 关闭）与包内 WebKit 版本固定。
 
 ## 升级为正式模块的退出标准
 

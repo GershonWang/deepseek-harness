@@ -1,0 +1,36 @@
+version: "1"
+# 本包是 spike 专用的容器验证包：不属于对外分发的产品包，包 ID 也与正式客户端分开，
+# 避免任何人把它当成可安装的客户端。
+package:
+  id: com.deepseek.dsh-desktop-v3-spike
+  name: dsh-desktop-v3-spike
+  version: 0.0.0.2
+  kind: app
+  description: |
+    Wails v3 技术验证包（GTK4 + WebKitGTK 6.0）。
+    仅用于验证容器内能否运行，不对外分发。
+
+command:
+  - /opt/apps/com.deepseek.dsh-desktop-v3-spike/files/bin/run-spike
+
+base: org.deepin.base/25.2.2
+
+# 组装式构建：二进制在宿主机构建（容器内没有 GTK4 开发包与 Go 工具链），
+# 本段只做容器内才能完成的事——解出 webkit6 的 .so 并打 exec-path 补丁。
+build: |
+  sh /project/apps/linyaps/desktop-v3-spike/linglong/install-v3-runtime.sh \
+    /project/apps/linyaps/desktop-v3-spike
+
+buildext:
+  apt:
+    build_depends:
+      # 需要 apt 候选版本存在，才能在 build 段 apt-get download 出实体来打补丁。
+      - libwebkitgtk-6.0-4
+    depends:
+      # 合并进 ${PREFIX}：GTK4 运行库、WebKitGTK 6.0 与 JSC、helper 进程本体，
+      # 以及 GTK4 的 share 数据（gschemas 等）。
+      - libgtk-4-1
+      - libgtk-4-media-gstreamer
+      - libwebkitgtk-6.0-4
+      - libjavascriptcoregtk-6.0-1
+      - libglib2.0-0
