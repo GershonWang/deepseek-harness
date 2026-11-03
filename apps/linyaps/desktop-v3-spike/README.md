@@ -30,7 +30,25 @@ Wails v2 and v3 differ in module path, Linux graphics stack (GTK3/WebKit2GTK 4.1
 - The GTK4 backend (`pkg/application/linux_cgo.go`) handles only `WebviewGpuPolicyNever` and `WebviewGpuPolicyAlways`; every other value falls back to ALWAYS, because WebKitGTK 6.0 removed `ON_DEMAND`.
 - The `-tags gtk3` backend is still present in the v3.1.0 source (`linux_cgo_gtk3.go`), which contradicts documentation claiming removal in v3.1; treat the source as authoritative, but do not rely on the path surviving.
 - `BundledAssetFileServer` serves the runtime at `/wails/runtime.js`, so a static shell can `import` it without a bundler.
-- On Linux the page is still loaded through the `wails://` custom URI scheme, so the origin very likely stays `wails://wails`; `frontend.origin` exists to settle it.
+- On Linux the page is still loaded through the `wails://` custom URI scheme, but **v3.1.0 measures as `wails://localhost`, not v2's `wails://wails`** (see the measured results).
+
+## Measured Results (2026-11-03, Deepin 25 / X11 / Intel Mesa)
+
+| Item | Measured | Conclusion |
+| --- | --- | --- |
+| Build and link | `GTK 4.18.6 · WebKitGTK 2.52.5` | Passes; only upstream `gdk_x11_*` deprecation warnings |
+| Page origin | `wails://localhost` | **Differs from v2's `wails://wails`**: localStorage starts empty, so old settings are unreadable |
+| localStorage | Readable and writable | Works; data from the old origin cannot be reached from the new one |
+| Legacy globals | `window.go` and `window.runtime` are gone | The static shell needs a shim |
+| Runtime global | `window.wails` exists | A shim can build on it, or the shell can use ES modules directly |
+| Bindings | `Call.ByName` succeeds with `pong:spike` | Go is callable without generated bindings or a bundler |
+| Early events | Emit returned `false` and the frontend never saw it | Pre-ready events are dropped; startup progress must replay after ready |
+| Ready event | Received at about 1023 ms, service startup at 2 ms | `WindowRuntimeReady` works and is the only reliable readiness signal |
+| Drag property | `--wails-draggable` computes to `drag` | CSS-driven dragging still holds; an actual drag needs manual confirmation |
+| GPU policy | `always`, no rendering problems on Intel Mesa | NVIDIA machines and the `never` comparison still need checking |
+| Runtime warnings | Missing a11y bus; `signal 10` (SIGUSR1) taken over by JSC | The first is harmless; the second means waking the window with SIGUSR1 still fails under v3, so the existing Unix socket path stays |
+
+**Impact of the origin change**: the client stores locale, fonts, and terminal font size in the shell origin's localStorage, so an upgrade cannot read them and falls back to defaults silently. Two options: accept a one-time reset, or move shell settings into the Go-side configuration file (the existing `AppConfig` already carries window, theme, and port, and extending it is the sturdier home). Reading the old origin directly is impossible because localStorage is isolated per origin.
 
 ## Running
 
@@ -49,11 +67,11 @@ Neither the official base (`org.deepin.base/25.2.2`) nor the official runtimes (
 
 ## Verification Done and Not Done
 
-Real-machine progress (2026-11-03, Deepin 25, GTK 4.18.6 + WebKitGTK 6.0 2.52.5): the dependency check and the cgo build pass, linking reports no errors, and only upstream `gdk_x11_*` deprecation warnings appear. The first run panicked in `ServiceStartup` because the module modelled the event callbacks as optional configuration and one was omitted; the service now depends on `application.App` directly, which removes that failure class structurally, and the runtime measurement still needs a rerun.
+The real machine ran end to end on 2026-11-03 (Deepin 25, GTK 4.18.6 + WebKitGTK 6.0 2.52.5): dependency check, cgo build, window startup, frontend reporting, binding call, and report writing all succeeded. The results are in the previous section.
 
 Done in this repository's development sandbox: `go mod tidy`, `gofmt`, `GOOS=windows CGO_ENABLED=0 go build ./...`, and `go vet ./...` all pass, which shows the v3.1.0 API usage is correct.
 
-Not done, because the sandbox has no `gcc`, no `pkg-config`, no GTK/WebKit development packages, and no desktop session: GTK4 linking and real execution, the origin and localStorage measurements, the binding call, event timing, dragging, and the GPU policy comparison. Those require `sh verify.sh` on a Deepin 25 desktop with `libgtk-4-dev` and `libwebkitgtk-6.0-dev` installed.
+Still unverified: an actual title bar drag and the window control buttons (manual); the `DSH_V3_SPIKE_GPU=never` and NVIDIA rendering comparison; running inside a Linglong container (this spike ran on the host, not packaged); the microphone permission hook under GTK4; and a settings migration plan for the origin change.
 
 ## Exit Criteria for Promoting the Module
 
