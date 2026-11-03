@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DSH · Wails v3 spike</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <!-- 自绘标题栏：无边框窗口的可拖拽区域由 --wails-draggable 决定。
+         这一行是客户端现有实现的原样保留，用来验证 v3 仍然认这个 CSS 属性。 -->
+    <header id="titlebar" data-testid="titlebar">
+      <span class="brand">DeepSeek Harness · Wails v3 spike</span>
+      <div class="actions">
+        <button id="btn-min" title="最小化">—</button>
+        <button id="btn-max" title="最大化/还原">▢</button>
+        <button id="btn-close" title="关闭">×</button>
+      </div>
+    </header>
+
+    <main>
+      <h1>验证结果</h1>
+      <p class="hint">
+        拖拽标题栏移动窗口；标题栏按钮走 Wails runtime。所有事实会写入 Go 侧报告文件，路径见下方。
+      </p>
+      <table id="facts"><tbody></tbody></table>
+      <p id="report-path" class="path"></p>
+    </main>
+
+    <!-- type="module" 是硬性要求：runtime 以 ES module 形式导入，
+         且脚本异步执行，所以任何依赖 runtime 的初始化都必须放在模块内部完成。 -->
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

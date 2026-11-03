@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write apps/linyaps/desktop-v3-spike/README.md
+/wails-v3-feasibility-spike:
+  en: eac69b5b452bfc89
+  zh: aec922958ead241e
+/wails-v3-feasibility-spike/why-a-separate-module:
+  en: 62f335041764a977
+  zh: b044caad2f5fccd0
+/wails-v3-feasibility-spike/verification-matrix:
+  en: 942086e4e5002648
+  zh: 374b95272c8a5b3b
+/wails-v3-feasibility-spike/findings-from-the-v3-1-0-source:
+  en: 4e19b00bb3d60d68
+  zh: da44e371a4b95ac1
+/wails-v3-feasibility-spike/running:
+  en: 0382c1367a5e112c
+  zh: 34e222117c6c4039
+/wails-v3-feasibility-spike/linglong-runtime-availability:
+  en: 88f23108485571a0
+  zh: 5155d248e2e726d8
+/wails-v3-feasibility-spike/verification-done-and-not-done:
+  en: d8b013b07e529b20
+  zh: f27fef3446f791fa
+/wails-v3-feasibility-spike/exit-criteria-for-promoting-the-module:
+  en: 69d0977deb2f68bf
+  zh: f9886714c0715681
