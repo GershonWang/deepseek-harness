@@ -49,6 +49,8 @@ Neither the official base (`org.deepin.base/25.2.2`) nor the official runtimes (
 
 ## Verification Done and Not Done
 
+Real-machine progress (2026-11-03, Deepin 25, GTK 4.18.6 + WebKitGTK 6.0 2.52.5): the dependency check and the cgo build pass, linking reports no errors, and only upstream `gdk_x11_*` deprecation warnings appear. The first run panicked in `ServiceStartup` because the module modelled the event callbacks as optional configuration and one was omitted; the service now depends on `application.App` directly, which removes that failure class structurally, and the runtime measurement still needs a rerun.
+
 Done in this repository's development sandbox: `go mod tidy`, `gofmt`, `GOOS=windows CGO_ENABLED=0 go build ./...`, and `go vet ./...` all pass, which shows the v3.1.0 API usage is correct.
 
 Not done, because the sandbox has no `gcc`, no `pkg-config`, no GTK/WebKit development packages, and no desktop session: GTK4 linking and real execution, the origin and localStorage measurements, the binding call, event timing, dragging, and the GPU policy comparison. Those require `sh verify.sh` on a Deepin 25 desktop with `libgtk-4-dev` and `libwebkitgtk-6.0-dev` installed.

@@ -51,15 +51,9 @@ func main() {
 		},
 	})
 
-	// 服务在 app.Run 之前注册即可；报告路径、自动退出等装配参数走构造函数，
-	// 不进服务方法签名——绑定的参数类型越简单，结论越不受绑定机制本身干扰。
-	svc := probe.New(probe.Config{
-		ReportPath: probe.ReportPath(),
-		AutoClose:  probe.AutoClose(),
-		Started:    started,
-		Quit:       app.Quit,
-		Emit:       app.Event.Emit,
-	})
+	// 服务在 app.Run 之前注册即可。依赖直接传 application 实例：退出、发事件、订阅事件
+	// 本来就是 App 的能力，不拆成可空回调（第一版曾因漏传其中一个回调在真机上空指针崩溃）。
+	svc := probe.New(app, probe.ReportPath(), probe.AutoClose(), started)
 	app.RegisterService(application.NewService(svc))
 
 	// 窗口在 Run 之前创建：v3 会在 startup 阶段运行待启动窗口，这与 v2 的

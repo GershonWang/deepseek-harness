@@ -49,6 +49,8 @@ make build-gtk3
 
 ## 已完成与未完成的验证
 
+真机进度（2026-11-03，Deepin 25，GTK 4.18.6 + WebKitGTK 6.0 2.52.5）：依赖检查与 cgo 构建已通过，链接无错误，只有 wails 上游 `gdk_x11_*` 的弃用警告。首次运行在 `ServiceStartup` 中空指针崩溃，原因是本模块把事件回调拆成可空配置、漏传其一；已改为直接依赖 `application.App`，从结构上消除这类失败面，运行期实测待重跑。
+
 已在本仓库开发沙箱完成：`go mod tidy`、`gofmt`、`GOOS=windows CGO_ENABLED=0 go build ./...` 与 `go vet ./...` 全部通过，证明对 v3.1.0 API 的用法正确。
 
 未完成（本沙箱没有 `gcc`、`pkg-config` 与 GTK/WebKit 开发包，也无法访问桌面会话）：GTK4 链接与真实运行、origin/localStorage 实测、绑定实测、事件时序实测、拖拽实测、GPU 策略对照。这些必须在装有 `libgtk-4-dev` 与 `libwebkitgtk-6.0-dev` 的 Deepin 25 桌面上执行 `sh verify.sh` 后才能下结论。

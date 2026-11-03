@@ -39,10 +39,23 @@ fi
 
 echo "==> 运行 spike（最多 90s，拿到报告后自动退出）"
 # 自动退出让脚本不必区分「跑完退出」与「卡死被杀」：超时即可判失败。
-if ! DSH_V3_SPIKE_REPORT="$REPORT" DSH_V3_SPIKE_AUTOCLOSE=1 timeout 90 "$BIN"; then
-  echo "运行失败或超时：报告未生成。若窗口没出现，先确认当前会话有 DISPLAY/WAYLAND_DISPLAY" >&2
-  exit 2
-fi
+# 这两种失败要分开报：超时通常意味着窗口没起来（会话/显示服务问题），
+# 非零退出码则多半是程序自身 panic——混成一句话会把人引到错误的排查方向。
+set +e
+DSH_V3_SPIKE_REPORT="$REPORT" DSH_V3_SPIKE_AUTOCLOSE=1 timeout 90 "$BIN"
+status=$?
+set -e
+case $status in
+  0) ;;
+  124)
+    echo "运行超时：90s 内没有生成报告。先确认当前会话有 DISPLAY/WAYLAND_DISPLAY，再看窗口是否出现" >&2
+    exit 2
+    ;;
+  *)
+    echo "运行失败（退出码 $status）：报告未生成。若是 panic，堆栈就在上方——请按第一处本项目代码定位，不要直接归因于 v3 兼容性" >&2
+    exit 2
+    ;;
+esac
 
 if [ ! -s "$REPORT" ]; then
   echo "报告缺失：$REPORT" >&2
