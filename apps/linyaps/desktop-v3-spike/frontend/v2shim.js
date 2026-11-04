@@ -39,6 +39,8 @@ globalThis.go = {
       ReadClipboardImage: goMethod("ReadClipboardImage"),
       RememberSession: goMethod("RememberSession"),
       ReportClientBootFailure: goMethod("ReportClientBootFailure"),
+      LoadShellSettings: goMethod("LoadShellSettings"),
+      SaveShellSettings: goMethod("SaveShellSettings"),
     },
   },
 };

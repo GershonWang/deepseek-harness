@@ -20,6 +20,13 @@ const legacy = {
   startupState: "(未调用)",
 };
 
+/** 壳设置：v3 下 origin 变了，localStorage 里的旧值读不到，改存 Go 侧。 */
+const settings = {
+  source: "(未初始化)",
+  payload: "",
+  saveResult: "",
+};
+
 eventsSubscribe();
 void run();
 
@@ -73,6 +80,7 @@ async function run() {
   } catch (err) {
     legacy.startupState = `error:${String(err)}`;
   }
+  await initSettings();
 
   try {
     const reply = await goCall("Ping", "spike");
@@ -97,6 +105,33 @@ async function run() {
   const camera = await probeUserMedia({ video: true });
   await emit("spike:probes", { mic, camera, notification });
   renderProbes(mic, camera, notification);
+}
+
+/**
+ * 初始化壳设置：先读持久化文件，读不到就写一份默认值。
+ *
+ * 模拟的正是迁移场景——旧值在 wails://wails 的 localStorage 里，v3 读不到，
+ * 因此第一次运行必然走「写默认值」分支；此后每次运行都应读回同一份。
+ */
+async function initSettings() {
+  const defaults = {
+    locale: navigator.language,
+    terminalFontSize: 13,
+    theme: "dark",
+  };
+  try {
+    const saved = await goCall("LoadShellSettings");
+    if (saved) {
+      settings.source = "file";
+      settings.payload = saved;
+      return;
+    }
+    settings.payload = JSON.stringify(defaults);
+    settings.saveResult = await goCall("SaveShellSettings", settings.payload);
+    settings.source = "default";
+  } catch (err) {
+    settings.source = `error:${String(err)}`;
+  }
 }
 
 /** 采集一次页面事实并回传。可重复调用，报告会被覆盖为最新快照。 */
@@ -126,6 +161,11 @@ function collect() {
       goCalls: [...legacy.goCalls].sort(),
       runtimeCalls: [...legacy.runtimeCalls].sort(),
       startupState: legacy.startupState,
+    },
+    settings: {
+      source: settings.source,
+      payload: settings.payload,
+      saveResult: settings.saveResult,
     },
   };
 }

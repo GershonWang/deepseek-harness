@@ -100,6 +100,8 @@ type FrontendFacts struct {
 	Screen string `json:"screen"`
 	// Legacy 记录 v2 风格全局适配层的验证结果。
 	Legacy LegacyFacts `json:"legacy"`
+	// Settings 记录壳设置的来源与内容，用于验证「改存 Go 侧」的往返。
+	Settings SettingsFacts `json:"settings"`
 }
 
 // LegacyFacts 记录「用 v2 全局写成的壳脚本能否在 v3 上原样运行」的证据。
@@ -116,6 +118,17 @@ type LegacyFacts struct {
 	RuntimeCalls []string `json:"runtimeCalls"`
 	// StartupState 是壳在加载后主动拉到的启动状态（证明「就绪后拉取」可行）。
 	StartupState string `json:"startupState"`
+}
+
+// SettingsFacts 是壳设置存储的验证结果。
+type SettingsFacts struct {
+	// Source 为 "file" 表示这次运行从持久化文件读到了设置（说明跨运行生效），
+	// 为 "default" 表示文件不存在、这次写入了默认值。
+	Source string `json:"source"`
+	// Payload 是读回或写入的设置原文。
+	Payload string `json:"payload"`
+	// SaveResult 是写入时 Go 侧返回的路径或错误。
+	SaveResult string `json:"saveResult"`
 }
 
 // BindingResult 记录一次 Call.ByName 的结果。
