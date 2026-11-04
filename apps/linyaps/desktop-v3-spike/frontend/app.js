@@ -68,7 +68,10 @@ async function run() {
   //   - Notification 触发非媒体类请求，不依赖任何硬件，用来证明钩子确实被调用；
   //   - getUserMedia 触发 UserMediaPermissionRequest（容器内可能因设备枚举失败而走不到）。
   const notification = await requestNotificationPermission();
-  await requestMic(notification);
+  const mic = await probeUserMedia({ audio: true });
+  const camera = await probeUserMedia({ video: true });
+  await Events.Emit("spike:probes", { mic, camera, notification });
+  renderProbes(mic, camera, notification);
 }
 
 /**
@@ -96,21 +99,24 @@ function wireMic() {
     return;
   }
   node.addEventListener("click", () => {
-    void requestMic();
+    void probeUserMedia({ audio: true }).then((result) => {
+      const label = document.querySelector("#mic-result");
+      if (label) {
+        label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;
+        label.className = result.ok ? "ok" : "fail";
+      }
+    });
   });
 }
 
-/** 请求一次麦克风采集，并把结果回传 Go 侧。 */
-async function requestMic(notification) {
-  const result = await probeMic();
-  result.notification = notification;
+/** 把三项探测结果渲染到页面上，便于人工一眼确认。 */
+function renderProbes(mic, camera, notification) {
   const label = document.querySelector("#mic-result");
-  if (label) {
-    label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;
-    label.className = result.ok ? "ok" : "fail";
+  if (!label) {
+    return;
   }
-  await Events.Emit("spike:mic", result);
-  return result;
+  label.textContent = `麦克风:${mic.ok ? "放行" : "拒绝"} · 摄像头:${camera.ok ? "放行" : "拒绝"} · 通知:${notification}`;
+  label.className = mic.ok && !camera.ok ? "ok" : "fail";
 }
 
 /**
@@ -119,7 +125,7 @@ async function requestMic(notification) {
  * 用音频而非视频：客户端的真实需求就是语音输入，且它正是权限钩子要放行的范围；
  * 摄像头请求按策略应被拒绝，留给手工验证，不在自动流程里制造噪声。
  */
-async function probeMic() {
+async function probeUserMedia(constraints) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return { ok: false, error: "navigator.mediaDevices.getUserMedia 不存在" };
   }
@@ -129,7 +135,7 @@ async function probeMic() {
   });
   const attempt = (async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       for (const track of stream.getTracks()) {
         track.stop();
       }

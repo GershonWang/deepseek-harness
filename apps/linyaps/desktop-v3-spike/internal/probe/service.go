@@ -16,8 +16,6 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
-
-	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
 // fallbackOnce 保证兜底退出只排一次：write() 会被前端事件反复触发，
@@ -41,7 +39,7 @@ type Service struct {
 	mu        sync.Mutex
 	frontend  *FrontendFacts
 	binding   *BindingResult
-	mic       *MicResult
+	probes    *ProbeSet
 	earlyNote string
 	written   int
 }
@@ -104,16 +102,16 @@ func (s *Service) ServiceStartup(_ context.Context, _ application.ServiceOptions
 		s.mu.Unlock()
 		s.write("收到绑定结果")
 	})
-	s.app.Event.On("spike:mic", func(event *application.CustomEvent) {
-		result := MicResult{}
+	s.app.Event.On("spike:probes", func(event *application.CustomEvent) {
+		result := ProbeSet{}
 		if err := decodeEventData(event.Data, &result); err != nil {
-			slog.Warn("麦克风结果解析失败", "err", err)
+			slog.Warn("权限探测结果解析失败", "err", err)
 			return
 		}
 		s.mu.Lock()
-		s.mic = &result
+		s.probes = &result
 		s.mu.Unlock()
-		s.write("收到麦克风结果")
+		s.write("收到权限探测结果")
 	})
 	return nil
 }
@@ -147,14 +145,13 @@ func (s *Service) write(reason string) {
 		Binding:       s.binding,
 		EarlyEmit:     s.earlyNote,
 		Marks:         Marks(),
-		Perm:          webviewperm.CurrentStatus(),
-		Mic:           s.mic,
+		Probes:        s.probes,
 	}
 	// 自动退出必须等到「前端事实 + 麦克风/权限探测结果」都到齐：权限钩子的挂载在主循环
 	// 上异步进行（100ms 后首次尝试），报告若在它之前就写并退出，会得到 attempts=0 的假失败。
-	shouldQuit := s.autoClose && s.frontend != nil && s.mic != nil
+	shouldQuit := s.autoClose && s.frontend != nil && s.probes != nil
 	s.written++
-	needFallback := s.autoClose && s.frontend != nil && s.mic == nil
+	needFallback := s.autoClose && s.frontend != nil && s.probes == nil
 	s.mu.Unlock()
 
 	// 探测没回来（例如页面里 getUserMedia 一直挂着）时不要无限等：15 秒后照常退出，
@@ -164,7 +161,7 @@ func (s *Service) write(reason string) {
 			go func() {
 				time.Sleep(15 * time.Second)
 				s.mu.Lock()
-				ready := s.mic != nil
+				ready := s.probes != nil
 				s.mu.Unlock()
 				if !ready {
 					s.write("兜底退出：探测结果未回传")
@@ -174,8 +171,10 @@ func (s *Service) write(reason string) {
 		})
 	}
 
-	slog.Info("权限钩子状态", "scheduled", report.Perm.Scheduled, "installed", report.Perm.Installed,
-		"attempts", report.Perm.Attempts, "requests", report.Perm.Requests)
+	if report.Probes != nil {
+		slog.Info("权限探测结果", "micOK", report.Probes.Mic.OK, "cameraOK", report.Probes.Camera.OK,
+			"notification", report.Probes.Notification)
+	}
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

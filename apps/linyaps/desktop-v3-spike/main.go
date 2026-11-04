@@ -18,7 +18,6 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/probe"
-	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
 // 前端资源。与 desktop-launcher 一样逐项列出而不整体嵌入：spike 的 frontend/ 下只允许
@@ -69,6 +68,15 @@ func main() {
 		StartState:       application.WindowStateNormal,
 		InitialPosition:  application.WindowCentered,
 		BackgroundColour: application.NewRGB(24, 26, 30),
+		// 权限策略改用 v3 内置的跨平台模型：客户端现有「只放行音频、拒绝摄像头与
+		// 屏幕」的策略可以直接表达，不再需要自建 GTK 权限钩子。
+		//   - 麦克风 Allow：语音输入需要；
+		//   - 摄像头 Deny：屏幕共享请求带 video 标志，因此一并被拒；
+		//   - 其余（通知、地理位置等）v3 在 Linux 上交给 WebKit 默认处理（拒绝）。
+		Permissions: map[application.PermissionType]application.Permission{
+			application.PermissionMicrophone: application.PermissionAllow,
+			application.PermissionCamera:     application.PermissionDeny,
+		},
 		Linux: application.LinuxWindow{
 			// GTK4 后端的 WebKitGTK 6.0 已删除 ON_DEMAND 策略，只认 ALWAYS/NEVER；
 			// 这里用环境变量切换，才能在同一台机器上对比两种渲染路径的差异。
@@ -86,10 +94,6 @@ func main() {
 			"backend":      probe.BuildBackend,
 			"stack":        probe.RuntimeStackVersion(),
 		})
-		// 只能在这里挂：更早调用时 GTK 尚未初始化，主循环上的 g_timeout 回调会抢先
-		// 触碰控件树，实测在窗口创建阶段直接 SIGSEGV。页面侧的权限探测已延后 2.5s，
-		// 足够让这次挂载先生效。
-		webviewperm.Install()
 	})
 
 	// 关窗钩子必须用 RegisterHook 才能拦截；spike 只记录不拦截，用来确认钩子在
