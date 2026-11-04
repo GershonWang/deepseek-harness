@@ -1,8 +1,9 @@
 # DeepSeek Harness desktop launcher（Wails 栈）构建入口。
-# Linux 一律带 -tags webkit2_41（wails 选用 webkit2gtk-4.1）。
+# Wails v3 默认使用 GTK4 + WebKitGTK 6.0，不再需要 webkit2_41 之类的标签；
+# production 标签决定 /wails/runtime.js 提供压缩版运行时。
 
 GO       ?= go
-TAGS     := production webkit2_41
+TAGS     := production
 BIN      := dsh-desktop-launcher
 # 仓库根：doctor 的 vitest 由仓库根的 pnpm install 提供（doctor 自身不装 vitest）。
 REPO_ROOT := $(abspath ../../..)
@@ -12,11 +13,9 @@ REPO_ROOT := $(abspath ../../..)
 build:
 	CGO_ENABLED=1 $(GO) build -tags "$(TAGS)" -o $(BIN) .
 
-# test 与 vet 都必须带 $(TAGS)：不带标签时 cgo 走 wails 的 !webkit2_41 分支去解析
-# webkit2gtk-4.0，而该 pc 文件只由打包脚本（linglong/prepare-pkgconfig.sh）临时生成，
-# 开发机上并不存在，于是这两个目标根本建不起来。
-# 另外 $(TAGS) 一定要加引号：不加的话 make 会把两个词拆成两个参数，
-# webkit2_41 会被 go 当成包路径而不是标签值。
+# test 与 vet 都带 $(TAGS)：cgo 需要链接 GTK4/WebKitGTK 6.0 的开发包
+# （libgtk-4-dev、libwebkitgtk-6.0-dev），否则这两个目标建不起来。
+# $(TAGS) 保持加引号：将来标签变多时，不加引号会被 make 拆成多个参数。
 test:
 	CGO_ENABLED=1 $(GO) test -tags "$(TAGS)" ./...
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/appenv"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/clipboard"
@@ -181,7 +182,12 @@ type App struct {
 	conn       *connector.Connector
 	configPath string
 	home       string
-	ctx        context.Context
+
+	// app/window 是 v3 的运行时入口：v2 用 OnStartup 的 ctx 承担同一职责。
+	// Bind 之后只读；bound 单独存在是为了让单测无需构造真实的 application.App。
+	app    *application.App
+	window application.Window
+	bound  bool
 
 	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
 	closeAction CloseAction
@@ -192,7 +198,7 @@ type App struct {
 	windowGone atomic.Bool
 
 	// showCtxMu 保护 showCtx。单独一把锁而不是复用 mu：唤回由 main 里的信号 goroutine
-	// 触发，它与 OnStartup 并发；a.ctx 的其它读者都住在 OnStartup 之后才启动的
+	// 触发，它与 ServiceStartup 并发；其余读者都住在 ServiceStartup 之后才启动的
 	// goroutine 里，没有这个问题，因此不动它们。
 	showCtxMu sync.RWMutex
 	showCtx   context.Context
@@ -223,7 +229,7 @@ type App struct {
 	doctorDone            chan struct{} // doctor 进程退出信号（nil 表示未在运行）
 	doctorEpoch           int           // 诊断启动序号，用于 goroutine 收尾时归属判断
 
-	// 窗口状态跟踪（受 winMu 保护）。OnBeforeClose 是唯一可靠的保存时机
+	// 窗口状态跟踪（受 winMu 保护）。BeforeClose 是唯一可靠的保存时机
 	// （Wails 在窗口销毁之后才调用 OnShutdown，那时窗口已经读不得了，
 	// 见 Shutdown）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
 	// 作为还原基准，避免把全屏尺寸写进配置。
@@ -330,7 +336,7 @@ const windowStateSaveTimeout = 2 * time.Second
 // ShutdownFromSignal 在进程被外部信号终止（SIGTERM/SIGINT，如桌面管理器退出）时收尾。
 //
 // 与窗口关闭路径的唯一差别是：这条路进来时窗口通常还活着、主循环也在，因此可以补存
-// 一次窗口几何——CloseQuits 下 OnBeforeClose 已经存过，但进程被直接杀掉或崩溃时走不到
+// 一次窗口几何——CloseQuits 下 BeforeClose 已经存过，但进程被直接杀掉或崩溃时走不到
 // 那一步，靠这里兜底；窗口已经销毁（OnShutdown 已置位 windowGone）时跳过。
 //
 // 顺序刻意是「先清理、后读窗口」，且这一步有超时：harness 的停止不能排在任何一个可能
@@ -382,11 +388,51 @@ func (a *App) stopDoctor() {
 	}
 }
 
+// Bind 注入 v3 的运行时入口（应用实例与主窗口）。
+//
+// v2 通过 OnStartup 的 ctx 做同样的事；v3 的运行时是一组对象方法，先绑定再运行。
+// @param app - v3 应用实例。
+// @param window - 主窗口。
+func (a *App) Bind(app *application.App, window application.Window) {
+	a.app = app
+	a.window = window
+	a.bound = true
+	bindWindowOps(window)
+}
+
+// ready 表示运行时已绑定，可以安全地读写窗口与屏幕信息。
+func (a *App) ready() bool {
+	return a.bound
+}
+
+// emit 向前端广播事件；运行时尚未绑定时静默丢弃（与 v2 里 ctx 为空时的守卫等价）。
+// @param name - 事件名。
+// @param data - 事件载荷。
+func (a *App) emit(name string, data ...any) {
+	if a.app == nil {
+		return
+	}
+	a.app.Event.Emit(name, data...)
+}
+
+// setWindowPosition 把窗口移到指定坐标。
+func (a *App) setWindowPosition(x, y int) {
+	if a.window != nil {
+		a.window.SetPosition(x, y)
+	}
+}
+
+// centerWindow 把窗口居中。
+func (a *App) centerWindow() {
+	if a.window != nil {
+		a.window.Center()
+	}
+}
+
 // OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
-func (a *App) OnStartup(ctx context.Context) {
-	a.ctx = ctx
+func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	// 单独把上下文发布给唤回路径：托盘可以在窗口就绪后的任意时刻要求显示窗口，
-	// 而那条路径由信号 goroutine 触发、与本次赋值并发，不能直接读 a.ctx。
+	// 而那条路径由信号 goroutine 触发、与本次赋值并发，不能直接读同一个字段。
 	a.showCtxMu.Lock()
 	a.showCtx = ctx
 	a.showCtxMu.Unlock()
@@ -406,17 +452,17 @@ func (a *App) OnStartup(ctx context.Context) {
 		// 位置只能在窗口建好之后经 runtime 恢复：Wails v2.15 的 options.App 没有
 		// X/Y 字段。保存的位置明显越界时居中，避免窗口出现在用户看不到的地方。
 		if hasPos {
-			if windowPositionPlausible(ctx, cfg.Window.X, cfg.Window.Y) {
-				runtime.WindowSetPosition(ctx, cfg.Window.X, cfg.Window.Y)
+			if a.windowPositionPlausible(cfg.Window.X, cfg.Window.Y) {
+				a.setWindowPosition(cfg.Window.X, cfg.Window.Y)
 			} else {
-				runtime.WindowCenter(ctx)
+				a.centerWindow()
 			}
 		}
 	}
 
 	// 注册终端事件回调：把终端输出和状态变更推送到前端
 	a.term.SetOutputCallback(func(sessionID string, data string) {
-		runtime.EventsEmit(ctx, TerminalOutputEvent, terminal.OutputEvent{
+		a.emit(TerminalOutputEvent, terminal.OutputEvent{
 			SessionID: sessionID,
 			Data:      data,
 		})
@@ -426,7 +472,7 @@ func (a *App) OnStartup(ctx context.Context) {
 		if err != nil {
 			errStr = err.Error()
 		}
-		runtime.EventsEmit(ctx, TerminalStatusEvent, terminal.StatusEvent{
+		a.emit(TerminalStatusEvent, terminal.StatusEvent{
 			SessionID: sessionID,
 			Status:    status,
 			ExitCode:  exitCode,
@@ -445,57 +491,58 @@ func (a *App) OnStartup(ctx context.Context) {
 			a.checkToolUpdatesBackground()
 		})
 	}()
+	return nil
 }
 
-// OnBeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或 runtime.Quit）时保存窗口状态，
+// BeforeClose 在窗口即将关闭（用户点 X、Alt+F4 或前端调用退出）时保存窗口状态，
 // 并按 closeAction 决定这次关闭是真的关闭还是只把窗口藏起来。
 //
-// 这是唯一可靠的保存时机：Wails 的关闭时序是 OnBeforeClose → 窗口销毁 → OnShutdown，
-// 到 OnShutdown 时窗口已经读不得了（不是读到 0，而是读已释放的对象或永远等不到主线程，
+// 这是唯一可靠的保存时机：v3 的关闭时序是 WindowClosing 钩子 → 窗口销毁 → ServiceShutdown，
+// 到 ServiceShutdown 时窗口已经读不得了（不是读到 0，而是读已释放的对象或永远等不到主线程，
 // 见 Shutdown）。
 //
-// 返回 true 会取消本次关闭——Wails 的 Frontend.Quit 只有在该钩子返回 false 时才真正
-// 调用 mainWindow.Quit，因此 CloseHides 下不需要改前端：自绘标题栏的关闭按钮走的是
-// runtime.Quit，与窗口管理器的关闭走同一个钩子。
-// @param ctx - 应用上下文，供窗口动作使用。
+// 返回 true 会取消本次关闭——v3 里只有 WindowClosing 钩子返回 Cancel 才真正关窗，
+// 因此 CloseHides 下不需要改前端：自绘标题栏的关闭按钮走的是
+// 前端退出，与窗口管理器的关闭走同一个钩子。
 // @returns true 表示拦下这次关闭（只隐藏窗口）。
-func (a *App) OnBeforeClose(ctx context.Context) bool {
+func (a *App) BeforeClose() bool {
 	a.saveWindowState()
 	if a.closeAction != CloseHides {
 		a.logf("close: 关窗即退出（该部署未启用隐藏）")
 		return false
 	}
 	a.logf("close: 关窗仅隐藏窗口，进程与 harness 继续运行")
-	windowHide(ctx)
+	windowHide()
 	return true
 }
 
-// OnShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
+// ServiceShutdown 在窗口关闭后停止 harness 子进程和后台 doctor，避免子进程残留。
 // 复用 Shutdown（幂等）：窗口关闭与外置信号共用同一清理路径。
 //
-// 窗口状态不在这里保存：OnBeforeClose 已经存过，而此刻窗口已被 Wails 销毁，读它要么
+// 窗口状态不在这里保存：BeforeClose 已经存过，而此刻窗口已被 Wails 销毁，读它要么
 // 等不到 GTK 主线程执行、要么是在读已释放的对象（见 Shutdown 的说明）。
-func (a *App) OnShutdown(_ context.Context) {
+func (a *App) ServiceShutdown() error {
 	a.windowGone.Store(true)
-	a.logf("shutdown: 进入 OnShutdown（窗口已销毁）")
+	a.logf("shutdown: 进入 ServiceShutdown（窗口已销毁）")
 	a.Shutdown()
+	return nil
 }
 
 // trackWindowGeometry 每秒记录一次窗口的非最大化尺寸与位置。
 // 关闭时若窗口处于最大化，配置里写入的是这份"还原基准"而非全屏几何，
 // 否则下次启动取消最大化后窗口会铺满屏幕，也不再是用户放它的地方。
 func (a *App) trackWindowGeometry() {
-	if a.ctx == nil {
+	if !a.ready() {
 		return
 	}
-	if windowIsMaximised(a.ctx) {
+	if windowIsMaximised() {
 		return
 	}
-	w, h := windowGetSize(a.ctx)
+	w, h := windowGetSize()
 	if w < 400 || h < 300 {
 		return
 	}
-	x, y := windowGetPosition(a.ctx)
+	x, y := windowGetPosition()
 	a.winMu.Lock()
 	a.winRestoredWidth = w
 	a.winRestoredHeight = h
@@ -512,16 +559,19 @@ func (a *App) trackWindowGeometry() {
 // 判断：主屏左侧/上方的副屏会出现负坐标，按一块屏幕的尺寸放宽；右侧副屏按各屏宽度
 // 之和放宽。明显越界（副屏被拔掉、分辨率变小）时不恢复位置、改由调用方居中——
 // 让窗口出现在屏幕外、用户看不到也点不着，比不恢复位置严重得多。
-func windowPositionPlausible(ctx context.Context, x, y int) bool {
-	screens, err := runtime.ScreenGetAll(ctx)
-	if err != nil || len(screens) == 0 {
+func (a *App) windowPositionPlausible(x, y int) bool {
+	if a.app == nil {
+		return true // 运行时未绑定时不阻挠恢复
+	}
+	screens := a.app.Screen.GetAll()
+	if len(screens) == 0 {
 		return true // 取不到屏幕信息时不阻挠恢复
 	}
 	return positionWithinScreens(screens, x, y)
 }
 
 // positionWithinScreens 是 windowPositionPlausible 的纯函数部分，便于直接断言。
-func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
+func positionWithinScreens(screens []*application.Screen, x, y int) bool {
 	totalW, maxW, maxH := 0, 0, 0
 	for _, s := range screens {
 		totalW += s.Size.Width
@@ -540,12 +590,12 @@ func positionWithinScreens(screens []runtime.Screen, x, y int) bool {
 // 等待主线程的那条路无人唤醒，绕过等待的那条路则是在读已释放的对象。这正是它不能被
 // OnShutdown 路径调用的原因（见 Shutdown）。
 func (a *App) saveWindowState() {
-	if a.ctx == nil {
+	if !a.ready() {
 		return
 	}
-	w, h := windowGetSize(a.ctx)
-	x, y := windowGetPosition(a.ctx)
-	maximized := windowIsMaximised(a.ctx)
+	w, h := windowGetSize()
+	x, y := windowGetPosition()
+	maximized := windowIsMaximised()
 	if maximized {
 		a.winMu.Lock()
 		rw, rh := a.winRestoredWidth, a.winRestoredHeight
@@ -602,7 +652,7 @@ func (a *App) tick(ctx context.Context) {
 // emitStatusIfChanged 仅当状态快照与上次推送不同时才推送事件。
 // 返回值表示是否实际推送了（测试用）。
 func (a *App) emitStatusIfChanged() bool {
-	if a.ctx == nil {
+	if a.app == nil {
 		return false
 	}
 	cur := a.snapshot()
@@ -610,34 +660,34 @@ func (a *App) emitStatusIfChanged() bool {
 		return false
 	}
 	a.lastEmitted = cur
-	runtime.EventsEmit(a.ctx, StatusEvent, cur)
+	a.emit(StatusEvent, cur)
 	return true
 }
 
 // emitStatus 推送一次状态快照；ctx 尚未就绪时静默跳过。
 func (a *App) emitStatus() {
-	if a.ctx == nil {
+	if a.app == nil {
 		return
 	}
-	runtime.EventsEmit(a.ctx, StatusEvent, a.snapshot())
+	a.emit(StatusEvent, a.snapshot())
 }
 
 // emitToolchain 推送一次工具/凭据刷新结果。
 func (a *App) emitToolchain(s ToolStatus) {
-	if a.ctx == nil {
+	if a.app == nil {
 		return
 	}
-	runtime.EventsEmit(a.ctx, ToolchainEvent, s)
+	a.emit(ToolchainEvent, s)
 }
 
 // emitProgress 推送单个工具链安装的实时进度（下载/解压/校验百分比）。
 // 下载进度回调频率高（io.Copy 每读一块触发一次），这里直接事件发射，
 // 前端按 ID 定向更新对应卡片的进度条，不重渲染整个网格，避免卡顿。
 func (a *App) emitProgress(id, phase string, percent int) {
-	if a.ctx == nil {
+	if a.app == nil {
 		return
 	}
-	runtime.EventsEmit(a.ctx, ToolchainProgressEvent, ProgressEvent{
+	a.emit(ToolchainProgressEvent, ProgressEvent{
 		ID:      id,
 		Phase:   phase,
 		Percent: percent,
@@ -1103,10 +1153,38 @@ func (a *App) RunDoctorRepair(level int) string {
 	return string(out)
 }
 
+// confirmDialog 显示一个确认对话框并等待用户选择，恢复 v2 的同步语义。
+//
+// v3 的 MessageDialog.Show() 只负责把对话框交给主线程，并不阻塞到用户点击，因此这里用
+// 按钮回调 + channel 等待。调用点位于绑定的前端方法里（非主线程），阻塞不会卡住 UI。
+//
+// 已知风险：用户直接关闭对话框（点标题栏的 X）时是否会触发取消按钮的回调，尚未在真机
+// 验证；若窗口管理器绕过回调，这里会一直等待，因此迁移阶段需要在真机确认，必要时补超时。
+// @param title - 对话框标题。
+// @param message - 正文。
+// @param accept - 确认按钮文案。
+// @param cancel - 取消按钮文案。
+// @returns 用户是否确认；运行时未就绪时返回错误。
+func (a *App) confirmDialog(title, message, accept, cancel string) (bool, error) {
+	if a.app == nil {
+		return false, errors.New("应用尚未就绪")
+	}
+	answer := make(chan bool, 1)
+	dialog := a.app.Dialog.Question().SetTitle(title).SetMessage(message)
+	okButton := dialog.AddButton(accept)
+	cancelButton := dialog.AddButton(cancel)
+	okButton.OnClick(func() { answer <- true })
+	cancelButton.OnClick(func() { answer <- false })
+	dialog.SetDefaultButton(cancelButton)
+	dialog.SetCancelButton(cancelButton)
+	dialog.Show()
+	return <-answer, nil
+}
+
 // ConnectExternal 校验并连接外部服务。确认与探测不阻塞前端：
 // 校验失败立即返回错误文本；成功则后台探测，结果随状态事件推送。
 func (a *App) ConnectExternal(raw string) string {
-	if a.ctx == nil {
+	if a.app == nil {
 		return a.t("app.notReady")
 	}
 	u, err := a.conn.ValidateURL(raw)
@@ -1114,14 +1192,13 @@ func (a *App) ConnectExternal(raw string) string {
 		return a.t("server.addressInvalid", a.connectorErrorText(err))
 	}
 	if a.conn.NeedConfirmation(u) {
-		selected, err := runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-			Type:          runtime.QuestionDialog,
-			Title:         a.t("server.confirmTitle"),
-			Message:       a.t("server.confirmMessage", u),
-			Buttons:       []string{a.t("common.connect"), a.t("common.cancel")},
-			DefaultButton: a.t("common.cancel"),
-		})
-		if err != nil || selected != a.t("common.connect") {
+		confirmed, err := a.confirmDialog(
+			a.t("server.confirmTitle"),
+			a.t("server.confirmMessage", u),
+			a.t("common.connect"),
+			a.t("common.cancel"),
+		)
+		if err != nil || !confirmed {
 			return ""
 		}
 		a.conn.ConfirmHost(u)
@@ -1310,7 +1387,7 @@ func classifyRuntimeSource(t translate, path, home, bundledBin string) string {
 // checkToolUpdatesBackground 后台检测工具更新：先刷新远程索引，
 // 再对比已装版本，有更新则推送事件到前端。
 func (a *App) checkToolUpdatesBackground() {
-	if a.ctx == nil {
+	if a.app == nil {
 		return
 	}
 	dir := toolchain.InstallDir(a.home)

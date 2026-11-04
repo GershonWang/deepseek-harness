@@ -9,8 +9,6 @@ package app
 import (
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
-
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/domain"
 )
 
@@ -76,7 +74,7 @@ func (a *App) currentStartupView() StartupView {
 // 采到一两个点，加载页会跳变而不是走条。事件与快照共用 startupView 一个判定来源，
 // 因此前端两条通道渲染出的阶段永远一致。
 func (a *App) emitStartupProgress() {
-	if a.ctx == nil {
+	if a.app == nil {
 		return
 	}
 	view := a.currentStartupView()
@@ -93,5 +91,5 @@ func (a *App) emitStartupProgress() {
 	if unchanged || throttled {
 		return
 	}
-	runtime.EventsEmit(a.ctx, StartupProgressEvent, view)
+	a.emit(StartupProgressEvent, view)
 }

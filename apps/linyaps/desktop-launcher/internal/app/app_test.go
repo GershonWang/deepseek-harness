@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -340,7 +339,7 @@ func TestOnShutdown_CancelsRunningDoctor(t *testing.T) {
 	go func() { a.RunDoctor(); close(done) }()
 
 	waitDoctorRegistered(t, a)
-	a.OnShutdown(context.Background())
+	a.ServiceShutdown()
 
 	select {
 	case <-done:
@@ -603,9 +602,9 @@ func stubWindowReads(t *testing.T) func() bool {
 	t.Helper()
 	var read atomic.Bool
 	prevSize, prevPos, prevMax := windowGetSize, windowGetPosition, windowIsMaximised
-	windowGetSize = func(context.Context) (int, int) { read.Store(true); return 1200, 800 }
-	windowGetPosition = func(context.Context) (int, int) { read.Store(true); return 10, 20 }
-	windowIsMaximised = func(context.Context) bool { read.Store(true); return false }
+	windowGetSize = func() (int, int) { read.Store(true); return 1200, 800 }
+	windowGetPosition = func() (int, int) { read.Store(true); return 10, 20 }
+	windowIsMaximised = func() bool { read.Store(true); return false }
 	t.Cleanup(func() {
 		windowGetSize, windowGetPosition, windowIsMaximised = prevSize, prevPos, prevMax
 	})
@@ -639,9 +638,9 @@ func TestShutdown_DoesNotReadWindowGeometry(t *testing.T) {
 	readWindow := stubWindowReads(t)
 	a, _ := shutdownTestApp(t)
 	defer a.sup.Stop()
-	// ctx 必须非空：saveWindowState 以 a.ctx == nil 提前返回，不设它这条用例会空转
+	// 必须标记运行时就绪：saveWindowState 以 !ready() 提前返回，不设它这条用例会空转
 	// ——曾经就是这样漏掉了根因（反向探针把 saveWindowState 放回去仍然通过）。
-	a.ctx = context.Background()
+	a.bound = true
 
 	a.Shutdown()
 
@@ -653,12 +652,12 @@ func TestShutdown_DoesNotReadWindowGeometry(t *testing.T) {
 // TestShutdownFromSignal_SavesWindowState 钉住信号路径仍会补存窗口几何。
 //
 // 与 OnShutdown 相反，这条路进来时窗口通常还活着，它是进程被外部信号杀掉时唯一还能
-// 存下窗口几何的时机——OnBeforeClose 只有 CloseQuits 那条路才会先存一次。
+// 存下窗口几何的时机——BeforeClose 只有 CloseQuits 那条路才会先存一次。
 func TestShutdownFromSignal_SavesWindowState(t *testing.T) {
 	readWindow := stubWindowReads(t)
 	a, home := shutdownTestApp(t)
 	defer a.sup.Stop()
-	a.ctx = context.Background()
+	a.bound = true
 
 	a.ShutdownFromSignal()
 
@@ -683,7 +682,7 @@ func TestShutdownFromSignal_SkipsWindowStateAfterOnShutdown(t *testing.T) {
 	readWindow := stubWindowReads(t)
 	a, home := shutdownTestApp(t)
 	defer a.sup.Stop()
-	a.ctx = context.Background()
+	a.bound = true
 	a.windowGone.Store(true)
 
 	a.ShutdownFromSignal()
@@ -709,9 +708,9 @@ func TestShutdownFromSignal_BoundsWindowReadWait(t *testing.T) {
 	// 去调真正的 runtime，触发 Wails 的致命守卫，把整个测试二进制带走。
 	var reads sync.WaitGroup
 	reads.Add(3)
-	windowGetSize = func(context.Context) (int, int) { defer reads.Done(); <-release; return 0, 0 }
-	windowGetPosition = func(context.Context) (int, int) { defer reads.Done(); <-release; return 0, 0 }
-	windowIsMaximised = func(context.Context) bool { defer reads.Done(); <-release; return false }
+	windowGetSize = func() (int, int) { defer reads.Done(); <-release; return 0, 0 }
+	windowGetPosition = func() (int, int) { defer reads.Done(); <-release; return 0, 0 }
+	windowIsMaximised = func() bool { defer reads.Done(); <-release; return false }
 	t.Cleanup(func() {
 		close(release)
 		reads.Wait()
@@ -720,7 +719,7 @@ func TestShutdownFromSignal_BoundsWindowReadWait(t *testing.T) {
 
 	a, _ := shutdownTestApp(t)
 	defer a.sup.Stop()
-	a.ctx = context.Background()
+	a.bound = true
 
 	done := make(chan struct{})
 	go func() { a.ShutdownFromSignal(); close(done) }()

@@ -6,8 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/wailsapp/wails/v2/pkg/options/linux"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // 窗口位置必须随尺寸一起持久化：只有尺寸时每次启动都回到默认位置（审计 27）。
@@ -47,18 +46,17 @@ func TestWindowState_PositionRoundTrip(t *testing.T) {
 // 只能用「所有屏幕拼起来的外接框」近似。明显越界时必须判否——否则副屏被拔掉后
 // 窗口会恢复到屏幕外，用户看不到也点不着。
 func TestPositionWithinScreens(t *testing.T) {
-	// runtime 只导出 Screen、不导出它的 ScreenSize 字段类型，因此逐个赋值字段
-	// 构造，而不是写嵌套的复合字面量。
-	screen := func(w, h int) runtime.Screen {
-		var s runtime.Screen
+	// v3 的 Screen 指针语义（ScreenManager.GetAll 返回 []*Screen），构造时返回指针。
+	screen := func(w, h int) *application.Screen {
+		s := &application.Screen{}
 		s.Size.Width, s.Size.Height = w, h
 		return s
 	}
-	one := []runtime.Screen{screen(1920, 1080)}
-	two := []runtime.Screen{screen(1920, 1080), screen(1280, 1024)}
+	one := []*application.Screen{screen(1920, 1080)}
+	two := []*application.Screen{screen(1920, 1080), screen(1280, 1024)}
 	cases := []struct {
 		name    string
-		screens []runtime.Screen
+		screens []*application.Screen
 		x, y    int
 		want    bool
 	}{
@@ -102,21 +100,16 @@ func TestLoadWindowState_MissingPosition(t *testing.T) {
 	}
 }
 
-// 硬件加速策略必须显式给出：Wails 在 options.Linux 为 nil 时把 WebviewGpuPolicy 强制
-// 设为 Never，内嵌 WebView 的加速合成会被整体关闭、页面退回 CPU 绘制（也正是「复杂界面
-// 卡顿 + CPU 高」的成因）。同时固定 Go 侧数值 1——Wails 的 Go 枚举序与 C switch 并不
-// 一致，C 侧 ON_DEMAND 只认数值 1；升级 Wails 若修正了映射，这条用例会失败并提示重核。
+// 硬件加速策略必须显式给出：v3 的 GTK4 后端只区分 Never 与「其余一律 Always」，
+// 传 Never 会把内嵌 WebView 的加速合成整体关闭、页面退回 CPU 绘制。这条用例钉住
+// 「不是 Never」，并记录 GTK4 下 OnDemand 的实际语义（等价于 Always）。
 func TestWailsLinuxOptionsEnablesWebviewAcceleration(t *testing.T) {
 	opts := WailsLinuxOptions()
-	if opts == nil {
-		t.Fatal("Linux 选项不得为 nil：Wails 会因此把 WebviewGpuPolicy 强制设为 Never")
-	}
-	if opts.WebviewGpuPolicy == linux.WebviewGpuPolicyNever {
+	if opts.WebviewGpuPolicy == application.WebviewGpuPolicyNever {
 		t.Fatalf("策略不得为 Never（加速合成会被整体关闭），得到 %d", int(opts.WebviewGpuPolicy))
 	}
-	if got, want := int(opts.WebviewGpuPolicy), 1; got != want {
-		t.Fatalf("C 侧 ON_DEMAND 对应的 Go 侧数值应为 %d，得到 %d；"+
-			"Wails 升级可能已修正枚举映射，请重新核对 window.c 的 switch 与 pkg/options/linux 的枚举",
-			want, got)
+	if got, want := opts.WebviewGpuPolicy, application.WebviewGpuPolicyOnDemand; got != want {
+		t.Fatalf("策略 = %d，期望 OnDemand(%d)；若上游调整了常量顺序需要重新核对",
+			int(got), int(want))
 	}
 }

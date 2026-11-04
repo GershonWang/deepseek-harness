@@ -2,7 +2,7 @@
 //
 // 这一组行为跨了两个进程（切换器连唤回 socket，本进程收下并显示窗口）与一次部署选择
 // （DSH_DESKTOP_HIDE_ON_CLOSE），因此测试分三层钉住：环境变量到 closeAction 的解析、
-// OnBeforeClose 两条分支、以及唤回报文本身的安全性。
+// BeforeClose 两条分支、以及唤回报文本身的安全性。
 package app
 
 import (
@@ -21,9 +21,9 @@ func stubWindowActions(t *testing.T) func() []string {
 	t.Helper()
 	var calls []string
 	prevHide, prevShow, prevUnminimise := windowHide, windowShow, windowUnminimise
-	windowHide = func(context.Context) { calls = append(calls, "hide") }
-	windowShow = func(context.Context) { calls = append(calls, "show") }
-	windowUnminimise = func(context.Context) { calls = append(calls, "unminimise") }
+	windowHide = func() { calls = append(calls, "hide") }
+	windowShow = func() { calls = append(calls, "show") }
+	windowUnminimise = func() { calls = append(calls, "unminimise") }
 	t.Cleanup(func() {
 		windowHide, windowShow, windowUnminimise = prevHide, prevShow, prevUnminimise
 	})
@@ -72,13 +72,13 @@ func TestCloseActionFromEnv(t *testing.T) {
 	}
 }
 
-// TestOnBeforeCloseHidesOnlyWhenAsked 覆盖关窗两条分支：CloseHides 下拦下这次关闭并
+// TestBeforeCloseHidesOnlyWhenAsked 覆盖关窗两条分支：CloseHides 下拦下这次关闭并
 // 隐藏窗口（返回 true 才能取消 Wails 的 Quit），CloseQuits 下放行且不碰窗口。
-func TestOnBeforeCloseHidesOnlyWhenAsked(t *testing.T) {
+func TestBeforeCloseHidesOnlyWhenAsked(t *testing.T) {
 	calls := stubWindowActions(t)
 
 	hiding := &App{closeAction: CloseHides}
-	if !hiding.OnBeforeClose(context.Background()) {
+	if !hiding.BeforeClose() {
 		t.Fatal("CloseHides 下应返回 true 以取消本次关闭")
 	}
 	if got := calls(); len(got) != 1 || got[0] != "hide" {
@@ -86,7 +86,7 @@ func TestOnBeforeCloseHidesOnlyWhenAsked(t *testing.T) {
 	}
 
 	quitting := &App{closeAction: CloseQuits}
-	if quitting.OnBeforeClose(context.Background()) {
+	if quitting.BeforeClose() {
 		t.Fatal("CloseQuits 下应返回 false 放行关闭")
 	}
 	if got := calls(); len(got) != 1 {

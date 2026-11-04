@@ -321,11 +321,11 @@ fi
 #     否则会漏掉 gaxios 的 tsconfig.cjs.tsbuildinfo。
 find "$STAGE" -name '*.tsbuildinfo' -delete
 
-# 3. Go 启动器（wails，webkit2gtk-4.1；用 -tags webkit2_41 显式选 4.1）
+# 3. Go 启动器（wails v3，GTK4 + WebKitGTK 6.0）
 #    必须在 module 目录内构建：仓库根没有 go.mod，从根 go build 会报
 #    "cannot find main module"
 ( cd apps/linyaps/desktop-launcher && CGO_ENABLED=1 \
-  go build -tags "production webkit2_41" \
+  go build -tags "production" \
   -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
 # 4. 捆绑 Node（harness 运行时需要 >=24：node:zlib.createZstdDecompress、

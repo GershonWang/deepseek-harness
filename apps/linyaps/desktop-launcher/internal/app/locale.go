@@ -34,8 +34,8 @@ func (a *App) SetLocale(id string) {
 	// 字符串不会自己变，而工具链弹框正开着时不会有新的 toolchain:status 到来。状态快照
 	// 只读内存，同步推；工具链采集含命令探测，走既有的异步 RefreshTools。
 	//
-	// 没有 Wails ctx 时不推：既没有前端可刷新，采集探测也白跑（测试路径）。
-	if a.ctx != nil {
+	// 运行时未绑定时不推：既没有前端可刷新，采集探测也白跑（测试路径）。
+	if a.app != nil {
 		a.emitStatus()
 		a.RefreshTools()
 	}

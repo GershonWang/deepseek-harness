@@ -1,7 +1,7 @@
 // 本文件收敛「关窗之后如何把窗口唤回来」这一组动作：窗口层的注入点、供托盘触发的
 // ShowWindow，以及切换器用来触发它的本地通道。
 //
-// 为什么单独成文件：关窗行为现在由 closeAction 分叉（见 app.go 的 OnBeforeClose），
+// 为什么单独成文件：关窗行为现在由 closeAction 分叉（见 app.go 的 BeforeClose），
 // 而「隐藏之后还能被叫回来」这件事跨了两个进程——切换器连唤回 socket，本进程收下并显示。
 // 把这一来一回的约定集中在一处，改的时候不容易只改一半。
 package app
@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // Wails 的窗口动作以包级变量暴露，供单测替换：runtime 是一组包级函数，没有接口可注入，
-// 而 OnBeforeClose 与 ShowWindow 的分支行为必须能被断言。同 internal/clipboard 里
+// 而 BeforeClose 与 ShowWindow 的分支行为必须能被断言。同 internal/clipboard 里
 // socketDial 的做法。
 //
 // 读取类的三个动作（尺寸/位置/最大化）也在这里收口，理由不只是可测：窗口一旦销毁就不该
@@ -28,13 +28,27 @@ import (
 // 正好在主线程上、绕过了等待，也只是对已释放的窗口对象取值。谁在什么时机读窗口因此是一条
 // 需要被断言的不变式，见 app.go 的 Shutdown 与 saveWindowState。
 var (
-	windowHide        = runtime.WindowHide
-	windowShow        = runtime.WindowShow
-	windowUnminimise  = runtime.WindowUnminimise
-	windowGetSize     = runtime.WindowGetSize
-	windowGetPosition = runtime.WindowGetPosition
-	windowIsMaximised = runtime.WindowIsMaximised
+	windowHide        = func() {}
+	windowShow        = func() {}
+	windowUnminimise  = func() {}
+	windowGetSize     = func() (int, int) { return 0, 0 }
+	windowGetPosition = func() (int, int) { return 0, 0 }
+	windowIsMaximised = func() bool { return false }
 )
+
+// bindWindowOps 把窗口动作接到 v3 的窗口对象上。
+//
+// 保留这层包级变量而不是直接调用 a.window.X：窗口动作在单测里没有真实 GTK 窗口，
+// 需要一个可替换的注入点（与 internal/clipboard 里 socketDial 的做法一致）。
+// @param w - 主窗口。
+func bindWindowOps(w application.Window) {
+	windowHide = func() { w.Hide() }
+	windowShow = func() { w.Show() }
+	windowUnminimise = func() { w.UnMinimise() }
+	windowGetSize = func() (int, int) { return w.Size() }
+	windowGetPosition = func() (int, int) { return w.Position() }
+	windowIsMaximised = func() bool { return w.IsMaximised() }
+}
 
 // HideOnCloseEnv 是切换器用来指定「关窗只隐藏」的环境变量名。
 //
@@ -58,7 +72,7 @@ func CloseActionFromEnv() CloseAction {
 
 // ShowWindow 把窗口显示出来并取消最小化，是「关窗后唤回」的落点。
 //
-// 窗口尚未就绪时（OnStartup 还没跑过，showCtx 仍为 nil）静默返回：切换器可以在拉起
+// 窗口尚未就绪时（ServiceStartup 还没跑过，showCtx 仍为 nil）静默返回：切换器可以在拉起
 // 客户端之后立刻被点击，那次唤回比窗口先到是可能的；这种情况让用户再点一次即可，
 // 比让进程崩溃好。
 func (a *App) ShowWindow() {
@@ -70,8 +84,8 @@ func (a *App) ShowWindow() {
 	}
 	// 先取消最小化再显示：窗口既可能是被关窗隐藏的，也可能是被用户最小化的，
 	// 两种状态都要回到可见。
-	windowUnminimise(ctx)
-	windowShow(ctx)
+	windowUnminimise()
+	windowShow()
 }
 
 // ShowSocketRel 是唤回通道在用户家目录下的相对路径。
