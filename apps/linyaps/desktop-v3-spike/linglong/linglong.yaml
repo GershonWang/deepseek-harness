@@ -4,7 +4,7 @@ version: "1"
 package:
   id: com.deepseek.dsh-desktop-v3-spike
   name: dsh-desktop-v3-spike
-  version: 0.0.0.8
+  version: 0.0.0.9
   kind: app
   description: |
     Wails v3 技术验证包（GTK4 + WebKitGTK 6.0）。

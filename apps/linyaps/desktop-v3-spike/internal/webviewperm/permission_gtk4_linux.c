@@ -111,6 +111,13 @@ static gboolean dshOnPermissionRequest(WebKitWebView *webView, WebKitPermissionR
 static gboolean dshTryInstall(gpointer userData)
 {
 	(void)userData;
+
+	// 防御：调用点即使在 GTK 初始化之前，也绝不能在主循环里触碰控件树。
+	// 实测提前挂载会在窗口创建阶段 SIGSEGV，这里再兜一层。
+	if (!gtk_is_initialized()) {
+		return G_SOURCE_CONTINUE;
+	}
+
 	dshInstallAttempts++;
 	dshViewsSeen = 0;
 

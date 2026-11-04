@@ -76,11 +76,6 @@ func main() {
 		},
 	})
 
-	// 权限钩子尽早排上：内部会在 GTK 主循环上每 100ms 重试，直到 WebView 进入控件树。
-	// 等到 WindowRuntimeReady 再挂会晚约 100ms，页面的 getUserMedia 可能已经发出请求——
-	// 实测正是这个时序导致「钩子挂上了但一次请求都没收到」。
-	webviewperm.Install()
-
 	// WindowRuntimeReady 是 v3 里「前端 runtime 已初始化、可以安全收发事件」的唯一信号。
 	// v2 的 OnDomReady 在 v3.1.0 中已不存在（application.Options 没有该字段），
 	// 所以壳里所有「页面就绪后再做」的动作都必须挂在这个事件上。
@@ -91,6 +86,10 @@ func main() {
 			"backend":      probe.BuildBackend,
 			"stack":        probe.RuntimeStackVersion(),
 		})
+		// 只能在这里挂：更早调用时 GTK 尚未初始化，主循环上的 g_timeout 回调会抢先
+		// 触碰控件树，实测在窗口创建阶段直接 SIGSEGV。页面侧的权限探测已延后 2.5s，
+		// 足够让这次挂载先生效。
+		webviewperm.Install()
 	})
 
 	// 关窗钩子必须用 RegisterHook 才能拦截；spike 只记录不拦截，用来确认钩子在
