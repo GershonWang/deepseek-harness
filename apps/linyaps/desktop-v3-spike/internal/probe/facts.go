@@ -65,6 +65,8 @@ type GoFacts struct {
 	StartedAt  string `json:"startedAt"`
 	// ExpectedBinding 是 Go 侧算出的绑定全限定名。
 	ExpectedBinding string `json:"expectedBinding"`
+	// PermissionPolicy 是本次生效的权限策略，用于与探测结果对照。
+	PermissionPolicy map[string]string `json:"permissionPolicy"`
 }
 
 // FrontendFacts 是壳页面回传的事实。
@@ -225,20 +227,21 @@ func GPUPolicyName() string {
 // GoFactsSnapshot 返回当前进程的 Go 侧事实。
 func GoFactsSnapshot(started time.Time) GoFacts {
 	return GoFacts{
-		Module:          ModulePath,
-		Backend:         BuildBackend,
-		StackVersion:    RuntimeStackVersion(),
-		GoVersion:       runtime.Version(),
-		GOOS:            runtime.GOOS,
-		GOARCH:          runtime.GOARCH,
-		SessionType:     os.Getenv("XDG_SESSION_TYPE"),
-		Display:         os.Getenv("DISPLAY"),
-		WaylandDisplay:  os.Getenv("WAYLAND_DISPLAY"),
-		GPUPolicy:       GPUPolicyName(),
-		PID:             os.Getpid(),
-		ReportPath:      ReportPath(),
-		StartedAt:       started.Format(time.RFC3339),
-		ExpectedBinding: BindingFQN(),
+		Module:           ModulePath,
+		Backend:          BuildBackend,
+		StackVersion:     RuntimeStackVersion(),
+		GoVersion:        runtime.Version(),
+		GOOS:             runtime.GOOS,
+		GOARCH:           runtime.GOARCH,
+		SessionType:      os.Getenv("XDG_SESSION_TYPE"),
+		Display:          os.Getenv("DISPLAY"),
+		WaylandDisplay:   os.Getenv("WAYLAND_DISPLAY"),
+		GPUPolicy:        GPUPolicyName(),
+		PID:              os.Getpid(),
+		ReportPath:       ReportPath(),
+		StartedAt:        started.Format(time.RFC3339),
+		ExpectedBinding:  BindingFQN(),
+		PermissionPolicy: PermissionPolicyNames(PermissionPolicy()),
 	}
 }
 

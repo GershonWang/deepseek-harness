@@ -73,10 +73,7 @@ func main() {
 		//   - 麦克风 Allow：语音输入需要；
 		//   - 摄像头 Deny：屏幕共享请求带 video 标志，因此一并被拒；
 		//   - 其余（通知、地理位置等）v3 在 Linux 上交给 WebKit 默认处理（拒绝）。
-		Permissions: map[application.PermissionType]application.Permission{
-			application.PermissionMicrophone: application.PermissionAllow,
-			application.PermissionCamera:     application.PermissionDeny,
-		},
+		Permissions: probe.PermissionPolicy(),
 		Linux: application.LinuxWindow{
 			// GTK4 后端的 WebKitGTK 6.0 已删除 ON_DEMAND 策略，只认 ALWAYS/NEVER；
 			// 这里用环境变量切换，才能在同一台机器上对比两种渲染路径的差异。
