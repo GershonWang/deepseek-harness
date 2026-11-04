@@ -68,6 +68,9 @@ for (const name of APP_METHODS) {
 
 // 补发启动进度：壳加载完成后由 boot.js 调用（v3 丢弃就绪前事件）。
 appBridge.ReplayStartupProgress = goMethod("ReplayStartupProgress");
+// 壳设置的读写入口：壳自身不直接调用，由 boot.js 在加载时接管 localStorage。
+appBridge.ShellSettingsJSON = goMethod("ShellSettingsJSON");
+appBridge.SaveShellSetting = goMethod("SaveShellSetting");
 
 globalThis.go = { app: { App: appBridge } };
 

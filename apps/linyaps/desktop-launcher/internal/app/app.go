@@ -204,6 +204,9 @@ type App struct {
 	showCtx   context.Context
 	term      *terminal.Manager // 终端会话管理器
 
+	// shellMu 串行化壳设置的读改写（配置由多个写入方共用，并发写会丢字段）。
+	shellMu sync.Mutex
+
 	mu            sync.Mutex
 	externalBusy  bool
 	safeMode      string // "plugins" | "config" | "full" | ""

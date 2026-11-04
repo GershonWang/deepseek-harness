@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,49 @@ func TestLoadAppConfig_RejectsOutOfRangeWebPort(t *testing.T) {
 	}
 	if cfg.WebPort != 0 {
 		t.Fatalf("WebPort = %d, want 0 for out-of-range input", cfg.WebPort)
+	}
+}
+
+// 壳设置必须存进 AppConfig 并与其它字段共存：v3 的壳 origin 从 wails://wails 变成
+// wails://localhost，localStorage 按 origin 隔离，旧值读不到；改存 Go 侧后才能跨框架、
+// 跨 origin 稳定。这里固定三条不变式：空配置返回 {}、写入后能读回、读改写不丢其它字段。
+func TestShellSettings_RoundTripKeepsOtherFields(t *testing.T) {
+	home := t.TempDir()
+	a := &App{home: home}
+
+	if got := a.ShellSettingsJSON(); got != "{}" {
+		t.Fatalf("空配置应返回 {}，得到 %q", got)
+	}
+
+	// 先放一个无关字段，验证随后的读改写不会把它抹掉。
+	cfg, _ := LoadAppConfig(home)
+	cfg.Theme = "dark"
+	if err := SaveAppConfig(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if res := a.SaveShellSetting("dsh-desktop.locale", "en"); strings.HasPrefix(res, "error") {
+		t.Fatalf("写入失败: %s", res)
+	}
+	if res := a.SaveShellSetting("dsh-desktop.terminal.fontSize", "15"); strings.HasPrefix(res, "error") {
+		t.Fatalf("写入失败: %s", res)
+	}
+
+	got := a.ShellSettingsJSON()
+	if !strings.Contains(got, `"dsh-desktop.locale":"en"`) || !strings.Contains(got, `"dsh-desktop.terminal.fontSize":"15"`) {
+		t.Fatalf("设置未读回: %s", got)
+	}
+
+	after, _ := LoadAppConfig(home)
+	if after.Theme != "dark" {
+		t.Fatalf("读改写丢了其它字段: theme=%q", after.Theme)
+	}
+
+	// 空值等价于 removeItem。
+	if res := a.SaveShellSetting("dsh-desktop.locale", ""); strings.HasPrefix(res, "error") {
+		t.Fatalf("删除失败: %s", res)
+	}
+	if got := a.ShellSettingsJSON(); strings.Contains(got, "dsh-desktop.locale") {
+		t.Fatalf("删除后仍存在: %s", got)
 	}
 }

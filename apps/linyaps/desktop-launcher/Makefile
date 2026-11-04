@@ -27,6 +27,10 @@ fmt:
 
 # check 是本目录全部可离线执行套件的唯一入口（AUDIT N-extra2）。
 #
+# 注意：迁移到 Wails v3 后，import application 的包在 Linux 上必须有 cgo
+# （v3 的 buildguard 在 CGO_ENABLED=0 时直接编译失败），因此 check 需要 GTK4 与
+# WebKitGTK 6.0 的开发包——与 build 的前提相同，不再能「在任何机器上跑」。
+#
 # 为什么需要它：这些套件此前各自为政——`test` 只跑 go test（且需 cgo 与系统 GTK 开发库，
 # 普通开发机上建不起来），壳前端用例、doctor 用例与打包脚本自测只能靠人记得手动跑。
 #
@@ -37,8 +41,8 @@ fmt:
 # 的 pnpm install 提供。本目标不修改 apps/linyaps/desktop-launcher/ 之外的任何文件。
 # `preview.mjs verify` 需要 Chromium 且已在 pre-push 里，不进本目标。
 check:
-	@echo "==> Go 单元测试（CGO_ENABLED=0，不含需 cgo 的 main 包）"
-	CGO_ENABLED=0 $(GO) test ./internal/... -count=1
+	@echo "==> Go 单元测试（需要 GTK4 + WebKitGTK 6.0 开发包）"
+	CGO_ENABLED=1 $(GO) test -tags "$(TAGS)" ./internal/... -count=1
 	@echo "==> 壳前端用例"
 	node --test frontend/test-app.cjs
 	node --test frontend/test-i18n.cjs

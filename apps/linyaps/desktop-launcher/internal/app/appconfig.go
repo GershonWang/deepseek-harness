@@ -53,6 +53,13 @@ type AppConfig struct {
 	// 记不住。壳因此记在自己这里，下次启动由 appenv 的注入插件送回页面；页面若已
 	// 打不开这段对话（被删除、归档或换了 harness），客户端退回自己的回退策略。
 	LastSessionID string `json:"lastSessionId,omitempty"`
+	// ShellSettings 保存壳自身的界面设置（语言、终端字号等键值）。
+	//
+	// 为什么放在这里：v3 的壳 origin 从 wails://wails 变成 wails://localhost，而
+	// localStorage 按 origin 隔离，旧值在新版本里必然读不到。设置属于应用配置而不是
+	// 页面状态，存在 Go 侧才能跨框架、跨 origin 稳定；壳侧的既有 localStorage 调用由
+	// boot.js 在加载时重定向到这两个方法，脚本本身不需要改。
+	ShellSettings map[string]string `json:"shellSettings,omitempty"`
 	// Theme 是前端回推的界面主题，取值 "dark"/"light"；空串表示尚未记录。
 	//
 	// 它只服务于**首帧**：窗口背景色必须在页面绘制之前定下来，而那时前端还没起来，
@@ -77,6 +84,50 @@ func AppConfigFilePath(home string) string {
 		}
 	}
 	return filepath.Join(home, ".config", "dsh-desktop", "config.json")
+}
+
+// ShellSettingsJSON 返回壳设置的 JSON 对象，供前端启动时一次拉取。
+//
+// @returns JSON 对象字符串；没有记录时返回 "{}"。
+func (a *App) ShellSettingsJSON() string {
+	cfg, err := LoadAppConfig(a.home)
+	if err != nil || len(cfg.ShellSettings) == 0 {
+		return "{}"
+	}
+	if data, err := json.Marshal(cfg.ShellSettings); err == nil {
+		return string(data)
+	}
+	return "{}"
+}
+
+// SaveShellSetting 写入一项壳设置并落盘。
+//
+// 空值表示删除该项（与 localStorage.removeItem 的语义对齐）。读改写整份配置是为了
+// 保留窗口状态、主题等其它字段——配置文件由多个写入方共用。
+//
+// @param key - 设置键，例如 "dsh-desktop.locale"。
+// @param value - 设置值；空串表示删除。
+// @returns 落盘路径或错误描述。
+func (a *App) SaveShellSetting(key, value string) string {
+	if key == "" {
+		return "error: 空键"
+	}
+	a.shellMu.Lock()
+	defer a.shellMu.Unlock()
+
+	cfg, _ := LoadAppConfig(a.home)
+	if cfg.ShellSettings == nil {
+		cfg.ShellSettings = map[string]string{}
+	}
+	if value == "" {
+		delete(cfg.ShellSettings, key)
+	} else {
+		cfg.ShellSettings[key] = value
+	}
+	if err := SaveAppConfig(a.home, cfg); err != nil {
+		return "error: " + err.Error()
+	}
+	return AppConfigFilePath(a.home)
 }
 
 // LoadAppConfig 从磁盘读取配置。
