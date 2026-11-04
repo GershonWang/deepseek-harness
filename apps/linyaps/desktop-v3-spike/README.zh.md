@@ -64,6 +64,30 @@ v2 与 v3 的模块路径、Linux 图形栈（GTK3/WebKit2GTK 4.1 → GTK4/WebKi
 
 一句话：打包路径与沙箱策略都已验证可行，剩余的是包内 WebKit 版本固定。
 
+## 权限模型：不需要自建钩子（2026-11-04）
+
+客户端现有实现是自建的 GTK3 钩子（遍历控件树连接 `permission-request`）。v3 的 Linux 后端已经自己连接了该信号（`handlePermissionRequest`）：媒体采集按窗口的 `Permissions` 映射处理，**其它权限请求一律交回 WebKit 默认处理（Linux 上即拒绝）**。自建钩子在容器内实测 `installed=true`、`signalConnected=true`，但 `requests=0`——它永远排在框架之后，而框架先返回 TRUE 终止了信号。
+
+策略映射与客户端现有 policy 等价：
+
+```go
+Permissions: map[application.PermissionType]application.Permission{
+    application.PermissionMicrophone: application.PermissionAllow,
+    application.PermissionCamera:     application.PermissionDeny,
+}
+```
+
+A/B 实测（同一二进制、同一页面，仅改策略）：
+
+| 策略 | `probes.mic` |
+| --- | --- |
+| `microphone=allow` | `ok=true` |
+| `microphone=deny` | `ok=false`，`NotAllowedError` |
+
+摄像头在容器内没有设备，`getUserMedia({video:true})` 在设备匹配阶段就以 `OverconstrainedError` 失败，因此「摄像头被拒」没有拿到硬件级证据；但映射生效已由麦克风的 A/B 证明，且屏幕共享请求同样带 video 标志，落到同一个 `PermissionCamera`。
+
+结论：迁移时可以整块删掉 `internal/webviewperm`（GTK3 cgo 与控件树遍历），改用窗口选项里的 `Permissions`。
+
 ## 运行方式
 
 ```sh
@@ -87,13 +111,13 @@ ll-builder run -f apps/linyaps/desktop-v3-spike/linglong/linglong.yaml
 
 已在本仓库开发沙箱完成：`go mod tidy`、`gofmt`、`GOOS=windows CGO_ENABLED=0 go build ./...` 与 `go vet ./...` 全部通过，证明对 v3.1.0 API 的用法正确。
 
-仍未验证：标题栏实际拖动与窗口控制按钮（需人工操作确认）；`DSH_V3_SPIKE_GPU=never` 与 NVIDIA 机型下的渲染对照；GTK4 下的麦克风权限钩子；origin 变更后的设置迁移方案；WebKit 沙箱策略（随包 bwrap vs 关闭）与包内 WebKit 版本固定。
+仍未验证：标题栏实际拖动与窗口控制按钮（需人工操作确认）；`DSH_V3_SPIKE_GPU=never` 与 NVIDIA 机型下的渲染对照；摄像头拒绝的硬件级验证（容器内无摄像头）；origin 变更后的设置迁移方案；WebKit 沙箱策略（随包 bwrap vs 关闭）与包内 WebKit 版本固定。
 
 ## 升级为正式模块的退出标准
 
 1. 判定表中「通过标准」全部成立，或每一项不成立都有明确替代方案。
 2. 玲珑包里能带上 GTK4 + WebKitGTK 6.0 运行库并启动（含 WebKit 的 helper 进程路径问题，参考现有 `install-shell-runtime.sh`）。
-3. 麦克风权限钩子在 GTK4 下可挂载（现有实现基于 GTK3 的 `gtk_window_list_toplevels`，GTK4 需要重写）。
+3. 麦克风权限改由 v3 的 `Permissions` 映射承担，不再需要 GTK4 钩子（已由 A/B 实测确认映射生效）。
 4. 前端适配层（事件、绑定、窗口控制、剪贴板）能以最小改动接住现有 2894 行静态壳。
 
 四条满足后再讨论用本模块替换 `desktop-launcher` 或与 `desktop-dual` 合并。

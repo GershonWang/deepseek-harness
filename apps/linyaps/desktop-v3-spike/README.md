@@ -64,6 +64,30 @@ Wails v2 and v3 differ in module path, Linux graphics stack (GTK3/WebKit2GTK 4.1
 
 In one line: both packaging and the sandbox policy are verified to work; what remains is pinning the packaged WebKit version.
 
+## Permission Model: No Custom Hook Needed (2026-11-04)
+
+The existing client ships a custom GTK3 hook that walks the widget tree and connects `permission-request`. The v3 Linux backend connects that signal itself (`handlePermissionRequest`): media capture follows the window's `Permissions` map, and **every other request goes back to WebKit's default handling, which denies it on Linux**. Inside the container the custom hook measured `installed=true` and `signalConnected=true` yet `requests=0`: it always runs after the framework, and the framework returns TRUE first, which ends the signal emission.
+
+The equivalent mapping is:
+
+```go
+Permissions: map[application.PermissionType]application.Permission{
+    application.PermissionMicrophone: application.PermissionAllow,
+    application.PermissionCamera:     application.PermissionDeny,
+}
+```
+
+A/B measurement on one binary and one page, changing only the policy:
+
+| Policy | `probes.mic` |
+| --- | --- |
+| `microphone=allow` | `ok=true` |
+| `microphone=deny` | `ok=false` with `NotAllowedError` |
+
+The container has no camera, so `getUserMedia({video:true})` fails at device matching with `OverconstrainedError`; camera denial therefore has no hardware-level evidence, but the microphone A/B proves the map is honoured, and screen sharing carries the video flag and maps to the same `PermissionCamera`.
+
+Conclusion: the migration can delete `internal/webviewperm` (GTK3 cgo plus widget-tree walking) and configure `Permissions` on the window instead.
+
 ## Running
 
 ```sh
@@ -87,13 +111,13 @@ The real machine ran end to end on 2026-11-03 (Deepin 25, GTK 4.18.6 + WebKitGTK
 
 Done in this repository's development sandbox: `go mod tidy`, `gofmt`, `GOOS=windows CGO_ENABLED=0 go build ./...`, and `go vet ./...` all pass, which shows the v3.1.0 API usage is correct.
 
-Still unverified: an actual title bar drag and the window control buttons (manual); the `DSH_V3_SPIKE_GPU=never` and NVIDIA rendering comparison; the microphone permission hook under GTK4; a settings migration plan for the origin change; and the WebKit sandbox policy (bundled bwrap versus disabled) together with pinning the packaged WebKit version.
+Still unverified: an actual title bar drag and the window control buttons (manual); the `DSH_V3_SPIKE_GPU=never` and NVIDIA rendering comparison; hardware-level confirmation that the camera is denied (the container has no camera); a settings migration plan for the origin change; and the WebKit sandbox policy (bundled bwrap versus disabled) together with pinning the packaged WebKit version.
 
 ## Exit Criteria for Promoting the Module
 
 1. Every pass criterion in the matrix holds, or each failure has a concrete alternative.
 2. A Linglong package can ship the GTK4 + WebKitGTK 6.0 libraries and start, including the WebKit helper process paths handled today by `install-shell-runtime.sh`.
-3. The microphone permission hook mounts under GTK4; the current implementation walks the widget tree with GTK3's `gtk_window_list_toplevels` and must be rewritten.
+3. The microphone permission moves to v3's `Permissions` map, so the GTK4 hook is no longer needed (the A/B measurement confirms the map takes effect).
 4. A frontend shim (events, bindings, window controls, clipboard) can cover the existing 2894-line static shell with minimal edits.
 
 Only after all four hold does replacing `desktop-launcher` or merging with `desktop-dual` make sense.

@@ -20,6 +20,9 @@
 /wails-v3-feasibility-spike/packaging-verified-in-a-linglong-container-2026-11-03:
   en: 6d53576e5e875650
   zh: 68601cfc88658b8b
+/wails-v3-feasibility-spike/permission-model-no-custom-hook-needed-2026-11-04:
+  en: 3d77c93ab0526507
+  zh: 449a60d57c062374
 /wails-v3-feasibility-spike/running:
   en: 0382c1367a5e112c
   zh: 34e222117c6c4039
@@ -27,8 +30,8 @@
   en: 88f23108485571a0
   zh: 5155d248e2e726d8
 /wails-v3-feasibility-spike/verification-done-and-not-done:
-  en: 44b6f6905f3452f5
-  zh: 09f31d1ffc21ed36
+  en: ad692cea0d1dc248
+  zh: 272467e3d20a16f9
 /wails-v3-feasibility-spike/exit-criteria-for-promoting-the-module:
-  en: 69d0977deb2f68bf
-  zh: f9886714c0715681
+  en: 0eeea5e532a0670a
+  zh: ee367dfcc4e6dd89
