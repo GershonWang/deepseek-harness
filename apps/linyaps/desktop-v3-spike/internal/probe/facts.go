@@ -98,6 +98,24 @@ type FrontendFacts struct {
 	DraggableValue string `json:"draggableValue"`
 	// Screen 是 window.screen 的尺寸摘要，配合 DPI 缩放问题排查。
 	Screen string `json:"screen"`
+	// Legacy 记录 v2 风格全局适配层的验证结果。
+	Legacy LegacyFacts `json:"legacy"`
+}
+
+// LegacyFacts 记录「用 v2 全局写成的壳脚本能否在 v3 上原样运行」的证据。
+//
+// 这组字段是 B 阶段的核心：客户端 2894 行静态壳全部走 window.go / window.runtime，
+// 只有这些调用真的被接到 v3 runtime 上，迁移才可能是「加一层适配」而不是重写。
+type LegacyFacts struct {
+	// ShimInstalled 表示适配层是否先于壳脚本装好。
+	// 壳里有「没有 window.go 就当浏览器预览」的降级分支，顺序错了会被误判。
+	ShimInstalled bool `json:"shimInstalled"`
+	// GoCalls 是经 window.go 调通的 Go 方法名。
+	GoCalls []string `json:"goCalls"`
+	// RuntimeCalls 是经 window.runtime 调通的成员名。
+	RuntimeCalls []string `json:"runtimeCalls"`
+	// StartupState 是壳在加载后主动拉到的启动状态（证明「就绪后拉取」可行）。
+	StartupState string `json:"startupState"`
 }
 
 // BindingResult 记录一次 Call.ByName 的结果。

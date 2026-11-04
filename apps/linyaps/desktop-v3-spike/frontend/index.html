@@ -28,8 +28,8 @@
       <p id="report-path" class="path"></p>
     </main>
 
-    <!-- type="module" 是硬性要求：runtime 以 ES module 形式导入，
-         且脚本异步执行，所以任何依赖 runtime 的初始化都必须放在模块内部完成。 -->
-    <script type="module" src="./app.js"></script>
+    <!-- 入口是引导模块：它先装 v2 全局适配层，再加载壳脚本（app.js 保持 v2 写法）。
+         迁移时 index.html 只需要把原来的一行 <script src="./app.js"> 换成这里。 -->
+    <script type="module" src="./boot.js"></script>
   </body>
 </html>

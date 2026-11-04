@@ -23,7 +23,7 @@ import (
 // 前端资源。与 desktop-launcher 一样逐项列出而不整体嵌入：spike 的 frontend/ 下只允许
 // 出现真正随包的文件，漏登记或误登记都能在评审时一眼看出。
 //
-//go:embed frontend/index.html frontend/app.js frontend/styles.css
+//go:embed frontend/index.html frontend/boot.js frontend/v2shim.js frontend/app.js frontend/styles.css
 var assets embed.FS
 
 // main 组装并运行 spike 窗口。

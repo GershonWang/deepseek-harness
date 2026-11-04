@@ -1,25 +1,11 @@
 /**
- * 文件职责：spike 壳页面的事实采集脚本。
+ * 文件职责：spike 的壳脚本，刻意写成「客户端现有壳的样子」——
+ * 只用 v2 注入的 window.go / window.runtime，不 import 任何模块。
  *
- * 为什么是不带打包器的纯 ES module：桌面客户端的壳是一层静态 HTML/CSS/JS，仓库里没有
- * Node 工具链，v2 靠 Wails 注入的 window.go / window.runtime 全局工作。v3 官方模板默认走
- * Vite + @wailsio/runtime，本脚本要证明「不引入构建步骤也能用 v3 runtime」，这正是壳能否
- * 低成本迁移到 v3 的前提。
- *
- * 采集结果通过事件回传 Go 侧落盘：绑定调用（Call.ByName）本身是待验证对象，若用它承载
- * 报告，一旦名字解析失败就什么证据都留不下。
+ * 为什么这么写：迁移的判定标准不是「新代码能跑」，而是「旧写法的代码能不能原样跑」。
+ * 客户端 2894 行静态壳全部是这种形态；本文件如果能在 v3 上工作，就说明迁移可以靠
+ * 一层适配层完成（见 v2shim.js），而不必重写壳。
  */
-
-// 副作用导入：runtime 模块被求值时才安装拖拽、右键菜单等初始化逻辑。
-// 少了这一行，无边框窗口的 --wails-draggable 不会生效。
-import "/wails/runtime.js";
-import { Call, Events, Window } from "/wails/runtime.js";
-
-/**
- * 待验证的绑定全限定名，必须与 Go 侧 probe.BindingFQN() 一致（报告里同时记录两边）。
- * 名字形态是「包导入路径.类型名.方法名」，不是 v2 的 main.App。
- */
-const BINDING = "github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/probe.Service.Ping";
 
 /** 事件是否被收到的观察结果，跨多次采集共享。 */
 const seen = { early: false, announce: false };
@@ -27,140 +13,96 @@ const seen = { early: false, announce: false };
 /** Go 侧事实（由 spike:go / spike:announce 事件带回）。 */
 let goFacts = null;
 
+/** 记录经 v2 全局调通的调用，证明适配层确实被使用（而不是恰好没报错）。 */
+const legacy = {
+  goCalls: new Set(),
+  runtimeCalls: new Set(),
+  startupState: "(未调用)",
+};
+
 eventsSubscribe();
 void run();
 
-/** 订阅 Go 侧事件。窗口就绪前后都可能到达，因此订阅必须在页面加载的第一时间完成。 */
+/** 经 window.go.app.App.* 调用 Go 方法，并记录方法名。 */
+function goCall(name, ...args) {
+  legacy.goCalls.add(name);
+  return window.go.app.App[name](...args);
+}
+
+/** 经 window.runtime.* 调用运行时能力，并记录成员名。 */
+function runtimeCall(name, ...args) {
+  legacy.runtimeCalls.add(name);
+  return window.runtime[name](...args);
+}
+
+/** 向后端广播事件（同样走 v2 全局）。 */
+function emit(name, data) {
+  legacy.runtimeCalls.add("EventsEmit");
+  return window.runtime.EventsEmit(name, data);
+}
+
+/** 订阅 Go 侧事件。窗口就绪前后都可能到达，因此订阅必须最早执行。 */
 function eventsSubscribe() {
-  Events.On("spike:early", () => {
+  runtimeCall("EventsOn", "spike:early", () => {
     seen.early = true;
   });
-  Events.On("spike:announce", (event) => {
+  runtimeCall("EventsOn", "spike:announce", (data) => {
     seen.announce = true;
-    if (event && event.data) {
-      goFacts = event.data;
+    if (data) {
+      goFacts = data;
     }
-    // announce 常常比页面脚本更早触发，收到后立刻补发一次事实，避免报告停留在旧快照上。
+    // announce 常常比页面脚本更早触发，收到后立刻补发一次事实。
     void publish();
   });
-  Events.On("spike:go", (event) => {
-    if (event && event.data) {
-      goFacts = event.data;
+  runtimeCall("EventsOn", "spike:go", (data) => {
+    if (data) {
+      goFacts = data;
     }
   });
 }
 
 /**
- * 主流程：握手 → 验证绑定 → 回传事实。
+ * 主流程：拉启动状态 → 验证全局调用 → 回传事实 → 权限探测。
  *
- * 顺序有意如此：绑定验证放在前面，这样即使后续采集抛错，绑定这条结论也已经回传。
+ * 「拉启动状态」是 v3 下必须新增的一步：就绪前的事件会被丢弃（本 spike 已实测），
+ * 客户端现在靠早期事件推进启动进度条，迁移时应改为加载后主动拉一次。
  */
 async function run() {
-  await Events.Emit("spike:hello", { at: Date.now() });
-  await Events.Emit("spike:binding", await probeBinding());
+  try {
+    legacy.startupState = await goCall("StartupState");
+  } catch (err) {
+    legacy.startupState = `error:${String(err)}`;
+  }
+
+  try {
+    const reply = await goCall("Ping", "spike");
+    await emit("spike:binding", { ok: true, reply: String(reply), called: "window.go.app.App.Ping" });
+  } catch (err) {
+    await emit("spike:binding", { ok: false, error: String(err), called: "window.go.app.App.Ping" });
+  }
+
+  // 壳里真实用到的另外三个 Go 方法，一并走一遍调用链。
+  void goCall("ReadClipboardImage").catch(() => {});
+  void goCall("RememberSession", "spike-session").catch(() => {});
+  void goCall("ReportClientBootFailure", "").catch(() => {});
+
   await publish();
   wireTitlebar();
   wireMic();
-  // 等钩子就位再发请求：挂载在主循环上异步进行（首次尝试约 100ms 后），
-  // 页面一加载就请求会在钩子生效前发出，实测因此一次都没被记到。
+
+  // 等权限策略/钩子就位再发请求（挂载在主循环上异步进行）。
   await new Promise((resolve) => setTimeout(resolve, 2500));
-  // 两个权限探针：
-  //   - Notification 触发非媒体类请求，不依赖任何硬件，用来证明钩子确实被调用；
-  //   - getUserMedia 触发 UserMediaPermissionRequest（容器内可能因设备枚举失败而走不到）。
   const notification = await requestNotificationPermission();
   const mic = await probeUserMedia({ audio: true });
   const camera = await probeUserMedia({ video: true });
-  await Events.Emit("spike:probes", { mic, camera, notification });
+  await emit("spike:probes", { mic, camera, notification });
   renderProbes(mic, camera, notification);
-}
-
-/**
- * 请求通知权限：只为触发一次 permission-request。
- *
- * 容器里没有麦克风时 getUserMedia 可能在设备枚举阶段就失败，信号根本不会发出，
- * 于是 requests=0 无法证明钩子是否存在。通知类请求不需要设备，是最好的对照组。
- */
-async function requestNotificationPermission() {
-  if (!window.Notification || !Notification.requestPermission) {
-    return "unavailable";
-  }
-  try {
-    return await Notification.requestPermission();
-  } catch (err) {
-    // 抛错同样说明请求走到了 WebKit；Go 侧只看 permission-request 是否触发。
-    return `error:${String(err)}`;
-  }
-}
-
-/** 接上手动重试按钮：没有设备或首次被拒时需要人工再触发一次。 */
-function wireMic() {
-  const node = document.querySelector("#btn-mic");
-  if (!node) {
-    return;
-  }
-  node.addEventListener("click", () => {
-    void probeUserMedia({ audio: true }).then((result) => {
-      const label = document.querySelector("#mic-result");
-      if (label) {
-        label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;
-        label.className = result.ok ? "ok" : "fail";
-      }
-    });
-  });
-}
-
-/** 把三项探测结果渲染到页面上，便于人工一眼确认。 */
-function renderProbes(mic, camera, notification) {
-  const label = document.querySelector("#mic-result");
-  if (!label) {
-    return;
-  }
-  label.textContent = `麦克风:${mic.ok ? "放行" : "拒绝"} · 摄像头:${camera.ok ? "放行" : "拒绝"} · 通知:${notification}`;
-  label.className = mic.ok && !camera.ok ? "ok" : "fail";
-}
-
-/**
- * 采集一次音频并立刻释放。
- *
- * 用音频而非视频：客户端的真实需求就是语音输入，且它正是权限钩子要放行的范围；
- * 摄像头请求按策略应被拒绝，留给手工验证，不在自动流程里制造噪声。
- */
-async function probeUserMedia(constraints) {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    return { ok: false, error: "navigator.mediaDevices.getUserMedia 不存在" };
-  }
-  // 超时兜底：WebKit 在权限请求无人处理时可能一直不 settle，而自动退出依赖这条结果。
-  const timeout = new Promise((resolve) => {
-    setTimeout(() => resolve({ ok: false, error: "getUserMedia 超时 10s" }), 10000);
-  });
-  const attempt = (async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      for (const track of stream.getTracks()) {
-        track.stop();
-      }
-      return { ok: true, error: "" };
-    } catch (err) {
-      return { ok: false, error: String(err) };
-    }
-  })();
-  return Promise.race([attempt, timeout]);
-}
-
-/** 调用一次绑定方法并归一化结果。 */
-async function probeBinding() {
-  try {
-    const reply = await Call.ByName(BINDING, "spike");
-    return { ok: true, reply: String(reply), called: BINDING };
-  } catch (err) {
-    return { ok: false, error: String(err), called: BINDING };
-  }
 }
 
 /** 采集一次页面事实并回传。可重复调用，报告会被覆盖为最新快照。 */
 async function publish() {
   const facts = collect();
-  await Events.Emit("spike:frontend", facts);
+  await emit("spike:frontend", facts);
   render(facts);
 }
 
@@ -179,6 +121,12 @@ function collect() {
     announceSeen: seen.announce,
     draggableValue: draggableValue(),
     screen: `${screen.width}x${screen.height}@${window.devicePixelRatio}`,
+    legacy: {
+      shimInstalled: !!window.__dshShimInstalled,
+      goCalls: [...legacy.goCalls].sort(),
+      runtimeCalls: [...legacy.runtimeCalls].sort(),
+      startupState: legacy.startupState,
+    },
   };
 }
 
@@ -186,7 +134,7 @@ function collect() {
  * 在壳自己的 origin 下做一次 localStorage 读写。
  *
  * 为什么要专门验证：客户端的语言、字体、终端字号都按 origin 存在 localStorage 里，
- * v2 的壳 origin 是 wails://wails；若 v3 换了 origin，这些设置会在升级后静默丢失。
+ * v2 的壳 origin 是 wails://wails；v3 实测为 wails://localhost，这些值会读不到。
  */
 function localStorageProbe() {
   const key = "dsh-v3-spike";
@@ -200,7 +148,7 @@ function localStorageProbe() {
   }
 }
 
-/** 读取标题栏 --wails-draggable 的计算值，确认该属性没有被样式覆盖或丢弃。 */
+/** 读取标题栏 --wails-draggable 的计算值。 */
 function draggableValue() {
   const bar = document.querySelector("#titlebar");
   if (!bar) {
@@ -209,43 +157,112 @@ function draggableValue() {
   return getComputedStyle(bar).getPropertyValue("--wails-draggable").trim() || "(空)";
 }
 
-/** 接上自绘标题栏的窗口控制按钮。 */
+/** 接上自绘标题栏的窗口控制按钮（走 v2 全局）。 */
 function wireTitlebar() {
-  const bind = (id, action) => {
+  const bind = (id, name) => {
     const node = document.querySelector(id);
     if (!node) {
       return;
     }
     node.addEventListener("click", () => {
-      // 浏览器预览或 runtime 未就绪时静默降级：这些按钮不值得为一次失败打断采集。
-      Promise.resolve(action()).catch(() => {});
+      Promise.resolve(runtimeCall(name)).catch(() => {});
     });
   };
-  bind("#btn-min", () => Window.Minimise());
-  bind("#btn-max", () => Window.ToggleMaximise());
-  bind("#btn-close", () => Window.Close());
+  bind("#btn-min", "WindowMinimise");
+  bind("#btn-max", "WindowToggleMaximise");
+  bind("#btn-close", "Quit");
+}
+
+/** 接上手动麦克风重试按钮。 */
+function wireMic() {
+  const node = document.querySelector("#btn-mic");
+  if (!node) {
+    return;
+  }
+  node.addEventListener("click", () => {
+    void probeUserMedia({ audio: true }).then((result) => {
+      const label = document.querySelector("#mic-result");
+      if (label) {
+        label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;
+        label.className = result.ok ? "ok" : "fail";
+      }
+    });
+  });
+}
+
+/** 把三项探测结果渲染到页面上。 */
+function renderProbes(mic, camera, notification) {
+  const label = document.querySelector("#mic-result");
+  if (!label) {
+    return;
+  }
+  label.textContent = `麦克风:${mic.ok ? "放行" : "拒绝"} · 摄像头:${camera.ok ? "放行" : "拒绝"} · 通知:${notification}`;
+  label.className = mic.ok && !camera.ok ? "ok" : "fail";
+}
+
+/** 请求通知权限：只为触发一次 permission-request，作为不依赖硬件的对照组。 */
+async function requestNotificationPermission() {
+  if (!window.Notification || !Notification.requestPermission) {
+    return "unavailable";
+  }
+  try {
+    return await Notification.requestPermission();
+  } catch (err) {
+    return `error:${String(err)}`;
+  }
+}
+
+/**
+ * 采集一次媒体并立刻释放。
+ *
+ * 用音频验证放行、用视频验证拒绝：客户端策略就是「只允许麦克风」。
+ */
+async function probeUserMedia(constraints) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return { ok: false, error: "navigator.mediaDevices.getUserMedia 不存在" };
+  }
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve({ ok: false, error: "getUserMedia 超时 10s" }), 10000);
+  });
+  const attempt = (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      return { ok: true, error: "" };
+    } catch (err) {
+      return { ok: false, error: String(err) };
+    }
+  })();
+  return Promise.race([attempt, timeout]);
 }
 
 /** 把事实渲染成表格，便于真机上一眼确认结果。 */
 function render(facts) {
   const rows = [
     ["绑定调用", goFacts ? "已回传" : "等待 Go 侧", true],
-    ["页面 origin", facts.origin, facts.origin === "wails://wails"],
-    ["页面 href", facts.href, true],
+    ["v2 适配层", facts.legacy.shimInstalled ? "已安装" : "未安装", facts.legacy.shimInstalled],
+    ["Go 调用", facts.legacy.goCalls.join(", ") || "(无)", facts.legacy.goCalls.length > 0],
+    ["runtime 调用", facts.legacy.runtimeCalls.join(", ") || "(无)", facts.legacy.runtimeCalls.length > 0],
+    ["启动状态", facts.legacy.startupState, facts.legacy.startupState !== "(未调用)"],
+    ["页面 origin", facts.origin, facts.origin === "wails://localhost"],
     ["localStorage", facts.localStorageOK ? "可读写" : facts.localStorageDetail, facts.localStorageOK],
     ["window.wails", String(facts.runtimeGlobal), facts.runtimeGlobal],
-    ["window.go / window.runtime", String(facts.classicGlobals), !facts.classicGlobals],
+    ["window.go / window.runtime", String(facts.classicGlobals), facts.classicGlobals],
     ["早期事件（就绪前）", String(facts.earlyEventSeen), true],
     ["就绪事件", String(facts.announceSeen), facts.announceSeen],
     ["--wails-draggable", facts.draggableValue, facts.draggableValue === "drag"],
     ["屏幕", facts.screen, true],
-    ["UserAgent", facts.userAgent, true],
   ];
   if (goFacts) {
     rows.push(["后端", `${goFacts.backend} · ${goFacts.stackVersion}`, true]);
   }
 
   const tbody = document.querySelector("#facts tbody");
+  if (!tbody) {
+    return;
+  }
   tbody.replaceChildren(
     ...rows.map(([key, value, ok]) => {
       const tr = document.createElement("tr");

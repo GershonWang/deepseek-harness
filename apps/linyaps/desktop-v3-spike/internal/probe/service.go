@@ -36,12 +36,13 @@ type Service struct {
 	autoClose  bool
 	started    time.Time
 
-	mu        sync.Mutex
-	frontend  *FrontendFacts
-	binding   *BindingResult
-	probes    *ProbeSet
-	earlyNote string
-	written   int
+	mu           sync.Mutex
+	frontend     *FrontendFacts
+	startupState string
+	binding      *BindingResult
+	probes       *ProbeSet
+	earlyNote    string
+	written      int
 }
 
 // New 构造服务。
@@ -72,6 +73,8 @@ func (s *Service) ServiceStartup(_ context.Context, _ application.ServiceOptions
 	})
 	s.mu.Lock()
 	s.earlyNote = fmt.Sprintf("emitted at service startup, delivered=%v", delivered)
+	// 同时把启动状态缓存下来：v3 会丢弃就绪前的事件，壳必须在加载后主动拉一次。
+	s.startupState = fmt.Sprintf(`{"phase":"service-startup","sinceStartMs":%d}`, time.Since(s.started).Milliseconds())
 	s.mu.Unlock()
 	Mark("service-startup", time.Since(s.started))
 
@@ -114,6 +117,35 @@ func (s *Service) ServiceStartup(_ context.Context, _ application.ServiceOptions
 		s.write("收到权限探测结果")
 	})
 	return nil
+}
+
+// StartupState 返回启动进度快照，供壳在页面加载后主动拉取。
+//
+// 为什么需要它：v3 在页面就绪之前发出的事件会被丢弃（本 spike 已实测
+// delivered=false、前端 earlyEventSeen=false）。客户端现在靠早期事件推进启动进度条，
+// 迁移时应改成「加载后主动拉一次」，而不是指望事件能赶上。
+func (s *Service) StartupState() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.startupState
+}
+
+// ReadClipboardImage 对应客户端壳里的 window.go.app.App.ReadClipboardImage。
+//
+// 这里只保留签名与调用链，返回空串：spike 验证的是「v2 风格的全局能否被适配层
+// 接住」，不是剪贴板实现本身。
+func (s *Service) ReadClipboardImage() string {
+	return ""
+}
+
+// RememberSession 对应客户端壳里的 window.go.app.App.RememberSession。
+func (s *Service) RememberSession(id string) string {
+	return id
+}
+
+// ReportClientBootFailure 对应客户端壳里的 window.go.app.App.ReportClientBootFailure。
+func (s *Service) ReportClientBootFailure(reason string) string {
+	return reason
 }
 
 // Ping 是给绑定的最小可调用方法。
