@@ -184,6 +184,11 @@ func runClient() {
 	// 控制器需要 app/window 才能发事件、读写窗口几何；v2 用 OnStartup 的 ctx 承担同一职责。
 	controller.Bind(wailsApp, window)
 
+	// 运行时观测：v3 的窗口事件是唯一能确认「前端真的起来了」的信号。
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		log.Printf("wails: 前端 runtime 就绪")
+	})
+
 	// 关窗钩子：只有 RegisterHook 能取消关闭。CloseHides 下拦下这次关闭并隐藏窗口，
 	// 与 v2 的 OnBeforeClose 返回 true 等价。
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
@@ -192,7 +197,11 @@ func runClient() {
 		}
 	})
 
-	if err := wailsApp.Run(); err != nil {
+	// Run 只在主循环结束后返回：正常关窗时 err 为 nil，启动失败时非 nil。
+	// 没有这行日志的话，「窗口一闪而过」与「没起来」在输出里完全一样。
+	err := wailsApp.Run()
+	log.Printf("wails: Run 返回 err=%v（主循环结束）", err)
+	if err != nil {
 		log.Fatalf("dsh-desktop: %v", err)
 	}
 }
