@@ -103,6 +103,16 @@ A/B 实测（同一二进制、同一页面，仅改策略）：
 
 **同时暴露了一条必须改的行为**：本轮 `announceSeen=false` —— 壳脚本晚一步订阅，就错过了 `WindowRuntimeReady` 之后立刻发出的那个事件。v3 不会为晚订阅者重放，因此客户端里所有「一次性启动进度事件」都要改成「加载后主动拉一次」；周期性状态事件（如 `harness:status`）不受影响。
 
+## 壳设置迁移验证（2026-11-04）
+
+| 项目 | 结果 |
+| --- | --- |
+| 第 1 次运行 | `settings.source=default`，把默认值写到 `/tmp/dsh-v3-spike-settings.json` |
+| 第 2 次运行 | `settings.source=file`，读回同一份内容 |
+| 落盘内容 | `{"locale":"zh-CN","terminalFontSize":13,"theme":"dark"}` |
+
+结论：改存 Go 侧可以跨运行稳定生效。旧 origin（`wails://wails`）的 localStorage 无法读取，因此迁移动作就是把这些键搬到客户端已有的 `AppConfig`，首次启动写入默认值——用户会看到一次性的设置重置，但此后不再受 origin 变化影响。
+
 ## 运行方式
 
 ```sh

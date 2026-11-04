@@ -103,6 +103,16 @@ A migration only needs `index.html` to replace `<script src="./app.js">` with `<
 
 **One behaviour must change**: this round measured `announceSeen=false`, because the shell subscribed one step late and missed the event emitted right after `WindowRuntimeReady`. v3 does not replay events for late subscribers, so every one-shot startup-progress event in the client must become "pull once after load". Periodic status events such as `harness:status` are unaffected.
 
+## Shell Settings Migration Check (2026-11-04)
+
+| Item | Result |
+| --- | --- |
+| First run | `settings.source=default`, writing defaults to `/tmp/dsh-v3-spike-settings.json` |
+| Second run | `settings.source=file`, reading the same content back |
+| Stored content | `{"locale":"zh-CN","terminalFontSize":13,"theme":"dark"}` |
+
+Conclusion: moving settings to the Go side survives runs. The old origin (`wails://wails`) localStorage cannot be read at all, so the migration action is to move those keys into the client's existing `AppConfig` and write defaults on first start; users see a one-time reset and are then insulated from origin changes.
+
 ## Running
 
 ```sh
