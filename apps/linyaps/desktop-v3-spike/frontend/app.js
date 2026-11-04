@@ -61,9 +61,28 @@ async function run() {
   await publish();
   wireTitlebar();
   wireMic();
-  // 页面加载后立即尝试一次音频采集：这会触发 WebKit 的 permission-request 信号，
-  // 从而验证 GTK4 侧的权限钩子是否挂上并放行（结果同时写进 Go 侧报告）。
-  await requestMic();
+  // 两个权限探针并行：
+  //   - getUserMedia 触发 UserMediaPermissionRequest（需要真实设备才可能放行）；
+  //   - Notification 触发一个非媒体类权限请求，不依赖任何硬件，用来区分
+  //     「钩子没挂上」与「没有麦克风所以信号压根没触发」。
+  await Promise.all([requestMic(), requestNotificationPermission()]);
+}
+
+/**
+ * 请求通知权限：只为触发一次 permission-request。
+ *
+ * 容器里没有麦克风时 getUserMedia 可能在设备枚举阶段就失败，信号根本不会发出，
+ * 于是 requests=0 无法证明钩子是否存在。通知类请求不需要设备，是最好的对照组。
+ */
+async function requestNotificationPermission() {
+  if (!window.Notification || !Notification.requestPermission) {
+    return;
+  }
+  try {
+    await Notification.requestPermission();
+  } catch {
+    // 抛错同样说明请求走到了 WebKit；Go 侧只看 permission-request 是否触发。
+  }
 }
 
 /** 接上手动重试按钮：没有设备或首次被拒时需要人工再触发一次。 */
@@ -99,15 +118,22 @@ async function probeMic() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return { ok: false, error: "navigator.mediaDevices.getUserMedia 不存在" };
   }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    for (const track of stream.getTracks()) {
-      track.stop();
+  // 超时兜底：WebKit 在权限请求无人处理时可能一直不 settle，而自动退出依赖这条结果。
+  const timeout = new Promise((resolve) => {
+    setTimeout(() => resolve({ ok: false, error: "getUserMedia 超时 10s" }), 10000);
+  });
+  const attempt = (async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const track of stream.getTracks()) {
+        track.stop();
+      }
+      return { ok: true, error: "" };
+    } catch (err) {
+      return { ok: false, error: String(err) };
     }
-    return { ok: true, error: "" };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  }
+  })();
+  return Promise.race([attempt, timeout]);
 }
 
 /** 调用一次绑定方法并归一化结果。 */

@@ -17,6 +17,11 @@ type Status struct {
 	Installed bool `json:"installed"`
 	// Attempts 是主循环上重新查找视图的次数。
 	Attempts int `json:"attempts"`
+	// Toplevels 是最近一次尝试时进程内的顶层窗口数量。
+	// 「顶层窗口 > 0 但视图找不到」与「连窗口都没有」是两种完全不同的失败。
+	Toplevels int `json:"toplevels"`
+	// Views 是最近一次遍历中遇到的 WebKitWebView 数量。
+	Views int `json:"views"`
 	// Requests/Allowed/Denied 统计 permission-request 的触发次数与结果。
 	Requests int `json:"requests"`
 	Allowed  int `json:"allowed"`

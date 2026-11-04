@@ -21,6 +21,13 @@ static const char *dshPermissionHandlerKey = "dsh-media-permission-handler";
 // dshInstallAttempts 记录本次挂在主循环上重试了几次。
 static int dshInstallAttempts = 0;
 
+// dshTopLevelsSeen 是最近一次遍历时的顶层窗口数量。
+static int dshTopLevelsSeen = 0;
+
+// dshViewsSeen 记录本次遍历遇到的 WebKitWebView 数量。
+// 与「顶层窗口数」一起上报：只有这两个数能把失败原因分开。
+static int dshViewsSeen = 0;
+
 // dshFindWebView 在控件子树中深度优先查找第一个 WebKitWebView。
 //
 // 不硬编码层级（实测 Wails 的层级可能随版本变化）：找不到只会退化成「未挂载并记日志」，
@@ -31,6 +38,7 @@ static GtkWidget *dshFindWebView(GtkWidget *widget)
 		return NULL;
 	}
 	if (WEBKIT_IS_WEB_VIEW(widget)) {
+		dshViewsSeen++;
 		return widget;
 	}
 	for (GtkWidget *child = gtk_widget_get_first_child(widget); child != NULL;
@@ -53,6 +61,8 @@ static GtkWidget *dshFindWebViewInToplevels(void)
 	GListModel *toplevels = gtk_window_get_toplevels();
 	GtkWidget *webView = NULL;
 	guint count = g_list_model_get_n_items(toplevels);
+	// 遍历期间的真实顶层窗口数：重试时窗口可能还没建出来，这个数字随之变化。
+	dshTopLevelsSeen = (int)count;
 	for (guint i = 0; i < count && webView == NULL; i++) {
 		GtkWindow *window = g_list_model_get_item(toplevels, i);
 		if (window == NULL) {
@@ -102,11 +112,12 @@ static gboolean dshTryInstall(gpointer userData)
 {
 	(void)userData;
 	dshInstallAttempts++;
+	dshViewsSeen = 0;
 
 	GtkWidget *webView = dshFindWebViewInToplevels();
 	if (webView == NULL) {
 		if (dshInstallAttempts >= 50) {
-			dshReportInstall(dshInstallAttempts, 0);
+			dshReportInstall(dshInstallAttempts, 0, dshTopLevelsSeen, dshViewsSeen);
 			return G_SOURCE_REMOVE;
 		}
 		return G_SOURCE_CONTINUE;
@@ -117,7 +128,7 @@ static gboolean dshTryInstall(gpointer userData)
 		                 G_CALLBACK(dshOnPermissionRequest), NULL);
 		g_object_set_data(G_OBJECT(webView), dshPermissionHandlerKey, GINT_TO_POINTER(1));
 	}
-	dshReportInstall(dshInstallAttempts, 1);
+	dshReportInstall(dshInstallAttempts, 1, dshTopLevelsSeen, dshViewsSeen);
 	return G_SOURCE_REMOVE;
 }
 

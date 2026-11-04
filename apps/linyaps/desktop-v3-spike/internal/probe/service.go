@@ -20,6 +20,10 @@ import (
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
+// fallbackOnce 保证兜底退出只排一次：write() 会被前端事件反复触发，
+// 每次都起一个 15s  goroutine 会让进程永远退不干净。
+var fallbackOnce sync.Once
+
 // Service 是 spike 的服务实现。
 //
 // 依赖直接取自 application 实例而不是注入几个函数值：退出、发事件、订阅事件本来就是
@@ -146,9 +150,32 @@ func (s *Service) write(reason string) {
 		Perm:          webviewperm.CurrentStatus(),
 		Mic:           s.mic,
 	}
-	shouldQuit := s.autoClose && s.frontend != nil
+	// 自动退出必须等到「前端事实 + 麦克风/权限探测结果」都到齐：权限钩子的挂载在主循环
+	// 上异步进行（100ms 后首次尝试），报告若在它之前就写并退出，会得到 attempts=0 的假失败。
+	shouldQuit := s.autoClose && s.frontend != nil && s.mic != nil
 	s.written++
+	needFallback := s.autoClose && s.frontend != nil && s.mic == nil
 	s.mu.Unlock()
+
+	// 探测没回来（例如页面里 getUserMedia 一直挂着）时不要无限等：15 秒后照常退出，
+	// 报告里 mic 为 null 本身就是结论的一部分。
+	if needFallback {
+		fallbackOnce.Do(func() {
+			go func() {
+				time.Sleep(15 * time.Second)
+				s.mu.Lock()
+				ready := s.mic != nil
+				s.mu.Unlock()
+				if !ready {
+					s.write("兜底退出：探测结果未回传")
+					s.app.Quit()
+				}
+			}()
+		})
+	}
+
+	slog.Info("权限钩子状态", "scheduled", report.Perm.Scheduled, "installed", report.Perm.Installed,
+		"attempts", report.Perm.Attempts, "requests", report.Perm.Requests)
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -173,9 +200,10 @@ func (s *Service) write(reason string) {
 	slog.Info("spike 报告已写入", "path", path, "reason", reason)
 
 	if shouldQuit {
-		// 留一点时间让日志刷出去，再退出；否则自动退出会把「刚写完」变成「没写完」。
+		// 留 2 秒再退出：权限钩子在主循环上每 100ms 重试一次，过早退出会只留下
+		// attempts=1 的中间态，无法区分「视图还没就绪」与「根本找不到视图」。
 		go func() {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(2 * time.Second)
 			s.app.Quit()
 		}()
 	}
