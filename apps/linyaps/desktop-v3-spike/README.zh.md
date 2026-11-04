@@ -88,6 +88,21 @@ A/B 实测（同一二进制、同一页面，仅改策略）：
 
 结论：迁移时可以整块删掉 `internal/webviewperm`（GTK3 cgo 与控件树遍历），改用窗口选项里的 `Permissions`。
 
+## 前端壳迁移验证（2026-11-04）
+
+客户端壳是 2894 行静态脚本，只依赖 10 个 v2 全局成员。验证方式是把壳脚本写成**纯 v2 写法**（不 import 任何模块），再靠一层适配层接住：
+
+| 项目 | 结果 |
+| --- | --- |
+| `window.go.app.App` 调用 | `Ping`、`ReadClipboardImage`、`RememberSession`、`ReportClientBootFailure`、`StartupState` 全部走通，绑定返回 `pong:spike` |
+| `window.runtime` 调用 | `EventsOn`、`EventsEmit` 走通；`BrowserOpenURL` / `ClipboardGetText` / `ClipboardSetText` / `WindowMinimise` / `WindowToggleMaximise` / `Quit` 按同一模式映射 |
+| 适配层顺序 | `legacy.shimInstalled=true`——`boot.js` 先装 shim 再动态 import 壳脚本，壳的「没有 window.go 就当浏览器预览」分支不会被误判 |
+| 启动状态 | `StartupState()` 拉到 `{"phase":"service-startup","sinceStartMs":3}` |
+
+迁移时 `index.html` 只需把 `<script src="./app.js">` 换成 `<script type="module" src="./boot.js">`，壳源码不用改。
+
+**同时暴露了一条必须改的行为**：本轮 `announceSeen=false` —— 壳脚本晚一步订阅，就错过了 `WindowRuntimeReady` 之后立刻发出的那个事件。v3 不会为晚订阅者重放，因此客户端里所有「一次性启动进度事件」都要改成「加载后主动拉一次」；周期性状态事件（如 `harness:status`）不受影响。
+
 ## 运行方式
 
 ```sh

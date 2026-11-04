@@ -88,6 +88,21 @@ The container has no camera, so `getUserMedia({video:true})` fails at device mat
 
 Conclusion: the migration can delete `internal/webviewperm` (GTK3 cgo plus widget-tree walking) and configure `Permissions` on the window instead.
 
+## Frontend Shell Migration Check (2026-11-04)
+
+The client shell is a 2894-line static script that depends on 10 v2 globals. The check writes the shell in **pure v2 style** (no module imports) and adapts v3 back to those globals:
+
+| Item | Result |
+| --- | --- |
+| `window.go.app.App` calls | `Ping`, `ReadClipboardImage`, `RememberSession`, `ReportClientBootFailure`, and `StartupState` all work; the binding returns `pong:spike` |
+| `window.runtime` calls | `EventsOn` and `EventsEmit` work; `BrowserOpenURL`, `ClipboardGetText`, `ClipboardSetText`, `WindowMinimise`, `WindowToggleMaximise`, and `Quit` map the same way |
+| Shim ordering | `legacy.shimInstalled=true`: `boot.js` installs the shim before dynamically importing the shell, so the shell's "no window.go means browser preview" branch never misfires |
+| Startup state | `StartupState()` returns `{"phase":"service-startup","sinceStartMs":3}` |
+
+A migration only needs `index.html` to replace `<script src="./app.js">` with `<script type="module" src="./boot.js">`; the shell source stays untouched.
+
+**One behaviour must change**: this round measured `announceSeen=false`, because the shell subscribed one step late and missed the event emitted right after `WindowRuntimeReady`. v3 does not replay events for late subscribers, so every one-shot startup-progress event in the client must become "pull once after load". Periodic status events such as `harness:status` are unaffected.
+
 ## Running
 
 ```sh
