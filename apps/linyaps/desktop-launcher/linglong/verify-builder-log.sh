@@ -23,7 +23,7 @@ LOG=${1:?usage: verify-builder-log.sh <build-log>}
 
 # 已知冗余项：只放行上面两类，其余 failed to copy 一律失败。写成前缀匹配而不是钉死完整
 # 路径：alternatives 的实体在 blas/、lapack/ 子目录下，链接在上一层，两种形态都要放行。
-EXEMPT='failed to copy .*/libwebkit2gtk-4\.1\.so\.0([[:space:]]|$)'
+EXEMPT='failed to copy .*/libwebkitgtk-6\.0\.so\.4([[:space:]]|$)'
 EXEMPT="$EXEMPT"'|failed to copy .*/libblas\.so\.3([[:space:]]|$)'
 EXEMPT="$EXEMPT"'|failed to copy .*/liblapack\.so\.3([[:space:]]|$)'
 
@@ -38,4 +38,4 @@ if [ "$remaining" -ne 0 ]; then
   exit 1
 fi
 
-echo "verify-builder-log: 构建日志无未豁免的 'failed to copy'（共 $total 处，豁免 $exempt 处）"
+echo "verify-builder-log: 构建日志无未豁免的 'failed to copy'（共 $total 处，豁免 webkit/BLAS/LAPACK $exempt 处）"

@@ -17,9 +17,13 @@ bad() { echo "FAIL: $1" >&2; fail=$((fail + 1)); }
 make_so() {
   {
     printf 'ELF-header-padding'
-    printf '/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1'
+    printf '/usr/lib/x86_64-linux-gnu/webkitgtk-6.0'
     printf 'gap'
-    printf '/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1/injected-bundle/'
+    printf '/usr/lib/x86_64-linux-gnu/webkitgtk-6.0/injected-bundle/'
+    printf 'gap'
+    printf '/usr/bin/xdg-dbus-proxy'
+    printf 'gap'
+    printf '/usr/bin/bwrap'
     printf 'tail'
   } > "$1"
 }
@@ -27,8 +31,8 @@ make_so() {
 # --- 通过路径：替换成功，且旧路径消失、新路径出现 ---
 SO="$TMP/ok.so"; make_so "$SO"
 if out=$(sh "$SCRIPT" "$SO" 2>&1); then
-  short=$(tr -d '[:space:]' < "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/webkit-exec-path.txt")
-  if grep -qaF -- "$short" "$SO" && ! grep -qaF '/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1' "$SO"; then
+  short=$(sed -n 's/^WEBKIT_EXEC=//p' "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/short-paths.txt")
+  if grep -qaF -- "$short" "$SO" && ! grep -qaF '/usr/lib/x86_64-linux-gnu/webkitgtk-6.0' "$SO"; then
     ok "替换成功：新短路径已写入，原路径已消失"
   else
     bad "替换后内容不符（新路径缺失或原路径残留）"; echo "$out" >&2
@@ -51,7 +55,7 @@ fi
 FIX="$TMP/fix"
 mkdir -p "$FIX/linglong" "$FIX/internal/packaging"
 cp "$SCRIPT" "$FIX/linglong/patch-webkit-exec-path.sh"
-printf '/tmp/%s\n' "$(printf 'x%.0s' $(seq 1 60))" > "$FIX/internal/packaging/webkit-exec-path.txt"
+printf 'WEBKIT_EXEC=/tmp/%s\nBWARP=/tmp/bwrap\nDBUS_PROXY=/tmp/dbusproxy\n' "$(printf 'x%.0s' $(seq 1 60))" > "$FIX/internal/packaging/short-paths.txt"
 SO2="$TMP/long.so"; make_so "$SO2"
 set +e
 out=$(sh "$FIX/linglong/patch-webkit-exec-path.sh" "$SO2" 2>&1)
@@ -61,7 +65,7 @@ if [ "$status" -eq 0 ]; then
   bad "短路径过长时应失败"
 else
   case "$out" in
-    *"replacement longer than original"*) ok "短路径过长时非零退出并说明原因" ;;
+    *"替换串更长"*) ok "短路径过长时非零退出并说明原因" ;;
     *) bad "过长时的报错不明确"; echo "$out" >&2 ;;
   esac
 fi

@@ -31,9 +31,9 @@ YAML=$(dirname "$0")/linglong.yaml
 TOOLS_YAML=$(dirname "$0")/tools.yaml
 # exec-path 补丁的短路径与 launcher、patch 脚本共用同一份单一来源文件；两侧各写一遍
 # 就会在改一处时静默失配（patch-webkit-exec-path.sh 的头部注释记录了同样的理由）。
-WEBKIT_SHORT_PATH_FILE=$(dirname "$0")/../internal/packaging/webkit-exec-path.txt
+WEBKIT_SHORT_PATH_FILE=$(dirname "$0")/../internal/packaging/short-paths.txt
 [ -f "$WEBKIT_SHORT_PATH_FILE" ] || { echo "verify-merged-deps: 缺少短路径单一来源文件 $WEBKIT_SHORT_PATH_FILE" >&2; exit 1; }
-WEBKIT_SHORT_PATH=$(tr -d '[:space:]' < "$WEBKIT_SHORT_PATH_FILE")
+WEBKIT_SHORT_PATH=$(sed -n 's/^WEBKIT_EXEC=//p' "$WEBKIT_SHORT_PATH_FILE" | tr -d '[:space:]')
 [ -n "$WEBKIT_SHORT_PATH" ] || { echo "verify-merged-deps: $WEBKIT_SHORT_PATH_FILE 为空" >&2; exit 1; }
 DEPS=$(mktemp)
 RULES=$(mktemp)
@@ -42,9 +42,11 @@ trap 'rm -f "$DEPS" "$RULES"' EXIT
 # 规则表：包名|认领方式。每一行的理由都来自对真实产物层的实测（见 AUDIT N19/N26），
 # 不是按包名猜的：基础镜像已有的包不会进 $PREFIX（buildext 只合并"新装差异"）。
 cat > "$RULES" <<'EOF'
-libwebkit2gtk-4.1-0|patched:lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
-libjavascriptcoregtk-4.1-0|path:lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so.0
-libgtk-3-0|base:基础层已提供 libgtk-3（实测三版产物层均无该 .so）
+libwebkitgtk-6.0-4|patched:lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4
+libjavascriptcoregtk-6.0-1|path:lib/x86_64-linux-gnu/libjavascriptcoregtk-6.0.so.1
+libgtk-4-1|path:lib/x86_64-linux-gnu/libgtk-4.so.1
+bubblewrap|path:bin/bwrap
+xdg-dbus-proxy|path:bin/xdg-dbus-proxy
 libglib2.0-0|base:基础层已提供 libglib-2.0（实测同上）
 ca-certificates|base:基础层已提供 /etc/ssl/certs/ca-certificates.crt（实测）
 python3|base:基础层已提供（tools.yaml 标 base: true）

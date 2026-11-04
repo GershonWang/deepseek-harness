@@ -76,7 +76,7 @@ func runClient() {
 		}
 	}
 	appenv.ConfigureChildEnv(home)
-	packaging.ConfigureWebKitHelperPath()
+	packaging.ConfigureBundledRuntime()
 	// 同样须在 GTK/WebKit 初始化之前：做音频设备枚举的是 WebKit 的 WebProcess，它继承本
 	// 进程环境，插件搜索路径要在它启动前就位。
 	packaging.ConfigureGStreamerPlugins()

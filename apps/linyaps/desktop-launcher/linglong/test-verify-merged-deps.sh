@@ -13,10 +13,10 @@ REAL_TOOLS="$ROOT/apps/linyaps/desktop-launcher/linglong/tools.yaml"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# 脚本用 dirname $0 定位单一来源文件（../internal/packaging/webkit-exec-path.txt）；
+# 脚本用 dirname $0 定位单一来源文件（../internal/packaging/short-paths.txt）；
 # 用例都在 $TMP/<name>/ 下，把它按同样的相对位置放一份。
 mkdir -p "$TMP/internal/packaging"
-cp "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/webkit-exec-path.txt" "$TMP/internal/packaging/"
+cp "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/short-paths.txt" "$TMP/internal/packaging/"
 
 pass=0
 fail=0
@@ -46,10 +46,13 @@ mkentity() {
 # healthy_prefix <prefix>：按规则表造出全部"期望出现在产物里"的实体，
 # 路径取自真实产物层的实测落点（见 verify-merged-deps.sh 的规则表注释）。
 # webkit 那份带 exec-path 补丁标记——产物断言要求进包的是打过补丁的那一份。
-WEBKIT_SHORT_PATH=$(tr -d '[:space:]' < "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/webkit-exec-path.txt")
+WEBKIT_SHORT_PATH=$(sed -n 's/^WEBKIT_EXEC=//p' "$ROOT/apps/linyaps/desktop-launcher/internal/packaging/short-paths.txt")
 healthy_prefix() {
   p=$1
-  mkentity "$p" lib/x86_64-linux-gnu/libjavascriptcoregtk-4.1.so.0
+  mkentity "$p" lib/x86_64-linux-gnu/libjavascriptcoregtk-6.0.so.1
+  mkentity "$p" lib/x86_64-linux-gnu/libgtk-4.so.1
+  mkentity "$p" bin/bwrap
+  mkentity "$p" bin/xdg-dbus-proxy
   mkentity "$p" bin/zip
   mkentity "$p" bin/git
   mkentity "$p" bin/git-lfs
@@ -61,7 +64,7 @@ healthy_prefix() {
   # webkit：普通文件 + 补丁短路径字符串（模拟 build 段解出并打过补丁的那一份）
   mkdir -p "$p/lib/x86_64-linux-gnu"
   printf 'ELF...%s.../injected-bundle/' "$WEBKIT_SHORT_PATH" \
-    > "$p/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+    > "$p/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
 }
 
 new_case() {
@@ -69,7 +72,7 @@ new_case() {
   mkdir -p "$CASE"
   cp "$SCRIPT" "$CASE/verify-merged-deps.sh"
   cp "$REAL_TOOLS" "$CASE/tools.yaml"
-  # 脚本按 dirname $0 的布局找 ../internal/packaging/webkit-exec-path.txt；用例都放在
+  # 脚本按 dirname $0 的布局找 ../internal/packaging/short-paths.txt；用例都放在
   # $TMP/<name>/ 下，因此单一来源文件在 $TMP/internal/ 下备一份即可（与仓库布局一致）。
   mkdir -p "$CASE/prefix"
   PREFIX="$CASE/prefix"
@@ -109,23 +112,23 @@ fi
 new_case nolib
 cp "$REAL_YAML" "$CASE/linglong.yaml"
 healthy_prefix "$PREFIX"
-rm "$PREFIX/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+rm "$PREFIX/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
 if run_case "$TMP/out-nolib"; then
   bad "webkit 库缺失时应失败"
 else
-  expect_fail "webkit 库缺失非零退出并指名" "$TMP/out-nolib" "FAIL libwebkit2gtk-4.1-0"
+  expect_fail "webkit 库缺失非零退出并指名" "$TMP/out-nolib" "FAIL libwebkitgtk-6.0-4"
 fi
 
 # --- 场景 3b：webkit 在，但没有 exec-path 补丁标记（进包的是未打补丁的旧库）→ 失败 ---
 new_case unpatched
 cp "$REAL_YAML" "$CASE/linglong.yaml"
 healthy_prefix "$PREFIX"
-printf 'ELF.../usr/lib/x86_64-linux-gnu/webkit2gtk-4.1...' \
-  > "$PREFIX/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+printf 'ELF.../usr/lib/x86_64-linux-gnu/webkitgtk-6.0...' \
+  > "$PREFIX/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
 if run_case "$TMP/out-unpatched"; then
   bad "webkit 未打补丁时应失败"
 else
-  expect_fail "webkit 缺补丁标记非零退出并指名" "$TMP/out-unpatched" "FAIL libwebkit2gtk-4.1-0" "exec-path 补丁标记"
+  expect_fail "webkit 缺补丁标记非零退出并指名" "$TMP/out-unpatched" "FAIL libwebkitgtk-6.0-4" "exec-path 补丁标记"
 fi
 
 # --- 场景 4：zip 实体缺失（只在 depends 里、tools.yaml 未收录的包）→ 失败 ---
@@ -143,12 +146,12 @@ fi
 new_case chardev
 cp "$REAL_YAML" "$CASE/linglong.yaml"
 healthy_prefix "$PREFIX"
-DEV="$PREFIX/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7"
+DEV="$PREFIX/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4.19.7"
 if mknod "$DEV" c 0 0 2>/dev/null; then
   if run_case "$TMP/out-chardev"; then
     bad "存在字符设备时应失败"
   else
-    expect_fail "字符设备非零退出并指名" "$TMP/out-chardev" "字符设备" "libwebkit2gtk-4.1.so.0.19.7"
+    expect_fail "字符设备非零退出并指名" "$TMP/out-chardev" "字符设备" "libwebkitgtk-6.0.so.4.19.7"
   fi
 else
   # 非 root 且无 CAP_MKNOD 时无法造出真实字符设备；此时退回"跳过硬失败"，只提示。
@@ -159,7 +162,7 @@ fi
 new_case residue
 cp "$REAL_YAML" "$CASE/linglong.yaml"
 healthy_prefix "$PREFIX"
-mkentity "$PREFIX" usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7.dpkg-new
+mkentity "$PREFIX" usr/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4.19.7.dpkg-new
 if run_case "$TMP/out-residue"; then
   bad "存在 *.dpkg-new 残留时应失败"
 else

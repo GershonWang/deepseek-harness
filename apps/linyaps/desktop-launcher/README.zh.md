@@ -2,14 +2,14 @@
 
 [English](README.md) | 中文
 
-`apps/linyaps/desktop-launcher` 是 deepseek-harness 的桌面客户端。它基于 [Wails v2](https://wails.io) 用 Go 编写：spawn `dsh web` 子进程并监护，把 harness Web GUI 以 iframe 嵌进一层薄的启动器壳（状态栏、服务器/设置弹框、引导页）。最终打成如意玲珑（Linglong）包在 Deepin 25 上分发。
+`apps/linyaps/desktop-launcher` 是 deepseek-harness 的桌面客户端。它基于 [Wails v3](https://wails.io)（GTK4 + WebKitGTK 6.0，迁移在 `feat/wails-v3-upgrade` 分支进行）用 Go 编写：spawn `dsh web` 子进程并监护，把 harness Web GUI 以 iframe 嵌进一层薄的启动器壳（状态栏、服务器/设置弹框、引导页）。最终打成如意玲珑（Linglong）包在 Deepin 25 上分发。
 
 > 独立 Go module，不纳入 pnpm workspace。壳 UI 是静态 HTML/CSS/JS（无 Node 构建链），经 `go:embed` 打进二进制。
 
 ## 架构
 
 ```
-┌─ Wails 窗口（webkit2gtk）───────────────────────────────────┐
+┌─ Wails v3 窗口（GTK4 + WebKitGTK 6.0）───────────────────────────────────┐
 │  launcher 壳（frontend/，静态 HTML/CSS/JS，go:embed）          │
 │   ├── 自定义标题栏(无边框)：品牌 + 图标动作 + 窗口控制        │
 │   ├── 舞台：<iframe src=http://127.0.0.1:<port>> 嵌 harness UI │
@@ -46,7 +46,7 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 启动器只放行内嵌 WebView 的**音频**采集，使桌面版的语音输入与在浏览器里打开同一 Web GUI 时表现一致。这条路径上叠着三个彼此独立的缺陷：只修其中任何一个，语音输入都依然是坏的，而症状与另外两个看起来一模一样；三个都不是用户能从某个设置里解决的。
 
 - **跨源 iframe 未获麦克风授权。** 壳从 `http://127.0.0.1:<port>` 嵌入 harness UI，与 Wails 资源服务器不同源，而 `microphone` 的 permissions policy 默认白名单是 `self`。缺少 `allow="microphone"` 时，请求在 WebKit 发出权限信号**之前**就被拒绝，因此这一个缺陷把另外两个完全遮住了。`frontend/index.html` 现在带 `allow="fullscreen; microphone"`。
-- **Wails v2 从不连接 `WebKitWebView::permission-request`**，而 WebKitGTK 对该信号的默认处理是拒绝。Wails 把 `WebKitWebView*` 关在 `internal/` 包里，于是 `internal/webviewperm` 在 `OnDomReady`（该回调由 Wails 从 GTK 主线程进入，无需切换线程）时用 `gtk_window_list_toplevels()` 遍历进程的顶层窗口，找到视图并自行连接信号。判定逻辑归 `internal/webviewperm/policy.go`，脱离 GTK 也能单测：只有「请求媒体采集、要音频、且不要视频与屏幕」才放行。摄像头、屏幕共享及其余所有权限请求一律拒绝，因为内嵌界面没有需要它们的功能。找不到视图时只记一行日志并继续：缺麦克风权限绝不该拦住启动。
+- **权限钩子已移除。** Wails v3 自己连接 `WebKitWebView::permission-request` 并按窗口的 `Permissions` 映射处理：客户端放行 `PermissionMicrophone`、拒绝 `PermissionCamera`（屏幕共享请求带 video 标志，落到同一项），其余非媒体请求交回 WebKitGTK 默认处理（拒绝）。spike 对两条路径都做了实测：放行时 `getUserMedia({audio:true})` 成功，拒绝时返回 `NotAllowedError`。
 - **WebKit 的 WebProcess 找不到包内的 GStreamer 插件。** 设备枚举发生在 WebProcess 里而不是启动器里。容器内 `/usr/lib/x86_64-linux-gnu/gstreamer-1.0` 只有 `coreelements` 与 `coretracers`，而包内 `<PREFIX>/lib/x86_64-linux-gnu/gstreamer-1.0` 有 259 个插件。没有插件搜索路径时 `appsink` 加载失败、枚举到 0 个音频输入，`getUserMedia` 转而以 `OverconstrainedError` 拒绝。`packaging.ConfigureGStreamerPlugins()` 在 `wails.Run` 之前设置 `GST_PLUGIN_PATH`，因为 WebProcess 继承本进程环境、之后再设无效。它用附加语义的 `GST_PLUGIN_PATH` 而非 `GST_PLUGIN_SYSTEM_PATH`，让系统默认路径与环境里已有的取值照旧生效；开发态插件本就在标准路径上时则不做任何事。
 
 ## 启动阶段与加载页进度
@@ -142,7 +142,7 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 # 1. 先构建 harness（生成 apps/cli/lib/bin.js 和前端 dist）
 pnpm run build
 
-# 2. 构建启动器（Wails；Linux 用 -tags "production webkit2_41" 显式选 webkit2gtk-4.1）
+# 2. 构建启动器（Wails v3；GTK4 + WebKitGTK 6.0）
 cd apps/linyaps/desktop-launcher
 make build          # 等价: go build -tags "production webkit2_41" -o dsh-desktop-launcher .
 
@@ -192,9 +192,9 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 
 - **VS Code/Electron 集成终端**：这类终端给子进程设置 `NoNewPrivs=1`，setuid 的 `newuidmap` 无法映射用户命名空间，`ll-builder` 会以 `newuidmap: write to uid_map failed: Operation not permitted` 失败。一键脚本检测到该状态后自动改用启动器生成的 `~/.config/dsh-desktop/linglong-bin/ll-builder`（`systemd-run --user` 的服务侧 `NoNewPrivs=0`）；包装不存在时直接报错并提示改用普通终端。直接调用 `ll-builder` 的两步流程不受脚本保护，同样需要在普通终端执行。
 - `base: org.deepin.base/25.2.2`（3 段式模糊匹配 stable 仓库的 25.2.2.6；base 不接受 4 段完整版本号）
-- 运行时依赖（webkit2gtk-4.1/gtk3/libsoup3）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
+- 运行时依赖（webkitgtk-6.0/gtk4/libsoup3，以及 WebKit 沙箱所需的 bubblewrap 与 xdg-dbus-proxy）由 `buildext.apt.depends` 从 beige 拉入；`git` 也经 `buildext.apt.depends` 带入（harness 容器化运行、bash 工具链在胶囊内执行，仓库 git 操作依赖它，基础运行时不含 git）。合并进 `${PREFIX}/bin`（在容器 PATH 上）与 `${PREFIX}/lib`（在 ld 搜索目录）。Node 24.9.0 由 prepare-offline 下载到 `stage/node`（npmmirror），linglong.yaml 组装进 `${PREFIX}/node`。harness 需要 Node >=24；且 beige 的 Debian 版 nodejs 20 把 cjs-module-lexer 外部化到绝对路径 `/usr/share/nodejs/`，沙箱内不存在导致启动即崩，故必须捆绑
 - 闭包修复（`apps/linyaps/desktop-launcher/tools/fix-deploy-closure.mjs`）在宿主机 prepare 阶段执行（peer deps、符号链接实体化、legacy hoists）
-- Go 启动器用 Wails 构建，须带 `-tags "production webkit2_41"`（wails 在该标签下选用 webkit2gtk-4.1）；旧的 webkit2gtk-4.0 pkg-config shim 不再需要
+- Go 启动器用 Wails v3 构建，只带 `-tags "production"`（选压缩版 `/wails/runtime.js`）；GTK4 + WebKitGTK 6.0 已是 Linux 默认后端，`webkit2_41` 标签不复存在
 - 沙箱默认不授权用户项目目录：挂载规则需先手动复制模板（`linglong/config.d/*.json`）到 `~/.config/linglong/apps/com.deepseek.dsh-desktop/config.d/` 并改路径才生效；工具链弹框的“宿主路径挂载”会自行写入同一用户级 drop-in（只读 rbind、重启后生效），非家目录源在部分系统上挂载不可靠，优先用一键安装或家目录路径。
 - 壳内不再有「关于」入口与关于弹框，标题栏也不再显示玲珑包版本号：DSH 版本、玲珑封装作者、玲珑封装（fork）与上游 DSH 两个仓库地址统一由双客户端包（[`apps/linyaps/desktop-dual`](../desktop-dual)）的托盘「关于」给出，因为只有那个包常驻托盘；本模块因此不再保留仓库地址与署名常量，打包期也不再注入包版本
 - **内嵌 GUI 的正文观感由随包字体决定**：上游 `ui-theme` 的默认字体栈只写系统族名（`-apple-system`/`BlinkMacSystemFont`/`sans-serif` 等），容器里最终用哪个字体由宿主 fontconfig 决定，随包字体因此可能「装了却没人引用」——正文观感随机器漂移，历史上表现为字重与度量不一致的重叠错位。打包流程在注入链接桥之后，由 `inject-font-stack.sh` 把 `linglong/dsh-font-stack.css` 注入 GUI dist：`:root:root` 加 `!important` 压过客户端运行时插入的 base.css，只覆盖默认栈（用户在设置里选的字体仍优先）。字体实体由 `install-container-fonts.sh` 随包落进 `${PREFIX}/share/dsh-fonts`、启动器以 `FONTCONFIG_FILE` 注册；同一配置文件里的正文别名段排在 `<include>` 之前，兜住 CSS 未点名的族名。中文族按「宿主思源黑体 → 宿主 Noto CJK → 随包文泉驿」排序：预装这些字体的机器正文观感与官方 Electron 客户端一致，没装的仍由随包文泉驿兜底，不会退回豆腐块；拉丁固定用随包 Noto Sans Display。`prepare-offline.sh` 在注入后硬断言覆盖已落盘，删掉注入调用会直接构建失败。为什么不把中文字体内化进包：思源黑体单字重约 16 MB，正文与标题至少需要 Regular 与 Medium 两档，随包会再撑大 30 MB 以上；而发行版普遍已经预装（Deepin 25 的 `sans-serif` 默认就指向思源黑体），官方 Electron 客户端本身也完全依赖宿主字体。因此选择「宿主优先、随包兜底」：有宿主 CJK 的机器与官方版同观感，没有的机器落到随包文泉驿，不会缺字；代价是不同机器的中文观感可能不同，这一点与官方版相同

@@ -35,7 +35,7 @@ healthy_prefix() {
   mkdir -p "$p/bin" "$p/harness/lib" "$p/lib/x86_64-linux-gnu" "$p/share/dsh-fonts"
   : > "$p/bin/node"
   : > "$p/harness/lib/bin.js"
-  : > "$p/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0"
+  : > "$p/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4"
   : > "$p/share/dsh-fonts/wqy-microhei.ttc"
 }
 

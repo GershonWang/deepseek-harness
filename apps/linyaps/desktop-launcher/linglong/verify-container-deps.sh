@@ -2,7 +2,7 @@
 # 在 build: 容器阶段硬校验 buildext.apt.build_depends 是否真的装进了容器。
 #
 # 为什么只校验 build_depends：ll-builder 生成的命令只装 build_depends（实测构建容器内
-# `linglong/buildext.sh` 全文只有 `apt update` 与 `apt -y install libwebkit2gtk-4.1-0`），
+# `linglong/buildext.sh` 全文只有 `apt update` 与 `apt -y install libwebkitgtk-6.0-4`），
 # 而 `depends` 是在 build 段**之后**（preCommit 的合并阶段）才安装并合进 $PREFIX——同样的
 # 机制 verify-tools.sh 的头部注释早已写明。因此在本阶段要求 depends 已安装是一道永远过不
 # 去的闸门：2026-09-14 首次真实构建即被它拦下，8 个 depends 包全部报「没有装上」。depends
@@ -77,7 +77,7 @@ while IFS= read -r pkg; do
   verify_out=$(dpkg --verify "$pkg" 2>&1 || true)
   # 基础镜像制作时裁剪了文档与手册：基座层 org.deepin.base 的 .list 保留 /usr/share/doc
   # 与 /usr/share/man 条目，实体却不存在（实测：基座层 614 个包、/usr/share/doc 实体 0 条，
-  # libgtk-3-0:amd64.list 列了 6 条 doc 路径且全部缺失）。继承自基座的包因此永远报
+  # libgtk-4-1:amd64.list 列了 6 条 doc 路径且全部缺失）。继承自基座的包因此永远报
   # 「missing」——那是基础镜像的既定状态，不是本次安装失败，且文档缺失不影响功能。真正要
   # 防的实体缺失（库、可执行）不落在这些路径上；实体被写成字符设备的另一种失败由下面的
   # -c 检查独立覆盖。

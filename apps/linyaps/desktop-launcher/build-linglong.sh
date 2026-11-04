@@ -31,7 +31,7 @@ node apps/linyaps/desktop-launcher/linglong/gen-preset-overlay.mjs
 # 预检在必要时改走宿主透传包装。
 . apps/linyaps/desktop-launcher/linglong/ll-builder-preflight.sh
 
-# 构建器把「拷不进去」降级成警告：实测 libwebkit2gtk-4.1.so.0 复制失败（无效的参数）
+# 构建器把「拷不进去」降级成警告：实测 libwebkitgtk-6.0.so.4 复制失败（无效的参数）
 # 之后仍照常 [Install Files]/[Commit Contents] 并导出 345 MB 产物，而包内沿用基础层
 # 的旧库——比第 33 条更隐蔽，连报错都没有（AUDIT N17）。因此保留完整日志，并在导出
 # 前把该告警升级为硬失败：能出包不等于出的是这次构建的东西。

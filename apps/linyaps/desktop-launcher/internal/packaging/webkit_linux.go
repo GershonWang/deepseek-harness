@@ -10,50 +10,90 @@ import (
 	"strings"
 )
 
-// webkitExecPathRaw 是短路径的单一来源文件内容。打包脚本
-// （linglong/patch-webkit-exec-path.sh）与 launcher 都读这一个文件：补丁把 .so 里的
-// 硬编码路径替换成它，launcher 再把同名路径建为指向真实 helper 目录的符号链接。
-// 两边各写一遍字面量的话，改一处就会产出「装得上、GUI 起不来」的包，而两边都不会报错。
+// shortPathsRaw 是短路径清单的单一来源文件内容。打包脚本
+// （linglong/patch-webkit-exec-path.sh）与 launcher 都读这一个文件：脚本据它把
+// .so 里的硬编码路径等长替换，launcher 再把同名路径建为指向真实文件的符号链接。
+// 两边各写一遍字面量的话，改一处就会产出「装得上、GUI 起不来」的包。
 //
-//go:embed webkit-exec-path.txt
-var webkitExecPathRaw string
+//go:embed short-paths.txt
+var shortPathsRaw string
 
-// webkitExecPath 返回去空白后的短路径。文件按仓库约定以单个换行结尾，读取时去掉。
-func webkitExecPath() string {
-	return strings.TrimSpace(webkitExecPathRaw)
+// shortPaths 解析短路径清单（KEY=VALUE，忽略空行与 # 注释）。
+// @returns 键到短路径的映射。
+func shortPaths() map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(shortPathsRaw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return out
 }
 
-// ConfigureWebKitHelperPath 让 webkit2gtk 找到其辅助进程
-// （WebKitNetworkProcess / WebKitWebProcess / WebKitGPUProcess）。
+// ConfigureBundledRuntime 让打包后的 WebKitGTK 6.0 找到它的辅助进程与沙箱依赖。
 //
-// 背景：Debian 正式构建的 webkit2gtk 把 helper 目录硬编码在
-// libwebkit2gtk-4.1.so.0 里（/usr/lib/x86_64-linux-gnu/webkit2gtk-4.1），
-// 运行时 /usr 只读、玲珑 layer 不导出 /usr 写入。打包时已用
-// patch-webkit-exec-path.sh 把该字符串字节替换为 webkitExecPath()，这里在启动时把
-// 该短路径建为指向 ${PREFIX} 下真实 helper 目录的符号链接。注入 bundle 用
-// WEBKIT_INJECTED_BUNDLE_PATH 覆盖。开发态（未打包）不动：helper 在系统标准路径，
-// 默认即正确。
-func ConfigureWebKitHelperPath() {
+// 背景（与 v2 时代的 webkit2gtk-4.1 同源，但路径与依赖更多）：
+//   - helper 目录（WebKitWebProcess/WebKitNetworkProcess/WebKitGPUProcess）以
+//     PKGLIBEXECDIR 硬编码进 libwebkitgtk-6.0.so.4，运行时 /usr 只读、玲珑 layer
+//     不导出 /usr 写入；
+//   - WebKitGTK 6.0 默认开启 UI 进程沙箱，它按 /usr/bin/bwrap 启动
+//     xdg-dbus-proxy 与 Web 进程，容器里同样没有这两个路径；
+//   - 沙箱打开后 helper 跑在 bwrap 的挂载命名空间里，读不到容器级 ld.so.cache，
+//     会报 libwebkitgtk-6.0.so.4: cannot open shared object file。
+//
+// 因此打包时把这四处路径都做等长替换（见 linglong/patch-webkit-exec-path.sh），
+// 这里在启动时建好短路径链接，并把包内库目录放进 LD_LIBRARY_PATH（helper 继承该环境）。
+// 开发态（未打包）直接返回：helper 与 bwrap 都在系统路径上，默认即正确。
+func ConfigureBundledRuntime() {
 	prefix := HarnessPrefix()
 	if prefix == "" {
 		return
 	}
-	helperDir := filepath.Join(prefix, "lib", "x86_64-linux-gnu", "webkit2gtk-4.1")
-	network := filepath.Join(helperDir, "WebKitNetworkProcess")
-	if _, statErr := os.Stat(network); statErr != nil {
+	libDir := filepath.Join(prefix, "lib", "x86_64-linux-gnu")
+	helperDir := filepath.Join(libDir, "webkitgtk-6.0")
+	if _, err := os.Stat(filepath.Join(helperDir, "WebKitNetworkProcess")); err != nil {
 		return // 开发态：helper 在系统路径，无需处理
 	}
-	// 短路径所在目录可写，建符号链接指向真实 helper 目录。链接可能残留自旧包运行
-	// （包 id 变更或卸载后成悬空），复用前必须验证目标仍指向当前包目录。
-	shortPath := webkitExecPath()
-	if !webkitHelperLinkUsable(shortPath, helperDir) {
-		_ = os.Remove(shortPath)
-		if err := os.Symlink(helperDir, shortPath); err != nil {
-			fmt.Fprintf(os.Stderr, "dsh-desktop: 创建 webkit helper 符号链接失败: %v\n", err)
-			return
-		}
-	}
+
+	paths := shortPaths()
+	linkIfPresent(helperDir, paths["WEBKIT_EXEC"])
+	linkIfPresent(filepath.Join(prefix, "bin", "bwrap"), paths["BWARP"])
+	linkIfPresent(filepath.Join(prefix, "bin", "xdg-dbus-proxy"), paths["DBUS_PROXY"])
+
 	_ = os.Setenv("WEBKIT_INJECTED_BUNDLE_PATH", filepath.Join(helperDir, "injected-bundle"))
+
+	// 沙箱内的 helper 读不到容器的 ld.so.cache，必须显式给出库目录。
+	// 追加而不是覆盖：外层可能已有自己的 LD_LIBRARY_PATH（如宿主开发态）。
+	libs := libDir + string(os.PathListSeparator) + filepath.Join(prefix, "lib")
+	if existing := os.Getenv("LD_LIBRARY_PATH"); existing != "" {
+		libs += string(os.PathListSeparator) + existing
+	}
+	_ = os.Setenv("LD_LIBRARY_PATH", libs)
+}
+
+// linkIfPresent 在短路径上建一个指向 target 的符号链接；target 不存在时跳过。
+//
+// 链接可能残留自旧包运行（包 id 变更或卸载后成悬空），因此每次先删除再重建，
+// 不做「存在即复用」——悬空链接会让 WebKit 直接报找不到 helper。
+// @param target - 包内真实路径。
+// @param short - 被 .so 硬编码的短路径。
+func linkIfPresent(target, short string) {
+	if short == "" {
+		return
+	}
+	if _, err := os.Stat(target); err != nil {
+		return
+	}
+	_ = os.Remove(short)
+	if err := os.Symlink(target, short); err != nil {
+		fmt.Fprintf(os.Stderr, "dsh-desktop: 创建 %s 符号链接失败: %v\n", short, err)
+	}
 }
 
 // ConfigureWebKitRendering 在 GTK/WebKit 初始化之前选择 webkit2gtk 的合成后端。
@@ -94,8 +134,8 @@ func ConfigureWebKitHelperPath() {
 // 默认不开。用环境变量而不是界面开关，是因为这类故障发生在窗口显示之前（起来就
 // 花屏或闪退），用户进不了界面去改配置。
 //
-// 「单进程模式」不在可选项内：实测随包 webkit2gtk-4.1 的 .so 里没有
-// WEBKIT_USE_SINGLE_WEB_PROCESS 字符串，这个构建不认该开关（AUDIT 17）。
+// 「单进程模式」不在可选项内：Linux 的 WebKitGTK 6.0 构建里没有
+// WEBKIT_USE_SINGLE_WEB_PROCESS 开关（AUDIT 17）。
 //
 // 必须在 GTK/WebKit 初始化之前调用（main 的 wails.Run 之前），之后设置不生效。
 func ConfigureWebKitRendering() {
@@ -147,18 +187,4 @@ func hasNvidiaRenderNode() bool {
 		}
 	}
 	return false
-}
-
-// webkitHelperLinkUsable 判断短路径符号链接能否直接复用：存在、指向
-// expected 目录、且该目录里的 WebKitNetworkProcess 可访问（未卸载）。
-func webkitHelperLinkUsable(shortPath, expected string) bool {
-	target, err := os.Readlink(shortPath)
-	if err != nil {
-		return false
-	}
-	if target != expected {
-		return false
-	}
-	_, err = os.Stat(filepath.Join(expected, "WebKitNetworkProcess"))
-	return err == nil
 }

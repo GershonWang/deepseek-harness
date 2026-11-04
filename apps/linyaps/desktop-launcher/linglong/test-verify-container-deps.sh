@@ -186,12 +186,12 @@ fi
 new_case residue
 install_pkg libfoo-1.0 1.0
 install_file libfoo-1.0
-ln -s /dev/null "$SYSROOT/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.19.7.dpkg-new"
+ln -s /dev/null "$SYSROOT/usr/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4.19.7.dpkg-new"
 write_yaml
 if run_case "$TMP/out-residue"; then
   bad "存在 *.dpkg-new 残留时应失败"
 else
-  expect_fail "dpkg 中间态残留非零退出" "$TMP/out-residue" "残留 dpkg 中间态文件" "libwebkit2gtk-4.1.so.0.19.7.dpkg-new"
+  expect_fail "dpkg 中间态残留非零退出" "$TMP/out-residue" "残留 dpkg 中间态文件" "libwebkitgtk-6.0.so.4.19.7.dpkg-new"
 fi
 
 # --- 场景 6：dpkg --verify 报实体缺失（库文件不在）→ 失败 ---
@@ -238,7 +238,7 @@ cp "$ROOT/apps/linyaps/desktop-launcher/linglong/linglong.yaml" "$CASE/linglong.
 if run_case "$TMP/out-real"; then
   bad "空状态下真实 yaml 不应通过"
 else
-  expect_fail "真实 linglong.yaml 的 build_depends 被解析并报缺失" "$TMP/out-real" "FAIL libwebkit2gtk-4.1-0"
+  expect_fail "真实 linglong.yaml 的 build_depends 被解析并报缺失" "$TMP/out-real" "FAIL libwebkitgtk-6.0-4"
   # depends 包在本阶段不应被要求（它们由 ll-builder 在 build 段之后安装）
   expect_absent "真实 linglong.yaml 不再要求 depends 已装" "$TMP/out-real" \
     "FAIL git:" "FAIL xdg-utils" "FAIL jq" "FAIL xxd" "FAIL wget"

@@ -131,8 +131,8 @@ done
 # 桌面集成：.desktop 文件（generateEntries 会复制到 entries/share/applications，
 # 玲珑启动器/应用菜单据此显示程序与图标）
 install -Dm644 /project/apps/linyaps/desktop-launcher/linglong/com.deepseek.dsh-desktop.desktop ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
-# 字节补丁 webkit helper 路径：Debian 正式构建把 helper 目录硬编码为
-# /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1（WEBKIT_EXEC_PATH 需 DEVELOPER_MODE
+# 字节补丁 webkit helper 路径：WebKitGTK 6.0 把 helper 目录与沙箱依赖硬编码为
+# /usr/lib/x86_64-linux-gnu/webkitgtk-6.0、/usr/bin/bwrap、/usr/bin/xdg-dbus-proxy（WEBKIT_EXEC_PATH 需 DEVELOPER_MODE
 # 才有效，运行时 /usr 只读、layer 不导出 /usr）。替换为 /tmp/dsh-webkit-4.1，
 # launcher 启动时建符号链接指向 ${PREFIX} 下的真实 helper。
 #
@@ -145,7 +145,7 @@ install -Dm644 /project/apps/linyaps/desktop-launcher/linglong/com.deepseek.dsh-
 # 版本由 apt 候选决定（候选变了这里跟着走），并显式比对「下载到的版本 == 候选」，
 # 避免下载成功却拿到别的版本这种静默偏差。交付的是哪一版会打印出来。
 mkdir -p ${PREFIX}/lib/x86_64-linux-gnu
-WEBKIT_PKG=libwebkit2gtk-4.1-0
+WEBKIT_PKG=libwebkitgtk-6.0-4
 WEBKIT_TMP=$(mktemp -d)
 ( cd "$WEBKIT_TMP" && apt-get download "$WEBKIT_PKG" ) \
   || { echo "webkit: apt-get download $WEBKIT_PKG 失败" >&2; exit 1; }
@@ -157,15 +157,12 @@ WEBKIT_CAND=$(apt-cache policy "$WEBKIT_PKG" | awk '/Candidate:/ { print $2; exi
 [ "$WEBKIT_VER" = "$WEBKIT_CAND" ] \
   || { echo "webkit: 下载到 $WEBKIT_VER，apt 候选却是 $WEBKIT_CAND" >&2; exit 1; }
 dpkg-deb -x "$WEBKIT_DEB" "$WEBKIT_TMP/x"
-set -- "$WEBKIT_TMP"/x/usr/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0.*
-# 只接受唯一命中，且必须是普通文件：`-e` 对字符设备同样为真，而写入未落盘时现场
-# 留下的正是字符设备，`cp -a` 会把设备节点复制进产物（AUDIT N19）。
+set -- "$WEBKIT_TMP"/x/usr/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4.*
 [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "webkit: 解包出的实体未唯一命中为普通文件（$# 个: $*）" >&2; exit 1; }
 WEBKIT_SO=${1##*/}
 cp -a "$1" ${PREFIX}/lib/x86_64-linux-gnu/
 sh /project/apps/linyaps/desktop-launcher/linglong/patch-webkit-exec-path.sh ${PREFIX}/lib/x86_64-linux-gnu/${WEBKIT_SO}
-ln -sf ${WEBKIT_SO} ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so.0
-ln -sf libwebkit2gtk-4.1.so.0 ${PREFIX}/lib/x86_64-linux-gnu/libwebkit2gtk-4.1.so
+ln -sf ${WEBKIT_SO} ${PREFIX}/lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4
 echo "webkit: 交付 $WEBKIT_VER（来自 apt 候选 .deb，已打 exec-path 补丁）"
 
 # 容器级字体：基础镜像清空了 /usr/share/fonts，运行容器的该目录又被宿主整体

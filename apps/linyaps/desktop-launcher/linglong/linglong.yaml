@@ -24,11 +24,16 @@ build: |
 buildext:
   apt:
     build_depends:
-      - libwebkit2gtk-4.1-0
+      - libwebkitgtk-6.0-4
     depends:
-      - libwebkit2gtk-4.1-0
-      - libjavascriptcoregtk-4.1-0
-      - libgtk-3-0
+      - libwebkitgtk-6.0-4
+      - libjavascriptcoregtk-6.0-1
+      - libgtk-4-1
+      # WebKitGTK 6.0 默认开启 UI 进程沙箱：bwrap 负责起沙箱，xdg-dbus-proxy 供
+      # 沙箱内的 D-Bus。两者按编译期路径 /usr/bin 调用，打包脚本对 .so 做等长替换后
+      # 由 launcher 启动时建 /tmp 短路径链接指向它们。
+      - bubblewrap
+      - xdg-dbus-proxy
       - libglib2.0-0
       # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
       # /usr 不随 layer 导出；因此文泉驿微米黑由 build 段从 .deb 里自行解出后随包

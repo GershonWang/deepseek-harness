@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/linyaps/desktop-launcher/README.md
 /deepseek-harness-linux-desktop-launcher:
-  en: 64f7de77b41113d5
-  zh: c27e13a5cd968a55
+  en: 6796ba0a75e181eb
+  zh: 76b6c75bce80866a
 /deepseek-harness-linux-desktop-launcher/architecture:
   en: 92112a20580e7276
   zh: 7dbe71f200c922be
 /deepseek-harness-linux-desktop-launcher/embedded-webview-media-permissions:
-  en: 32b07eabe302c895
-  zh: 929d4bda0480c7c3
+  en: 073ad8f5456b537c
+  zh: c5ba82593a5dcfba
 /deepseek-harness-linux-desktop-launcher/startup-phases-and-loading-page-progress:
   en: d9e000ed7e0e9728
   zh: 8c0ac8b716c37e9e
@@ -42,8 +42,8 @@
   en: 6e9c72255f9aa285
   zh: 5b7cdce33e7e4d1c
 /deepseek-harness-linux-desktop-launcher/linglong-packaging:
-  en: b557d50a58fc65df
-  zh: d1fd42af4de3e199
+  en: 4aa5f536ce9d9c27
+  zh: ed7b80e2f3bab98a
 /deepseek-harness-linux-desktop-launcher/container-usability-toolchain-mounts:
   en: 571cef4dd7e1eaac
   zh: e7c9f61057f99b22
