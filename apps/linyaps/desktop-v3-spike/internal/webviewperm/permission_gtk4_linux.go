@@ -30,14 +30,20 @@ func Install() {
 	C.dshInstallPermissionHandlerGTK4()
 }
 
-// dshReportInstall 由 C 侧回调：报告第几次尝试、是否挂上。
+// 注意：这些 //export 函数的签名会生成进 _cgo_export.h，C 侧的调用点必须同步。
+// GOOS=windows 的交叉检查不编译 cgo 文件，因此这里的不一致只有真机构建能发现。
+
+// dshReportInstall 由 C 侧回调：报告第几次尝试、是否挂上，以及遍历时看到的
+// 顶层窗口数与 WebView 数（用于区分「窗口没建出来」与「窗口里找不到视图」）。
 //
 //export dshReportInstall
-func dshReportInstall(attempts, installed C.int) {
+func dshReportInstall(attempts, installed, toplevels, views C.int) {
 	state.Lock()
 	defer state.Unlock()
 	state.status.Attempts = int(attempts)
 	state.status.Installed = installed != 0
+	state.status.Toplevels = int(toplevels)
+	state.status.Views = int(views)
 }
 
 // dshRecordPermissionRequest 由 C 侧回调：记录一次权限请求与判定结果。
