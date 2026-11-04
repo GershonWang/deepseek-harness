@@ -18,6 +18,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/probe"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
 // 前端资源。与 desktop-launcher 一样逐项列出而不整体嵌入：spike 的 frontend/ 下只允许
@@ -85,6 +86,10 @@ func main() {
 			"backend":      probe.BuildBackend,
 			"stack":        probe.RuntimeStackVersion(),
 		})
+		// 权限钩子必须在页面就绪后挂：此时 WebView 已创建并进入控件树。
+		// v3 没有 v2 的 OnDomReady，WindowRuntimeReady 是等价的「页面已就绪」信号；
+		// Install 内部再把它排到 GTK 主循环上重试，避免回调线程不确定。
+		webviewperm.Install()
 	})
 
 	// 关窗钩子必须用 RegisterHook 才能拦截；spike 只记录不拦截，用来确认钩子在

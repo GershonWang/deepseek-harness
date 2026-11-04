@@ -60,6 +60,54 @@ async function run() {
   await Events.Emit("spike:binding", await probeBinding());
   await publish();
   wireTitlebar();
+  wireMic();
+  // 页面加载后立即尝试一次音频采集：这会触发 WebKit 的 permission-request 信号，
+  // 从而验证 GTK4 侧的权限钩子是否挂上并放行（结果同时写进 Go 侧报告）。
+  await requestMic();
+}
+
+/** 接上手动重试按钮：没有设备或首次被拒时需要人工再触发一次。 */
+function wireMic() {
+  const node = document.querySelector("#btn-mic");
+  if (!node) {
+    return;
+  }
+  node.addEventListener("click", () => {
+    void requestMic();
+  });
+}
+
+/** 请求一次麦克风采集，并把结果回传 Go 侧。 */
+async function requestMic() {
+  const result = await probeMic();
+  const label = document.querySelector("#mic-result");
+  if (label) {
+    label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;
+    label.className = result.ok ? "ok" : "fail";
+  }
+  await Events.Emit("spike:mic", result);
+  return result;
+}
+
+/**
+ * 采集一次音频并立刻释放。
+ *
+ * 用音频而非视频：客户端的真实需求就是语音输入，且它正是权限钩子要放行的范围；
+ * 摄像头请求按策略应被拒绝，留给手工验证，不在自动流程里制造噪声。
+ */
+async function probeMic() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return { ok: false, error: "navigator.mediaDevices.getUserMedia 不存在" };
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+    return { ok: true, error: "" };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 }
 
 /** 调用一次绑定方法并归一化结果。 */

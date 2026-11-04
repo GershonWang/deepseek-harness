@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
 // Service 是 spike 的服务实现。
@@ -35,6 +37,7 @@ type Service struct {
 	mu        sync.Mutex
 	frontend  *FrontendFacts
 	binding   *BindingResult
+	mic       *MicResult
 	earlyNote string
 	written   int
 }
@@ -97,6 +100,17 @@ func (s *Service) ServiceStartup(_ context.Context, _ application.ServiceOptions
 		s.mu.Unlock()
 		s.write("收到绑定结果")
 	})
+	s.app.Event.On("spike:mic", func(event *application.CustomEvent) {
+		result := MicResult{}
+		if err := decodeEventData(event.Data, &result); err != nil {
+			slog.Warn("麦克风结果解析失败", "err", err)
+			return
+		}
+		s.mu.Lock()
+		s.mic = &result
+		s.mu.Unlock()
+		s.write("收到麦克风结果")
+	})
 	return nil
 }
 
@@ -129,6 +143,8 @@ func (s *Service) write(reason string) {
 		Binding:       s.binding,
 		EarlyEmit:     s.earlyNote,
 		Marks:         Marks(),
+		Perm:          webviewperm.CurrentStatus(),
+		Mic:           s.mic,
 	}
 	shouldQuit := s.autoClose && s.frontend != nil
 	s.written++

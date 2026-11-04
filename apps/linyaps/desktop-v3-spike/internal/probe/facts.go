@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-v3-spike/internal/webviewperm"
 )
 
 // ModulePath 是本 spike 模块的 import path。
@@ -120,6 +122,19 @@ type Report struct {
 	Binding       *BindingResult     `json:"binding,omitempty"`
 	EarlyEmit     string             `json:"earlyEmit"`
 	Marks         map[string]float64 `json:"marksMs"`
+	// Perm 是 GTK4 权限钩子的状态：是否挂上、收到几次请求、放行还是拒绝。
+	// 这是 GTK3 → GTK4 迁移里唯一可能整块失败的能力，必须进报告。
+	Perm webviewperm.Status `json:"webviewPerm"`
+	// Mic 是页面 getUserMedia({audio:true}) 的结果。
+	Mic *MicResult `json:"mic,omitempty"`
+}
+
+// MicResult 记录一次麦克风采集尝试的结果。
+type MicResult struct {
+	// OK 表示 getUserMedia 成功拿到音频轨道。
+	OK bool `json:"ok"`
+	// Error 是失败时的错误串（NotAllowedError 表示权限被拒，NotFoundError 表示没有设备）。
+	Error string `json:"error"`
 }
 
 // marks 记录关键时点的相对耗时。
