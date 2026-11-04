@@ -67,6 +67,15 @@ func dshRecordPermissionRequest(isUserMedia, isAudio, isVideo, isDisplay, allowe
 // 参数与返回值都用 C.int 而非 bool，因为该函数由 cgo 导出给 C 调用，签名必须与
 // _cgo_export.h 中的声明一致。
 //
+// dshReportSignal 由 C 侧回调：报告 permission-request 信号是否连接成功。
+//
+//export dshReportSignal
+func dshReportSignal(connected C.int) {
+	state.Lock()
+	defer state.Unlock()
+	state.status.SignalConnected = connected != 0
+}
+
 //export dshShouldAllowPermission
 func dshShouldAllowPermission(isUserMedia, isAudio, isVideo, isDisplay C.int) C.int {
 	if AllowPermission(PermissionFacts{

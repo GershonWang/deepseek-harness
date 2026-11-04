@@ -61,11 +61,14 @@ async function run() {
   await publish();
   wireTitlebar();
   wireMic();
-  // 两个权限探针并行：
-  //   - getUserMedia 触发 UserMediaPermissionRequest（需要真实设备才可能放行）；
-  //   - Notification 触发一个非媒体类权限请求，不依赖任何硬件，用来区分
-  //     「钩子没挂上」与「没有麦克风所以信号压根没触发」。
-  await Promise.all([requestMic(), requestNotificationPermission()]);
+  // 等钩子就位再发请求：挂载在主循环上异步进行（首次尝试约 100ms 后），
+  // 页面一加载就请求会在钩子生效前发出，实测因此一次都没被记到。
+  await new Promise((resolve) => setTimeout(resolve, 2500));
+  // 两个权限探针：
+  //   - Notification 触发非媒体类请求，不依赖任何硬件，用来证明钩子确实被调用；
+  //   - getUserMedia 触发 UserMediaPermissionRequest（容器内可能因设备枚举失败而走不到）。
+  const notification = await requestNotificationPermission();
+  await requestMic(notification);
 }
 
 /**
@@ -76,12 +79,13 @@ async function run() {
  */
 async function requestNotificationPermission() {
   if (!window.Notification || !Notification.requestPermission) {
-    return;
+    return "unavailable";
   }
   try {
-    await Notification.requestPermission();
-  } catch {
+    return await Notification.requestPermission();
+  } catch (err) {
     // 抛错同样说明请求走到了 WebKit；Go 侧只看 permission-request 是否触发。
+    return `error:${String(err)}`;
   }
 }
 
@@ -97,8 +101,9 @@ function wireMic() {
 }
 
 /** 请求一次麦克风采集，并把结果回传 Go 侧。 */
-async function requestMic() {
+async function requestMic(notification) {
   const result = await probeMic();
+  result.notification = notification;
   const label = document.querySelector("#mic-result");
   if (label) {
     label.textContent = result.ok ? "麦克风可用（已放行）" : `失败：${result.error}`;

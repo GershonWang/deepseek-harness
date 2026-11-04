@@ -135,6 +135,9 @@ type MicResult struct {
 	OK bool `json:"ok"`
 	// Error 是失败时的错误串（NotAllowedError 表示权限被拒，NotFoundError 表示没有设备）。
 	Error string `json:"error"`
+	// Notification 是同一轮里 Notification.requestPermission() 的返回值：
+	// 它不依赖硬件，是判断权限钩子是否真的被调用的对照组。
+	Notification string `json:"notification"`
 }
 
 // marks 记录关键时点的相对耗时。

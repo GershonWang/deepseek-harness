@@ -106,8 +106,8 @@ static gboolean dshOnPermissionRequest(WebKitWebView *webView, WebKitPermissionR
 
 // dshTryInstall 是主循环上的重试回调：找到视图即挂信号并停止，超时则放弃。
 //
-// 最多等 5 秒（50 次 × 100ms）。放弃时只报告「未挂载」：界面本身可用，
-// 缺麦克风权限不该拦住启动或让进程退出。
+// 最多等 15 秒（150 次 × 100ms）：首次绘制慢的机器上视图可能比页面脚本更晚进入控件树。
+// 放弃时只报告「未挂载」：界面本身可用，缺麦克风权限不该拦住启动或让进程退出。
 static gboolean dshTryInstall(gpointer userData)
 {
 	(void)userData;
@@ -116,7 +116,7 @@ static gboolean dshTryInstall(gpointer userData)
 
 	GtkWidget *webView = dshFindWebViewInToplevels();
 	if (webView == NULL) {
-		if (dshInstallAttempts >= 50) {
+		if (dshInstallAttempts >= 150) {
 			dshReportInstall(dshInstallAttempts, 0, dshTopLevelsSeen, dshViewsSeen);
 			return G_SOURCE_REMOVE;
 		}
@@ -124,9 +124,14 @@ static gboolean dshTryInstall(gpointer userData)
 	}
 
 	if (g_object_get_data(G_OBJECT(webView), dshPermissionHandlerKey) == NULL) {
-		g_signal_connect(G_OBJECT(webView), "permission-request",
-		                 G_CALLBACK(dshOnPermissionRequest), NULL);
-		g_object_set_data(G_OBJECT(webView), dshPermissionHandlerKey, GINT_TO_POINTER(1));
+		// g_signal_connect 在信号名不存在时返回 0 并打 warning：把它上报，
+		// 否则「挂上了但永远不会触发」只能靠猜。
+		guint handlerId = g_signal_connect(G_OBJECT(webView), "permission-request",
+		                                   G_CALLBACK(dshOnPermissionRequest), NULL);
+		dshReportSignal(handlerId != 0 ? 1 : 0);
+		if (handlerId != 0) {
+			g_object_set_data(G_OBJECT(webView), dshPermissionHandlerKey, GINT_TO_POINTER(1));
+		}
 	}
 	dshReportInstall(dshInstallAttempts, 1, dshTopLevelsSeen, dshViewsSeen);
 	return G_SOURCE_REMOVE;

@@ -17,6 +17,9 @@ type Status struct {
 	Installed bool `json:"installed"`
 	// Attempts 是主循环上重新查找视图的次数。
 	Attempts int `json:"attempts"`
+	// SignalConnected 表示 g_signal_connect("permission-request") 是否返回了有效 handler id。
+	// 返回 0 说明信号名在 WebKitGTK 6.0 上不匹配——那是「钩子挂上了但永远不会被调用」。
+	SignalConnected bool `json:"signalConnected"`
 	// Toplevels 是最近一次尝试时进程内的顶层窗口数量。
 	// 「顶层窗口 > 0 但视图找不到」与「连窗口都没有」是两种完全不同的失败。
 	Toplevels int `json:"toplevels"`
