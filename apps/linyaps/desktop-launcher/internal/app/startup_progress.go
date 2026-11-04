@@ -68,6 +68,18 @@ func (a *App) currentStartupView() StartupView {
 	return startupView(a.sup.Status().State, a.sup.StartupProgress())
 }
 
+// ReplayStartupProgress 在壳加载完成后补发一次当前启动进度。
+//
+// 为什么需要它：v3 会丢弃页面就绪之前发出的事件（spike 已实测），而壳的监听器是在
+// 脚本求值时才注册的。渲染进程就绪后由 boot.js 显式调用一次，让加载页拿到当前阶段，
+// 而不是等下一次阶段变化——那时可能已经稳定，用户会一直停在初始态。
+//
+// 直接 emit 而不走 emitStartupProgress：后者有节流与「未变化则不推」的判定，
+// 补发恰恰需要在「没有变化」时也送达。
+func (a *App) ReplayStartupProgress() {
+	a.emit(StartupProgressEvent, a.currentStartupView())
+}
+
 // emitStartupProgress 在上报到达时推送一次进度事件。
 //
 // 为什么不只依赖 1s 状态轮询：条目激活在 2-4 秒内产生上百次计数变化，1s 轮询只能

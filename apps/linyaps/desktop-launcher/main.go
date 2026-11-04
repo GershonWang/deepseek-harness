@@ -34,7 +34,7 @@ import (
 // frontend/tools/preview.mjs 的产物守卫）。新增 frontend/ 下的顶层资源要在此登记，
 // 漏登记由 main_test.go 断言点名。
 //
-//go:embed frontend/index.html frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor
+//go:embed frontend/index.html frontend/boot.js frontend/v2shim.js frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor
 var assets embed.FS
 
 // main 启动薄壳客户端窗口。
