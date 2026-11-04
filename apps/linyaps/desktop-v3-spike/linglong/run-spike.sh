@@ -1,22 +1,30 @@
 #!/bin/sh
-# 容器内启动入口：准备 WebKit helper 路径与 GTK4 数据目录，运行 spike，并把报告
-# 打到标准输出。
+# 容器内启动入口：按单一路径清单建立短路径链接，运行 spike，并把报告打到标准输出。
 #
-# 为什么先放在 shell 里而不是写进 Go：第一轮打包验证要在**不重新编译二进制**的前提下
-# 完成，包装脚本能覆盖同一组环境变量。验证通过后这些设置会移进 Go
-# （internal/packaging），与 desktop-launcher 的组织方式保持一致。
-#
-# 注意：/tmp/dsh-webkit-6.0 必须与 internal/packaging/webkit-exec-path.txt 一致——
-# .so 里被字节替换成那个路径，两边写岔就是「装得上、窗口起不来」。
+# 为什么是 shell 而不是写进 Go：本模块验证的是「容器里能不能跑」，包装脚本不需要重新
+# 编译二进制就能换环境；结论成立后这些设置再移进 Go（internal/packaging），
+# 与 desktop-launcher 的组织方式一致。
 set -eu
 
 PREFIX=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-HELPERS="$PREFIX/lib/x86_64-linux-gnu/webkitgtk-6.0"
-if [ -d "$HELPERS" ]; then
-  rm -f /tmp/dsh-webkit-6.0
-  ln -s "$HELPERS" /tmp/dsh-webkit-6.0
-  export WEBKIT_INJECTED_BUNDLE_PATH="$HELPERS/injected-bundle"
-fi
+PATHS="$PREFIX/share/dsh-v3-spike/short-paths.txt"
+[ -f "$PATHS" ] || { echo "run-spike: 缺少 $PATHS（打包脚本未安装短路径清单）" >&2; exit 1; }
+# shellcheck disable=SC1090
+. "$PATHS"
+
+link() {
+  target=$1
+  short=$2
+  [ -e "$target" ] || return 0
+  rm -f "$short"
+  ln -s "$target" "$short"
+}
+
+# helper 目录与沙箱依赖的 bwrap / xdg-dbus-proxy 都放在 /tmp 短路径：
+# .so 里被替换成这些路径，运行时只需它们存在且可执行。
+link "$PREFIX/lib/x86_64-linux-gnu/webkitgtk-6.0" "$WEBKIT_EXEC"
+link "$PREFIX/bin/bwrap" "$BWARP"
+link "$PREFIX/bin/xdg-dbus-proxy" "$DBUS_PROXY"
 
 if [ -d "$PREFIX/share" ]; then
   export XDG_DATA_DIRS="$PREFIX/share:${XDG_DATA_DIRS:-/usr/share}"
@@ -28,28 +36,31 @@ if [ -d "$PREFIX/lib/x86_64-linux-gnu/gstreamer-1.0" ]; then
   export GST_PLUGIN_PATH="$PREFIX/lib/x86_64-linux-gnu/gstreamer-1.0"
 fi
 
+# 显式给出库搜索路径：沙箱打开后，helper 进程跑在 bwrap 的挂载命名空间里，
+# 实测它读不到容器级的 ld.so.cache，于是 WebKitWebProcess 一启动就报
+# "libwebkitgtk-6.0.so.4: cannot open shared object file"。
+# LD_LIBRARY_PATH 会被 helper 继承，且不依赖沙箱内 /etc 是否可见。
+export LD_LIBRARY_PATH="$PREFIX/lib/x86_64-linux-gnu:$PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 # 报告默认落 /tmp：容器内 $HOME 只读，写用户目录会直接失败。ll-builder run 结束后
 # 容器即销毁，所以下面再把报告打到标准输出，作为唯一能带出容器的证据。
 export DSH_V3_SPIKE_REPORT="${DSH_V3_SPIKE_REPORT:-/tmp/dsh-v3-spike-report.json}"
 
-# 默认自动退出：ll-builder run 不会把调用者的环境变量带进容器（实测 DSH_V3_SPIKE_AUTOCLOSE
-# 传不进来，进程就一直挂着，报告写完了但 ll-builder 永不返回）。验证包的正确默认值是
-# 「拿到报告就退出」，再由下面的 timeout 兜底——否则一次超时就留下一个占着容器的进程。
+# 默认自动退出：ll-builder run 不会把调用者的环境变量带进容器（实测传不进来，
+# 进程会一直挂着），验证包的正确默认值是「拿到报告就退出」。
 export DSH_V3_SPIKE_AUTOCLOSE="${DSH_V3_SPIKE_AUTOCLOSE:-1}"
 
-# WebKitGTK 6.0 默认启用 UI 进程沙箱，它按编译期路径 /usr/bin/bwrap 启动
-# xdg-dbus-proxy；容器里 /usr 只读且没有该路径，于是启动直接失败：
-#   Failed to start dbus proxy: Failed to spawn child process "/usr/bin/bwrap"
-# 第一轮验证先用上游提供的开关关掉沙箱，把后续链路（GTK4 数据、页面加载、绑定）
-# 先跑通；正式方案要么随包提供 bwrap 并做路径字节补丁（与 helper 同一手法），
-# 要么明确接受「玲珑容器内不再嵌套 WebKit 沙箱」——这是需要单独决策的安全取舍。
-export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
-
-# 无 a11y bus 时 GTK 会反复尝试连接并刷警告；验证不需要它。
+# 无法连接 a11y bus 时 GTK 会反复告警；验证不需要辅助功能。
 export GTK_A11Y=none
 
+# 逃生舱：若某台机器/某个发行版的容器里 bwrap 不可用，可显式关掉 WebKit 的 UI 进程
+# 沙箱再排查。默认保持沙箱开启（与宿主行为一致）。
+if [ "${DSH_SPIKE_NO_SANDBOX:-0}" = "1" ]; then
+  export WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1
+fi
+
 # 兜底超时：即使自动退出失效，也让包装脚本拿到控制权、打印报告后返回，
-# 避免又一次「进程挂住、ll-builder 永不返回、容器状态残留」。
+# 避免「进程挂住、ll-builder 永不返回、容器状态残留」。
 timeout -k 5 45 "$PREFIX/bin/dsh-v3-spike" "$@"
 status=$?
 

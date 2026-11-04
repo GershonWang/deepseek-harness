@@ -58,10 +58,11 @@ Wails v2 and v3 differ in module path, Linux graphics stack (GTK3/WebKit2GTK 4.1
 | WebKit helper path | The build byte-patches `libwebkitgtk-6.0.so.4` (`/usr/lib/x86_64-linux-gnu/webkitgtk-6.0` to `/tmp/dsh-webkit-6.0`), and the helpers measurably launch from that path inside the container |
 | Behaviour inside the container | Same as the host: origin `wails://localhost`, localStorage works, `Call.ByName` returns `pong:spike`, pre-ready events are dropped, and `--wails-draggable` is `drag` |
 | Graphics stack version | The package takes the build container's apt candidate: GTK 4.18.6 with **WebKitGTK 2.50.4**, while the host run used 2.52.5. The two distribution lines (deb12 and deb13) differ, so a real release must pin the target version |
-| WebKit UI process sandbox | Enabled by default, it starts xdg-dbus-proxy via the compiled-in `/usr/bin/bwrap`; `/usr` is read-only in the container and lacks that path, so startup fails. This round bypasses it with `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`; **the production choice is open**: ship bwrap and xdg-dbus-proxy with the same byte-path patch, or accept that the Linglong container no longer nests a WebKit sandbox |
+| WebKit UI process sandbox | Kept enabled: the package ships `bwrap 0.10.0` and `xdg-dbus-proxy`, and the build byte-patches `/usr/bin/bwrap` and `/usr/bin/xdg-dbus-proxy` in the `.so` to short `/tmp` paths as well. The sandbox measurably works inside the Linglong container (bwrap creates its namespace normally) |
+| Library resolution inside the sandbox | With the sandbox on, helpers run in bwrap's mount namespace and cannot read the container-level `ld.so.cache`, failing with `libwebkitgtk-6.0.so.4: cannot open shared object file`; the startup script sets `LD_LIBRARY_PATH` to the packaged lib directory and everything works. A real client needs the same |
 | Exit and cleanup | `ll-builder run` does not pass the caller's environment into the container, so automatic exit must be the default inside the package's wrapper script; a hard kill leaves `/run/user/<uid>/linglong/<hash>` and `box/<hash>` behind, which blocks later builds and runs until removed |
 
-In one line: packaging works, and the remaining decisions are the sandbox policy and the packaged WebKit version.
+In one line: both packaging and the sandbox policy are verified to work; what remains is pinning the packaged WebKit version.
 
 ## Running
 

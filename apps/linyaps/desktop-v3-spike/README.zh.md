@@ -58,10 +58,11 @@ v2 与 v3 的模块路径、Linux 图形栈（GTK3/WebKit2GTK 4.1 → GTK4/WebKi
 | WebKit helper 路径 | 打包时对 `libwebkitgtk-6.0.so.4` 做字节替换（`/usr/lib/x86_64-linux-gnu/webkitgtk-6.0` → `/tmp/dsh-webkit-6.0`），容器内实测 helper 确实从该路径启动 |
 | 容器内功能 | 与宿主一致：origin `wails://localhost`、localStorage 可读写、`Call.ByName` 返回 `pong:spike`、就绪前事件丢失、`--wails-draggable` 为 `drag` |
 | 图形栈版本 | 包内取构建容器的 apt 候选：GTK 4.18.6 + WebKitGTK **2.50.4**，而宿主验证用的是 2.52.5。两条发行线（deb12 / deb13）版本不同，正式发包需要固定目标版本 |
-| WebKit UI 沙箱 | 默认开启，按编译期路径 `/usr/bin/bwrap` 启动 xdg-dbus-proxy；容器内 `/usr` 只读且没有该路径，启动即失败。本轮用 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` 绕过，**正式方案需要决策**：随包提供 bwrap 与 xdg-dbus-proxy 并做路径字节补丁，或明确接受玲珑容器内不再嵌套 WebKit 沙箱 |
+| WebKit UI 沙箱 | 保持开启：包内提供 `bwrap 0.10.0` 与 `xdg-dbus-proxy`，并把 `.so` 里 `/usr/bin/bwrap`、`/usr/bin/xdg-dbus-proxy` 一并做等长替换到 `/tmp` 短路径。沙箱在玲珑容器内实测可用（bwrap 创建命名空间正常） |
+| 沙箱内的库解析 | 沙箱打开后 helper 跑在 bwrap 的挂载命名空间里，读不到容器级 `ld.so.cache`，报 `libwebkitgtk-6.0.so.4: cannot open shared object file`；启动脚本显式设置 `LD_LIBRARY_PATH` 指向包内 lib 目录后正常。正式客户端同样需要这一条 |
 | 退出与清理 | `ll-builder run` 不会把调用者环境变量带进容器，自动退出必须在包内包装脚本里默认开启；进程被强杀会残留 `/run/user/<uid>/linglong/<hash>` 与 `box/<hash>`，阻塞后续构建与运行，需先清理 |
 
-一句话：打包路径可行，剩余决策点是沙箱策略与包内 WebKit 版本。
+一句话：打包路径与沙箱策略都已验证可行，剩余的是包内 WebKit 版本固定。
 
 ## 运行方式
 

@@ -23,6 +23,11 @@ mkdir -p "${PREFIX}/bin" "${PREFIX}/lib/x86_64-linux-gnu"
 install -m755 "${STAGE}/bin/dsh-v3-spike" "${PREFIX}/bin/dsh-v3-spike"
 install -m755 "${STAGE}/linglong/run-spike.sh" "${PREFIX}/bin/run-spike"
 
+# 短路径清单必须随包安装：启动脚本按它建链接，.so 里的路径也是按它替换的，
+# 两边读同一个文件才不会漂移。
+install -Dm644 "${STAGE}/internal/packaging/short-paths.txt" \
+  "${PREFIX}/share/dsh-v3-spike/short-paths.txt"
+
 # WebKitGTK 6.0：解出 .so 并打补丁（见 patch-webkit-exec-path.sh 的说明）。
 WEBKIT_PKG=libwebkitgtk-6.0-4
 TMP=$(mktemp -d)

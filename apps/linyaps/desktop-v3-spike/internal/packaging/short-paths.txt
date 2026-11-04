@@ -1,0 +1,15 @@
+# 短路径单一来源：打包脚本据此对 libwebkitgtk-6.0.so.4 做等长字节替换，
+# 容器内启动脚本据此建同名符号链接。
+#
+# 为什么要单一来源：替换后的路径与运行期建链接的路径必须逐字一致，两边各写一遍
+# 就会产出「装得上、窗口起不来」的包，而构建期不会有任何报错。
+#
+# 约束：每个值都必须比被替换的原路径短（替换是等长覆盖 + NUL 填充），
+# 且不含空白。
+#
+# webkit：helper 进程目录（PKGLIBEXECDIR），原值 /usr/lib/x86_64-linux-gnu/webkitgtk-6.0
+# bwrap：WebKit UI 进程沙箱的 bubblewrap，原值 /usr/bin/bwrap
+# dbusproxy：沙箱内的 D-Bus 代理，原值 /usr/bin/xdg-dbus-proxy
+WEBKIT_EXEC=/tmp/dsh-webkit-6.0
+BWARP=/tmp/dsh-bwrap
+DBUS_PROXY=/tmp/dsh-dbusproxy
