@@ -46,6 +46,7 @@ libwebkitgtk-6.0-4|patched:lib/x86_64-linux-gnu/libwebkitgtk-6.0.so.4
 libjavascriptcoregtk-6.0-1|path:lib/x86_64-linux-gnu/libjavascriptcoregtk-6.0.so.1
 libgtk-4-1|path:lib/x86_64-linux-gnu/libgtk-4.so.1
 bubblewrap|path:bin/bwrap
+fcitx5-frontend-gtk4|path:lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/libim-fcitx5.so
 xdg-dbus-proxy|path:bin/xdg-dbus-proxy
 libglib2.0-0|base:基础层已提供 libglib-2.0（实测同上）
 ca-certificates|base:基础层已提供 /etc/ssl/certs/ca-certificates.crt（实测）

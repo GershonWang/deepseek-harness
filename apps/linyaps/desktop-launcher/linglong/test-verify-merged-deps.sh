@@ -53,6 +53,7 @@ healthy_prefix() {
   mkentity "$p" lib/x86_64-linux-gnu/libgtk-4.so.1
   mkentity "$p" bin/bwrap
   mkentity "$p" bin/xdg-dbus-proxy
+  mkentity "$p" lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules/libim-fcitx5.so
   mkentity "$p" bin/zip
   mkentity "$p" bin/git
   mkentity "$p" bin/git-lfs

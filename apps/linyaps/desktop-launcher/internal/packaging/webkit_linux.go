@@ -77,6 +77,31 @@ func ConfigureBundledRuntime() {
 	_ = os.Setenv("LD_LIBRARY_PATH", libs)
 }
 
+// ConfigureInputMethod 让 GTK4 找到包内的输入法模块。
+//
+// 背景：宿主用 fcitx5，GTK4 通过 im module（libim-fcitx5.so）接入。GTK 的大版本换了
+// 之后容器里没有 GTK4 版前端（base 只带 gtk2/gtk3），表现是「中文完全打不出来」，
+// 而 GTK_IM_MODULE/XMODIFIERS 看起来都正常——因此这条依赖与搜索路径都必须随包显式处理。
+//
+// GTK4 没有 immodules.cache，是按目录扫描的：除了编译期 libdir，还会扫描
+// $GTK_PATH/gtk-4.0/4.0.0/immodules。把包内库目录前置进 GTK_PATH 即可命中随包模块。
+// 必须在 GTK 初始化之前调用（main 的 application.New 之前），之后设置不生效。
+func ConfigureInputMethod() {
+	prefix := HarnessPrefix()
+	if prefix == "" {
+		return
+	}
+	libDir := filepath.Join(prefix, "lib", "x86_64-linux-gnu")
+	if _, err := os.Stat(filepath.Join(libDir, "gtk-4.0", "4.0.0", "immodules", "libim-fcitx5.so")); err != nil {
+		return // 开发态：模块在系统路径上，无需处理
+	}
+	path := libDir
+	if existing := os.Getenv("GTK_PATH"); existing != "" {
+		path += string(os.PathListSeparator) + existing
+	}
+	_ = os.Setenv("GTK_PATH", path)
+}
+
 // linkIfPresent 在短路径上建一个指向 target 的符号链接；target 不存在时跳过。
 //
 // 链接可能残留自旧包运行（包 id 变更或卸载后成悬空），因此每次先删除再重建，

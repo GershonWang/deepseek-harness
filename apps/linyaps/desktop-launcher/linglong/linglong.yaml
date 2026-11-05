@@ -34,6 +34,9 @@ buildext:
       # 由 launcher 启动时建 /tmp 短路径链接指向它们。
       - bubblewrap
       - xdg-dbus-proxy
+      # 中文输入：宿主 fcitx5 通过 GTK4 的 im module 接入。base 只带 gtk2/gtk3 前端，
+      # v3 换成 GTK4 后缺这个包表现为「中文完全打不出来」，而环境变量看起来一切正常。
+      - fcitx5-frontend-gtk4
       - libglib2.0-0
       # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
       # /usr 不随 layer 导出；因此文泉驿微米黑由 build 段从 .deb 里自行解出后随包
