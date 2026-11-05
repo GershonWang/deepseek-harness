@@ -75,12 +75,17 @@ buildext:
     # 只保留薄壳版所需：本包不含 Electron，任何 Electron 运行库都不该出现在这里——
     # 它们会把整条 apt 闭包（含 lib/gcc）带进产物层，换不来本包用得上的东西。
     build_depends:
-      - libwebkit2gtk-4.1-0
+      - libwebkitgtk-6.0-4
     depends:
-      - libwebkit2gtk-4.1-0
-      - libjavascriptcoregtk-4.1-0
-      - libgtk-3-0
+      - libwebkitgtk-6.0-4
+      - libjavascriptcoregtk-6.0-1
+      - libgtk-4-1
       - libglib2.0-0
+      # WebKitGTK 6.0 默认开启 UI 进程沙箱：bwrap 起沙箱、xdg-dbus-proxy 供沙箱内 D-Bus；
+      # fcitx5-frontend-gtk4 是中文输入所需的 GTK4 im module（base 只带 gtk2/gtk3 版）。
+      - bubblewrap
+      - xdg-dbus-proxy
+      - fcitx5-frontend-gtk4
       # 中文族**不在这里**（也不在任何 apt 清单里）：apt 装进来的字体在 /usr 下，而
       # /usr 不随 layer 导出；因此文泉驿微米黑由 install-shell-runtime.sh 从 .deb 里
       # 自行解出后随包，既不新增 build_depends，也不触碰 verify-container-deps.sh 的
