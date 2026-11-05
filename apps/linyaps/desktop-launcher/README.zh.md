@@ -154,13 +154,13 @@ pnpm run build
 
 # 2. 构建启动器（Wails v3；GTK4 + WebKitGTK 6.0）
 cd apps/linyaps/desktop-launcher
-make build          # 等价: go build -tags "production webkit2_41" -o dsh-desktop-launcher .
+make build          # 等价: go build -tags "production" -ldflags "-X .../internal/app.Version=<yaml version>" -o dsh-desktop-launcher .
 
 # 3. 运行（命中环境解析优先级 3）
 ./dsh-desktop-launcher
 ```
 
-> 仓库根的 `pnpm run dev:desktop` / `pnpm run build:desktop` 仍调用裸 `go run`/`go build`（不带 `-tags "production webkit2_41"`）；Wails 栈请用 `make build` 或 `linglong/prepare-offline.sh`。根脚本与上游同步，刻意不动。
+> 仓库根的 `pnpm run dev:desktop` / `pnpm run build:desktop` 仍调用裸 `go run`/`go build`（不带 `production` 标签，因此是调试版 runtime）；真实 Wails 栈请用 `make build` 或 `linglong/prepare-offline.sh`。根脚本与上游同步，刻意不动。
 
 ### 测试
 

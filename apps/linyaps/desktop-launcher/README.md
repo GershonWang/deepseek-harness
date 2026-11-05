@@ -154,13 +154,13 @@ pnpm run build
 
 # 2. 构建启动器（Wails v3；GTK4 + WebKitGTK 6.0）
 cd apps/linyaps/desktop-launcher
-make build          # 等价: go build -tags "production webkit2_41" -o dsh-desktop-launcher .
+make build          # 等价: go build -tags "production" -ldflags "-X .../internal/app.Version=<yaml version>" -o dsh-desktop-launcher .
 
 # 3. 运行（命中环境解析优先级 3）
 ./dsh-desktop-launcher
 ```
 
-> The root `pnpm run dev:desktop` / `pnpm run build:desktop` still call the plain `go run`/`go build` (no `-tags "production webkit2_41"`); for the Wails stack use `make build` or `linglong/prepare-offline.sh` instead. The root scripts are upstream-synced and intentionally left untouched.
+> The root `pnpm run dev:desktop` / `pnpm run build:desktop` still call the plain `go run`/`go build` without the `production` tag, so they serve the debug runtime; for the real Wails stack use `make build` or `linglong/prepare-offline.sh`. The root scripts are upstream-synced and intentionally left untouched.
 
 ### Testing
 
