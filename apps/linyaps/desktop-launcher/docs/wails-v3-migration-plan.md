@@ -1,6 +1,6 @@
 # Wails v3 迁移计划（desktop-launcher / desktop-dual）
 
-本计划依据 `apps/linyaps/desktop-v3-spike` 的真机与容器实测结论制定（该模块在分支 `feat/wails-v3-upgrade` 上，随本分支一起维护）。主分支 `linglong-dev` 保持 v2 可发布状态，迁移只在本分支进行。
+本计划依据验证模块 `apps/linyaps/desktop-v3-spike` 的真机与容器实测结论制定。该模块只用于可行性验证，迁移落地后已删除（含玲珑运行库证据文档）；需要复查时从本分支历史取回（删除前的最后一个提交是 `9805f4d693`）。主分支 `linglong-dev` 保持 v2 可发布状态，迁移只在本分支进行。
 
 ## 已由 spike 验证的前提
 
