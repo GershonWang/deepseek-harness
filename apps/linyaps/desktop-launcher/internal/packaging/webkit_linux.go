@@ -91,11 +91,16 @@ func ConfigureInputMethod() {
 	if prefix == "" {
 		return
 	}
-	libDir := filepath.Join(prefix, "lib", "x86_64-linux-gnu")
-	if _, err := os.Stat(filepath.Join(libDir, "gtk-4.0", "4.0.0", "immodules", "libim-fcitx5.so")); err != nil {
+	// 实测（GTK_DEBUG=modules）：GTK4 把 GTK_PATH 的每个条目当作「版本目录的父目录」，
+	// 即它会扫描 $GTK_PATH/4.0.0/immodules；而编译期内置路径是
+	// /usr/lib/x86_64-linux-gnu/gtk-4.0/4.0.0/immodules。两者对齐后，GTK_PATH 必须指向
+	// .../gtk-4.0，而不是 .../x86_64-linux-gnu——写成后者时 GTK 会去找
+	// .../x86_64-linux-gnu/4.0.0/immodules（不存在），模块静默不加载。
+	gtkRoot := filepath.Join(prefix, "lib", "x86_64-linux-gnu", "gtk-4.0")
+	if _, err := os.Stat(filepath.Join(gtkRoot, "4.0.0", "immodules", "libim-fcitx5.so")); err != nil {
 		return // 开发态：模块在系统路径上，无需处理
 	}
-	path := libDir
+	path := gtkRoot
 	if existing := os.Getenv("GTK_PATH"); existing != "" {
 		path += string(os.PathListSeparator) + existing
 	}
