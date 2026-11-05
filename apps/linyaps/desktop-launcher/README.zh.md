@@ -66,11 +66,16 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 ## 关窗行为
 
-设置了 `DSH_DESKTOP_HIDE_ON_CLOSE=1` 时，关闭窗口——自绘标题栏的 ✕（走 Wails `runtime.Quit`）或窗口管理器的关闭——会保存窗口几何、隐藏窗口，launcher 与它的 harness 子进程继续运行。该变量只有桌面切换器（`apps/linyaps/desktop-dual`）拉起 launcher 时才会注入。
+托盘由客户端**自己的进程**提供（Wails v3 的 `SystemTray`，见 `internal/app/tray.go`），不再依赖 `desktop-dual` 的独立切换器。关窗行为按以下优先级决定（`internal/app.ResolveCloseAction`）：
 
-唤回隐藏的窗口走本地 Unix socket `~/.cache/dsh-desktop/show.sock`：launcher 在该路径上监听，收到请求即取消最小化并显示窗口；切换器的左键与「显示」都连它，连不上就报错，而不是再拉起一个客户端。这里不能用信号：`SIGUSR1` 已被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起，launcher 根本收不到。
+1. `DSH_DESKTOP_CLOSE_QUITS=1`：关窗即退出，即使托盘可用（排障或刻意单窗口用法）；
+2. `DSH_DESKTOP_HIDE_ON_CLOSE=1`：隐藏窗口（dual 包的既有约定，保持兼容）；
+3. 托盘可用：隐藏窗口——托盘菜单「显示窗口」与左键单击都能把窗口叫回来；
+4. 其余（含托盘创建失败）：关窗即退出——藏起来的窗口没有第二个入口。
 
-没有该变量时 launcher 保持默认行为：关窗即结束进程——单独出包的 `web` 就是这样，它不带切换器也不带托盘。装了切换器的包里真正的退出是托盘「退出」，它停掉整棵进程组；关窗不会结束客户端，也没有任何「客户端仍在后台运行」的桌面通知。
+隐藏时 launcher 与 harness 子进程继续运行；真正退出走托盘菜单的「退出」，它先标记退出意图再销毁应用，由 `ServiceShutdown` 收尾 harness 子进程（「关窗隐藏」的钩子会放行退出意图，否则进程退不掉）。
+
+dual 包仍保留自己的切换器（负责在薄壳版与 Electron 版之间切换），`~/.cache/dsh-desktop/show.sock` 那条唤回通道在该包里继续生效。信号仍然不可用：`SIGUSR1` 被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起。
 
 ## 插件不兼容时的自动禁用与启动后提示
 

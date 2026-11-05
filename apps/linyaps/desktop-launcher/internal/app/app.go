@@ -191,6 +191,11 @@ type App struct {
 
 	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
 	closeAction CloseAction
+	// quitting 表示正在走程序化退出（托盘菜单「退出」等）：此时 WindowClosing 必须放行，
+	// 否则「关窗隐藏」的钩子会把退出也拦下来，进程再也退不掉。
+	quitting atomic.Bool
+	// quit 是注入的退出动作（main 里的 wailsApp.Quit）。
+	quit func()
 
 	// windowGone 在 OnShutdown 入口置位：那一刻 Wails 已经销毁窗口，此后窗口读不得
 	// （见 Shutdown）。信号路径据此跳过可选的窗口状态保存，不做一次注定读不到东西、
@@ -391,6 +396,45 @@ func (a *App) stopDoctor() {
 	}
 }
 
+// TrayLabels 返回托盘菜单文案（按当前壳语言渲染）。
+// @returns show - 显示窗口；quit - 退出。
+func (a *App) TrayLabels() (show, quit string) {
+	return a.t("tray.show"), a.t("tray.quit")
+}
+
+// SetQuit 注入真正的退出动作（v3 的 app.Quit）。
+// @param quit - 退出回调。
+func (a *App) SetQuit(quit func()) {
+	a.quit = quit
+}
+
+// QuitApp 走程序化退出：先标记退出意图，再销毁应用。
+//
+// 托盘菜单的「退出」与任何「确实要结束进程」的路径都应该走它，而不是直接关窗——
+// 关窗会被 BeforeClose 当作「隐藏」拦下。
+func (a *App) QuitApp() {
+	a.quitting.Store(true)
+	if a.quit != nil {
+		a.quit()
+	}
+}
+
+// CloseAction 返回当前关窗行为。
+// @returns 关窗行为。
+func (a *App) CloseAction() CloseAction {
+	return a.closeAction
+}
+
+// SetCloseAction 设置关窗行为。
+//
+// 为什么不在构造期定死：最终语义取决于托盘是否创建成功（见 ResolveCloseAction），
+// 而托盘要等窗口建好之后才能创建。只允许在 app.Run 之前调用——closeAction 之后会被
+// WindowClosing 钩子读取，运行期改写会引入数据竞争。
+// @param action - 关窗行为。
+func (a *App) SetCloseAction(action CloseAction) {
+	a.closeAction = action
+}
+
 // Bind 注入 v3 的运行时入口（应用实例与主窗口）。
 //
 // v2 通过 OnStartup 的 ctx 做同样的事；v3 的运行时是一组对象方法，先绑定再运行。
@@ -510,6 +554,9 @@ func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) 
 // @returns true 表示拦下这次关闭（只隐藏窗口）。
 func (a *App) BeforeClose() bool {
 	a.saveWindowState()
+	if a.quitting.Load() {
+		return false // 程序化退出：放行，不再隐藏
+	}
 	if a.closeAction != CloseHides {
 		a.logf("close: 关窗即退出（该部署未启用隐藏）")
 		return false

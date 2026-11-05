@@ -42,31 +42,56 @@ func TestHideOnCloseEnvNameIsPinned(t *testing.T) {
 	}
 }
 
-// TestCloseActionFromEnv 覆盖解析：只有切换器注入的那一个值会启用隐藏，其余一切取值
-// 都必须保持「关窗即退出」——本进程没有托盘，藏起来的窗口没有第二个入口能叫回来。
-func TestCloseActionFromEnv(t *testing.T) {
+// TestResolveCloseAction 覆盖关窗语义矩阵。
+//
+// 这组取值直接决定「窗口关掉之后用户还能不能找回来」：托盘可用时才允许隐藏，
+// 否则一旦隐藏就没有第二个入口。强制退出的开关必须在最前面，便于排障。
+func TestResolveCloseAction(t *testing.T) {
 	cases := []struct {
-		name string
-		set  bool
-		val  string
-		want CloseAction
+		name        string
+		hideOnClose bool
+		forceQuit   bool
+		tray        bool
+		want        CloseAction
 	}{
-		{"变量缺失", false, "", CloseQuits},
-		{"空串", true, "", CloseQuits},
-		{"切换器注入的值", true, "1", CloseHides},
-		{"其它非零值不启用", true, "true", CloseQuits},
-		{"0 不启用", true, "0", CloseQuits},
+		{"默认 + 托盘可用 → 隐藏", false, false, true, CloseHides},
+		{"默认 + 无托盘 → 退出", false, false, false, CloseQuits},
+		{"显式隐藏（dual 约定）", true, false, false, CloseHides},
+		{"强制退出优先于托盘", false, true, true, CloseQuits},
+		{"强制退出优先于显式隐藏", true, true, true, CloseQuits},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if c.set {
-				t.Setenv(HideOnCloseEnv, c.val)
-			} else {
-				t.Setenv(HideOnCloseEnv, "")
-				os.Unsetenv(HideOnCloseEnv)
+			if got := ResolveCloseAction(c.hideOnClose, c.forceQuit, c.tray); got != c.want {
+				t.Fatalf("ResolveCloseAction(%v,%v,%v) = %v，期望 %v",
+					c.hideOnClose, c.forceQuit, c.tray, got, c.want)
 			}
-			if got := CloseActionFromEnv(); got != c.want {
-				t.Fatalf("CloseActionFromEnv() = %v，期望 %v", got, c.want)
+		})
+	}
+}
+
+// TestCloseActionFromEnv 覆盖环境变量解析：返回值里的 bool 表示「环境变量是否显式指定」。
+func TestCloseActionFromEnv(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     map[string]string
+		want    CloseAction
+		wantSet bool
+	}{
+		{"变量缺失", nil, CloseQuits, false},
+		{"隐藏", map[string]string{HideOnCloseEnv: "1"}, CloseHides, true},
+		{"强制退出", map[string]string{CloseQuitsEnv: "1"}, CloseQuits, true},
+		{"两者都给时退出优先", map[string]string{HideOnCloseEnv: "1", CloseQuitsEnv: "1"}, CloseQuits, true},
+		{"其它取值不启用", map[string]string{HideOnCloseEnv: "true"}, CloseQuits, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for k, v := range c.env {
+				t.Setenv(k, v)
+			}
+			got, set := CloseActionFromEnv()
+			if got != c.want || set != c.wantSet {
+				t.Fatalf("CloseActionFromEnv() = (%v,%v)，期望 (%v,%v)", got, set, c.want, c.wantSet)
 			}
 		})
 	}
@@ -74,6 +99,19 @@ func TestCloseActionFromEnv(t *testing.T) {
 
 // TestBeforeCloseHidesOnlyWhenAsked 覆盖关窗两条分支：CloseHides 下拦下这次关闭并
 // 隐藏窗口（返回 true 才能取消 Wails 的 Quit），CloseQuits 下放行且不碰窗口。
+// 程序化退出（托盘菜单「退出」）必须绕过「关窗隐藏」，否则进程退不掉。
+func TestBeforeCloseAllowsProgrammaticQuit(t *testing.T) {
+	calls := stubWindowActions(t)
+	a := &App{closeAction: CloseHides}
+	a.quitting.Store(true)
+	if a.BeforeClose() {
+		t.Fatal("退出意图下必须放行关闭，否则进程无法退出")
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("退出意图下不应再隐藏窗口，实际调用 = %v", got)
+	}
+}
+
 func TestBeforeCloseHidesOnlyWhenAsked(t *testing.T) {
 	calls := stubWindowActions(t)
 

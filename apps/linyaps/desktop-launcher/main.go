@@ -37,6 +37,12 @@ import (
 //go:embed frontend/index.html frontend/boot.js frontend/v2shim.js frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor
 var assets embed.FS
 
+// 托盘图标。用 64×64：托盘图标在 HiDPI 会话下会被放大，32×32 会发虚；
+// 与包内 hicolor 的 64x64 是同一份资源。
+//
+//go:embed icons/hicolor/64x64/apps/dsh-desktop.png
+var trayIcon []byte
+
 // main 启动薄壳客户端窗口。
 func main() {
 	runClient()
@@ -106,7 +112,8 @@ func runClient() {
 			log.Printf("端口未落盘: %v", err)
 		}
 	}
-	controller := app.New(resolved, home, app.ExternalConfigFilePath(), app.CloseActionFromEnv())
+	// 关窗语义要等托盘创建结果才能定（见 ResolveCloseAction），这里先给保守值。
+	controller := app.New(resolved, home, app.ExternalConfigFilePath(), app.CloseQuits)
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	// 走 ShutdownFromSignal 而不是 Shutdown：这条路进来时窗口通常还活着，可以补存
@@ -185,6 +192,26 @@ func runClient() {
 
 	// 控制器需要 app/window 才能发事件、读写窗口几何；v2 用 OnStartup 的 ctx 承担同一职责。
 	controller.Bind(wailsApp, window)
+
+	// 进程内托盘：v3 把 SystemTray 做进了框架，单客户端也能常驻，不再需要 dual 的
+	// 独立切换器与 Unix socket 唤回。
+	controller.SetQuit(wailsApp.Quit)
+	showLabel, quitLabel := controller.TrayLabels()
+	trayOK := app.SetupTray(wailsApp, window, app.TrayConfig{
+		Icon:      trayIcon,
+		Label:     "DeepSeek Harness",
+		ShowLabel: showLabel,
+		QuitLabel: quitLabel,
+	}, controller.QuitApp)
+
+	// 关窗语义：托盘可用则关窗隐藏（有第二个入口叫回来），否则关窗即退出；
+	// DSH_DESKTOP_CLOSE_QUITS=1 强制退出，DSH_DESKTOP_HIDE_ON_CLOSE=1 保持 dual 兼容。
+	controller.SetCloseAction(app.ResolveCloseAction(
+		os.Getenv(app.HideOnCloseEnv) == "1",
+		os.Getenv(app.CloseQuitsEnv) == "1",
+		trayOK,
+	))
+	log.Printf("托盘: 可用=%v，关窗行为=%v", trayOK, controller.CloseAction())
 
 	// 运行时观测：v3 的窗口事件是唯一能确认「前端真的起来了」的信号。
 	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {

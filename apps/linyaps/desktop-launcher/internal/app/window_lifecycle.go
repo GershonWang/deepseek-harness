@@ -58,16 +58,47 @@ func bindWindowOps(w application.Window) {
 // 至少会有一个模块的测试失败，而不是两边悄悄错开、表现为「托盘点了没反应」。
 const HideOnCloseEnv = "DSH_DESKTOP_HIDE_ON_CLOSE"
 
-// CloseActionFromEnv 解析关窗行为：只有切换器注入的那一个值会启用隐藏。
+// CloseQuitsEnv 强制「关窗即退出」，即使托盘可用。
 //
-// 其余一切取值（变量缺失、空串、别的值）都保持「关窗即退出」——本进程没有单实例机制，
-// 也没有自己的托盘，藏起来的窗口没有第二个入口能叫回来。
+// 存在理由：托盘常驻对大多数用户是期望行为，但排障或刻意单窗口使用时需要让关窗
+// 真的结束进程，否则用户会以为窗口关掉了、进程却还在。
+const CloseQuitsEnv = "DSH_DESKTOP_CLOSE_QUITS"
+
+// ResolveCloseAction 依据环境变量与托盘可用性决定关窗行为。
+//
+// 优先级：
+//  1. DSH_DESKTOP_CLOSE_QUITS=1：强制退出（排障/单窗口用法）；
+//  2. DSH_DESKTOP_HIDE_ON_CLOSE=1：隐藏窗口（dual 包的既有约定，保持兼容）；
+//  3. 托盘可用：隐藏窗口——有托盘就有第二个入口把窗口叫回来；
+//  4. 其余（含托盘创建失败）：关窗即退出——藏起来的窗口没有入口，比直接退出更糟。
+//
+// @param hideOnClose - DSH_DESKTOP_HIDE_ON_CLOSE 是否为 "1"。
+// @param forceQuit - DSH_DESKTOP_CLOSE_QUITS 是否为 "1"。
+// @param trayAvailable - 托盘是否创建成功。
 // @returns 关窗行为。
-func CloseActionFromEnv() CloseAction {
-	if os.Getenv(HideOnCloseEnv) == "1" {
+func ResolveCloseAction(hideOnClose, forceQuit, trayAvailable bool) CloseAction {
+	if forceQuit {
+		return CloseQuits
+	}
+	if hideOnClose || trayAvailable {
 		return CloseHides
 	}
 	return CloseQuits
+}
+
+// CloseActionFromEnv 解析显式的环境变量覆盖（不含托盘可用性这一维）。
+//
+// 调用方在托盘创建完成后用 ResolveCloseAction 合成最终行为；保留本函数是为了让
+// 「环境变量怎么解析」这件事能被单独断言。
+// @returns 环境变量给出的覆盖：显式退出、显式隐藏，或未指定。
+func CloseActionFromEnv() (CloseAction, bool) {
+	if os.Getenv(CloseQuitsEnv) == "1" {
+		return CloseQuits, true
+	}
+	if os.Getenv(HideOnCloseEnv) == "1" {
+		return CloseHides, true
+	}
+	return CloseQuits, false
 }
 
 // ShowWindow 把窗口显示出来并取消最小化，是「关窗后唤回」的落点。

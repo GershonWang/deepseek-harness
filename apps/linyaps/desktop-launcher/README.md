@@ -66,11 +66,16 @@ When the plugin file cannot be written, or an in-flight harness build does not i
 
 ## Window close behavior
 
-With `DSH_DESKTOP_HIDE_ON_CLOSE=1` set, closing the window — the custom title bar's ✕, which goes through Wails `runtime.Quit`, or the window manager's close — saves the window geometry, hides the window, and leaves the launcher and its harness child running. Only the desktop switcher (`apps/linyaps/desktop-dual`) injects that variable when it starts the launcher.
+The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see `internal/app/tray.go`), so the launcher no longer depends on the separate switcher in `desktop-dual`. The close behaviour is resolved by `internal/app.ResolveCloseAction` in this order:
 
-The switcher brings a hidden window back over a local Unix socket at `~/.cache/dsh-desktop/show.sock`: the launcher listens there and, on a request, unminimizes and shows the window. The switcher's left click and its Show entry both connect to it; if that connection fails the switcher reports the error instead of starting another client. A signal cannot carry this request, because `SIGUSR1` is claimed by WebKit's JavaScriptCore for GC thread suspension, so the launcher never receives it.
+1. `DSH_DESKTOP_CLOSE_QUITS=1`: closing quits, even with a working tray (troubleshooting or deliberate single-window use);
+2. `DSH_DESKTOP_HIDE_ON_CLOSE=1`: hide the window (the existing dual-package convention, kept for compatibility);
+3. a working tray: hide the window, because both the tray menu entry and a left click can bring it back;
+4. everything else, including a failed tray: closing quits, since a hidden window would have no second entrance.
 
-Without the variable the launcher keeps its default behavior, where closing the window ends it. That is what the standalone `web` package does, since it ships neither switcher nor tray. In the packages that install the switcher, the real exit is the tray's Quit, which stops the whole process group; closing the window does not end the client, and no desktop notification announces that it still runs.
+While hidden, the launcher and its harness child keep running. The real exit is the tray's Quit entry: it marks the quit intent and then destroys the application, so `ServiceShutdown` tears the harness child down (the hide-on-close hook lets the quit intent through, otherwise the process could never exit).
+
+The dual package keeps its own switcher, which switches between the thin shell and the Electron client, and the `~/.cache/dsh-desktop/show.sock` wake channel still applies there. A signal cannot carry that request: `SIGUSR1` is claimed by WebKit's JavaScriptCore for GC thread suspension.
 
 ## Auto-disabling incompatible plugins and the post-startup notice
 
