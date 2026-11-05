@@ -75,6 +75,8 @@ The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see
 
 While hidden, the launcher and its harness child keep running. The real exit is the tray's Quit entry: it marks the quit intent and then destroys the application, so `ServiceShutdown` tears the harness child down (the hide-on-close hook lets the quit intent through, otherwise the process could never exit).
 
+Starting the client again — for example clicking its icon while it runs — does not open a second window: Wails' single-instance lock detects the running process over the session bus, hands it the request, and the existing window is shown and focused while the new process exits. That lock is the first thing `main` does, before any user-state initialisation, so a second launch cannot rewrite the remembered port or the toolchain links.
+
 The dual package keeps its own switcher, which switches between the thin shell and the Electron client, and the `~/.cache/dsh-desktop/show.sock` wake channel still applies there. A signal cannot carry that request: `SIGUSR1` is claimed by WebKit's JavaScriptCore for GC thread suspension.
 
 ## Auto-disabling incompatible plugins and the post-startup notice
@@ -125,7 +127,8 @@ Development infers the repo root from CWD rather than the executable path, becau
 | `DSH_DESKTOP_DMABUF_RENDERER` | unset | `1` keeps webkit2gtk's hardware DMABUF path, skipping the launcher's shared-memory fallback (see Known issues) |
 | `DSH_DESKTOP_SHM_RENDERER` | unset | `1` forces shared-memory buffer transport on any machine (`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`), for a machine that shows the flicker even though the trigger does not match (no NVIDIA render node) and should keep accelerated compositing on (see Known issues) |
 | `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | unset | `1` turns accelerated compositing off entirely (`WEBKIT_DISABLE_COMPOSITING_MODE=1`), for a machine where the shared-memory transport still corrupts the web area (see Known issues) |
-| `DSH_DESKTOP_HIDE_ON_CLOSE` | unset | `1` makes closing the window hide it and keep the launcher and its harness child running; the desktop switcher sets it, so a directly started launcher leaves it unset |
+| `DSH_DESKTOP_HIDE_ON_CLOSE` | unset | `1` keeps the dual-package convention: closing the window hides it and leaves the launcher and its harness child running. With a working tray this is already the default (see Window close behavior) |
+| `DSH_DESKTOP_CLOSE_QUITS` | unset | `1` makes closing the window quit even when the tray is available, for troubleshooting or deliberate single-window use |
 | `DSH_HOST_ROOTFS` | `/run/host/rootfs` when that mount exists | Written for the harness child process, not read by the launcher: the sandbox's read-only mount of the host root, which together with the next variable declares the host-escape channel. An existing value is never overwritten, so an empty one disables the channel |
 | `DSH_HOST_LAUNCH` | `systemd-run` when that forwarder resolves on `PATH` | Written for the harness child process, not read by the launcher: the forwarder that starts a process on the host, which is what lets the Open In menu offer host applications ([rationale](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.md)) |
 

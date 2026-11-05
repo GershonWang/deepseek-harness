@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -51,6 +52,37 @@ func main() {
 // runClient 启动客户端窗口：内嵌 dsh web 的 Go + Wails 薄壳客户端。
 func runClient() {
 	home, _ := os.UserHomeDir()
+
+	// 单实例闸门：必须在任何「写用户状态」的初始化之前。
+	//
+	// Wails 在 application.New 里抢单实例锁：抢不到即视为第二实例，通知首实例后
+	// os.Exit。以前这个调用排在工具链迁移、端口落盘之后，用户再点一次图标时第二个
+	// 进程会先把配置改写一遍再退出（端口被改成新值，下次启动就换了 origin）。
+	// 因此把它提到最前面；它之后的所有初始化都只属于首实例。
+	//
+	// 锁在会话 D-Bus 上（见 Wails 的 single_instance_linux.go），玲珑容器共享会话总线，
+	// 所以跨容器启动也能被识别。
+	var present atomic.Value // func()
+	wailsApp := application.New(application.Options{
+		Name:        "DeepSeek Harness",
+		Description: "DeepSeek Harness 桌面客户端",
+		// BundledAssetFileServer 额外提供 /wails/runtime.js：静态壳没有打包器，
+		// 前端以 ES module 方式导入它来初始化 runtime（拖拽依赖该初始化）。
+		Assets: application.AssetOptions{
+			Handler: application.BundledAssetFileServer(assets),
+		},
+		Linux: application.LinuxOptions{ProgramName: "dsh-desktop"},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.deepseek.dsh-desktop",
+			// 第二实例被拦下时，把已有窗口叫到前面——这正是用户点图标期望的结果。
+			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+				if f, ok := present.Load().(func()); ok && f != nil {
+					f()
+				}
+			},
+			ExitCode: 0,
+		},
+	})
 	// 改名工具的历史安装先搬到新 ID，再走下面的软链自愈：否则旧 ID 名下的目录与
 	// current 软链会成为新清单里查不到的孤儿，用户既看不到也用不上那份安装。
 	// 迁移幂等且逐项留痕，失败不拦启动。
@@ -114,6 +146,8 @@ func runClient() {
 	}
 	// 关窗语义要等托盘创建结果才能定（见 ResolveCloseAction），这里先给保守值。
 	controller := app.New(resolved, home, app.ExternalConfigFilePath(), app.CloseQuits)
+	// 服务在 Run 之前注册即可；v2 的 Bind 列表在这里就是 Services。
+	wailsApp.RegisterService(application.NewService(controller))
 
 	// 外部终止（SIGTERM/SIGINT，如桌面管理器退出）时停 harness，避免子进程残留。
 	// 走 ShutdownFromSignal 而不是 Shutdown：这条路进来时窗口通常还活着，可以补存
@@ -153,19 +187,6 @@ func runClient() {
 	// 系统主题，只能沿用前端上次回推的值（见 app.FirstFrameBackground）。
 	frameR, frameG, frameB := app.FirstFrameBackground(cfg.Theme)
 
-	wailsApp := application.New(application.Options{
-		Name:        "DeepSeek Harness",
-		Description: "DeepSeek Harness 桌面客户端",
-		// 服务在 Run 之前注册即可；v2 的 Bind 列表在这里就是 Services。
-		Services: []application.Service{application.NewService(controller)},
-		// BundledAssetFileServer 额外提供 /wails/runtime.js：静态壳没有打包器，
-		// 前端以 ES module 方式导入它来初始化 runtime（拖拽依赖该初始化）。
-		Assets: application.AssetOptions{
-			Handler: application.BundledAssetFileServer(assets),
-		},
-		Linux: application.LinuxOptions{ProgramName: "dsh-desktop"},
-	})
-
 	// 无边框窗口：自绘标题栏（frontend/#titlebar）承载品牌/按钮/窗口控制，
 	// 通过 --wails-draggable 拖拽、边缘自动 resize。
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -192,6 +213,8 @@ func runClient() {
 
 	// 控制器需要 app/window 才能发事件、读写窗口几何；v2 用 OnStartup 的 ctx 承担同一职责。
 	controller.Bind(wailsApp, window)
+	// 第二实例被拦下时把窗口叫回来（此时窗口才存在）。
+	present.Store(controller.PresentWindow)
 
 	// 进程内托盘：v3 把 SystemTray 做进了框架，单客户端也能常驻，不再需要 dual 的
 	// 独立切换器与 Unix socket 唤回。

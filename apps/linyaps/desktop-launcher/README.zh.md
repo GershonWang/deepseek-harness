@@ -75,6 +75,8 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 隐藏时 launcher 与 harness 子进程继续运行；真正退出走托盘菜单的「退出」，它先标记退出意图再销毁应用，由 `ServiceShutdown` 收尾 harness 子进程（「关窗隐藏」的钩子会放行退出意图，否则进程退不掉）。
 
+再次启动客户端（例如运行中点桌面图标）不会再开第二个窗口：Wails 的单实例锁在会话总线上识别到已在运行的进程，把请求转交给它并以退出码 0 结束新进程，已有窗口被显示并聚焦。这个锁是 `main` 做的第一件事，排在所有写用户状态的初始化之前——否则第二个进程会先把端口记忆、工具链软链改写一遍再退出。
+
 dual 包仍保留自己的切换器（负责在薄壳版与 Electron 版之间切换），`~/.cache/dsh-desktop/show.sock` 那条唤回通道在该包里继续生效。信号仍然不可用：`SIGUSR1` 被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起。
 
 ## 插件不兼容时的自动禁用与启动后提示
@@ -125,7 +127,8 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 保留 webkit2gtk 的硬件 DMABUF 路径，跳过 launcher 的共享内存回退（见已知事项） |
 | `DSH_DESKTOP_SHM_RENDERER` | 未设 | `1` 在任何机器上强制共享内存缓冲传输（`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`），供判据命不中（机器上没有 NVIDIA 渲染节点）却仍然闪烁、又不愿放弃加速合成的机器使用（见已知事项） |
 | `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于改用共享内存传输后 web 区域仍然花屏的机器（见已知事项） |
-| `DSH_DESKTOP_HIDE_ON_CLOSE` | 未设 | 为 `1` 时关窗只隐藏窗口，launcher 与 harness 子进程继续运行；由桌面切换器注入，直接启动的 launcher 不会设置它 |
+| `DSH_DESKTOP_HIDE_ON_CLOSE` | 未设 | 为 `1` 时保持 dual 包的既有约定：关窗隐藏、launcher 与 harness 子进程继续运行；托盘可用时这已经是默认行为（见「关窗行为」） |
+| `DSH_DESKTOP_CLOSE_QUITS` | 未设 | 为 `1` 时关窗即退出，即使托盘可用；用于排障或刻意单窗口使用 |
 | `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
 | `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
 

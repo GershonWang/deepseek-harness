@@ -20,6 +20,7 @@
 | 5. 权限与设置 | ✅ 权限随阶段 1 完成（v3 内置 `Permissions`）；设置迁到 `AppConfig`，由 `boot.js` 重定向 `dsh-desktop.*` 键 |
 | 6. 打包 | ✅ 脚本与清单改到 GTK4/WebKitGTK 6.0（四路径补丁、bwrap、`LD_LIBRARY_PATH`）；打包脚本自测全部通过，待真机整包构建 |
 | 2、3 | 阶段 3 主体已随阶段 1 完成；阶段 2 的窗口几何/唤回/对话框行为待真机回归 |
+| 单实例 | ✅ 已实现：用 v3 `SingleInstance`（会话 D-Bus 上的锁）作为 `main` 的第一道闸门，重复启动只唤回已有窗口，不会重写端口/工具链状态 |
 | 托盘合进程 | ✅ 已决策并实现：用 v3 `SystemTray` 在 launcher 进程内建托盘，关窗隐藏与唤回不再依赖 dual 的切换器与 Unix socket；`DSH_DESKTOP_HIDE_ON_CLOSE` 保留兼容，新增 `DSH_DESKTOP_CLOSE_QUITS=1` 强制退出 |
 
 ## 阶段划分与验收

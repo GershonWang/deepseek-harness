@@ -101,6 +101,21 @@ func CloseActionFromEnv() (CloseAction, bool) {
 	return CloseQuits, false
 }
 
+// PresentWindow 把窗口叫到前面：先取消最小化再显示，最后请求聚焦。
+//
+// 单实例的第二进程被拦下、以及托盘左键点击，都走这里——它们要的是同一件事，
+// 没必要各自拼一遍窗口动作。
+func (a *App) PresentWindow() {
+	if !a.ready() {
+		return
+	}
+	windowUnminimise()
+	windowShow()
+	if a.window != nil {
+		a.window.Focus()
+	}
+}
+
 // ShowWindow 把窗口显示出来并取消最小化，是「关窗后唤回」的落点。
 //
 // 窗口尚未就绪时（ServiceStartup 还没跑过，showCtx 仍为 nil）静默返回：切换器可以在拉起
