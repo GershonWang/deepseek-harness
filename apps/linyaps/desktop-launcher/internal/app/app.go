@@ -397,9 +397,9 @@ func (a *App) stopDoctor() {
 }
 
 // TrayLabels 返回托盘菜单文案（按当前壳语言渲染）。
-// @returns show - 显示窗口；quit - 退出。
-func (a *App) TrayLabels() (show, quit string) {
-	return a.t("tray.show"), a.t("tray.quit")
+// @returns show - 显示窗口；about - 关于；quit - 退出。
+func (a *App) TrayLabels() (show, about, quit string) {
+	return a.t("tray.show"), a.t("tray.about"), a.t("tray.quit")
 }
 
 // SetQuit 注入真正的退出动作（v3 的 app.Quit）。

@@ -66,7 +66,7 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 ## 关窗行为
 
-托盘由客户端**自己的进程**提供（Wails v3 的 `SystemTray`，见 `internal/app/tray.go`），不再依赖 `desktop-dual` 的独立切换器。关窗行为按以下优先级决定（`internal/app.ResolveCloseAction`）：
+托盘由客户端**自己的进程**提供（Wails v3 的 `SystemTray`，见 `internal/app/tray.go`），菜单为「显示窗口 / 关于 / 退出」，不再依赖 `desktop-dual` 的独立切换器。关窗行为按以下优先级决定（`internal/app.ResolveCloseAction`）：
 
 1. `DSH_DESKTOP_CLOSE_QUITS=1`：关窗即退出，即使托盘可用（排障或刻意单窗口用法）；
 2. `DSH_DESKTOP_HIDE_ON_CLOSE=1`：隐藏窗口（dual 包的既有约定，保持兼容）；
@@ -74,6 +74,8 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 4. 其余（含托盘创建失败）：关窗即退出——藏起来的窗口没有第二个入口。
 
 隐藏时 launcher 与 harness 子进程继续运行；真正退出走托盘菜单的「退出」，它先标记退出意图再销毁应用，由 `ServiceShutdown` 收尾 harness 子进程（「关窗隐藏」的钩子会放行退出意图，否则进程退不掉）。
+
+「关于」对话框展示桌面客户端版本（构建时从 `linglong/linglong.yaml` 注入）、包内 DSH 运行时版本、玲珑包 ID、封装署名与两个仓库地址，并有一个按钮用系统浏览器打开项目主页。
 
 再次启动客户端（例如运行中点桌面图标）不会再开第二个窗口：Wails 的单实例锁在会话总线上识别到已在运行的进程，把请求转交给它并以退出码 0 结束新进程，已有窗口被显示并聚焦。这个锁是 `main` 做的第一件事，排在所有写用户状态的初始化之前——否则第二个进程会先把端口记忆、工具链软链改写一遍再退出。
 

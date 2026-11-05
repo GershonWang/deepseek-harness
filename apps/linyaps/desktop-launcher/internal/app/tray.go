@@ -20,9 +20,12 @@ type TrayConfig struct {
 	Icon []byte
 	// Label 是托盘提示文字，也是部分桌面环境下显示的名称。
 	Label string
-	// ShowLabel / QuitLabel 是菜单文案，由调用方按当前语言提供。
-	ShowLabel string
-	QuitLabel string
+	// ShowLabel / AboutLabel / QuitLabel 是菜单文案，由调用方按当前语言提供。
+	ShowLabel  string
+	AboutLabel string
+	QuitLabel  string
+	// OnAbout 是「关于」菜单项的动作。
+	OnAbout func()
 }
 
 // SetupTray 创建系统托盘并挂上菜单，返回是否创建成功。
@@ -59,6 +62,11 @@ func SetupTray(app *application.App, window application.Window, cfg TrayConfig, 
 	menu.Add(cfg.ShowLabel).OnClick(func(*application.Context) {
 		window.Show()
 		window.Focus()
+	})
+	menu.Add(cfg.AboutLabel).OnClick(func(*application.Context) {
+		if cfg.OnAbout != nil {
+			cfg.OnAbout()
+		}
 	})
 	menu.AddSeparator()
 	menu.Add(cfg.QuitLabel).OnClick(func(*application.Context) {

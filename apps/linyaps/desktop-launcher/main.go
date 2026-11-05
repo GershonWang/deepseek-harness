@@ -219,12 +219,14 @@ func runClient() {
 	// 进程内托盘：v3 把 SystemTray 做进了框架，单客户端也能常驻，不再需要 dual 的
 	// 独立切换器与 Unix socket 唤回。
 	controller.SetQuit(wailsApp.Quit)
-	showLabel, quitLabel := controller.TrayLabels()
+	showLabel, aboutLabel, quitLabel := controller.TrayLabels()
 	trayOK := app.SetupTray(wailsApp, window, app.TrayConfig{
-		Icon:      trayIcon,
-		Label:     "DeepSeek Harness",
-		ShowLabel: showLabel,
-		QuitLabel: quitLabel,
+		Icon:       trayIcon,
+		Label:      "DeepSeek Harness",
+		ShowLabel:  showLabel,
+		AboutLabel: aboutLabel,
+		QuitLabel:  quitLabel,
+		OnAbout:    controller.ShowAbout,
 	}, controller.QuitApp)
 
 	// 关窗语义：托盘可用则关窗隐藏（有第二个入口叫回来），否则关窗即退出；

@@ -4,14 +4,18 @@
 
 GO       ?= go
 TAGS     := production
+# 版本号单一来源是 linglong/linglong.yaml；注入 -X 后「关于」才能显示真实版本，
+# 而不是 dev。prepare-offline.sh 的构建行用同样的取值。
+VERSION  ?= $(shell sed -n 's/^  version: //p' linglong/linglong.yaml | head -1)
 BIN      := dsh-desktop-launcher
+MODULE   := github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher
 # 仓库根：doctor 的 vitest 由仓库根的 pnpm install 提供（doctor 自身不装 vitest）。
 REPO_ROOT := $(abspath ../../..)
 
 .PHONY: build test vet fmt check clean
 
 build:
-	CGO_ENABLED=1 $(GO) build -tags "$(TAGS)" -o $(BIN) .
+	CGO_ENABLED=1 $(GO) build -tags "$(TAGS)" -ldflags "-X $(MODULE)/internal/app.Version=$(VERSION)" -o $(BIN) .
 
 # test 与 vet 都带 $(TAGS)：cgo 需要链接 GTK4/WebKitGTK 6.0 的开发包
 # （libgtk-4-dev、libwebkitgtk-6.0-dev），否则这两个目标建不起来。

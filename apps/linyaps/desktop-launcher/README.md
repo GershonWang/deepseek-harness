@@ -66,7 +66,7 @@ When the plugin file cannot be written, or an in-flight harness build does not i
 
 ## Window close behavior
 
-The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see `internal/app/tray.go`), so the launcher no longer depends on the separate switcher in `desktop-dual`. The close behaviour is resolved by `internal/app.ResolveCloseAction` in this order:
+The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see `internal/app/tray.go`); its menu offers Show window, About and Quit, so the launcher no longer depends on the separate switcher in `desktop-dual`. The close behaviour is resolved by `internal/app.ResolveCloseAction` in this order:
 
 1. `DSH_DESKTOP_CLOSE_QUITS=1`: closing quits, even with a working tray (troubleshooting or deliberate single-window use);
 2. `DSH_DESKTOP_HIDE_ON_CLOSE=1`: hide the window (the existing dual-package convention, kept for compatibility);
@@ -74,6 +74,8 @@ The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see
 4. everything else, including a failed tray: closing quits, since a hidden window would have no second entrance.
 
 While hidden, the launcher and its harness child keep running. The real exit is the tray's Quit entry: it marks the quit intent and then destroys the application, so `ServiceShutdown` tears the harness child down (the hide-on-close hook lets the quit intent through, otherwise the process could never exit).
+
+The About dialog shows the desktop client version (injected at build time from `linglong/linglong.yaml`), the bundled DSH runtime version, the Linglong package ID, the packager, and both repository URLs, with a button that opens the project homepage in the system browser.
 
 Starting the client again — for example clicking its icon while it runs — does not open a second window: Wails' single-instance lock detects the running process over the session bus, hands it the request, and the existing window is shown and focused while the new process exits. That lock is the first thing `main` does, before any user-state initialisation, so a second launch cannot rewrite the remembered port or the toolchain links.
 

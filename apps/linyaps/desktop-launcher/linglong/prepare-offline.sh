@@ -326,6 +326,7 @@ find "$STAGE" -name '*.tsbuildinfo' -delete
 #    "cannot find main module"
 ( cd apps/linyaps/desktop-launcher && CGO_ENABLED=1 \
   go build -tags "production" \
+  -ldflags "-X github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/app.Version=$(sed -n 's/^  version: //p' linglong/linglong.yaml | head -1)" \
   -o "$ROOT/$STAGE/bin/dsh-desktop-launcher" . )
 
 # 4. 捆绑 Node（harness 运行时需要 >=24：node:zlib.createZstdDecompress、
