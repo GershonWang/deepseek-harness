@@ -1890,6 +1890,9 @@ function bindUI() {
     a.addEventListener("click", (e) => {
       e.preventDefault();
       openExternal(a.dataset.url);
+      // 链接交给系统浏览器后弹框就没有继续占位的理由：留着会挡住用户刚打开的
+      // 浏览器窗口，也让人以为还需要在这里做什么。
+      closeModal("about-modal");
     }));
   // Esc 关闭「关于」：终端弹框有自己的按键处理（Esc 属于 PTY），这里只管本弹框。
   document.addEventListener("keydown", (e) => {

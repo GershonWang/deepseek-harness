@@ -2603,13 +2603,15 @@ test("about: 复制包 ID 走 ClipboardSetText", async () => {
     "包 ID 应经 ClipboardSetText 写入剪贴板");
 });
 
-test("about: 仓库链接交给 BrowserOpenURL", async () => {
+test("about: 仓库链接交给 BrowserOpenURL 并关闭弹框", async () => {
   const h = loadApp();
   await flush();
   const url = "https://github.com/deepseek-ai/deepseek-harness";
   h.aboutEvent({ upstreamRepo: url });
   h.document.getElementById("about-upstream").fire("click");
   assert.deepEqual(h.openedUrls, [url], "仓库链接应交给系统浏览器");
+  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
+    "打开浏览器后关于弹框应自动关闭");
 });
 
 test("about: Esc 关闭弹框", async () => {
