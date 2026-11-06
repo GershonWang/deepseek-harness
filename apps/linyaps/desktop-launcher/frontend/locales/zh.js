@@ -26,6 +26,7 @@ window.DSH_LOCALES.zh = {
   // 习惯焊死在逻辑里（见 docs/i18n.md 6.2）。
   "common.listSeparator": "、",
   "common.close": "关闭",
+  "common.copied": "已复制",
 
   /* ---------- 标题栏 ---------- */
   "titlebar.server": "服务器",
@@ -319,6 +320,18 @@ window.DSH_LOCALES.zh = {
   "terminal.tab.exitedWithCode": "（已退出，退出码 {code}）",
   // 进程退出后写进终端缓冲区的灰色标注，方括号也算文案的一部分。
   "terminal.processExited": "[进程已退出，退出码: {code}]",
+
+  /* ---------- 「关于」弹框 ---------- */
+  // 布局对齐 desktop-dual 的 GTK 助手；产品名在两种语言下一致，仍进字典以便统一取值。
+  "about.title": "关于",
+  "about.logoAlt": "应用图标",
+  "about.form": "当前形态：{form}",
+  "about.form.thin": "薄壳版",
+  "about.copyPackageId": "复制包 ID",
+  "about.harnessVersion": "DSH 版本",
+  "about.upstream": "DSH 仓库",
+  "about.packager": "玲珑封装作者",
+  "about.fork": "玲珑封装仓库",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",

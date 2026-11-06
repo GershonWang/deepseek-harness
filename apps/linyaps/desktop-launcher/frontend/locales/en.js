@@ -20,6 +20,7 @@ window.DSH_LOCALES.en = {
   /* ---------- 通用 ---------- */
   "common.listSeparator": ", ",
   "common.close": "Close",
+  "common.copied": "Copied",
 
   /* ---------- 标题栏 ---------- */
   "titlebar.server": "Server",
@@ -285,6 +286,17 @@ window.DSH_LOCALES.en = {
   "terminal.tab.exited": " (exited)",
   "terminal.tab.exitedWithCode": " (exited, code {code})",
   "terminal.processExited": "[process exited, code: {code}]",
+
+  /* ---------- About dialog ---------- */
+  "about.title": "About",
+  "about.logoAlt": "App icon",
+  "about.form": "Current form: {form}",
+  "about.form.thin": "Thin shell",
+  "about.copyPackageId": "Copy package ID",
+  "about.harnessVersion": "DSH version",
+  "about.upstream": "DSH repository",
+  "about.packager": "Linglong packager",
+  "about.fork": "Linglong packaging repository",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "Wails runtime not detected (browser preview mode)",

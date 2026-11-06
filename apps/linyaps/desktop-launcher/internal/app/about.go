@@ -25,6 +25,8 @@ const (
 	// UpstreamRepo 是上游 DSH 官方仓库地址。两个地址都要给出：只留 fork 会让用户把
 	// 上游的问题报到封装仓库。
 	UpstreamRepo = "https://github.com/deepseek-ai/deepseek-harness"
+	// ProductName 是产品名。品牌在两种语言下同形，因此不进字典，随载荷下发。
+	ProductName = "DeepSeek Harness"
 	// devVersion 是未经 -ldflags 注入时的版本（开发态）。
 	devVersion = "dev"
 )
@@ -56,13 +58,52 @@ func HarnessVersion() string {
 	return manifest.Version
 }
 
+// AboutEvent 是「关于」弹框的数据事件。
+//
+// 布局由壳前端渲染（与 desktop-dual 的 GTK 助手对齐：logo、居中版本、形态徽标、
+// 包 ID + 复制、字段网格 + 可点仓库）；Go 侧只负责提供数据，不再自绘纯文本对话框。
+const AboutEvent = "about:open"
+
+// AboutPayload 是发给壳前端的「关于」数据。
+// JSON 字段名与 frontend/app.js 的填充逻辑一一对应，改名要同步两侧。
+type AboutPayload struct {
+	// Product 是产品名（品牌，语言无关）。
+	Product string `json:"product"`
+	// Version 是桌面客户端版本（构建期注入）。
+	Version string `json:"version"`
+	// HarnessVersion 是包内 DSH 运行时版本。
+	HarnessVersion string `json:"harnessVersion"`
+	// PackageID 是玲珑包 ID，用户报障时要能原样给出。
+	PackageID string `json:"packageId"`
+	// Packager 是玲珑封装作者署名。
+	Packager string `json:"packager"`
+	// UpstreamRepo 是上游仓库地址。
+	UpstreamRepo string `json:"upstreamRepo"`
+	// ForkRepo 是玲珑封装仓库地址。
+	ForkRepo string `json:"forkRepo"`
+}
+
+// AboutInfo 汇总「关于」要展示的全部数据。
+// @returns 数据载荷；各字段都是静态常量或只读文件解析结果，不会失败。
+func AboutInfo() AboutPayload {
+	return AboutPayload{
+		Product:        ProductName,
+		Version:        Version,
+		HarnessVersion: HarnessVersion(),
+		PackageID:      PackageID,
+		Packager:       Packager,
+		UpstreamRepo:   UpstreamRepo,
+		ForkRepo:       GithubRepo,
+	}
+}
+
 // AboutText 返回「关于」正文（按当前壳语言渲染）。
 //
 // 每行一条事实，用换行分隔：v3 的 MessageDialog 是纯文本，没有字段网格。
 // @returns 本地化的多行正文。
 func (a *App) AboutText() string {
 	lines := []string{
-		"DeepSeek Harness",
+		ProductName,
 		a.t("about.clientVersion", Version),
 		a.t("about.harnessVersion", HarnessVersion()),
 		a.t("about.packageId", PackageID),
@@ -81,6 +122,20 @@ func (a *App) ShowAbout() {
 	if a.app == nil {
 		return
 	}
+	// 壳前端接管渲染（布局与 dual 的 GTK 助手一致）；运行时尚未绑定时退回 v3 自带的
+	// Info 对话框——那种情况下前端一定还没加载，发事件不会有人接。
+	if !a.bound {
+		a.showAboutDialog()
+		return
+	}
+	if a.windowHidden.Load() {
+		a.PresentWindow()
+	}
+	a.emit(AboutEvent, AboutInfo())
+}
+
+// showAboutDialog 用 v3 的 Info 对话框展示「关于」，作为前端未就绪时的兜底。
+func (a *App) showAboutDialog() {
 	dialog := a.app.Dialog.Info().
 		SetTitle(a.t("about.title")).
 		SetMessage(a.AboutText())

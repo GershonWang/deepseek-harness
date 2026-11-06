@@ -1091,17 +1091,21 @@ let copyResetTimer = null;
  * 布局跳动，而用户的视线本来就在刚点过的图标上。
  * @param {HTMLElement} btn - 复制按钮；缺省时静默返回。
  */
-function flashCopyButton(btn) {
+function flashCopyButton(btn, titles) {
   if (!btn) return;
+  // 成功与复位文案可按按钮定制：服务器地址与包 ID 的提示语不同，共用一个默认值
+  // 会在「关于」里留下一句永远错语境的 title。
+  const copiedKey = (titles && titles.copied) || "server.copied";
+  const resetKey = (titles && titles.reset) || "server.copyAddress";
   btn.innerHTML = COPIED_ICON;
-  btn.title = tr("server.copied");
+  btn.title = tr(copiedKey);
   btn.classList.add("copied");
   if (copyResetTimer) clearTimeout(copyResetTimer);
   copyResetTimer = setTimeout(() => {
     btn.innerHTML = COPY_ICON;
     // 复位值必须与 index.html 上 data-i18n-title 指向同一键：这个按钮的文案是
     // title 属性，复位写错键就会留下一句永远不跟随语言的文案。
-    btn.title = tr("server.copyAddress");
+    btn.title = tr(resetKey);
     btn.classList.remove("copied");
     copyResetTimer = null;
   }, 1500);
@@ -1124,6 +1128,52 @@ function copyServerAddress(url) {
   window.runtime.ClipboardSetText(url)
     .then(() => flashCopyButton($("#server-copy")))
     .catch((e) => { console.warn("copy server address failed:", e && e.message); });
+}
+
+/* ---------- 「关于」弹框 ---------- */
+
+/**
+ * 渲染并打开「关于」弹框。
+ *
+ * 布局与 desktop-dual 的 GTK 助手一致：logo、居中版本、形态徽标、包 ID + 复制、
+ * 分隔线下的字段网格（DSH 版本 / 仓库 / 封装作者 / 封装仓库，仓库可点）。
+ * 数据由 Go 侧在托盘「关于」时通过 about:open 事件推来——版本号只有 Go 侧知道
+ * （构建期注入与包内 package.json），前端不再重复一份。
+ * @param {object} info - Go 侧 AboutPayload；字段缺失时按空串展示，不抛错。
+ */
+function openAbout(info) {
+  const data = info || {};
+  $("#about-name").textContent = String(data.product || "");
+  $("#about-version").textContent = String(data.version || "");
+  $("#about-form").textContent = tr("about.form", { form: tr("about.form.thin") });
+  $("#about-package-id").textContent = String(data.packageId || "");
+  $("#about-harness-version").textContent = String(data.harnessVersion || "");
+  $("#about-packager").textContent = String(data.packager || "");
+  const upstream = $("#about-upstream");
+  upstream.textContent = String(data.upstreamRepo || "");
+  upstream.dataset.url = String(data.upstreamRepo || "");
+  const fork = $("#about-fork");
+  fork.textContent = String(data.forkRepo || "");
+  fork.dataset.url = String(data.forkRepo || "");
+  openModal("about-modal");
+}
+
+/**
+ * 复制包 ID 并给出复制成功反馈。
+ *
+ * 与服务器地址复制同一通道（ClipboardSetText，GTK 实现）；navigator.clipboard
+ * 在 WebKit 容器里权限不可靠。反馈复用 flashCopyButton，但复位文案换成包 ID 的
+ * 提示语，避免在「关于」里留下一句服务器地址的 title。
+ */
+function copyPackageID() {
+  const id = $("#about-package-id").textContent;
+  if (!id || !window.runtime || !window.runtime.ClipboardSetText) {
+    console.warn("copy package id: ClipboardSetText unavailable");
+    return;
+  }
+  window.runtime.ClipboardSetText(id)
+    .then(() => flashCopyButton($("#about-copy"), { copied: "common.copied", reset: "about.copyPackageId" }))
+    .catch((e) => { console.warn("copy package id failed:", e && e.message); });
 }
 
 // 弹框内的状态词表（值存字典键）。与底部状态栏同一套语义、用词更短：这里一行内要让出
@@ -1833,6 +1883,20 @@ function bindUI() {
     openModal("tools-modal");
     api().RefreshTools();
   });
+
+  $("#about-copy").addEventListener("click", copyPackageID);
+  // 仓库地址统一交给 openExternal：target=_blank 在 WebKit 容器里不生效。
+  document.querySelectorAll(".about-link").forEach((a) =>
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      openExternal(a.dataset.url);
+    }));
+  // Esc 关闭「关于」：终端弹框有自己的按键处理（Esc 属于 PTY），这里只管本弹框。
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const about = $("#about-modal");
+    if (about && !about.classList.contains("hidden")) closeModal("about-modal");
+  });
   document.querySelectorAll("[data-close]").forEach((b) =>
     b.addEventListener("click", () => closeModal(b.dataset.close)));
 
@@ -1970,6 +2034,8 @@ function init() {
   // 启动进度单独走事件：条目激活在数秒内产生上百次计数变化，1s 状态轮询只能
   // 采到一两个点，进度条会跳变。两条通道共用同一份视图与渲染函数。
   window.runtime.EventsOn("startup:progress", (v) => renderStartup(v));
+  // 托盘「关于」：数据与打开动作由 Go 侧触发，布局在壳前端渲染（见 openAbout）。
+  window.runtime.EventsOn("about:open", (info) => openAbout(info));
 
   // iframe 文档本身加载失败（连接被拒、响应中断）时浏览器不会给出别的信号：补一条
   // error 通道，与挂载看门狗共用同一套重载预算。桥的 boot-stalled 上报覆盖"文档在、

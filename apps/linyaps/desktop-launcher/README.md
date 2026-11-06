@@ -75,7 +75,7 @@ The tray is provided by the client's **own process** (Wails v3 `SystemTray`, see
 
 While hidden, the launcher and its harness child keep running. The real exit is the tray's Quit entry: it marks the quit intent and then destroys the application, so `ServiceShutdown` tears the harness child down (the hide-on-close hook lets the quit intent through, otherwise the process could never exit).
 
-The About dialog shows the desktop client version (injected at build time from `linglong/linglong.yaml`), the bundled DSH runtime version, the Linglong package ID, the packager, and both repository URLs, with a button that opens the project homepage in the system browser.
+About renders inside the shell page as a modal that mirrors the desktop-dual dialog: the app logo, the product name, the desktop client version (injected at build time from `linglong/linglong.yaml`) and the bundled DSH runtime version, a form badge, the Linglong package ID with a one-click copy button, and a field grid listing the packager and both repository URLs as clickable links. The tray menu opens it; Go only supplies the data through the `about:open` event, and falls back to the v3 info dialog when the shell runtime is not ready.
 
 Starting the client again — for example clicking its icon while it runs — does not open a second window: Wails' single-instance lock detects the running process over the session bus, hands it the request, and the existing window is shown and focused while the new process exits. That lock is the first thing `main` does, before any user-state initialisation, so a second launch cannot rewrite the remembered port or the toolchain links.
 
