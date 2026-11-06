@@ -131,15 +131,35 @@ var allowedChinese = map[string][]string{
 		// harness 变孤儿」这类终止路径故障变成可判读的事实。
 		"shutdown: 开始收尾",
 		"shutdown: 收尾完成",
-		"shutdown: 进入 OnShutdown（窗口已销毁）",
+		"shutdown: 进入 ServiceShutdown（窗口已销毁）",
 		"shutdown: 窗口状态未保存（等 GTK 主线程超时），进程继续退出",
 		"close: 关窗即退出（该部署未启用隐藏）",
 		"close: 关窗仅隐藏窗口，进程与 harness 继续运行",
+	},
+	"internal/app/about.go": {
+		// 「关于」弹框里打开仓库失败时的排障日志：它只回答「为什么系统浏览器没起来」，
+		// 面向读启动日志的人；弹框本身已经关闭，界面里不会出现这句。
+		"打开项目主页失败: %v",
+	},
+	"internal/app/appconfig.go": {
+		// 绑定方法对前端入参的防御性拒绝：前端不会传空键，真出现时返回值只被丢进
+		// 控制台（见 boot.js 的 SaveShellSetting 调用），不进界面。
+		"error: 空键",
 	},
 	"internal/app/autodisabled.go": {
 		"无法序列化已提示记录: ",
 		"无法创建运行时目录: ",
 		"无法写入已提示记录: ",
+	},
+	"internal/app/tray.go": {
+		// 托盘创建失败只记日志并退回「关窗即退出」：桌面环境不支持 StatusNotifier 时
+		// 界面照常可用，这行是排障时判断「为什么没有托盘」的唯一线索。
+		"托盘初始化失败（将退回关窗即退出）: %v",
+	},
+	"internal/app/window_lifecycle.go": {
+		// 唤回日志：记录恢复目标与实际路径，用于回答「为什么窗口位置/大小不对」。
+		// 它面向读日志的人，界面里不会出现。
+		"窗口唤回: 目标 %dx%d @(%d,%d) 有位置=%v 最大化=%v",
 	},
 	"internal/app/session_memory.go": {
 		// 「上次会话」记忆的排障日志：只回答「这次为什么没记住/没落盘」，面向读启动
@@ -148,7 +168,7 @@ var allowedChinese = map[string][]string{
 		"会话记忆未落盘: %v",
 	},
 	"internal/packaging/webkit_linux.go": {
-		"dsh-desktop: 创建 webkit helper 符号链接失败: %v\n",
+		"dsh-desktop: 创建 %s 符号链接失败: %v\n",
 	},
 	"internal/webviewperm/permission_linux.go": {
 		// 启动器 stderr 上的排障日志：用来回答「麦克风权限处理到底挂上没有」。
@@ -202,6 +222,10 @@ var allowedChinese = map[string][]string{
 		"  *) echo \"%s：容器内只允许 %s；『$sub』被拒绝，需要时请在宿主机上执行\" >&2; exit 2 ;;\n",
 	},
 	"main.go": {
+		// Wails 生命周期观测：它把「前端 runtime 就绪」与「主循环返回」钉成时间线，
+		// 是「窗口一闪而过」与「根本没起来」的唯一区分依据，只进启动日志。
+		"wails: 前端 runtime 就绪",
+		"wails: Run 返回 err=%v（主循环结束）",
 		"工具链软链自愈有被拒绝的条目: %v",
 		"工具链 ID 迁移: %v",
 		// 启动 stderr 上的宿主玲珑探测留痕：回答「容器里到底有没有可用的 ll-builder」。
@@ -214,6 +238,9 @@ var allowedChinese = map[string][]string{
 		// 唤回通道建立失败：只留痕、不拦启动，客户端照常可用；它面向读启动日志的人，
 		// 不进界面字典。
 		"唤回通道未建立: %v",
+		// 托盘可用性与关窗语义是一对：没有托盘时关窗必须退出，否则用户找不到进程。
+		// 这行让「为什么关窗没退出」这类判断不必靠猜。
+		"托盘: 可用=%v，关窗行为=%v",
 	},
 }
 

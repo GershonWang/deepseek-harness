@@ -1269,7 +1269,7 @@ func (a *App) RunDoctorRepair(level int) string {
 // @returns 用户是否确认；运行时未就绪时返回错误。
 func (a *App) confirmDialog(title, message, accept, cancel string) (bool, error) {
 	if a.app == nil {
-		return false, errors.New("应用尚未就绪")
+		return false, errors.New(a.t("app.notReady"))
 	}
 	answer := make(chan bool, 1)
 	dialog := a.app.Dialog.Question().SetTitle(title).SetMessage(message)

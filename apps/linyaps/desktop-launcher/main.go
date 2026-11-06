@@ -19,6 +19,7 @@ import (
 
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/app"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/appenv"
+	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/i18n"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/linglonghost"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/packaging"
 	"github.com/deepseek-ai/deepseek-harness/apps/linyaps/desktop-launcher/internal/toolchain"
@@ -65,7 +66,7 @@ func runClient() {
 	var present atomic.Value // func()
 	wailsApp := application.New(application.Options{
 		Name:        "DeepSeek Harness",
-		Description: "DeepSeek Harness 桌面客户端",
+		Description: i18n.T(i18n.FromEnv(), "app.description"),
 		// BundledAssetFileServer 额外提供 /wails/runtime.js：静态壳没有打包器，
 		// 前端以 ES module 方式导入它来初始化 runtime（拖拽依赖该初始化）。
 		Assets: application.AssetOptions{

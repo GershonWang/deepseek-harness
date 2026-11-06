@@ -20,6 +20,7 @@ package i18n
 var messages = map[Locale]map[string]string{
 	Zh: {
 		"app.notReady":                            "应用尚未就绪",
+		"app.description":                         "DeepSeek Harness 桌面客户端",
 		"client.bootFailedNoReason":               "客户端插件加载失败（未提供原因）",
 		"common.cancel":                           "取消",
 		"tray.show":                               "显示窗口",
@@ -79,6 +80,7 @@ var messages = map[Locale]map[string]string{
 	},
 	En: {
 		"app.notReady":                            "The app is not ready yet",
+		"app.description":                         "DeepSeek Harness desktop client",
 		"client.bootFailedNoReason":               "The client plugin failed to load (no reason given)",
 		"common.cancel":                           "Cancel",
 		"tray.show":                               "Show window",
