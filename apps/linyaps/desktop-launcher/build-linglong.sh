@@ -5,7 +5,9 @@
 #   3. ll-builder export 导出 .uab 安装包到仓库根
 # 用法: 在仓库根运行
 #   sh apps/linyaps/desktop-launcher/build-linglong.sh [--no-prepare]
-#   --no-prepare: 跳过 prepare-offline(复用现有 stage/,仅重打包)
+#   --no-prepare: 复用现有 stage/（harness 树、Node、字体等下载/解包成本高的产物），
+#                 但仍会重编启动器二进制并刷新 stage/bin —— 二进制是代码的产物，
+#                 复用旧的那一份会静默打出上一版界面，构建器对此毫无察觉。
 set -eu
 cd "$(dirname "$0")/../../.." # 仓库根
 
@@ -15,7 +17,17 @@ LL_VERSION=$(grep -oP '^\s+version: \K[0-9.]+' "$YAML" | head -1)
 echo "==> 目标玲珑包: $LL_ID $LL_VERSION"
 
 if [ "${1:-}" = "--no-prepare" ]; then
-  echo "==> 跳过 prepare-offline(复用现有 stage/)"
+  # 复用 stage 只该省掉下载与解包（harness 树、Node、字体），不该省掉「代码到产物」
+  # 这一步：Go 编译只要几十秒，而 stage 里留着一份旧二进制时，构建器会照常出包，
+  # 装出来的是上一版程序（曾因此打出过没有新界面的包，构建日志里没有任何异常）。
+  STAGE_BIN=apps/linyaps/desktop-launcher/linglong/stage/bin
+  [ -d "$STAGE_BIN" ] || {
+    echo "--no-prepare 需要现有 stage/：先跑一次不带参数的打包生成暂存产物" >&2
+    exit 1
+  }
+  echo "==> 复用现有 stage/，重编启动器二进制"
+  make -C apps/linyaps/desktop-launcher build
+  cp apps/linyaps/desktop-launcher/dsh-desktop-launcher "$STAGE_BIN/dsh-desktop-launcher"
 else
   sh apps/linyaps/desktop-launcher/linglong/prepare-offline.sh
 fi

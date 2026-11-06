@@ -184,7 +184,7 @@ The market catalog has a comparable opt-in audit: `DSH_TC_E2E=1 go test ./intern
 
 ## Linglong packaging
 
-**One-click script**: `build-linglong.sh` (Linglong `.uab`, assembled in a container) runs from the repo root; by default it fully reruns `prepare-offline.sh`, and adding `--no-prepare` reuses the existing `stage/` to only repackage. Before any build step it rejects leftover package directories that have no `package.json` — upstream package deletions leave the ignored `lib/` and `node_modules/` residue behind — naming them and pointing at `pnpm run clean`, instead of letting a later step report the directory as an unbuildable workspace entry.
+**One-click script**: `build-linglong.sh` (Linglong `.uab`, assembled in a container) runs from the repo root; by default it fully reruns `prepare-offline.sh`, and adding `--no-prepare` reuses the staged artifacts (harness tree, Node, fonts) but still recompiles the launcher binary into `stage/bin` — reusing a stale binary would silently ship the previous build, which the builder cannot detect. Before any build step it rejects leftover package directories that have no `package.json` — upstream package deletions leave the ignored `lib/` and `node_modules/` residue behind — naming them and pointing at `pnpm run clean`, instead of letting a later step report the directory as an unbuildable workspace entry.
 
 **Two-step assemble build**: heavy toolchains (pnpm/tsc/tsdown/go) all run on the host; the container only copies and assembles. This avoids the build container's environment problems (Debian npm proxy bug, no HOME, no Node 22 on beige, tsdown failing to load config under Node 22), and the container no longer touches the repo's node_modules.
 
