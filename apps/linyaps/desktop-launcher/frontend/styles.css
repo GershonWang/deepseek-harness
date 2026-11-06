@@ -1722,10 +1722,10 @@ button, input, select, textarea { font: inherit; }
 
 /* 布局对齐 desktop-dual 的 GTK 助手：logo 与版本居中，包 ID 单独一行带复制按钮，
    其余事实以两列网格排在分隔线下。
-   宽度按仓库地址定：12px 等宽字体下 48 字符约 338px，加上 96px 标签列与正文内边距，
-   560px 是能保证两个仓库地址都不折行的最小值再留一点余量（420px 时会折成两行）。 */
+   宽度按仓库地址定：12px 等宽字体下 47 字符约 338px，加上 88px 标签列、10px 间距与
+   正文内边距，500px 即可单行展示并留约 30px 余量（420px 时会折成两行）。 */
 .modal-about {
-  width: 560px;
+  width: 500px;
 }
 
 .about-body {
@@ -1793,7 +1793,7 @@ button, input, select, textarea { font: inherit; }
 }
 
 .about-key {
-  flex: 0 0 96px;
+  flex: 0 0 88px;
   color: var(--fg-dim);
 }
 
