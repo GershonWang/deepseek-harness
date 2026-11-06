@@ -227,3 +227,112 @@ func TestServeShowRequestsStopRefusesConnections(t *testing.T) {
 		t.Fatal("停止后仍能连上唤回通道：切换器会把这次假成功当成唤回成功")
 	}
 }
+
+// stubWindowState 固定窗口读数，供捕获/还原逻辑断言。
+// @param t - 测试上下文（负责恢复原函数）。
+// @param width/height - windowGetSize 的返回值。
+// @param x/y - windowGetPosition 的返回值。
+// @param maximised - windowIsMaximised 的返回值。
+func stubWindowState(t *testing.T, width, height, x, y int, maximised bool) {
+	t.Helper()
+	prevSize, prevPos, prevMax := windowGetSize, windowGetPosition, windowIsMaximised
+	windowGetSize = func() (int, int) { return width, height }
+	windowGetPosition = func() (int, int) { return x, y }
+	windowIsMaximised = func() bool { return maximised }
+	t.Cleanup(func() {
+		windowGetSize, windowGetPosition, windowIsMaximised = prevSize, prevPos, prevMax
+	})
+}
+
+// stubWindowWrites 记录写窗口动作，返回当前的调用序列。
+// @param t - 测试上下文（负责恢复原函数）。
+// @returns 读取已记录调用序列的函数。
+func stubWindowWrites(t *testing.T) func() []string {
+	t.Helper()
+	var calls []string
+	prevSetSize, prevSetPos := windowSetSize, windowSetPosition
+	prevMax, prevFocus := windowMaximise, windowFocus
+	windowSetSize = func(w, h int) { calls = append(calls, "size") }
+	windowSetPosition = func(x, y int) { calls = append(calls, "position") }
+	windowMaximise = func() { calls = append(calls, "maximise") }
+	windowFocus = func() { calls = append(calls, "focus") }
+	t.Cleanup(func() {
+		windowSetSize, windowSetPosition = prevSetSize, prevSetPos
+		windowMaximise, windowFocus = prevMax, prevFocus
+	})
+	return func() []string { return calls }
+}
+
+// 隐藏前的快照必须来自「关窗那一刻」的读数：只有它能在 WAILS 的 hide→present
+// 往返之后把最大化状态与位置还原回去。
+func TestCaptureVisibleGeometryRecordsVisibleState(t *testing.T) {
+	stubWindowState(t, 1280, 700, 320, 192, false)
+	a := &App{bound: true}
+	a.captureVisibleGeometry()
+
+	if a.winVisibleMaximised {
+		t.Fatal("非最大化窗口不应记为最大化")
+	}
+	if a.winVisibleWidth != 1280 || a.winVisibleHeight != 700 {
+		t.Fatalf("尺寸 = %dx%d，期望 1280x700", a.winVisibleWidth, a.winVisibleHeight)
+	}
+	if !a.winVisibleHasPos || a.winVisibleX != 320 || a.winVisibleY != 192 {
+		t.Fatalf("位置 = (%d,%d) hasPos=%v，期望 (320,192)", a.winVisibleX, a.winVisibleY, a.winVisibleHasPos)
+	}
+}
+
+// 最大化时只记标记，不把最大化尺寸当成「还原尺寸」——否则取消最大化后会得到全屏尺寸。
+func TestCaptureVisibleGeometryKeepsSizeWhenMaximised(t *testing.T) {
+	stubWindowState(t, 1920, 1043, 0, 0, true)
+	a := &App{bound: true}
+	a.captureVisibleGeometry()
+
+	if !a.winVisibleMaximised {
+		t.Fatal("最大化窗口必须被记为最大化")
+	}
+	if a.winVisibleWidth != 0 || a.winVisibleHeight != 0 {
+		t.Fatalf("最大化时不应写入还原尺寸，得到 %dx%d", a.winVisibleWidth, a.winVisibleHeight)
+	}
+}
+
+// 隐藏前最大化：唤回时只需重新最大化。
+func TestRestoreVisibleGeometryMaximises(t *testing.T) {
+	calls := stubWindowWrites(t)
+	a := &App{bound: true, winVisibleMaximised: true}
+	a.restoreVisibleGeometry()
+
+	got := calls()
+	if len(got) != 1 || got[0] != "maximise" {
+		t.Fatalf("调用 = %v，期望仅 maximise", got)
+	}
+}
+
+// 隐藏前非最大化：尺寸与位置都要还原，否则窗口会跑到左上角。
+func TestRestoreVisibleGeometryRestoresSizeAndPosition(t *testing.T) {
+	calls := stubWindowWrites(t)
+	a := &App{
+		bound:            true,
+		winVisibleWidth:  1280,
+		winVisibleHeight: 700,
+		winVisibleX:      320,
+		winVisibleY:      192,
+		winVisibleHasPos: true,
+	}
+	a.restoreVisibleGeometry()
+
+	got := calls()
+	if len(got) != 2 || got[0] != "size" || got[1] != "position" {
+		t.Fatalf("调用 = %v，期望先 size 再 position", got)
+	}
+}
+
+// 可疑尺寸（隐藏期间读数）不得被恢复：宁可不动，也不要恢复出一组坏几何。
+func TestRestoreVisibleGeometrySkipsBogusSize(t *testing.T) {
+	calls := stubWindowWrites(t)
+	a := &App{bound: true, winVisibleWidth: 200, winVisibleHeight: 100}
+	a.restoreVisibleGeometry()
+
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("可疑尺寸不应触发写动作，实际 = %v", got)
+	}
+}

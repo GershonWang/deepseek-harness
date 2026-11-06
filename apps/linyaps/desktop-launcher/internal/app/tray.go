@@ -26,6 +26,9 @@ type TrayConfig struct {
 	QuitLabel  string
 	// OnAbout 是「关于」菜单项的动作。
 	OnAbout func()
+	// OnShow 是「显示窗口」菜单项与左键点击的动作。走调用方的统一入口，
+	// 而不是自己调 window.Show()——否则会绕过唤回时的几何/最大化还原。
+	OnShow func()
 }
 
 // SetupTray 创建系统托盘并挂上菜单，返回是否创建成功。
@@ -60,8 +63,9 @@ func SetupTray(app *application.App, window application.Window, cfg TrayConfig, 
 
 	menu := app.NewMenu()
 	menu.Add(cfg.ShowLabel).OnClick(func(*application.Context) {
-		window.Show()
-		window.Focus()
+		if cfg.OnShow != nil {
+			cfg.OnShow()
+		}
 	})
 	menu.Add(cfg.AboutLabel).OnClick(func(*application.Context) {
 		if cfg.OnAbout != nil {
@@ -76,8 +80,9 @@ func SetupTray(app *application.App, window application.Window, cfg TrayConfig, 
 
 	// 左键单击托盘图标等同于「把窗口叫回来」：隐藏状态下的主要操作就是它。
 	tray.OnClick(func() {
-		window.Show()
-		window.Focus()
+		if cfg.OnShow != nil {
+			cfg.OnShow()
+		}
 	})
 
 	tray.Run()

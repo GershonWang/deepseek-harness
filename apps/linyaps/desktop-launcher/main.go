@@ -227,6 +227,7 @@ func runClient() {
 		AboutLabel: aboutLabel,
 		QuitLabel:  quitLabel,
 		OnAbout:    controller.ShowAbout,
+		OnShow:     controller.PresentWindow,
 	}, controller.QuitApp)
 
 	// 关窗语义：托盘可用则关窗隐藏（有第二个入口叫回来），否则关窗即退出；

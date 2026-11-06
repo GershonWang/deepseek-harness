@@ -34,6 +34,10 @@ var (
 	windowGetSize     = func() (int, int) { return 0, 0 }
 	windowGetPosition = func() (int, int) { return 0, 0 }
 	windowIsMaximised = func() bool { return false }
+	windowSetSize     = func(int, int) {}
+	windowSetPosition = func(int, int) {}
+	windowMaximise    = func() {}
+	windowFocus       = func() {}
 )
 
 // bindWindowOps 把窗口动作接到 v3 的窗口对象上。
@@ -48,6 +52,10 @@ func bindWindowOps(w application.Window) {
 	windowGetSize = func() (int, int) { return w.Size() }
 	windowGetPosition = func() (int, int) { return w.Position() }
 	windowIsMaximised = func() bool { return w.IsMaximised() }
+	windowSetSize = func(width, height int) { w.SetSize(width, height) }
+	windowSetPosition = func(x, y int) { w.SetPosition(x, y) }
+	windowMaximise = func() { w.Maximise() }
+	windowFocus = func() { w.Focus() }
 }
 
 // HideOnCloseEnv 是切换器用来指定「关窗只隐藏」的环境变量名。
@@ -109,10 +117,58 @@ func (a *App) PresentWindow() {
 	if !a.ready() {
 		return
 	}
+	// 只有「确实被我们隐藏过」才还原几何：窗口可见（或仅被最小化）时用户点图标，
+	// 期望的只是把它提到前面，强制拉回旧尺寸反而是退步。
+	wasHidden := a.windowHidden.Swap(false)
+
 	windowUnminimise()
 	windowShow()
-	if a.window != nil {
-		a.window.Focus()
+	if wasHidden {
+		a.restoreVisibleGeometry()
+		w, h, x, y, hasPos, maximised := a.visibleSnapshot()
+		a.logf("窗口唤回: 目标 %dx%d @(%d,%d) 有位置=%v 最大化=%v", w, h, x, y, hasPos, maximised)
+	}
+	windowFocus()
+
+	// 映射完成后再校正一次：X11 的 WM 会在映射时按自己的策略重新摆放窗口，
+	// 首次设置可能被覆盖。延迟足够短，不会让用户觉得拖动/缩放无效。
+	if !wasHidden {
+		return
+	}
+	time.AfterFunc(150*time.Millisecond, func() {
+		if !a.ready() || a.windowHidden.Load() {
+			return
+		}
+		a.restoreVisibleGeometry()
+	})
+}
+
+// visibleSnapshot 返回隐藏前记录的可见状态快照。
+// @returns width - 可见宽度；height - 可见高度；x/y - 可见位置；
+// hasPos - 位置是否可用；maximised - 隐藏前是否最大化。
+func (a *App) visibleSnapshot() (width, height, x, y int, hasPos, maximised bool) {
+	a.winMu.Lock()
+	defer a.winMu.Unlock()
+	return a.winVisibleWidth, a.winVisibleHeight, a.winVisibleX, a.winVisibleY,
+		a.winVisibleHasPos, a.winVisibleMaximised
+}
+
+// restoreVisibleGeometry 按隐藏前的快照还原窗口几何。
+//
+// 为什么必须显式还原：GTK 的 hide→present 往返不保留最大化标记与位置——X11 的 WM 在
+// 重新映射时把窗口当新窗口摆放，实测窗口会退回还原尺寸并跑到左上角。尺寸下限与位置
+// 合理性都先校验：隐藏期间的读数不可信，宁可不动也不要恢复出一组坏几何。
+func (a *App) restoreVisibleGeometry() {
+	w, h, x, y, hasPos, maximised := a.visibleSnapshot()
+	if maximised {
+		windowMaximise()
+		return
+	}
+	if w >= 400 && h >= 300 {
+		windowSetSize(w, h)
+	}
+	if hasPos && a.windowPositionPlausible(x, y) {
+		windowSetPosition(x, y)
 	}
 }
 

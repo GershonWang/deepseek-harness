@@ -191,6 +191,10 @@ type App struct {
 
 	// closeAction 决定关窗是隐藏还是退出，构造期确定后不再变化，因此不需要加锁。
 	closeAction CloseAction
+	// windowHidden 表示窗口当前处于「关窗隐藏」状态。隐藏期间的窗口读数不可信
+	// （GTK 可能给出 0 或最小尺寸），trackWindowGeometry 必须跳过，否则会把真实
+	// 的可见几何覆盖成小尺寸，唤回时就恢复成那个小尺寸。
+	windowHidden atomic.Bool
 	// quitting 表示正在走程序化退出（托盘菜单「退出」等）：此时 WindowClosing 必须放行，
 	// 否则「关窗隐藏」的钩子会把退出也拦下来，进程再也退不掉。
 	quitting atomic.Bool
@@ -241,11 +245,19 @@ type App struct {
 	// （Wails 在窗口销毁之后才调用 OnShutdown，那时窗口已经读不得了，
 	// 见 Shutdown）。tick 每秒轮询记录最近一次非最大化的尺寸与位置，最大化关闭时用它
 	// 作为还原基准，避免把全屏尺寸写进配置。
-	winMu             sync.Mutex
-	winRestoredWidth  int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
-	winRestoredHeight int // 最近一次非最大化时的窗口高度
-	winRestoredX      int // 最近一次非最大化时的窗口左上角坐标（还原位置基准）
-	winRestoredY      int
+	winMu sync.Mutex
+	// winVisibleWidth/Height/Maximised 是「隐藏前最后一次可见状态」：GTK 在
+	// hide→present 往返后不保证保留窗口几何与最大化标记，恢复时要显式还原。
+	winVisibleWidth     int
+	winVisibleHeight    int
+	winVisibleX         int
+	winVisibleY         int
+	winVisibleHasPos    bool
+	winVisibleMaximised bool
+	winRestoredWidth    int // 最近一次非最大化时的窗口宽度（还原尺寸基准）
+	winRestoredHeight   int // 最近一次非最大化时的窗口高度
+	winRestoredX        int // 最近一次非最大化时的窗口左上角坐标（还原位置基准）
+	winRestoredY        int
 	// winHasPosition 表示上面两个坐标已记录过：0,0 是合法位置，不能拿零值当「没有」。
 	winHasPosition bool
 
@@ -562,6 +574,8 @@ func (a *App) BeforeClose() bool {
 		return false
 	}
 	a.logf("close: 关窗仅隐藏窗口，进程与 harness 继续运行")
+	a.captureVisibleGeometry()
+	a.windowHidden.Store(true)
 	windowHide()
 	return true
 }
@@ -578,6 +592,31 @@ func (a *App) ServiceShutdown() error {
 	return nil
 }
 
+// captureVisibleGeometry 在隐藏窗口之前记录一次可见状态的权威快照。
+//
+// 为什么不能只靠 trackWindowGeometry 的每秒采样：关窗时用户可能刚拖动/缩放完，
+// 采样点的读数已经过期；而隐藏之后读数会变得不可信（GTK 可能返回内容自然尺寸），
+// 所以必须在 windowHide() 之前抓一次。
+func (a *App) captureVisibleGeometry() {
+	if !a.ready() {
+		return
+	}
+	w, h := windowGetSize()
+	x, y := windowGetPosition()
+	maximised := windowIsMaximised()
+
+	a.winMu.Lock()
+	a.winVisibleMaximised = maximised
+	if !maximised && w >= 400 && h >= 300 {
+		a.winVisibleWidth, a.winVisibleHeight = w, h
+		if a.windowPositionPlausible(x, y) {
+			a.winVisibleX, a.winVisibleY = x, y
+			a.winVisibleHasPos = true
+		}
+	}
+	a.winMu.Unlock()
+}
+
 // trackWindowGeometry 每秒记录一次窗口的非最大化尺寸与位置。
 // 关闭时若窗口处于最大化，配置里写入的是这份"还原基准"而非全屏几何，
 // 否则下次启动取消最大化后窗口会铺满屏幕，也不再是用户放它的地方。
@@ -585,7 +624,14 @@ func (a *App) trackWindowGeometry() {
 	if !a.ready() {
 		return
 	}
-	if windowIsMaximised() {
+	if a.windowHidden.Load() {
+		return
+	}
+	maximised := windowIsMaximised()
+	if maximised {
+		a.winMu.Lock()
+		a.winVisibleMaximised = true
+		a.winMu.Unlock()
 		return
 	}
 	w, h := windowGetSize()
@@ -599,6 +645,12 @@ func (a *App) trackWindowGeometry() {
 	a.winRestoredX = x
 	a.winRestoredY = y
 	a.winHasPosition = true
+	a.winVisibleWidth = w
+	a.winVisibleHeight = h
+	a.winVisibleX = x
+	a.winVisibleY = y
+	a.winVisibleHasPos = true
+	a.winVisibleMaximised = false
 	a.winMu.Unlock()
 }
 
