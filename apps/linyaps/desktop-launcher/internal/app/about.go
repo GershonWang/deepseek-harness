@@ -1,9 +1,8 @@
-// 本文件组装「关于」对话框的内容，并用 v3 的 Info 对话框展示。
+// 本文件组装「关于」的内容，并保留运行时未就绪时的 v3 Info 对话框兜底。
 //
-// 为什么走 v3 的 MessageDialog 而不是像 dual 那样编译一个 GTK3 助手：薄壳客户端本身
-// 就是 GTK4 窗口进程，框架已提供对话框 API；再带一个 GTK3 助手等于为一个弹框多维护
-// 一套跨版本依赖。代价是 v3 的对话框不支持富文本链接——所以链接以纯文本展示，另外提供
-// 「打开项目主页」按钮走系统浏览器。
+// 为什么内容和窗口分开：「关于」有两个承载方式——独立窗口（frontend/about.html，
+// 壳就绪后的唯一入口，见 aboutwindow.go）与 v3 Info 对话框（Bind 之前或窗口创建
+// 失败时的兜底）。两者共用同一份 AboutPayload 与 AboutText，内容不会各自漂移。
 package app
 
 import (
@@ -58,14 +57,8 @@ func HarnessVersion() string {
 	return manifest.Version
 }
 
-// AboutEvent 是「关于」弹框的数据事件。
-//
-// 布局由壳前端渲染（与 desktop-dual 的 GTK 助手对齐：logo、居中版本、形态徽标、
-// 包 ID + 复制、字段网格 + 可点仓库）；Go 侧只负责提供数据，不再自绘纯文本对话框。
-const AboutEvent = "about:open"
-
-// AboutPayload 是发给壳前端的「关于」数据。
-// JSON 字段名与 frontend/app.js 的填充逻辑一一对应，改名要同步两侧。
+// AboutPayload 是「关于」窗口要展示的数据。
+// JSON 字段名与 frontend/about.js 的填充逻辑一一对应，改名要同步两侧。
 type AboutPayload struct {
 	// Product 是产品名（品牌，语言无关）。
 	Product string `json:"product"`
@@ -97,7 +90,16 @@ func AboutInfo() AboutPayload {
 	}
 }
 
-// AboutText 返回「关于」正文（按当前壳语言渲染）。
+// AboutData 把「关于」数据交给独立窗口页面。
+//
+// 独立窗口的前端经 Wails 运行时的 Call.ByName 调用（见 frontend/about.js）：版本号
+// 来自构建注入与包内 package.json，只有 Go 侧知道，页面不重复一份。
+// @returns 关于数据载荷。
+func (a *App) AboutData() AboutPayload {
+	return AboutInfo()
+}
+
+// AboutText 返回「关于」正文（按当前壳语言渲染），只给 Info 对话框兜底用。
 //
 // 每行一条事实，用换行分隔：v3 的 MessageDialog 是纯文本，没有字段网格。
 // @returns 本地化的多行正文。
@@ -114,27 +116,10 @@ func (a *App) AboutText() string {
 	return strings.Join(lines, "\n")
 }
 
-// ShowAbout 展示「关于」对话框。
+// showAboutDialog 用 v3 的 Info 对话框展示「关于」，作为独立窗口不可用时的兜底。
 //
 // 关闭按钮同时设为默认与取消按钮：Esc 与点标题栏关闭都落到同一个回调，不会留下
-// 一个无人处理的对话框。链接按钮走系统浏览器（与壳内 GUI 的外链同一路径）。
-func (a *App) ShowAbout() {
-	if a.app == nil {
-		return
-	}
-	// 壳前端接管渲染（布局与 dual 的 GTK 助手一致）；运行时尚未绑定时退回 v3 自带的
-	// Info 对话框——那种情况下前端一定还没加载，发事件不会有人接。
-	if !a.bound {
-		a.showAboutDialog()
-		return
-	}
-	if a.windowHidden.Load() {
-		a.PresentWindow()
-	}
-	a.emit(AboutEvent, AboutInfo())
-}
-
-// showAboutDialog 用 v3 的 Info 对话框展示「关于」，作为前端未就绪时的兜底。
+// 一个无人处理的对话框。链接按钮走系统浏览器（与壳内外链同一路径）。
 func (a *App) showAboutDialog() {
 	dialog := a.app.Dialog.Info().
 		SetTitle(a.t("about.title")).

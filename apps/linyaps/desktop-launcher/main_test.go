@@ -19,6 +19,7 @@ import (
 // 的清单必须同步。
 var devOnlyFrontendFiles = []string{
 	"frontend/test-app.cjs",
+	"frontend/test-about.cjs",
 	"frontend/test-i18n.cjs",
 	"frontend/tools/preview.mjs",
 }

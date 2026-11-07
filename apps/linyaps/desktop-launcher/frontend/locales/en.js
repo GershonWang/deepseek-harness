@@ -297,6 +297,7 @@ window.DSH_LOCALES.en = {
   "about.upstream": "DSH repository",
   "about.packager": "Linglong packager",
   "about.fork": "Linglong packaging repository",
+  "about.loadFailed": "Couldn't load the About information. Close this window and open it again.",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "Wails runtime not detected (browser preview mode)",

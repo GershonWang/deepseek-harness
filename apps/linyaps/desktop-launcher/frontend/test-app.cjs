@@ -319,9 +319,6 @@ function buildHtml(document) {
     "repair-panel-status", "repair-panel-body", "repair-panel-backup",
     "ext-url", "tools-refresh", "host-add", "host-path", "host-name",
     "btn-safe-mode", "btn-exit-safe-mode",
-    /* 「关于」弹框：bindUI 静态绑定复制按钮与仓库链接，字段由 about:open 事件填充 */
-    "about-modal", "about-name", "about-version", "about-form", "about-package-id", "about-copy",
-    "about-harness-version", "about-packager", "about-upstream", "about-fork",
     /* 工具市场 / 内置工具：bindUI 静态绑定（无判空）的元素必须存在 */
     "market-search", "market-refresh", "host-scan", "host-scan-list",
     "market-grid", "market-statusbar", "builtin-toggle", "builtin-panel",
@@ -338,10 +335,6 @@ function buildHtml(document) {
     const el = document.createElement("div");
     el.id = id;
     document.body.appendChild(el);
-  }
-  // 「关于」的仓库链接在 bindUI 里按 .about-link 绑定，桩按真实 class 暴露它们。
-  for (const id of ["about-upstream", "about-fork"]) {
-    document.getElementById(id).classList.add("about-link");
   }
   // #harness 在真实 DOM 里是 iframe：消息接收侧用 frame.contentWindow 校验来源，
   // 桩给一个稳定对象，用例经 harness.message() 模拟"来自该 iframe"的消息。
@@ -364,7 +357,7 @@ function buildHtml(document) {
     "harness", "loading-page", "failed-page", "preflight-page",
     "loading-progress",
     "preflight-repairs", "preflight-issues", "preflight-actions", "preflight-note",
-    "server-modal", "tools-modal", "doctor-modal", "terminal-modal", "about-modal",
+    "server-modal", "tools-modal", "doctor-modal", "terminal-modal",
     "doctor-content", "doctor-repair-output",
     "safe-mode-row", "safe-mode-active", "external-panel", "server-address",
     "fresh-home-active",
@@ -765,11 +758,6 @@ function loadApp({ hasWails = true, overrides = {} } = {}) {
       assert.equal(typeof events["startup:progress"], "function",
         "startup:progress 事件未注册（需 Wails 环境）");
       events["startup:progress"](v);
-    },
-    /* 驱动托盘「关于」的数据事件：Go 侧 AboutPayload 经 about:open 推进壳前端。 */
-    aboutEvent: (info) => {
-      assert.equal(typeof events["about:open"], "function", "about:open 事件未注册");
-      events["about:open"](info);
     },
     /* 驱动一条后端终端事件。EventsOn 的桩把回调存进 events，名称与 index.html
      * 脚本注册的一致（terminal:output / terminal:status）。 */
@@ -2550,76 +2538,15 @@ test("关掉最后一个标签回到空态，并提示下一步操作", async ()
   assert.equal(h.document.getElementById("terminal-tabs").innerHTML, "", "标签栏应清空");
 });
 
-test("标题栏不显示包版本号，关于弹框改由托盘触发", async () => {
+test("标题栏不显示包版本号，关于由独立窗口承载", async () => {
   const h = loadApp();
   await flush();
   // 标题栏只留品牌与动作：包版本由玲珑包管理器给出，壳里再显示一份会与实际版本漂移。
   assert.equal(h.document.getElementById("brand-version"), null, "标题栏不应再有版本号节点");
   // 标题栏也不留「关于」按钮：唯一入口是托盘菜单（进程内托盘，见 internal/app/tray.go）。
   assert.equal(h.document.getElementById("btn-about"), null, "标题栏不应再有关于按钮");
-  // 弹框本身回到壳里：v3 把托盘合进客户端进程后，关于弹框由 about:open 事件驱动渲染。
-  assert.ok(h.document.getElementById("about-modal"), "壳里应有关于弹框");
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
-    "关于弹框初始应隐藏");
-});
-
-/* ---------- 「关于」弹框 ---------- */
-
-test("about: 数据事件填充字段并打开弹框", async () => {
-  const h = loadApp();
-  await flush();
-  h.aboutEvent({
-    product: "DeepSeek Harness",
-    version: "0.2.0.6",
-    harnessVersion: "0.2.2-alpha.2",
-    packageId: "com.deepseek.dsh-desktop",
-    packager: "Jokul",
-    upstreamRepo: "https://github.com/deepseek-ai/deepseek-harness",
-    forkRepo: "https://github.com/GershonWang/deepseek-harness",
-  });
-
-  const doc = h.document;
-  assert.equal(doc.getElementById("about-modal").classList.contains("hidden"), false,
-    "关于弹框应可见");
-  assert.equal(doc.getElementById("about-name").textContent, "DeepSeek Harness");
-  assert.equal(doc.getElementById("about-version").textContent, "0.2.0.6");
-  assert.equal(doc.getElementById("about-form").textContent, "当前形态：薄壳版");
-  assert.equal(doc.getElementById("about-package-id").textContent, "com.deepseek.dsh-desktop");
-  assert.equal(doc.getElementById("about-harness-version").textContent, "0.2.2-alpha.2");
-  assert.equal(doc.getElementById("about-packager").textContent, "Jokul");
-  assert.equal(doc.getElementById("about-upstream").textContent,
-    "https://github.com/deepseek-ai/deepseek-harness");
-  assert.equal(doc.getElementById("about-fork").dataset.url,
-    "https://github.com/GershonWang/deepseek-harness");
-});
-
-test("about: 复制包 ID 走 ClipboardSetText", async () => {
-  const h = loadApp();
-  await flush();
-  h.aboutEvent({ packageId: "com.deepseek.dsh-desktop" });
-  h.document.getElementById("about-copy").fire("click");
-  await flush();
-  assert.ok(h.runCalls.includes("clipboard:com.deepseek.dsh-desktop"),
-    "包 ID 应经 ClipboardSetText 写入剪贴板");
-});
-
-test("about: 仓库链接交给 BrowserOpenURL 并关闭弹框", async () => {
-  const h = loadApp();
-  await flush();
-  const url = "https://github.com/deepseek-ai/deepseek-harness";
-  h.aboutEvent({ upstreamRepo: url });
-  h.document.getElementById("about-upstream").fire("click");
-  assert.deepEqual(h.openedUrls, [url], "仓库链接应交给系统浏览器");
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
-    "打开浏览器后关于弹框应自动关闭");
-});
-
-test("about: Esc 关闭弹框", async () => {
-  const h = loadApp();
-  await flush();
-  h.aboutEvent({});
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), false);
-  h.keydown({ key: "Escape" });
-  assert.equal(h.document.getElementById("about-modal").classList.contains("hidden"), true,
-    "Esc 应关闭关于弹框");
+  // 关于不再属于壳页面：主窗口关窗隐藏或最小化时壳内模态框不可见，改由独立窗口
+  // （frontend/about.html，见 internal/app/aboutwindow.go）承载；页面一致性由
+  // frontend/test-about.cjs 覆盖。
+  assert.equal(h.document.getElementById("about-modal"), null, "壳页面不应再有关于弹框");
 });

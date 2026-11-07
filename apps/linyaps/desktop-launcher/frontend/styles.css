@@ -1811,3 +1811,23 @@ button, input, select, textarea { font: inherit; }
 .about-link:hover {
   text-decoration: underline;
 }
+
+/* ---------- 独立「关于」窗口 ---------- */
+
+/* 独立窗口自带系统标题栏与关闭按钮：页面整块就是卡片，不再有遮罩与标题行。
+   窗口尺寸固定（Go 侧 aboutWindowOptions），这里保证卡片在窗口内居中、内容
+   超长时可滚动——字段网格在窄字体或长路径下可能换行。 */
+body.about-window {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  overflow: auto;
+}
+
+.about-window .modal-card {
+  width: 500px;
+  max-width: 100%;
+  max-height: none;
+  box-shadow: none;
+}

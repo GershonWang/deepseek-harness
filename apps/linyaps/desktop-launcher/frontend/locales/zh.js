@@ -332,6 +332,8 @@ window.DSH_LOCALES.zh = {
   "about.upstream": "DSH 仓库",
   "about.packager": "玲珑封装作者",
   "about.fork": "玲珑封装仓库",
+  // 独立窗口拉不到数据（方法未绑定/运行时异常）时的兜底提示：不写它页面会只剩空行。
+  "about.loadFailed": "无法加载关于信息，请关闭窗口后重新打开。",
 
   /* ---------- 浏览器预览分支 ---------- */
   "preview.noWails": "未检测到 Wails 运行时（浏览器预览模式）",

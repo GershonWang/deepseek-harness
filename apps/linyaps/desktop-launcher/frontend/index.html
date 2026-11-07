@@ -205,36 +205,6 @@
 </div>
 
 <!-- 工具链市场弹框 -->
-<!-- 「关于」弹框：布局对齐 desktop-dual 的 GTK 助手（logo、居中版本、形态徽标、
-     包 ID + 复制、字段网格 + 可点仓库）。数据由 Go 侧在托盘「关于」时通过
-     about:open 事件推来，这里只留骨架与 i18n 钩子。 -->
-<div id="about-modal" class="modal hidden">
-  <div class="modal-card modal-about">
-    <div class="modal-head">
-      <span class="modal-title" data-i18n="about.title"></span>
-      <button class="modal-close" data-close="about-modal">×</button>
-    </div>
-    <div class="modal-body about-body">
-      <img class="about-logo" src="logo.png" width="72" height="72" alt="" data-i18n-alt="about.logoAlt">
-      <div id="about-name" class="about-name"></div>
-      <div id="about-version" class="about-version selectable"></div>
-      <div id="about-form" class="about-form"></div>
-      <div class="about-id-row">
-        <span id="about-package-id" class="about-id mono selectable"></span>
-        <button id="about-copy" class="icon-btn-sm" data-i18n-title="about.copyPackageId">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        </button>
-      </div>
-      <div class="about-fields">
-        <div class="about-row"><span class="about-key" data-i18n="about.harnessVersion"></span><span id="about-harness-version" class="about-value"></span></div>
-        <div class="about-row"><span class="about-key" data-i18n="about.upstream"></span><a id="about-upstream" class="about-link" href="#"></a></div>
-        <div class="about-row"><span class="about-key" data-i18n="about.packager"></span><span id="about-packager" class="about-value"></span></div>
-        <div class="about-row"><span class="about-key" data-i18n="about.fork"></span><a id="about-fork" class="about-link" href="#"></a></div>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div id="tools-modal" class="modal hidden">
   <div class="modal-card modal-tools">
     <div class="modal-head">

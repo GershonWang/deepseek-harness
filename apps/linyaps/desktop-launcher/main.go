@@ -36,7 +36,7 @@ import (
 // frontend/tools/preview.mjs 的产物守卫）。新增 frontend/ 下的顶层资源要在此登记，
 // 漏登记由 main_test.go 断言点名。
 //
-//go:embed frontend/index.html frontend/boot.js frontend/v2shim.js frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor frontend/logo.png
+//go:embed frontend/index.html frontend/about.html frontend/about.js frontend/boot.js frontend/v2shim.js frontend/app.js frontend/styles.css frontend/i18n.js frontend/locales frontend/vendor frontend/logo.png
 var assets embed.FS
 
 // 托盘图标。用 64×64：托盘图标在 HiDPI 会话下会被放大，32×32 会发虚；
