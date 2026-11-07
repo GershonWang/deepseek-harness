@@ -1,4 +1,4 @@
-/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的五条职责。
+/* dsh-link-bridge.js 的 DOM 桩测试：验证注入桥的六条职责。
  *
  * 桥由打包流程注入到桌面版 GUI 的 dist，在真实的 Wails WebKitGTK 里只与
  * window.parent / document / console / MutationObserver / setInterval 打交道，
@@ -17,7 +17,9 @@
  *     只上报一次；正常挂载（有内容、无引导页）不上报；
  *   - 会话恢复与上报：把壳注入的会话 id 写回客户端存储（只在客户端自己没有选择
  *     时），并按周期把当前选择 → { type: "current-session", sessionId }，同一个值
- *     不重复上报，清空后上报 null。
+ *     不重复上报，清空后上报 null；
+ *   - 右键菜单：iframe 内阻止 contextmenu 的默认行为（WebKit 内建的
+ *     Back/Forward/Reload 菜单不再出现），独立打开页面时不注册监听。
  * 运行：node --test linglong/test-link-bridge.cjs（工作目录 apps/linyaps/desktop-launcher）
  *
  * 为什么用桩而不是真实浏览器：桥的判据都落在它自己发出的消息上，桩能精确控制
@@ -523,4 +525,20 @@ test("会话恢复：存储被拒时不崩、不写，也不上报空选择", ()
   assert.deepEqual(sentMessages(h), [], "读不到选择时不上报，避免把壳的记忆清掉");
   h.tick();
   assert.deepEqual(sentMessages(h), []);
+});
+
+test("右键菜单：iframe 内阻止 contextmenu 的默认行为", () => {
+  const h = loadBridge();
+  const fire = h.docListeners.contextmenu[0];
+  assert.equal(typeof fire, "function", "桥应注册 contextmenu 监听");
+
+  let prevented = false;
+  fire({ preventDefault() { prevented = true; } });
+  assert.equal(prevented, true, "应阻止 WebKit 内建右键菜单的默认行为");
+});
+
+test("右键菜单：未被 iframe 内嵌时不注册监听", () => {
+  const h = loadBridge({ inIframe: false });
+
+  assert.equal(h.docListeners.contextmenu, undefined, "独立打开页面保留原生右键菜单");
 });

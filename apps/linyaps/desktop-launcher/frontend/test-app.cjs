@@ -2550,3 +2550,11 @@ test("标题栏不显示包版本号，关于由独立窗口承载", async () =>
   // frontend/test-about.cjs 覆盖。
   assert.equal(h.document.getElementById("about-modal"), null, "壳页面不应再有关于弹框");
 });
+
+test("右键菜单：壳页面阻止内建菜单的默认行为", async () => {
+  const h = loadApp();
+  await flush();
+  let prevented = false;
+  h.document.fire("contextmenu", { preventDefault() { prevented = true; } });
+  assert.equal(prevented, true, "壳页面应阻止 WebKit 内建右键菜单（Reload 会重载壳页面）");
+});

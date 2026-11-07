@@ -95,3 +95,8 @@ test("about.js 不再依赖壳内 about:open 事件通道", () => {
   assert.equal(ABOUT_JS.includes("about:open"), false,
     "独立窗口应经 AboutData 拉取数据，而不是回到旧的 about:open 事件");
 });
+
+test("about.js 阻止 WebKit 内建的右键菜单", () => {
+  assert.ok(ABOUT_JS.includes('"contextmenu"'),
+    "关于窗口应阻止内建右键菜单（与壳页面、GUI 注入桥同一处理）");
+});

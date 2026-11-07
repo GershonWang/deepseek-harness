@@ -104,12 +104,21 @@ function bindEscape() {
   });
 }
 
+/**
+ * 隐藏 WebKit 内建的右键菜单：与壳页面（app.js）和 GUI 注入桥（dsh-link-bridge.js）
+ * 同一处理，避免关于窗口里出现 Back/Forward/Reload 这类浏览器导航菜单。
+ */
+function bindContextMenu() {
+  document.addEventListener("contextmenu", (event) => event.preventDefault(), true);
+}
+
 /** 拉取数据并渲染；Go 侧方法不可用时显示错误行，而不是留一屏空白。 */
 async function load() {
   window.DSHI18N.init();
   bindCopy();
   bindLinks();
   bindEscape();
+  bindContextMenu();
   try {
     const [info, locale] = await Promise.all([
       Call.ByName(`${SERVICE}.AboutData`),

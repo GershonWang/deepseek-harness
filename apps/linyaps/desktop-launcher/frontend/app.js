@@ -1820,6 +1820,12 @@ function bindServerAction(selector, action) {
 function bindUI() {
   bindExternalLinks();
 
+  // 隐藏 WebKit 内建的右键菜单：它是内嵌浏览器自带的导航菜单（Back/Forward/Stop/
+  // Reload 等），不是壳或上游 GUI 的 UI；其中 Reload 会重载整个壳页面。只取消默认
+  // 行为、不停止传播，终端内容区的右键复制/粘贴与其它自绘菜单照常收到事件。
+  // iframe 内（harness GUI）的那一份由注入桥处理，见 linglong/dsh-link-bridge.js。
+  document.addEventListener("contextmenu", (e) => e.preventDefault(), true);
+
   // 自定义标题栏窗口控制（Wails frameless）；浏览器预览时 window.runtime 缺失，安全降级
   $("#win-min").addEventListener("click", () => window.runtime && window.runtime.WindowMinimise && window.runtime.WindowMinimise());
   $("#win-max").addEventListener("click", () => window.runtime && window.runtime.WindowToggleMaximise && window.runtime.WindowToggleMaximise());

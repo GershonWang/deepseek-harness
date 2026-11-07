@@ -51,10 +51,22 @@
  * `__DSH_DESKTOP_RESTORE_SESSION__`（索引注入，见 internal/appenv/restore_session.go）
  * 写回存储键——先于客户端入口，因为它延迟执行——并按周期把当前选择以
  * { dshDesktop: true, type: "current-session", sessionId } 上报，由壳存进 config.json。
+ *
+ * 职责六：隐藏 WebKit 的默认右键菜单。内嵌浏览器在页面没有处理 contextmenu 时会
+ * 弹出内建的导航菜单（Back/Forward/Stop/Reload/Open Frame in New Window），它不是
+ * 上游 GUI 的 UI，其中 Reload 会重新加载整个客户端、触发服务重连甚至崩溃。壳观察
+ * 不到跨源 iframe 的右键，只能在页面这一侧处理。只阻止默认行为、不停止传播：上游
+ * 自绘的右键菜单（会话列表等）仍会收到事件并显示自己的 DOM 菜单。
  */
 (function () {
   "use strict";
   if (window.parent === window) return;
+
+  // 隐藏 WebKit 内建的右键菜单（见职责六）。捕获阶段注册，只取消默认菜单，不影响
+  // 上游 GUI 的自绘菜单——那些监听器照常收到事件。
+  document.addEventListener("contextmenu", function (event) {
+    event.preventDefault();
+  }, true);
 
   // targetOrigin 优先使用父窗口真实 origin（WebKitGTK 支持
   // location.ancestorOrigins），仅在不支持时回退 "*"；
