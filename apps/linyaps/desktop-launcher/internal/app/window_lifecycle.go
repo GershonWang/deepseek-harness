@@ -31,6 +31,7 @@ var (
 	windowHide        = func() {}
 	windowShow        = func() {}
 	windowUnminimise  = func() {}
+	windowUnmaximise  = func() {}
 	windowGetSize     = func() (int, int) { return 0, 0 }
 	windowGetPosition = func() (int, int) { return 0, 0 }
 	windowIsMaximised = func() bool { return false }
@@ -49,6 +50,7 @@ func bindWindowOps(w application.Window) {
 	windowHide = func() { w.Hide() }
 	windowShow = func() { w.Show() }
 	windowUnminimise = func() { w.UnMinimise() }
+	windowUnmaximise = func() { w.UnMaximise() }
 	windowGetSize = func() (int, int) { return w.Size() }
 	windowGetPosition = func() (int, int) { return w.Position() }
 	windowIsMaximised = func() bool { return w.IsMaximised() }
@@ -109,7 +111,7 @@ func CloseActionFromEnv() (CloseAction, bool) {
 	return CloseQuits, false
 }
 
-// PresentWindow 把窗口叫到前面：先取消最小化再显示，最后请求聚焦。
+// PresentWindow 把窗口叫到前面：先恢复隐藏前的几何，再显示，最后请求聚焦。
 //
 // 单实例的第二进程被拦下、以及托盘左键点击，都走这里——它们要的是同一件事，
 // 没必要各自拼一遍窗口动作。
@@ -122,16 +124,38 @@ func (a *App) PresentWindow() {
 	wasHidden := a.windowHidden.Swap(false)
 
 	windowUnminimise()
+	// 几何必须在 Show 之前恢复，不能反过来。
+	//
+	// GTK4 的窗口隐藏后，最大化状态会随窗口 unmapped 交给窗口管理器丢弃；重新 map
+	// 时先以还原尺寸（实测 1280x695）出现约一帧，随后 maximize 才把它拉回全屏——用户
+	// 看到的就是「全屏 → 小尺寸 → 全屏」的抖动，两次尺寸变化之间 WebKit 的合成层
+	// 还会留下未重绘区域，要等鼠标事件才补画（真机采样：22:21:02.677 先是
+	// 1280x695，133ms 后才是 1920x1043 最大化）。
+	//
+	// GTK4 允许在窗口显示前调用 gtk_window_maximize：窗口首次出现时即为最大化。
+	// 因此这里先把隐藏前的状态设回去，让窗口直接以正确的几何出现。
+	if wasHidden {
+		// v3 的 Maximise() 在 IsMaximised() 为真时直接返回。窗口隐藏后 GTK 仍可能
+		// 记着最大化状态，直接调用会被这个守卫吞掉，pending 最大化没设上，窗口于是
+		// 仍以还原尺寸 map —— 修复就落空了。先显式取消再请求，保证状态机真的前进到
+		// 「显示前最大化」。
+		_, _, _, _, _, maximised := a.visibleSnapshot()
+		if maximised {
+			windowUnmaximise()
+			windowMaximise()
+		} else {
+			a.restoreVisibleGeometry()
+		}
+	}
 	windowShow()
 	if wasHidden {
-		a.restoreVisibleGeometry()
 		w, h, x, y, hasPos, maximised := a.visibleSnapshot()
 		a.logf("窗口唤回: 目标 %dx%d @(%d,%d) 有位置=%v 最大化=%v", w, h, x, y, hasPos, maximised)
 	}
 	windowFocus()
 
-	// 映射完成后再校正一次：X11 的 WM 会在映射时按自己的策略重新摆放窗口，
-	// 首次设置可能被覆盖。延迟足够短，不会让用户觉得拖动/缩放无效。
+	// 映射完成后兜底校正一次：个别窗口管理器会忽略显示前设置的 pending 状态，
+	// 延迟足够短，不会让用户觉得拖动/缩放无效。
 	if !wasHidden {
 		return
 	}

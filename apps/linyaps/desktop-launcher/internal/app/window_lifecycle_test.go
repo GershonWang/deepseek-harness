@@ -15,17 +15,27 @@ import (
 )
 
 // stubWindowActions 替换窗口层注入点并记录调用序列。
+//
+// 同时接管写动作（最大化/尺寸/位置/聚焦）而不只是显示与隐藏：唤回的调用顺序
+// 本身就是判据（几何必须先于 Show），只记录 hide/show 会让顺序回归无声通过。
 // @param t - 测试上下文，用于在收尾时还原。
 // @returns 调用序列的读取入口。
 func stubWindowActions(t *testing.T) func() []string {
 	t.Helper()
 	var calls []string
 	prevHide, prevShow, prevUnminimise := windowHide, windowShow, windowUnminimise
+	prevUnmaximise, prevMaximise, prevSetSize, prevSetPosition, prevFocus := windowUnmaximise, windowMaximise, windowSetSize, windowSetPosition, windowFocus
 	windowHide = func() { calls = append(calls, "hide") }
 	windowShow = func() { calls = append(calls, "show") }
 	windowUnminimise = func() { calls = append(calls, "unminimise") }
+	windowUnmaximise = func() { calls = append(calls, "unmaximise") }
+	windowMaximise = func() { calls = append(calls, "maximise") }
+	windowSetSize = func(int, int) { calls = append(calls, "size") }
+	windowSetPosition = func(int, int) { calls = append(calls, "position") }
+	windowFocus = func() { calls = append(calls, "focus") }
 	t.Cleanup(func() {
 		windowHide, windowShow, windowUnminimise = prevHide, prevShow, prevUnminimise
+		windowUnmaximise, windowMaximise, windowSetSize, windowSetPosition, windowFocus = prevUnmaximise, prevMaximise, prevSetSize, prevSetPosition, prevFocus
 	})
 	return func() []string { return calls }
 }
@@ -334,5 +344,76 @@ func TestRestoreVisibleGeometrySkipsBogusSize(t *testing.T) {
 
 	if got := calls(); len(got) != 0 {
 		t.Fatalf("可疑尺寸不应触发写动作，实际 = %v", got)
+	}
+}
+
+// TestPresentWindowRestoresGeometryBeforeShow 断言唤回时先恢复隐藏前的几何、再显示窗口。
+//
+// 顺序错了在真机上就是「全屏 → 小尺寸 → 全屏」的抖动：GTK4 隐藏后重新 map 时先以
+// 还原尺寸（实测 1280x695）出现一帧，随后 maximize 才拉回全屏；两次尺寸变化之间
+// WebKit 的合成层会留下未重绘区域，要等鼠标事件才补画（真机采样记录到 1280x695
+// 出现 133ms 后才变成最大化 1920x1043）。GTK4 允许在显示前调用 gtk_window_maximize，
+// 因此几何必须先于 Show。
+func TestPresentWindowRestoresGeometryBeforeShow(t *testing.T) {
+	cases := []struct {
+		name      string
+		maximised bool
+		before    []string
+	}{
+		// 先 UnMaximise 再 Maximise：v3 的 Maximise 在 IsMaximised() 为真时直接返回，
+		// 而隐藏后 GTK 可能仍记着最大化，只有显式取消再请求才能让 pending 最大化生效。
+		{"隐藏前最大化 → 显示前先最大化", true, []string{"unmaximise", "maximise"}},
+		{"隐藏前普通尺寸 → 显示前先设回尺寸", false, []string{"size"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			calls := stubWindowActions(t)
+			a := &App{bound: true}
+			a.windowHidden.Store(true)
+			a.winVisibleMaximised = c.maximised
+			a.winVisibleWidth, a.winVisibleHeight = 1280, 695
+			a.winVisibleX, a.winVisibleY = 0, 0
+			a.winVisibleHasPos = true
+
+			a.PresentWindow()
+
+			got := calls()
+			indexOf := func(name string) int {
+				for i, call := range got {
+					if call == name {
+						return i
+					}
+				}
+				return -1
+			}
+			show := indexOf("show")
+			if show < 0 {
+				t.Fatalf("调用序列 = %v，缺少 show", got)
+			}
+			for _, name := range c.before {
+				index := indexOf(name)
+				if index < 0 || index > show {
+					t.Fatalf("调用序列 = %v，期望 %q 出现在 show 之前（否则窗口先以旧尺寸出现再跳变）",
+						got, name)
+				}
+			}
+		})
+	}
+}
+
+// TestPresentWindowDoesNotTouchGeometryWhenVisible 断言窗口本来就可见时只前置，不改几何。
+//
+// 用户点托盘图标时如果窗口只是被遮挡（没隐藏过），强制拉回旧尺寸或最大化反而是退步。
+func TestPresentWindowDoesNotTouchGeometryWhenVisible(t *testing.T) {
+	calls := stubWindowActions(t)
+	a := &App{bound: true}
+	a.winVisibleMaximised = true
+
+	a.PresentWindow()
+
+	for _, call := range calls() {
+		if call == "maximise" || call == "size" || call == "position" {
+			t.Fatalf("窗口可见时不应调整几何，实际调用 = %v", calls())
+		}
 	}
 }
