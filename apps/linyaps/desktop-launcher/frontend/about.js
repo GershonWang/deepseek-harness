@@ -118,7 +118,9 @@ async function load() {
     window.DSHI18N.applyFromGui(locale);
     fill(info);
   } catch (error) {
-    console.error("about: 数据加载失败", error);
+    // 控制台日志与壳内其余诊断一样用英文：它不是界面文案，但前端 i18n 门禁对
+    // 字符串字面量里的中文零容忍（产品文案只能出现在 locales/ 下）。
+    console.error("about: failed to load data:", error);
     byId("about-error").classList.remove("hidden");
   }
 }
