@@ -172,7 +172,7 @@ const (
 	// 入口能把它叫回来，而用户再点一次桌面图标会拉起第二个客户端（本进程没有单实例
 	// 机制），两个 harness 共用同一份 ~/.dsh 状态。默认值必须是两条路里安全的那个。
 	CloseQuits CloseAction = iota
-	// CloseHides 只隐藏窗口，进程与 harness 子进程继续运行，由托盘唤回（见 ShowWindow）。
+	// CloseHides 只隐藏窗口，进程与 harness 子进程继续运行，由托盘唤回（见 PresentWindow）。
 	CloseHides
 )
 
@@ -206,12 +206,7 @@ type App struct {
 	// 还可能反过来把进程退出拖住的尝试。
 	windowGone atomic.Bool
 
-	// showCtxMu 保护 showCtx。单独一把锁而不是复用 mu：唤回由 main 里的信号 goroutine
-	// 触发，它与 ServiceStartup 并发；其余读者都住在 ServiceStartup 之后才启动的
-	// goroutine 里，没有这个问题，因此不动它们。
-	showCtxMu sync.RWMutex
-	showCtx   context.Context
-	term      *terminal.Manager // 终端会话管理器
+	term *terminal.Manager // 终端会话管理器
 
 	// shellMu 串行化壳设置的读改写（配置由多个写入方共用，并发写会丢字段）。
 	shellMu sync.Mutex
@@ -488,14 +483,8 @@ func (a *App) centerWindow() {
 	}
 }
 
-// OnStartup 在窗口启动后保存上下文并开启 1s 状态轮询。
+// OnStartup 在窗口启动后恢复窗口几何并开启 1s 状态轮询。
 func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
-	// 单独把上下文发布给唤回路径：托盘可以在窗口就绪后的任意时刻要求显示窗口，
-	// 而那条路径由信号 goroutine 触发、与本次赋值并发，不能直接读同一个字段。
-	a.showCtxMu.Lock()
-	a.showCtx = ctx
-	a.showCtxMu.Unlock()
-
 	// 窗口还原几何的初值取配置里保存的值：若用户全程最大化使用并直接关闭，
 	// 还原基准仍是他上次主动调整过的窗口大小与位置，而非程序默认值。
 	if cfg, err := LoadAppConfig(a.home); err == nil && cfg.Window.Width >= 400 && cfg.Window.Height >= 300 {

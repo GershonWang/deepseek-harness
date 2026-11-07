@@ -1,4 +1,4 @@
-# Wails v3 迁移计划（desktop-launcher / desktop-dual）
+# Wails v3 迁移计划（desktop-launcher）
 
 本计划依据验证模块 `apps/linyaps/desktop-v3-spike` 的真机与容器实测结论制定。该模块只用于可行性验证，迁移落地后已删除（含玲珑运行库证据文档）；需要复查时从本分支历史取回（删除前的最后一个提交是 `9805f4d693`）。主分支 `linglong-dev` 保持 v2 可发布状态，迁移只在本分支进行。
 
@@ -21,7 +21,7 @@
 | 6. 打包 | ✅ 脚本与清单改到 GTK4/WebKitGTK 6.0（四路径补丁、bwrap、`LD_LIBRARY_PATH`）；打包脚本自测全部通过，待真机整包构建 |
 | 2、3 | ✅ 阶段 3 主体已随阶段 1 完成；阶段 2 的窗口几何/唤回已真机回归：关窗隐藏、托盘唤回、最大化与位置还原、信号退出均通过。唤回曾先以还原尺寸出现再最大化，造成来回抖动与 WebKit 半屏未重绘（鼠标移入才补画）；现改为显示前恢复几何（先 `UnMaximise` 再 `Maximise`），真机复测通过 |
 | 单实例 | ✅ 已实现：用 v3 `SingleInstance`（会话 D-Bus 上的锁）作为 `main` 的第一道闸门，重复启动只唤回已有窗口，不会重写端口/工具链状态 |
-| 托盘合进程 | ✅ 已决策并实现：用 v3 `SystemTray` 在 launcher 进程内建托盘，关窗隐藏与唤回不再依赖 dual 的切换器与 Unix socket；`DSH_DESKTOP_HIDE_ON_CLOSE` 保留兼容，新增 `DSH_DESKTOP_CLOSE_QUITS=1` 强制退出 |
+| 托盘合进程 | ✅ 已决策并实现：用 v3 `SystemTray` 在 launcher 进程内建托盘，关窗隐藏与唤回都在本进程内完成；`desktop-dual` 模块已删除，唤回 socket 与 `DSH_DESKTOP_HIDE_ON_CLOSE` 兼容一并移除，`DSH_DESKTOP_CLOSE_QUITS=1` 仍可强制退出 |
 
 ## 阶段划分与验收
 

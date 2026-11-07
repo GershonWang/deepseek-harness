@@ -66,20 +66,19 @@ harness 的生命周期只有一个所有者：supervisor。`appenv` 在每次 s
 
 ## 关窗行为
 
-托盘由客户端**自己的进程**提供（Wails v3 的 `SystemTray`，见 `internal/app/tray.go`），菜单为「显示窗口 / 关于 / 退出」，不再依赖 `desktop-dual` 的独立切换器。关窗行为按以下优先级决定（`internal/app.ResolveCloseAction`）：
+托盘由客户端**自己的进程**提供（Wails v3 的 `SystemTray`，见 `internal/app/tray.go`），菜单为「显示窗口 / 关于 / 退出」。关窗行为按以下优先级决定（`internal/app.ResolveCloseAction`）：
 
 1. `DSH_DESKTOP_CLOSE_QUITS=1`：关窗即退出，即使托盘可用（排障或刻意单窗口用法）；
-2. `DSH_DESKTOP_HIDE_ON_CLOSE=1`：隐藏窗口（dual 包的既有约定，保持兼容）；
-3. 托盘可用：隐藏窗口——托盘菜单「显示窗口」与左键单击都能把窗口叫回来；
-4. 其余（含托盘创建失败）：关窗即退出——藏起来的窗口没有第二个入口。
+2. 托盘可用：隐藏窗口——托盘菜单「显示窗口」与左键单击都能把窗口叫回来；
+3. 其余（含托盘创建失败）：关窗即退出——藏起来的窗口没有第二个入口。
 
 隐藏时 launcher 与 harness 子进程继续运行；真正退出走托盘菜单的「退出」，它先标记退出意图再销毁应用，由 `ServiceShutdown` 收尾 harness 子进程（「关窗隐藏」的钩子会放行退出意图，否则进程退不掉）。
 
-「关于」在独立窗口里打开（`frontend/about.html`），而不是嵌在壳页面内——主窗口最小化或关窗隐藏时也能单独查看，壳不会为了显示它把主窗口唤回。布局与 desktop-dual 的对话框一致：应用图标、产品名、桌面客户端版本（构建时从 `linglong/linglong.yaml` 注入）与包内 DSH 运行时版本、形态徽标、带一键复制的玲珑包 ID，以及列出封装署名与两个仓库地址（可点，点击后用系统浏览器打开，窗口保持不关）的字段网格。入口只有托盘菜单；Go 侧负责创建或唤回窗口（`internal/app/aboutwindow.go`），页面经 `AboutData` 绑定方法拉取数据，窗口建不出来或运行时尚未绑定时回退到 v3 的 Info 对话框。
+「关于」在独立窗口里打开（`frontend/about.html`），而不是嵌在壳页面内——主窗口最小化或关窗隐藏时也能单独查看，壳不会为了显示它把主窗口唤回。布局为：应用图标、产品名、桌面客户端版本（构建时从 `linglong/linglong.yaml` 注入）与包内 DSH 运行时版本、形态徽标、带一键复制的玲珑包 ID，以及列出封装署名与两个仓库地址（可点，点击后用系统浏览器打开，窗口保持不关）的字段网格。入口只有托盘菜单；Go 侧负责创建或唤回窗口（`internal/app/aboutwindow.go`），页面经 `AboutData` 绑定方法拉取数据，窗口建不出来或运行时尚未绑定时回退到 v3 的 Info 对话框。
 
 再次启动客户端（例如运行中点桌面图标）不会再开第二个窗口：Wails 的单实例锁在会话总线上识别到已在运行的进程，把请求转交给它并以退出码 0 结束新进程，已有窗口被显示并聚焦。这个锁是 `main` 做的第一件事，排在所有写用户状态的初始化之前——否则第二个进程会先把端口记忆、工具链软链改写一遍再退出。
 
-dual 包仍保留自己的切换器（负责在薄壳版与 Electron 版之间切换），`~/.cache/dsh-desktop/show.sock` 那条唤回通道在该包里继续生效。信号仍然不可用：`SIGUSR1` 被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起。
+唤回在客户端进程内完成（托盘或单实例）。信号仍然不可用：`SIGUSR1` 被 WebKit 的 JavaScriptCore 拿去做 GC 线程挂起。
 
 ## 插件不兼容时的自动禁用与启动后提示
 
@@ -129,7 +128,6 @@ icons/dsh-desktop.png   dev-mode fallback (256×256)
 | `DSH_DESKTOP_DMABUF_RENDERER` | 未设 | `1` 保留 webkit2gtk 的硬件 DMABUF 路径，跳过 launcher 的共享内存回退（见已知事项） |
 | `DSH_DESKTOP_SHM_RENDERER` | 未设 | `1` 在任何机器上强制共享内存缓冲传输（`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1`），供判据命不中（机器上没有 NVIDIA 渲染节点）却仍然闪烁、又不愿放弃加速合成的机器使用（见已知事项） |
 | `DSH_DESKTOP_WEBKIT_DISABLE_COMPOSITING` | 未设 | `1` 彻底关闭加速合成（`WEBKIT_DISABLE_COMPOSITING_MODE=1`），用于改用共享内存传输后 web 区域仍然花屏的机器（见已知事项） |
-| `DSH_DESKTOP_HIDE_ON_CLOSE` | 未设 | 为 `1` 时保持 dual 包的既有约定：关窗隐藏、launcher 与 harness 子进程继续运行；托盘可用时这已经是默认行为（见「关窗行为」） |
 | `DSH_DESKTOP_CLOSE_QUITS` | 未设 | 为 `1` 时关窗即退出，即使托盘可用；用于排障或刻意单窗口使用 |
 | `DSH_HOST_ROOTFS` | 该挂载存在时为 `/run/host/rootfs` | 写给 harness 子进程、launcher 自己不读：沙箱对宿主根目录的只读挂载点，与下一个变量共同声明宿主逃逸通道。已存在的取值不会被覆盖，因此设为空值即关闭该通道 |
 | `DSH_HOST_LAUNCH` | 该转发器在 `PATH` 上时可解析为 `systemd-run` | 写给 harness 子进程、launcher 自己不读：在宿主机上启动进程的转发器，「在应用中打开」菜单据此提供宿主应用（[理由](../../../.agents/notes/implemented/feature/2026-09-20-host-escape-open-in-app.zh.md)） |
@@ -209,7 +207,7 @@ ll-builder export --ref main:com.deepseek.dsh-desktop/0.1.0.9/x86_64
 - 壳内没有「关于」按钮，标题栏也不显示玲珑包版本号。进程内托盘的菜单项会在独立窗口里打开「关于」（见上文），主窗口最小化或关窗隐藏时同样可用；版本号在构建期由 `-ldflags` 从 `linglong/linglong.yaml` 注入，仓库地址与封装署名常量位于 `internal/app/about.go`
 - **内嵌 GUI 的正文观感由随包字体决定**：上游 `ui-theme` 的默认字体栈只写系统族名（`-apple-system`/`BlinkMacSystemFont`/`sans-serif` 等），容器里最终用哪个字体由宿主 fontconfig 决定，随包字体因此可能「装了却没人引用」——正文观感随机器漂移，历史上表现为字重与度量不一致的重叠错位。打包流程在注入链接桥之后，由 `inject-font-stack.sh` 把 `linglong/dsh-font-stack.css` 注入 GUI dist：`:root:root` 加 `!important` 压过客户端运行时插入的 base.css，只覆盖默认栈（用户在设置里选的字体仍优先）。字体实体由 `install-container-fonts.sh` 随包落进 `${PREFIX}/share/dsh-fonts`、启动器以 `FONTCONFIG_FILE` 注册；同一配置文件里的正文别名段排在 `<include>` 之前，兜住 CSS 未点名的族名。中文族按「宿主思源黑体 → 宿主 Noto CJK → 随包文泉驿」排序：预装这些字体的机器正文观感与官方 Electron 客户端一致，没装的仍由随包文泉驿兜底，不会退回豆腐块；拉丁固定用随包 Noto Sans Display。`prepare-offline.sh` 在注入后硬断言覆盖已落盘，删掉注入调用会直接构建失败。为什么不把中文字体内化进包：思源黑体单字重约 16 MB，正文与标题至少需要 Regular 与 Medium 两档，随包会再撑大 30 MB 以上；而发行版普遍已经预装（Deepin 25 的 `sans-serif` 默认就指向思源黑体），官方 Electron 客户端本身也完全依赖宿主字体。因此选择「宿主优先、随包兜底」：有宿主 CJK 的机器与官方版同观感，没有的机器落到随包文泉驿，不会缺字；代价是不同机器的中文观感可能不同，这一点与官方版相同
 
-外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每条 HTTP(S) 外链经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。两条打开路径都要覆盖：点击监听兜住原生 `target="_blank"` 的默认动作（`Ctrl`+点击走这里），而客户端对普通左键是先 `preventDefault` 再 `window.open`，默认动作根本不会发生，因此桥还在客户端入口之前替换 `window.open`；非 http(s) 目标（如登录预开的 `about:blank`）仍先交给 WebKit；壳里 WebKit 不创建新浏览上下文，原实现因此返回 null，而账号登录正是靠这个返回窗口的 `location.replace` 打开授权页——桥在拿到 null 时改返回一个只服务登录的代理窗口，把随后的授权页导航经同一条外链通道交给壳打开默认浏览器，否则「等待登录」弹框会一直停在等待态、浏览器始终不打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。双客户端包托盘「关于」里的两个仓库链接不走这条通道：它们由该包的 GTK3 助手交给系统 URI 处理器打开，用的仍是本包随包的同一份 xdg-utils。同一个桥还负责隐藏 WebKit 内建的右键菜单（Back/Forward/Stop/Reload/Open Frame in New Window）：它属于内嵌浏览器而不是上游 GUI，其中 Reload 会重载整个客户端；桥只在 iframe 内取消默认行为，GUI 自绘的菜单照常工作，壳页面与关于窗口也做同样处理。
+外部链接无法走 Wails webview 的 WebKit 新窗口路径（`target="_blank"` 无效），且基础运行时的 `xdg-open` 是坏的转发壳，因此随包合入真实 xdg-utils，所有转交最终都经 Wails 运行时 `BrowserOpenURL`（xdg-open → 宿主 portal → 本机默认浏览器）打开。内嵌 harness GUI 内的链接因跨源 iframe（启动器观察不到点击）而由打包流程补齐：`prepare-offline.sh` 经 `inject-link-bridge.sh` 把 `linglong/dsh-link-bridge.js` 注入打包后的 GUI dist，桥把每条 HTTP(S) 外链经 `postMessage` 转交给桌面壳，`frontend/app.js` 再打开。两条打开路径都要覆盖：点击监听兜住原生 `target="_blank"` 的默认动作（`Ctrl`+点击走这里），而客户端对普通左键是先 `preventDefault` 再 `window.open`，默认动作根本不会发生，因此桥还在客户端入口之前替换 `window.open`；非 http(s) 目标（如登录预开的 `about:blank`）仍先交给 WebKit；壳里 WebKit 不创建新浏览上下文，原实现因此返回 null，而账号登录正是靠这个返回窗口的 `location.replace` 打开授权页——桥在拿到 null 时改返回一个只服务登录的代理窗口，把随后的授权页导航经同一条外链通道交给壳打开默认浏览器，否则「等待登录」弹框会一直停在等待态、浏览器始终不打开。这只覆盖容器模式——外部 harness（别处运行的 `dsh web`）服务的是未注入的 GUI，其链接仍无反应。同一个桥还负责隐藏 WebKit 内建的右键菜单（Back/Forward/Stop/Reload/Open Frame in New Window）：它属于内嵌浏览器而不是上游 GUI，其中 Reload 会重载整个客户端；桥只在 iframe 内取消默认行为，GUI 自绘的菜单照常工作，壳页面与关于窗口也做同样处理。
 
 同一个桥还负责第二件事：把 iframe 内的**客户端插件加载失败**上报给壳。宿主对非必需条目的激活失败只告警，harness 进程因此可能完全健康，失败只发生在浏览器侧的插件树上——窗口里只剩一张 `Failed to load plugins` 死路页，壳却以为一切正常，用户既看不到原因也看不到诊断与安全模式入口。桥在两条通道上侦测该状态并只上报一次（`console.error` 收到以 `web boot:` 开头的文案；引导页节点出现 `Failed to load plugins` 文案），消息为 `{ dshDesktop: true, type: "boot-failed", message }`；`frontend/app.js` 转交 `ReportClientBootFailure`，Go 侧记录为快照里的 `ClientFailure`，前端据此切到自己的启动失败页（清空 iframe 地址、状态栏改「界面插件加载失败」）并复用既有的自动诊断、分级修复与安全模式链路，用户重启、停止、切安全模式或连接外部服务时清除该标记并复位诊断周期。两处上游文案因此成为判据：本包的 `linglong/test-link-bridge.cjs` 会先在这里暴露变化，真机再回归一次。
 

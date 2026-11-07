@@ -413,7 +413,6 @@ describe('translation scope discovery', () => {
     'linglong/output/binary/files/node/README.md',
     'apps/linyaps/desktop-launcher/linglong/stage/node/README.md',
     'apps/linyaps/desktop-linglong/stage/resources/runtime/pnpm/README.md',
-    'apps/linyaps/desktop-dual/stage/node/README.md',
     'apps/linyaps/desktop-launcher/linglong/linglong/output/binary/files/node/README.md',
   ])('excludes non-source or non-README path %s', (file) => {
     expect(isTranslationScopeFile(file)).toBe(false)

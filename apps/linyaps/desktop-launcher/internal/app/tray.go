@@ -1,11 +1,11 @@
 // 本文件在客户端进程内创建系统托盘（Wails v3 的 SystemTray）。
 //
-// 为什么放在这里而不是继续用 dual 的独立切换器：v2 时代托盘只能由另一个进程提供，
+// 为什么放在这里而不是继续用独立托盘进程：v2 时代托盘只能由另一个进程提供，
 // 于是有了「切换器 + Unix socket 唤回 + hide-on-close 跨进程约定」那一整套绕行；
 // v3 把托盘做进了框架，单客户端也能常驻。合进来之后：
 //   - 关窗隐藏与托盘唤回都在本进程内闭环，不再依赖 socket；
 //   - 托盘菜单的「退出」直接走应用退出，harness 子进程由 ServiceShutdown 收尾；
-//   - dual 包的 DSH_DESKTOP_HIDE_ON_CLOSE 约定保持兼容（见 ResolveCloseAction）。
+//   - 关窗语义只由托盘可用性与 DSH_DESKTOP_CLOSE_QUITS 决定（见 ResolveCloseAction）。
 package app
 
 import (

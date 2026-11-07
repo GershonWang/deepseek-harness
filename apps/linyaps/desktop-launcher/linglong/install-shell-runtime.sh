@@ -3,9 +3,10 @@
 # 玲珑容器里才能做的处理——webkit 实体搬运与 exec-path 字节补丁、容器级字体、工具
 # 清单注入、node-pty 回退，以及 node/pnpm/dsh 的 PATH 包装。
 #
-# 为什么单独成脚本：双客户端包（com.deepseek.dsh-desktop-dual）里也含薄壳客户端，
-# 它需要完全相同的一套处理。两份内联的话，webkit 补丁这类「漏掉就是装得上但 GUI 起
-# 不来、且构建期毫无报错」的步骤迟早会在其中一份里漂移——本仓库已经踩过一次。
+# 为什么单独成脚本：容器内安装步骤多且互有依赖（webkit 实体搬运与字节补丁、字体、
+# 工具清单、node-pty 回退、PATH 包装），一旦漏掉就是「装得上但 GUI 起不来、且构建期
+# 毫无报错」。独立成文件便于在构建前单独审阅与自测，而不是埋在 linglong.yaml 的
+# build 段里。
 #
 # 用法（在 linglong.yaml 的 build 段内，${PREFIX} 由玲珑提供）：
 #   sh /project/apps/linyaps/desktop-launcher/linglong/install-shell-runtime.sh <stage 目录>

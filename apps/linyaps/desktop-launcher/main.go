@@ -1,8 +1,8 @@
 // 主入口：组装 Wails v3 应用（内嵌前端 + 绑定 App 控制器），并在进程被外部信号终止时
 // 停掉 harness 子进程。
 //
-// 本二进制只是薄壳客户端。双客户端包里的切换器是 desktop-dual 模块的独立托盘进程，
-// 它把本二进制当作「薄壳客户端」拉起；两者不再是同一个可执行文件的不同运行模式。
+// 本二进制是唯一的桌面客户端入口：托盘、关窗隐藏与唤回都在进程内完成，
+// 不再有独立的切换器进程。
 package main
 
 import (
@@ -162,22 +162,6 @@ func runClient() {
 		os.Exit(0)
 	}()
 
-	// 托盘唤回：切换器连本进程的唤回 socket，表示「把窗口显示出来」。
-	//
-	// 为什么不是信号：SIGUSR1 已被 WebKit 的 JavaScriptCore 接管（Go 收不到它），发过来
-	// 不是「显示窗口」而是打进 JSC 的 GC 机制——实测客户端进程当场消失、没有任何日志，
-	// harness 变成孤儿。见 internal/app 的 ShowSocketRel。
-	//
-	// 必须在 app.Run 之前监听：窗口就绪之前到达的请求会被 ShowWindow 丢掉，但通道
-	// 本身要尽早可用——晚建的那段时间里点托盘会退化成一次拨号失败（用户看到报错），
-	// 而不是别的语义。
-	// 建立失败不拦启动，只留痕：客户端仍然可用，那一次运行的唤回会退化为切换器报错。
-	if stopShow, err := app.ServeShowRequests(app.ShowSocketPath(home), controller.ShowWindow); err != nil {
-		log.Printf("唤回通道未建立: %v", err)
-	} else {
-		defer stopShow()
-	}
-
 	// 起始窗口状态：上次是最大化则本次也最大化
 	startState := application.WindowStateNormal
 	if windowState.Maximized {
@@ -232,9 +216,8 @@ func runClient() {
 	}, controller.QuitApp)
 
 	// 关窗语义：托盘可用则关窗隐藏（有第二个入口叫回来），否则关窗即退出；
-	// DSH_DESKTOP_CLOSE_QUITS=1 强制退出，DSH_DESKTOP_HIDE_ON_CLOSE=1 保持 dual 兼容。
+	// DSH_DESKTOP_CLOSE_QUITS=1 强制退出。
 	controller.SetCloseAction(app.ResolveCloseAction(
-		os.Getenv(app.HideOnCloseEnv) == "1",
 		os.Getenv(app.CloseQuitsEnv) == "1",
 		trayOK,
 	))

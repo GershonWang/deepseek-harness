@@ -9,7 +9,7 @@
 #   sh apps/linyaps/clean-linglong.sh <版本> [模块脚本参数]
 # 版本:
 #   web | official | dual | tray   单个版本（也接受模块目录名）
-#   all                            依次清理三个版本，遇到第一个失败即停止
+#   all                            依次清理两个版本，遇到第一个失败即停止
 # 参数原样透传给模块脚本（如 --deep / --nuclear）。
 set -eu
 cd "$(dirname "$0")/../.." # 仓库根
@@ -17,22 +17,17 @@ cd "$(dirname "$0")/../.." # 仓库根
 case "${1:-}" in
   web | desktop-launcher) MODULE=desktop-launcher ;;
   official | desktop-linglong) MODULE=desktop-linglong ;;
-  dual | desktop-dual) MODULE=desktop-dual ;;
-  # tray 与 dual 同属 desktop-dual 模块：同一份 stage、同一个切换器，只是打包时选不同的
-  # 包清单（linglong-tray.yaml / linglong.yaml）。清理没有可分的对象，共用同一条路径，
-  # 版本名与 build-linglong.sh 保持对称——两边名字对不上时用户会以为 tray 清不掉。
-  tray) MODULE=desktop-dual ;;
   all)
     # 逐个执行且不吞失败：清理是破坏性动作，静默跳过某个版本会让「清理过了」这句话不成立。
     shift
-    for module in desktop-launcher desktop-linglong desktop-dual; do
+    for module in desktop-launcher desktop-linglong; do
       echo "==> 清理 $module"
       sh "apps/linyaps/$module/clean-linglong.sh" "$@"
     done
     exit 0
     ;;
   *)
-    echo "用法: sh apps/linyaps/clean-linglong.sh <web|official|dual|tray|all> [模块脚本参数]" >&2
+    echo "用法: sh apps/linyaps/clean-linglong.sh <web|official|all> [模块脚本参数]" >&2
     exit 2
     ;;
 esac

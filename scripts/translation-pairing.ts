@@ -146,7 +146,6 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   'apps/linyaps/desktop-launcher/linglong/linglong/**',
   'apps/linyaps/desktop-launcher/linglong/stage/**',
   'apps/linyaps/desktop-linglong/stage/**',
-  'apps/linyaps/desktop-dual/stage/**',
   'linglong/**',
   'python/sdk-runtime/src/deepseek_harness_runtime/runtime/**',
   'vendor/**',
@@ -167,7 +166,6 @@ function isTranslationSourceExcluded(file: string): boolean {
     || file.startsWith('apps/linyaps/desktop-launcher/linglong/linglong/')
     || file.startsWith('apps/linyaps/desktop-launcher/linglong/stage/')
     || file.startsWith('apps/linyaps/desktop-linglong/stage/')
-    || file.startsWith('apps/linyaps/desktop-dual/stage/')
     || file.startsWith('linglong/')
     || file.startsWith('python/sdk-runtime/src/deepseek_harness_runtime/runtime/')
 }

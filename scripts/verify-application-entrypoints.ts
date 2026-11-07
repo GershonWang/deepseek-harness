@@ -85,7 +85,6 @@ const SOURCE_EXCLUDES = [
   // 其中的 pnpm 等第三方可执行文件不是本仓库编写的入口，不参与分类。
   'apps/linyaps/desktop-launcher/linglong/stage/**',
   'apps/linyaps/desktop-linglong/stage/**',
-  'apps/linyaps/desktop-dual/stage/**',
 ]
 
 /** Convert a host path from glob output to the repository's slash form. */
