@@ -16,10 +16,12 @@ const (
 	// 已打开的窗口，避免每点一次多一个窗口。
 	aboutWindowName = "about"
 	// aboutWindowWidth 与 aboutWindowHeight 固定跟随内容：窗口不可缩放。
-	// 宽度是 500 的卡片（与壳内 .modal-about 一致，按仓库地址单行展示确定）
-	// 加两侧各 10px 留白；高度按卡片内容留出余量。
+	// 宽度是 500 的卡片（与壳内 .modal-about 一致，按仓库地址单行展示确定）加两侧
+	// 各 10px 留白；高度按卡片实际内容（logo、版本、包 ID 与四行字段，实测约 392px）
+	// 加 body 上下 10px 内边距，再留约 14px 余量——520 时内容居中后上下各空出 60px
+	// 以上，观感上像一张空窗。
 	aboutWindowWidth  = 520
-	aboutWindowHeight = 520
+	aboutWindowHeight = 420
 )
 
 // ShowAbout 展示「关于」窗口。
