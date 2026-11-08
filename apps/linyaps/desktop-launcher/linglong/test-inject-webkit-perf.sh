@@ -45,8 +45,8 @@ if sh "$SCRIPT" "$DIST" > "$TMP/out-ok" 2>&1; then
     bad "样式未落盘"; ls -la "$DIST/assets" >&2
   fi
   if grep -q 'data-animating' "$DIST/assets/dsh-webkit-perf.css" \
-    && grep -q 'content-visibility' "$DIST/assets/dsh-webkit-perf.css"; then
-    ok "默认注入包含全部段（布局过渡 + 屏外跳过渲染）"
+    && grep -q 'contain: layout paint' "$DIST/assets/dsh-webkit-perf.css"; then
+    ok "默认注入包含全部段（布局过渡 + 行级 containment）"
   else
     bad "默认注入缺少某个段"; sed 's/^/       /' "$DIST/assets/dsh-webkit-perf.css" >&2
   fi
@@ -105,10 +105,16 @@ if grep -q 'grid-template-columns:' "$STYLE" || grep -qE '^[[:space:]]*width:' "
 else
   ok "未改写布局属性本身，只关闭其过渡"
 fi
-if grep -qF 'content-visibility: auto' "$STYLE" && grep -qF 'contain-intrinsic-size: auto' "$STYLE"; then
-  ok "屏外跳过渲染带估算尺寸（缺它会让滚动条总长抖动）"
+if grep -qF 'contain: layout paint' "$STYLE"; then
+  ok "行级 containment 只隔离布局与绘制"
 else
-  bad "content-visibility 段缺少 content-visibility 或 contain-intrinsic-size"
+  bad "缺少 contain: layout paint 段"
+fi
+# 只匹配声明行：注释里说明「为什么放弃它」是允许的。
+if grep -qE '^[[:space:]]*(content-visibility|contain-intrinsic-size):' "$STYLE"; then
+  bad "不应重新引入 content-visibility / contain-intrinsic-size：估算高度会让滚动锚定跳动"
+else
+  ok "未使用会改变尺寸估算的 containment 变体"
 fi
 
 # --- 场景 4：DSH_WEBKIT_PERF=0 时整体跳过（对照实验），且不落盘 ---
@@ -134,7 +140,7 @@ DIST_ONE="$TMP/dist-one"
 make_dist "$DIST_ONE"
 if DSH_WEBKIT_PERF=layout-transition sh "$SCRIPT" "$DIST_ONE" > "$TMP/out-one" 2>&1; then
   if grep -q 'data-animating' "$DIST_ONE/assets/dsh-webkit-perf.css" \
-    && ! grep -q 'content-visibility' "$DIST_ONE/assets/dsh-webkit-perf.css"; then
+    && ! grep -q 'contain: layout paint' "$DIST_ONE/assets/dsh-webkit-perf.css"; then
     ok "DSH_WEBKIT_PERF=layout-transition 只注入布局过渡段"
   else
     bad "段选择未按名单过滤"; sed 's/^/       /' "$DIST_ONE/assets/dsh-webkit-perf.css" >&2

@@ -38,7 +38,7 @@ case "$SELECT" in
     echo "inject-webkit-perf: DSH_WEBKIT_PERF=$SELECT，跳过注入（对照实验）"
     exit 0
     ;;
-  all) SELECT='layout-transition,content-visibility' ;;
+  all) SELECT='layout-transition,containment' ;;
 esac
 
 mkdir -p "$DIST/assets"
