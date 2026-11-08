@@ -314,6 +314,32 @@ if [ ! -f "$FONT_DIST/assets/dsh-font-stack.css" ]; then
   exit 1
 fi
 
+# 2.5d 注入 WebKit 渲染降级样式：同一份前端在官方 Electron（Chromium）与浏览器版上
+#      流畅，在 Wails 的 WebKitGTK 壳里卡顿，差异来自引擎对布局属性动画的处理成本。
+#      降级规则留在打包侧（与字体栈同一机制），上游 packages/client 保持原样。
+#      DSH_WEBKIT_PERF=0 用于对照实验：跳过注入，构建与启动都不报错。
+sh apps/linyaps/desktop-launcher/linglong/inject-webkit-perf.sh \
+  "$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+
+# 2.5e 断言降级样式确实落进 dist。注入被删或 dist 结构变化时，构建、启动、运行都不
+#      报错，只有用户感觉「和之前一样卡」——这种失败形态最难排查，因此变成构建期硬失败。
+#      对照实验（DSH_WEBKIT_PERF=0）下跳过断言。
+if [ "${DSH_WEBKIT_PERF:-1}" != "0" ]; then
+  PERF_DIST="$STAGE/harness/node_modules/@deepseek-ai/dsh-web-frontend/dist"
+  if ! grep -q 'dsh-webkit-perf.css' "$PERF_DIST/index.html"; then
+    echo "prepare-offline: $PERF_DIST/index.html 缺少 WebKit 渲染降级样式，客户端会保持卡顿" >&2
+    exit 1
+  fi
+  if [ ! -s "$PERF_DIST/assets/dsh-webkit-perf.css" ]; then
+    echo "prepare-offline: $PERF_DIST/assets/dsh-webkit-perf.css 缺失或为空" >&2
+    exit 1
+  fi
+  if ! grep -q 'data-animating' "$PERF_DIST/assets/dsh-webkit-perf.css"; then
+    echo "prepare-offline: WebKit 渲染降级样式缺少布局过渡规则（选择器失效？）" >&2
+    exit 1
+  fi
+fi
+
 # 2.6 清掉随各包 lib/ 一起拷进来的 tsc 增量编译元数据（AUDIT N29）。
 #     它记录的是构建机上的文件清单与编译设置，运行时无人读取，属把构建中间态当交付物；
 #     实测 0.1.5.1 交付层有 52 个 / 2.9 MB。放在所有 staging 之后、Go 构建之前，

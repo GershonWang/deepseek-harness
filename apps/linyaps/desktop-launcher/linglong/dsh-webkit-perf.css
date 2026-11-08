@@ -1,0 +1,43 @@
+/* 壳内 Web GUI 的 WebKit 渲染降级样式。
+ *
+ * 为什么需要这一层：同一个前端（packages/client）在官方 Electron（Chromium）与
+ * 浏览器版上流畅，在 Wails 的 WebKitGTK 6.0 壳里明显卡顿。差异不在业务代码，而在
+ * 渲染引擎对「布局属性动画」和「大半径模糊」的处理成本：上游按 Chromium 的性能预算
+ * 写样式，WebKit 上同样的规则会退化成逐帧全量重排。
+ *
+ * 为什么注入而不是改上游文件：这些是引擎差异，不是上游写错。改 packages/ 会让 fork
+ * 每次并入上游都产生冲突；注入层放在打包侧，与 dsh-font-stack.css 同一机制、同一原则
+ * （见 inject-font-stack.sh 的说明），可随版本独立回滚。
+ *
+ * 为什么用 [data-animating] 而不是类名：CSS Modules 的类名在构建期被哈希
+ * （形如 ._frame_u7vgf_12），写死会随上游改动失效；data-animating 是 AppFrame 在
+ * 开合/折叠期间挂上的稳定属性（ui-layout/src/client/AppFrame.tsx）。
+ *
+ * 为什么配 :root:root 与 !important：ui-theme 的 base.css 由客户端在运行时插入
+ * <style>，DOM 顺序在本文件之后；只写同特异性选择器会被它按「后出现者胜」覆盖。
+ *
+ * 分段约定：每条降级用 @perf:begin / @perf:end 包住，脚本按段抽取，便于逐条开关与
+ * 逐条度量。第一条布局过渡已验证；后续条目在实测有效后再追加，不留空段。
+ */
+
+/* 布局属性动画改为瞬时完成。
+ *
+ * 上游两处动画用的是布局属性，浏览器无法在合成层上处理，只能每帧重新排版：
+ *   - ui-layout/AppFrame.module.css：grid-template-columns 过渡（三列整体重排）
+ *   - ui-sidebar/SidebarRoot.module.css：width 过渡（侧栏重排）
+ * 在长会话（DOM 规模大）下，每帧重排的成本随节点数线性增长，这正是「打开侧边栏卡」
+ * 与「越用越卡」的直接来源；Chromium 的布局引擎能吸收，WebKit 不能。
+ *
+ * 只覆盖 transition-duration 而不动 transition-delay：后者承担的是「延迟到动画结束再
+ * 切换 visibility」这类一次性时序，不产生逐帧重排，覆盖它只会让隐藏提前、动效跳变，
+ * 没有性能收益。
+ *
+ * 影响面：data-animating 仅在开合/折叠期间挂在 AppFrame 上（拖拽期间上游本来就写
+ * transition: none），因此拖拽手感不受影响，代价只是开合动效由缓动变为瞬时。
+ */
+/* @perf:begin layout-transition */
+:root:root [data-animating],
+:root:root [data-animating] * {
+  transition-duration: 0s !important;
+}
+/* @perf:end layout-transition */
