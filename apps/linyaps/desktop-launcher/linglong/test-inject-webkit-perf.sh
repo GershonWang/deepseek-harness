@@ -39,10 +39,16 @@ HTML
 DIST="$TMP/dist"
 make_dist "$DIST"
 if sh "$SCRIPT" "$DIST" > "$TMP/out-ok" 2>&1; then
-  if [ -f "$DIST/assets/dsh-webkit-perf.css" ] && cmp -s "$STYLE" "$DIST/assets/dsh-webkit-perf.css"; then
-    ok "样式按字节落到 dist/assets/dsh-webkit-perf.css"
+  if [ -f "$DIST/assets/dsh-webkit-perf.css" ]; then
+    ok "样式落到 dist/assets/dsh-webkit-perf.css"
   else
-    bad "样式未落盘或内容不一致"; ls -la "$DIST/assets" >&2
+    bad "样式未落盘"; ls -la "$DIST/assets" >&2
+  fi
+  if grep -q 'data-animating' "$DIST/assets/dsh-webkit-perf.css" \
+    && grep -q 'content-visibility' "$DIST/assets/dsh-webkit-perf.css"; then
+    ok "默认注入包含全部段（布局过渡 + 屏外跳过渲染）"
+  else
+    bad "默认注入缺少某个段"; sed 's/^/       /' "$DIST/assets/dsh-webkit-perf.css" >&2
   fi
   if grep -q '<link rel="stylesheet" href="/assets/dsh-webkit-perf.css">' "$DIST/index.html"; then
     ok "index.html 含渲染降级样式标签"
@@ -99,6 +105,11 @@ if grep -q 'grid-template-columns:' "$STYLE" || grep -qE '^[[:space:]]*width:' "
 else
   ok "未改写布局属性本身，只关闭其过渡"
 fi
+if grep -qF 'content-visibility: auto' "$STYLE" && grep -qF 'contain-intrinsic-size: auto' "$STYLE"; then
+  ok "屏外跳过渲染带估算尺寸（缺它会让滚动条总长抖动）"
+else
+  bad "content-visibility 段缺少 content-visibility 或 contain-intrinsic-size"
+fi
 
 # --- 场景 4：DSH_WEBKIT_PERF=0 时整体跳过（对照实验），且不落盘 ---
 DIST_OFF="$TMP/dist-off"
@@ -116,6 +127,33 @@ if DSH_WEBKIT_PERF=0 sh "$SCRIPT" "$DIST_OFF" > "$TMP/out-off" 2>&1; then
   fi
 else
   bad "对照实验关闭时应成功退出"; sed 's/^/       /' "$TMP/out-off" >&2
+fi
+
+# --- 场景 4b：段选择——只注入命中的段，供逐条对比 ---
+DIST_ONE="$TMP/dist-one"
+make_dist "$DIST_ONE"
+if DSH_WEBKIT_PERF=layout-transition sh "$SCRIPT" "$DIST_ONE" > "$TMP/out-one" 2>&1; then
+  if grep -q 'data-animating' "$DIST_ONE/assets/dsh-webkit-perf.css" \
+    && ! grep -q 'content-visibility' "$DIST_ONE/assets/dsh-webkit-perf.css"; then
+    ok "DSH_WEBKIT_PERF=layout-transition 只注入布局过渡段"
+  else
+    bad "段选择未按名单过滤"; sed 's/^/       /' "$DIST_ONE/assets/dsh-webkit-perf.css" >&2
+  fi
+else
+  bad "段选择注入应成功"; sed 's/^/       /' "$TMP/out-one" >&2
+fi
+
+# --- 场景 4c：段名拼错 → 非零退出，避免「构建成功但什么都没注入」 ---
+DIST_TYPO="$TMP/dist-typo"
+make_dist "$DIST_TYPO"
+if DSH_WEBKIT_PERF=no-such-segment sh "$SCRIPT" "$DIST_TYPO" > "$TMP/out-typo" 2>&1; then
+  bad "段名拼错时应失败"
+else
+  if grep -qF "未命中任何样式段" "$TMP/out-typo"; then
+    ok "段名拼错非零退出并说明"
+  else
+    bad "段名拼错未说明原因"; sed 's/^/       /' "$TMP/out-typo" >&2
+  fi
 fi
 
 # --- 场景 5：dist 缺 index.html → 非零退出并指名 ---

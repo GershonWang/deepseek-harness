@@ -30,13 +30,40 @@ if [ ! -f "$STYLE" ]; then
   exit 1
 fi
 
-if [ "${DSH_WEBKIT_PERF:-1}" = "0" ]; then
-  echo "inject-webkit-perf: DSH_WEBKIT_PERF=0，跳过注入（对照实验）"
-  exit 0
-fi
+# 段选择：未设或 all 注入全部段；0/none 不注入（对照实验）；其余按逗号分隔的段名
+# 只注入命中的段，用于逐条对比与回滚。
+SELECT=${DSH_WEBKIT_PERF:-all}
+case "$SELECT" in
+  0 | none)
+    echo "inject-webkit-perf: DSH_WEBKIT_PERF=$SELECT，跳过注入（对照实验）"
+    exit 0
+    ;;
+  all) SELECT='layout-transition,content-visibility' ;;
+esac
 
 mkdir -p "$DIST/assets"
-cp "$STYLE" "$DIST/assets/dsh-webkit-perf.css"
+# 每条降级独立成段，这里只抽取选中的段：既保证产物最小，也让「关掉某一条」不必改
+# 样式文件本身（构建期开关，launcher 运行期不读这个变量）。
+{
+  echo "/* 由 inject-webkit-perf.sh 生成，段: $SELECT */"
+  awk -v want=",$SELECT," '
+    /^\/\* @perf:begin / {
+      name = $0
+      sub(/^\/\* @perf:begin /, "", name)
+      sub(/ \*\/$/, "", name)
+      on = index(want, "," name ",") > 0
+      next
+    }
+    /^\/\* @perf:end / { on = 0; next }
+    on { print }
+  ' "$STYLE"
+} > "$DIST/assets/dsh-webkit-perf.css"
+
+# 产物里至少要有一条规则：只剩头注释说明段名没命中（拼写错误），按硬失败处理。
+if ! grep -q '{' "$DIST/assets/dsh-webkit-perf.css"; then
+  echo "inject-webkit-perf: DSH_WEBKIT_PERF=$SELECT 未命中任何样式段（段名拼错？），中止构建" >&2
+  exit 1
+fi
 chmod 644 "$DIST/assets/dsh-webkit-perf.css"
 
 if grep -q "$MARKER" "$INDEX"; then

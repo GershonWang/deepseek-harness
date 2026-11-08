@@ -41,3 +41,28 @@
   transition-duration: 0s !important;
 }
 /* @perf:end layout-transition */
+
+/* 屏外消息行跳过布局与绘制。
+ *
+ * 布局过渡归零之后开合只剩「一次」重排，但这一次仍要遍历整篇文档：长会话里已加载
+ * 的消息全部参与布局，一次宽度变化就把它整个算一遍。content-visibility 让屏外的行
+ * 既不参与布局也不参与绘制，成本从「全部消息」降到「可视区域」，开合、切会话、滚动
+ * 都跟着变快。
+ *
+ * 为什么挂在 data-chat-flow-key 上：每个消息行由 ChatNodeSeat 渲染并带这个稳定属性
+ * （见 ChatNodeSeat.tsx），不需要依赖构建期哈希类名。
+ *
+ * 为什么给 contain-intrinsic-size 估算值并用 auto：屏外行的真实高度还不知道，浏览器
+ * 先按 120px 占位；auto 表示「测到过一次就记住实测值」，滚动回看过的内容不会反复跳动。
+ * 没有它，滚动条总长度会持续抖动。
+ *
+ * 边界：ChatViewport 自己维护滚动锚定（它关掉了浏览器原生锚定），依赖 scrollHeight
+ * 判断落点。估值与实测的差异可能造成轻微跳动，因此这一段独立成段，可用
+ * DSH_WEBKIT_PERF 只选布局过渡、不选它来做对照。
+ */
+/* @perf:begin content-visibility */
+:root:root [data-chat-flow-key] {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 120px;
+}
+/* @perf:end content-visibility */
