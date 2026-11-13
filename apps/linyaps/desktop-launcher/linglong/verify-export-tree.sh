@@ -14,7 +14,7 @@
 #
 # 用法: verify-export-tree.sh <merged-prefix> [整棵上限字节]
 #   <merged-prefix> 是导出树，即 linglong/output/binary/files。
-#   [整棵上限字节] 按包分档；留空表示交给 verify-artifact-size.sh 的内置默认（薄壳版 1 GiB）。
+#   [整棵上限字节] 按包分档；留空表示交给 verify-artifact-size.sh 的内置默认（薄壳版 1.25 GiB）。
 set -eu
 
 PREFIX=${1:?usage: verify-export-tree.sh <merged-prefix> [max-tree-bytes]}

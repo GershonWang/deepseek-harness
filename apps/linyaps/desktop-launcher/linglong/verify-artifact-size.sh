@@ -27,7 +27,11 @@ MAX_LIB_X86=$((340 * 1024 * 1024))
 # 整棵上限允许调用方覆盖：双客户端包（com.deepseek.dsh-desktop）在同一棵树里还带着官方
 # Electron 客户端，必然超过薄壳版的上限，而两包共用同一份内容断言（该在的、不该在的、
 # lib 单项上限）才有意义——各写一份等于放弃其中一份的维护。只有整棵这一项按包分档。
-MAX_TREE=${2:-$((1024 * 1024 * 1024))}
+# 2026-11-13 实测（0.1.7.2 导出树，上游 dsh 0.2.2-rc.2）：整棵 1,163,340,220 B（1109 MiB）。
+# 增长来自上游新增的 Office 文档链路：libreoffice-kit-wasm 单包 146 MiB，连同
+# libreoffice-kit、dsh-office-kit、dsh-tool-office 合计 151 MiB，均由
+# packages/document/office-kit 在运行时按包名解析，不是可裁的构建残留。
+MAX_TREE=${2:-$((1280 * 1024 * 1024))}
 
 fail=0
 

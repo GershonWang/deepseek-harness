@@ -48,7 +48,7 @@ new_case() {
 
 run_case() {
   set +e
-  sh "$SCRIPT" "$PREFIX" > "$1" 2>&1
+  sh "$SCRIPT" "$PREFIX" ${2:+"$2"} > "$1" 2>&1
   status=$?
   set -e
   return $status
@@ -136,11 +136,12 @@ if command -v truncate >/dev/null 2>&1; then
     expect_fail "lib 单项超限非零退出并指名" "$TMP/out-biglib" "FAIL 体积断言" "lib/x86_64-linux-gnu" "超过上限"
   fi
 
-  # 整棵超限：在断言范围之外放一个大文件（上限 1024 MiB）
+  # 整棵超限：显式传入一个小上限，使本用例与默认阈值的取值脱钩——默认阈值随上游
+  # 体积增长上调时，这里不该跟着失效。
   new_case bigtree
   mkdir -p "$PREFIX/share/dsh-fonts"
   truncate -s 1100M "$PREFIX/share/dsh-fonts/filler.ttf"
-  if run_case "$TMP/out-bigtree"; then
+  if run_case "$TMP/out-bigtree" $((64 * 1024 * 1024)); then
     bad "整棵导出树超限时应失败"
   else
     expect_fail "整棵超限非零退出并指名" "$TMP/out-bigtree" "FAIL 体积断言" "超过上限"
