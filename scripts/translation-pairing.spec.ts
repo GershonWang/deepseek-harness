@@ -408,7 +408,6 @@ describe('translation scope discovery', () => {
     'coverage/report/README.md',
     'python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-macos-arm64/README.md',
     'python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/README.md',
-    'python/sdk-runtime/src/deepseek_harness_runtime/runtime/macos-arm64/office-skills/office-docx/SKILL.md',
     'linglong/overlay/build_base/upperdir/usr/share/doc/jq/README.md',
     'linglong/output/binary/files/node/README.md',
     'apps/linyaps/desktop-launcher/linglong/stage/node/README.md',

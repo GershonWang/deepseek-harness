@@ -142,6 +142,7 @@ export const TRANSLATION_SCOPE_GLOB_EXCLUDES = [
   '**/__pycache__/**',
   '**/.pytest_cache/**',
   'apps/web/dist/**',
+  'apps/cli/docs/**',
   '.artifacts/**',
   'apps/linyaps/desktop-launcher/linglong/linglong/**',
   'apps/linyaps/desktop-launcher/linglong/stage/**',
@@ -163,6 +164,7 @@ function isTranslationSourceExcluded(file: string): boolean {
       || segment.startsWith('.doc-typecheck-')
     || segment.startsWith('.node-next-types-'))
     || file.startsWith('apps/web/dist/')
+    || file.startsWith('apps/cli/docs/')
     || file.startsWith('apps/linyaps/desktop-launcher/linglong/linglong/')
     || file.startsWith('apps/linyaps/desktop-launcher/linglong/stage/')
     || file.startsWith('apps/linyaps/desktop-linglong/stage/')
