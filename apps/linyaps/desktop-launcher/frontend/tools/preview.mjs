@@ -480,7 +480,15 @@ async function withBrowser(pageUrl, scratchDir, body) {
     })
     await body(cdp)
   } finally {
-    child.kill('SIGKILL')
+    // 等 Chromium 真正退出再返回：SIGKILL 只是投递信号，它的子进程仍会继续写
+    // 本次运行的 profile，外层的 rm 随即撞上「目录非空」。已退出的进程不会触发
+    // exit，因此同时接受 exit 与 error，避免这里永久挂起。
+    await new Promise((resolve) => {
+      if (child.exitCode !== null || child.signalCode !== null) { resolve(); return }
+      child.once('exit', () => { resolve() })
+      child.once('error', () => { resolve() })
+      child.kill('SIGKILL')
+    })
   }
 }
 
@@ -626,7 +634,11 @@ async function run(command, args) {
     })
   } finally {
     // profile 与 HOME/XDG 都是本次运行的一次性状态，跑完即删，避免残留累积。
-    await rm(scratch, { recursive: true, force: true })
+    // 清理失败不足以让本次预览结论失效：残留目录只是占位，下次运行用的是新的
+    // mkdtemp 名字，因此这里只告警，不把清理竞态升级成构建失败。
+    await rm(scratch, { recursive: true, force: true, maxRetries: 3 }).catch((error) => {
+      console.warn(`警告: 预览临时目录未能完全删除（不影响本次结论）: ${scratch}`, error)
+    })
   }
 
   if (command === 'measure') {
