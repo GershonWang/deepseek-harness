@@ -42,6 +42,13 @@ export interface DesktopTrayOptions {
    * workspace is hidden or failing to start. Windows has no such precedent to keep.
    */
   readonly terminal?: () => void
+  /**
+   * Run a manual update check through the ordinary prompt.
+   *
+   * Omitted where a caption Application menu already offers the command: Windows keeps
+   * a titlebar popup, so only platforms that lose their only menu entry supply this.
+   */
+  readonly checkUpdates?: () => void
 }
 
 /** Tray icon present for the whole run, not only while the window is hidden. */
@@ -64,6 +71,7 @@ export class DesktopTray {
     const about = this.options.about
     const toolchain = this.options.toolchain
     const terminal = this.options.terminal
+    const checkUpdates = this.options.checkUpdates
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
@@ -73,6 +81,9 @@ export class DesktopTray {
       ...toolchain === undefined ? [] : [{ label: messages.toolchainMenu, click: () => { toolchain() } }],
       ...terminal === undefined ? [] : [{ label: messages.terminalMenu, click: () => { terminal() } }],
       ...about === undefined ? [] : [{ label: messages.aboutTray, click: () => { about() } }],
+      // The check is a command on the running application rather than another window,
+      // so it stays next to Open instead of joining the window entries above.
+      ...checkUpdates === undefined ? [] : [{ label: messages.checkUpdatesMenu, click: () => { checkUpdates() } }],
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },
     ]))

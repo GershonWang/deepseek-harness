@@ -7,6 +7,7 @@ import { DesktopUpdateSettings } from './update-settings.ts'
 import { isDesktopUpdateChannel } from './settings-file.ts'
 import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-product-analytics/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
+import { hideMenuBar } from './menu-bar.ts'
 import { access, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -332,6 +333,9 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
       devTools: true,
     },
   })
+  // The product draws its own caption entries, so the literal Application/Edit rows would
+  // duplicate them in English beside a localized UI.
+  hideMenuBar(window)
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (['http:', 'https:'].includes(new URL(url).protocol)) void shell.openExternal(url)
     return { action: 'deny' }
@@ -1522,7 +1526,12 @@ async function main(): Promise<void> {
         open: () => { focusPrimaryWindow() }, quit: () => { app.quit() },
         ...about === undefined ? {} : { about: () => { about.show() } },
         ...toolchain === undefined ? {} : { toolchain: () => { toolchain.show() } },
-        ...terminal === undefined ? {} : { terminal: () => { terminal.show() } } })
+        ...terminal === undefined ? {} : { terminal: () => { terminal.show() } },
+        // Linux hides the window menu bar, which was its only Check for Updates entry.
+        // Windows keeps the caption popup and macOS the system menu bar.
+        ...process.platform === 'linux'
+          ? { checkUpdates: () => { void openUpdatePrompt(true).catch((error: unknown) => { console.error(error) }) } }
+          : {} })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
   }
   // A first hide is silent everywhere the tray exists, which leaves the window

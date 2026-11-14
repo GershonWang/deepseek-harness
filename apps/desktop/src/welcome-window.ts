@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain, type BrowserWindowConstructorOptions, type IpcMainInvokeEvent } from 'electron'
 import type { DesktopLocale } from './locale.ts'
 import { WELCOME_IPC, type WelcomeOperations } from './welcome-api.ts'
+import { hideMenuBar } from './menu-bar.ts'
 
 /**
  * Resolve the fixed-size welcome window's native material and controls.
@@ -59,6 +60,9 @@ let disposeActiveHandlers: (() => void) | undefined
 export async function openWelcomeWindow(locale: DesktopLocale, operations: WelcomeOperations): Promise<BrowserWindow> {
   const options = welcomeWindowOptions(process.platform, locale)
   const window = new BrowserWindow(options)
+  // The welcome page is a single onboarding card with no product commands of its own, so a
+  // native Application/Edit row would only add English chrome to a localized document.
+  hideMenuBar(window)
   disposeActiveHandlers?.()
   let active = true
   const disposeHandlers = (): void => {

@@ -27,13 +27,14 @@ vi.mock('electron', () => ({
 
 afterEach(() => { native.trays.length = 0; native.menus.length = 0; vi.clearAllMocks() })
 
-function setup(locale = 'en', about?: () => void, terminal?: () => void) {
+function setup(locale = 'en', about?: () => void, terminal?: () => void, checkUpdates?: () => void) {
   let current = resolveDesktopLocale(locale)
   const open = vi.fn()
   const quit = vi.fn()
   const tray = new DesktopTray({ iconPath: 'C:/app/resources/tray.ico', locale: () => current, open, quit,
     ...about === undefined ? {} : { about },
-    ...terminal === undefined ? {} : { terminal } })
+    ...terminal === undefined ? {} : { terminal },
+    ...checkUpdates === undefined ? {} : { checkUpdates } })
   return { tray, open, quit, native: native.trays[0]!, setLocale: (next: string) => { current = resolveDesktopLocale(next) } }
 }
 
@@ -85,6 +86,21 @@ it('places the terminal between the toolchain market and About, where the caller
   expect(terminal).toHaveBeenCalledOnce()
   expect(about).not.toHaveBeenCalled()
   // Windows keeps its shorter menu because the window is Linux-only.
+  setup()
+  expect(labels(native.menus[1]!)).toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
+})
+
+it('offers Check for Updates where the caller supplies it, after the window entries', () => {
+  const checkUpdates = vi.fn()
+  const about = vi.fn()
+  setup('zh', about, undefined, checkUpdates)
+  // A command on the running application, not another shell window: it sits after the
+  // window entries and before the separator that introduces Quit.
+  expect(labels(native.menus[0]!)).toEqual(['打开 DeepSeek Harness', '关于', '检查更新…', 'separator', '退出 DeepSeek Harness'])
+  ;(native.menus[0]![2] as { click: () => void }).click()
+  expect(checkUpdates).toHaveBeenCalledOnce()
+  expect(about).not.toHaveBeenCalled()
+  // Windows keeps the caption Application popup, so its tray omits the command.
   setup()
   expect(labels(native.menus[1]!)).toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
 })

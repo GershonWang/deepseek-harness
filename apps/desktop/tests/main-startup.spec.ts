@@ -111,6 +111,7 @@ const harness = await vi.hoisted(async () => {
     readonly setTitleBarOverlay = vi.fn()
     readonly setVibrancy = vi.fn()
     readonly setBackgroundColor = vi.fn()
+    readonly setMenuBarVisibility = vi.fn()
     constructor(readonly options: { show: boolean; modal?: boolean }) {
       super(); if (windowFailure !== undefined) throw windowFailure; windows.push(this)
     }
@@ -1194,6 +1195,8 @@ describe('desktop main startup', () => {
       expect(window.options).not.toHaveProperty('titleBarStyle')
       expect(window.options).not.toHaveProperty('vibrancy')
     }
+    // Product windows draw their own caption entries; only macOS keeps a system menu bar.
+    expect(window.setMenuBarVisibility.mock.calls).toEqual(platform === 'darwin' ? [] : [[false]])
     expect(harness.hosts).toHaveLength(0)
   })
 
@@ -1789,6 +1792,19 @@ describe('desktop main startup', () => {
     expect(template.map(item => item.type === 'separator' ? 'separator' : item.label))
       .toEqual(['Open DeepSeek Harness', 'Toolchain market', 'separator', 'Quit DeepSeek Harness'])
     expect(harness.handlers.has('dsh-about:status')).toBe(false)
+  })
+
+  it('runs the Linux tray Check for Updates, whose window menu bar no longer shows the command', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'linux', arch: 'x64', resourcesPath: 'desktop-test-resources' })
+    await readyWorkspace()
+    const template = harness.menu.mock.calls.at(-1)![0]
+    const check = template.find(item => item.label === en.checkUpdatesMenu)
+    expect(check).toBeDefined()
+    harness.updateCheck.mockClear()
+    ;(check!.click as () => void)()
+    await vi.advanceTimersByTimeAsync(0)
+    // The same ordinary manual check the application menu command runs.
+    expect(harness.updateCheck).toHaveBeenCalledWith(true)
   })
 
   it('hides a macOS owner with a mandatory view without quitting or stopping the Host', async () => {

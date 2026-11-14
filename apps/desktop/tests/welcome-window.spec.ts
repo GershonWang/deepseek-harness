@@ -33,6 +33,7 @@ function createWindow() {
     isDestroyed: vi.fn().mockReturnValue(false),
     destroy: vi.fn(),
     show: vi.fn(),
+    setMenuBarVisibility: vi.fn<(visible: boolean) => void>(),
     once: vi.fn<(name: string, callback: () => void) => void>(),
   }
 }
@@ -82,6 +83,8 @@ describe('desktop welcome window', () => {
     electron.create.mockReturnValue(window)
     const opening = openWelcomeWindow(resolveDesktopLocale('en'), operations)
     expect(window.show).not.toHaveBeenCalled()
+    // Hidden before the document loads, so the native rows never flash during startup.
+    expect(window.setMenuBarVisibility.mock.calls).toEqual([[false]])
     expect(window.loadFile).toHaveBeenCalledWith(join(electron.root, 'renderer', 'welcome.html'))
     expect(window.webContents.setWindowOpenHandler.mock.calls[0]![0]()).toEqual({ action: 'deny' })
     const event = { preventDefault: vi.fn() }

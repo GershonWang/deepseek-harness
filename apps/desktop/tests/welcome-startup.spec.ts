@@ -83,6 +83,7 @@ vi.mock('electron', () => ({
     focus = state.focusWorkspace
     moveTop = state.moveTopWorkspace
     hide = vi.fn()
+    setMenuBarVisibility = vi.fn()
     setBackgroundColor = vi.fn()
     show = state.showWorkspace
     showInactive = state.showInactiveWorkspace
