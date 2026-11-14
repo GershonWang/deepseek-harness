@@ -79,6 +79,13 @@ import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopAboutWindow } from './about-window.ts'
+import { DesktopToolchainWindow } from './toolchain-window.ts'
+import { composeProgress, composeToolchainView, type ToolchainMessages } from './toolchain-view.ts'
+import type { ToolchainView } from './toolchain-contract.ts'
+import { loadIndex, readBundledIndex, refreshIndex, type IndexLoad } from './toolchain/remote.ts'
+import { installVersion } from './toolchain/install.ts'
+import { setActiveVersion, uninstallVersion, prepareToolsRoot } from './toolchain/project.ts'
+import { toolsLayout } from './toolchain/catalog.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 
 let focusPrimaryWindow = (): void => {}
@@ -1351,6 +1358,103 @@ async function main(): Promise<void> {
     { role: 'toggleDevTools', visible: false },
     devToolsF12Shortcut,
   ]
+  // The toolchain market owns the tools root, so its index and layout live here rather
+  // than in the window: the window is a view over them and can be closed at any time.
+  const toolsRoot = join(app.getPath('home'), '.dsh-tools')
+  let toolchainIndex: IndexLoad | undefined
+  const toolchainLayout = toolsLayout(toolsRoot)
+  /**
+   * Load or reload the index, keeping the previous one when a reload fails.
+   *
+   * A failed refresh must not blank the window: the caller reports the failure through
+   * the returned `error`, and the last usable index stays in effect.
+   */
+  const loadToolchainIndex = async (force: boolean): Promise<IndexLoad> => {
+    const builtin = toolchainIndex?.index ?? await readBundledIndex(process.resourcesPath) ?? { version: 1, tools: [] }
+    const options = { cacheDir: join(toolsRoot, 'index-cache'), builtin }
+    const load = force ? await refreshIndex(options) : await loadIndex(options)
+    if (load.source !== 'builtin' || toolchainIndex === undefined) toolchainIndex = load
+    return load
+  }
+  /** Localized copy the toolchain view needs, read at composition time so a language switch applies. */
+  const toolchainMessages = (): ToolchainMessages => {
+    const { messages } = currentDesktopLocale()
+    return {
+      title: messages.toolchainMenu,
+      searchPlaceholder: messages.toolchainSearch,
+      refresh: messages.toolchainRefresh,
+      refreshing: messages.toolchainRefreshing,
+      categoriesLabel: messages.toolchainCategories,
+      allCategories: messages.toolchainAll,
+      noMatches: messages.toolchainNoMatches,
+      empty: messages.toolchainEmpty,
+      summary: messages.toolchainSummary,
+      install: messages.toolchainInstall,
+      installing: messages.toolchainInstalling,
+      cancel: messages.toolchainCancel,
+      uninstall: messages.toolchainUninstall,
+      switchVersion: messages.toolchainSwitch,
+      update: messages.toolchainUpdate,
+      installedTag: messages.toolchainInstalledTag,
+      bundledTag: messages.toolchainBundledTag,
+      version: messages.toolchainVersion,
+      category: messages.toolchainCategory,
+      phaseDownloading: messages.toolchainPhaseDownloading,
+      phaseVerifying: messages.toolchainPhaseVerifying,
+      phaseExtracting: messages.toolchainPhaseExtracting,
+      sourceRemote: messages.toolchainSourceRemote,
+      sourceCache: messages.toolchainSourceCache,
+      sourceBuiltin: messages.toolchainSourceBuiltin,
+      noticeOffline: messages.toolchainOffline,
+    }
+  }
+  /** Compose the window's view from the index in effect and the tools root on disk. */
+  const toolchainView = async (): Promise<ToolchainView> => {
+    const load = toolchainIndex ?? await loadToolchainIndex(false)
+    return await composeToolchainView({
+      index: load.index,
+      layout: toolchainLayout,
+      messages: toolchainMessages(),
+      locale: currentDesktopLocale().id,
+      source: load.source,
+      offline: load.error !== undefined,
+    })
+  }
+  const toolchain = process.platform === 'win32' || process.platform === 'linux'
+    ? new DesktopToolchainWindow({
+      preload: fileURLToPath(new URL('./preload-toolchain.cjs', import.meta.url)),
+      locale: () => locale,
+      view: toolchainView,
+      install: async (id, version, report, signal) => {
+        const load = toolchainIndex ?? await loadToolchainIndex(false)
+        const tool = load.index.tools.find(candidate => candidate.id === id)
+        // The window only offers ids and versions it was shown, so a miss is a stale view.
+        if (tool === undefined) throw new Error(`desktop toolchain: unknown tool ${id}`)
+        const entry = tool.versions.find(candidate => candidate.version === version)
+        if (entry === undefined) throw new Error(`desktop toolchain: unknown version ${id} ${version}`)
+        await prepareToolsRoot(toolsRoot, load.index.tools)
+        await installVersion(toolchainLayout, id, entry, {
+          signal,
+          onProgress: (progress) => {
+            report(composeProgress(id, progress.phase, progress.percent, progress.received, progress.total, toolchainMessages()))
+          },
+        })
+        // Installing selects the new version: leaving the old one active would report the
+        // install as done while PATH still resolves the previous build.
+        await setActiveVersion(toolchainLayout, id, version, load.index.tools)
+      },
+      uninstall: async (id, version) => {
+        const load = toolchainIndex ?? await loadToolchainIndex(false)
+        const tool = load.index.tools.find(candidate => candidate.id === id)
+        await uninstallVersion(toolchainLayout, id, version, tool, load.index.tools)
+      },
+      activate: async (id, version) => {
+        const load = toolchainIndex ?? await loadToolchainIndex(false)
+        await setActiveVersion(toolchainLayout, id, version, load.index.tools)
+      },
+      refresh: async () => { await loadToolchainIndex(true) },
+    })
+    : undefined
   // The About window carries the packaging identity, so only a platform whose own
   // About entry does not is given this one: macOS uses the system About panel and
   // Windows its application menu command.
@@ -1370,6 +1474,7 @@ async function main(): Promise<void> {
       }, ...platformMenus()]))
     tray?.relabel()
     about?.relabel()
+    toolchain?.relabel()
   }
   refreshApplicationMenu()
   // Closing the main window hides it on every desktop platform, so the tray is the
@@ -1383,7 +1488,8 @@ async function main(): Promise<void> {
     try {
       tray = new DesktopTray({ iconPath: trayIconName, locale: currentDesktopLocale,
         open: () => { focusPrimaryWindow() }, quit: () => { app.quit() },
-        ...about === undefined ? {} : { about: () => { about.show() } } })
+        ...about === undefined ? {} : { about: () => { about.show() } },
+        ...toolchain === undefined ? {} : { toolchain: () => { toolchain.show() } } })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
   }
   // A first hide is silent everywhere the tray exists, which leaves the window
@@ -1647,6 +1753,7 @@ async function main(): Promise<void> {
     backgroundNotice?.dispose()
     tray?.dispose()
     about?.dispose()
+    toolchain?.dispose()
     stopAccount?.()
     if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.hide()
     if (mainWindow !== undefined && !mainWindow.isDestroyed()) mainWindow.hide()
@@ -1671,6 +1778,7 @@ async function main(): Promise<void> {
       updateJournal?.action('quit-requested')
       tray?.dispose()
       about?.dispose()
+      toolchain?.dispose()
       updateDialog.dispose()
       mandatoryUI?.dispose()
       // Installation preparation already awaited Platform storage cleanup.

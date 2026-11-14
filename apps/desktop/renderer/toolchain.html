@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+<title>工具链市场</title>
+<link rel="stylesheet" href="toolchain.css">
+</head>
+<body>
+<!-- 工具栏：搜索与刷新。分类页签在下面单独一行，因为它会随索引变化增删，
+     和固定控件放在一起会让布局在加载后跳动。 -->
+<header id="toolbar">
+  <input id="search" type="search" autocomplete="off" spellcheck="false">
+  <button id="refresh" class="btn btn-quiet" type="button"></button>
+</header>
+<nav id="categories" aria-label=""></nav>
+<p id="notice" hidden></p>
+<main id="grid"></main>
+<!-- 空状态与网格互斥：列表为空时显示引导，而不是一片空白。 -->
+<main id="empty" hidden></main>
+<footer id="summary" role="status"></footer>
+<script src="toolchain.js"></script>
+</body>
+</html>

@@ -1,0 +1,142 @@
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { parseToolIndex, toolsLayout, type Tool } from '../src/toolchain/catalog.ts'
+import { BUNDLED_TOOLS, composeProgress, composeToolchainView, type ToolchainMessages } from '../src/toolchain-view.ts'
+
+const roots: string[] = []
+function temporaryRoot(): string {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-tcview-'))
+  roots.push(root)
+  return root
+}
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+})
+
+const messages: ToolchainMessages = {
+  title: '工具链市场', searchPlaceholder: '搜索工具…', refresh: '刷新索引', refreshing: '正在刷新…',
+  categoriesLabel: '分类', allCategories: '全部', noMatches: '没有匹配的工具。', empty: '当前没有可用的工具。',
+  summary: '已安装 {installed} / {total}', install: '安装', installing: '正在安装…', cancel: '取消',
+  uninstall: '卸载', switchVersion: '切换版本', update: '更新', installedTag: '已安装',
+  bundledTag: '随包', version: '版本', category: '分类', phaseDownloading: '下载中',
+  phaseVerifying: '校验中', phaseExtracting: '解压中', sourceRemote: '索引已更新',
+  sourceCache: '使用缓存的索引', sourceBuiltin: '使用内置索引（离线）', noticeOffline: '无法刷新索引。',
+}
+
+/** Build one catalog tool with the given versions. */
+function tool(id: string, versions: Array<{ version: string; major?: string; size?: number }>): Tool {
+  return {
+    id, name: id, category: 'modern-cli', description: `${id} description`, provides: [], dependencies: [],
+    versions: versions.map(entry => ({
+      version: entry.version,
+      url: `https://e.test/${id}.tar.gz`,
+      sha256: 'a'.repeat(64),
+      ...(entry.major === undefined ? {} : { major: entry.major }),
+      ...(entry.size === undefined ? {} : { size: entry.size }),
+    })),
+  }
+}
+/** Compose a view over the given tools and an empty tools root. */
+async function compose(tools: Tool[], options: { labels?: Record<string, string>; source?: 'remote' | 'cache' | 'builtin'; offline?: boolean } = {}) {
+  const root = temporaryRoot()
+  const index = parseToolIndex({ version: 1, tools, ...(options.labels === undefined ? {} : { category_labels: options.labels }) })
+  return await composeToolchainView({
+    index,
+    layout: toolsLayout(root),
+    messages,
+    locale: 'zh',
+    source: options.source ?? 'remote',
+    offline: options.offline ?? false,
+  })
+}
+
+describe('toolchain view', () => {
+  it('always exposes the version so the user knows what will be installed', async () => {
+    const view = await compose([tool('go', [{ version: '1.27.1', size: 70_553_950 }])])
+    const card = view.tools[0]
+    // A single-line tool still reports its line, which is what carries the label.
+    expect(card?.lines[0]?.latest).toBe('1.27.1')
+    expect(card?.lines[0]?.versions[0]?.size).toBe('67 MB')
+  })
+
+  it('offers a version selector only when a tool has several feature lines', async () => {
+    const single = await compose([tool('go', [{ version: '1.27.1' }])])
+    const multi = await compose([tool('jdk', [{ version: '21.0.12.1', major: '21' }, { version: '17.0.20.1', major: '17' }])])
+    expect(single.tools[0]?.offersLines).toBe(false)
+    expect(multi.tools[0]?.offersLines).toBe(true)
+  })
+
+  it('lists shipped tools so the user sees what the package already provides', async () => {
+    const view = await compose([])
+    // Bundled tools are not in the index: they ship with the package, so an index entry
+    // would offer a duplicate install that shadows the delivered copy.
+    const bundled = view.tools.filter(card => card.bundled)
+    expect(bundled.map(card => card.id)).toEqual(BUNDLED_TOOLS.map(entry => entry.id))
+    expect(bundled.every(card => card.installed && card.lines.length === 0)).toBe(true)
+    expect(view.categories.some(category => category.id === 'bundled')).toBe(true)
+  })
+
+  it('reports an update only when the catalog is newer than the installed version', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    const index = parseToolIndex({ version: 1, tools: [tool('go', [{ version: '1.27.1' }, { version: '1.26.0' }])] })
+    const view = await composeToolchainView({ index, layout, messages, locale: 'zh', source: 'remote', offline: false })
+    // Nothing installed yet: no update to report.
+    expect(view.tools[0]?.updateAvailable).toBe(false)
+    mkdirSync(layout.versionDir('go', '1.26.0'), { recursive: true })
+    const { symlinkSync } = await import('node:fs')
+    mkdirSync(join(root, 'current'), { recursive: true })
+    symlinkSync(layout.versionDir('go', '1.26.0'), layout.currentLink('go'))
+    const updated = await composeToolchainView({ index, layout, messages, locale: 'zh', source: 'remote', offline: false })
+    expect(updated.tools[0]?.updateAvailable).toBe(true)
+    expect(updated.tools[0]?.updateVersion).toBe('1.27.1')
+    expect(updated.tools[0]?.active).toBe('1.26.0')
+  })
+
+  it('labels categories from the index and falls back to the id', async () => {
+    const view = await compose([tool('go', [{ version: '1.27.1' }])], { labels: { 'modern-cli': '现代 CLI' } })
+    expect(view.categories[0]?.label).toBe('现代 CLI')
+    expect(view.tools[0]?.category).toBe('现代 CLI')
+    const unlabelled = await compose([tool('go', [{ version: '1.27.1' }])])
+    // An unlabelled category is still readable and never empty.
+    expect(unlabelled.categories[0]?.label).toBe('modern-cli')
+  })
+
+  it('fills the summary counters across index and bundled tools', async () => {
+    const view = await compose([tool('a', [{ version: '1' }]), tool('b', [{ version: '1' }])])
+    // Bundled tools count as installed because the package delivers them.
+    expect(view.summaryLabel).toBe(`已安装 ${String(BUNDLED_TOOLS.length)} / ${String(BUNDLED_TOOLS.length + 2)}`)
+  })
+
+  it('reports the index source and surfaces an offline notice', async () => {
+    expect((await compose([], { source: 'builtin', offline: true })).sourceLabel).toBe('使用内置索引（离线）')
+    const offline = await compose([], { offline: true })
+    expect(offline.notice).toBe('无法刷新索引。')
+    expect((await compose([], { offline: false })).notice).toBe('')
+  })
+})
+
+describe('progress view', () => {
+  it('is determinate only when the transfer declares a total', () => {
+    const determinate = composeProgress('go', 'downloading', 40, 28_000_000, 70_000_000, messages)
+    expect(determinate.determinate).toBe(true)
+    expect(determinate.transferred).toBe('27 MB / 67 MB')
+    expect(determinate.cancellable).toBe(true)
+    // No declared total must not be rendered as 0%.
+    expect(composeProgress('go', 'downloading', 0, 1024, undefined, messages).determinate).toBe(false)
+  })
+
+  it('localizes the stage and only cancels interruptible stages', () => {
+    expect(composeProgress('go', 'verifying', 75, undefined, undefined, messages)).toMatchObject({
+      phase: '校验中', percent: 75, cancellable: false,
+    })
+    expect(composeProgress('go', 'extracting', 85, undefined, undefined, messages).cancellable).toBe(true)
+  })
+
+  it('clamps a percentage the installer reports out of range', () => {
+    expect(composeProgress('go', 'downloading', 140, 1, 2, messages).percent).toBe(100)
+    expect(composeProgress('go', 'downloading', -5, 1, 2, messages).percent).toBe(0)
+  })
+})

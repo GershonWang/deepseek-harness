@@ -27,6 +27,13 @@ export interface DesktopTrayOptions {
    * tray entry there would present different facts under the same name.
    */
   readonly about?: () => void
+  /**
+   * Open the toolchain market.
+   *
+   * Omitted where the tray itself is absent, which is why it is optional rather than
+   * required: the menu entry exists only when there is a window to open.
+   */
+  readonly toolchain?: () => void
 }
 
 /** Tray icon present for the whole run, not only while the window is hidden. */
@@ -47,9 +54,14 @@ export class DesktopTray {
     if (tray === undefined) return
     const { messages } = this.options.locale()
     const about = this.options.about
+    const toolchain = this.options.toolchain
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
+      // The market sits beside About because both are shell-owned windows, separate
+      // from the workspace: grouping them keeps the open/quit pair readable as the
+      // primary commands.
+      ...toolchain === undefined ? [] : [{ label: messages.toolchainMenu, click: () => { toolchain() } }],
       ...about === undefined ? [] : [{ label: messages.aboutTray, click: () => { about() } }],
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },

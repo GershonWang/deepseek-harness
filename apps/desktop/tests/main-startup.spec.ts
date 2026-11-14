@@ -1773,8 +1773,10 @@ describe('desktop main startup', () => {
     vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
     await readyWorkspace()
     const template = harness.menu.mock.calls.at(-1)![0]
+    // The market sits beside About rather than in the application menu: it is a
+    // shell-owned window, not a command on the current workspace.
     expect(template.map(item => item.type === 'separator' ? 'separator' : item.label))
-      .toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
+      .toEqual(['Open DeepSeek Harness', 'Toolchain market', 'separator', 'Quit DeepSeek Harness'])
     expect(harness.handlers.has('dsh-about:status')).toBe(false)
   })
 
