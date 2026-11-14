@@ -34,6 +34,14 @@ export interface DesktopTrayOptions {
    * required: the menu entry exists only when there is a window to open.
    */
   readonly toolchain?: () => void
+  /**
+   * Open the shell's own terminal.
+   *
+   * Linux only, like the About entry: this terminal is a container-level escapes hatch
+   * whose PTY does not depend on the Host, which makes it the one useful entry while the
+   * workspace is hidden or failing to start. Windows has no such precedent to keep.
+   */
+  readonly terminal?: () => void
 }
 
 /** Tray icon present for the whole run, not only while the window is hidden. */
@@ -55,6 +63,7 @@ export class DesktopTray {
     const { messages } = this.options.locale()
     const about = this.options.about
     const toolchain = this.options.toolchain
+    const terminal = this.options.terminal
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
@@ -62,6 +71,7 @@ export class DesktopTray {
       // from the workspace: grouping them keeps the open/quit pair readable as the
       // primary commands.
       ...toolchain === undefined ? [] : [{ label: messages.toolchainMenu, click: () => { toolchain() } }],
+      ...terminal === undefined ? [] : [{ label: messages.terminalMenu, click: () => { terminal() } }],
       ...about === undefined ? [] : [{ label: messages.aboutTray, click: () => { about() } }],
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },

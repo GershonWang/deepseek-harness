@@ -80,6 +80,7 @@ import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
 import { DesktopAboutWindow } from './about-window.ts'
 import { DesktopToolchainWindow } from './toolchain-window.ts'
+import { DesktopTerminalWindow } from './terminal-window.ts'
 import { composeProgress, composeToolchainView, type ToolchainMessages } from './toolchain-view.ts'
 import type { ToolchainView } from './toolchain-contract.ts'
 import { loadIndex, readBundledIndex, refreshIndex, type IndexLoad } from './toolchain/remote.ts'
@@ -936,8 +937,14 @@ async function main(): Promise<void> {
   protocol.handle(SCHEME, (request) => {
     const url = new URL(request.url)
     // Shell-owned documents live in the application bundle and never pass through the Host.
-    if (url.hostname === 'shell') return serveWebDocument(request, join(app.getAppPath(),
-      url.pathname === '/design-platform.css' ? 'lib/welcome' : 'renderer'))
+    if (url.hostname === 'shell') {
+      // A shell document's `../lib/...` reference resolves to `/lib/...`: those paths are build
+      // artifacts emitted beside `renderer`, not shell documents, so they come from the
+      // application root. Everything else stays under `renderer`.
+      if (url.pathname.startsWith('/lib/')) return serveWebDocument(request, app.getAppPath())
+      return serveWebDocument(request, join(app.getAppPath(),
+        url.pathname === '/design-platform.css' ? 'lib/welcome' : 'renderer'))
+    }
     if (url.hostname === 'app') {
       if (url.pathname === '/' || url.pathname === '/index.html' || url.pathname.startsWith('/assets/')
         || ['/favicon.svg', '/manifest.webmanifest'].includes(url.pathname)) {
@@ -1478,6 +1485,18 @@ async function main(): Promise<void> {
       harnessVersion: () => bundledDshVersion(resources.dsh),
     })
     : undefined
+  // The terminal window is the one entry whose PTY does not depend on the Host, so it is the
+  // fallback when the workspace is hidden or failing to start — which is exactly when a shell
+  // is useful. Linux only, like the About entry: Windows keeps its shorter menu.
+  const terminal = process.platform === 'linux'
+    ? new DesktopTerminalWindow({
+      preload: fileURLToPath(new URL('./preload-terminal.cjs', import.meta.url)),
+      locale: () => locale,
+      // A shell opened from the tray should land where a login session would, not in whatever
+      // directory the application was launched from.
+      cwd: () => app.getPath('home'),
+    })
+    : undefined
   const refreshApplicationMenu = (): void => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32'
       ? windowsDevToolsShortcuts : [{
@@ -1487,6 +1506,7 @@ async function main(): Promise<void> {
     tray?.relabel()
     about?.relabel()
     toolchain?.relabel()
+    terminal?.relabel()
   }
   refreshApplicationMenu()
   // Closing the main window hides it on every desktop platform, so the tray is the
@@ -1501,7 +1521,8 @@ async function main(): Promise<void> {
       tray = new DesktopTray({ iconPath: trayIconName, locale: currentDesktopLocale,
         open: () => { focusPrimaryWindow() }, quit: () => { app.quit() },
         ...about === undefined ? {} : { about: () => { about.show() } },
-        ...toolchain === undefined ? {} : { toolchain: () => { toolchain.show() } } })
+        ...toolchain === undefined ? {} : { toolchain: () => { toolchain.show() } },
+        ...terminal === undefined ? {} : { terminal: () => { terminal.show() } } })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
   }
   // A first hide is silent everywhere the tray exists, which leaves the window
@@ -1766,6 +1787,7 @@ async function main(): Promise<void> {
     tray?.dispose()
     about?.dispose()
     toolchain?.dispose()
+    terminal?.dispose()
     stopAccount?.()
     if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.hide()
     if (mainWindow !== undefined && !mainWindow.isDestroyed()) mainWindow.hide()
@@ -1791,6 +1813,7 @@ async function main(): Promise<void> {
       tray?.dispose()
       about?.dispose()
       toolchain?.dispose()
+      terminal?.dispose()
       updateDialog.dispose()
       mandatoryUI?.dispose()
       // Installation preparation already awaited Platform storage cleanup.

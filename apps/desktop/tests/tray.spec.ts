@@ -27,12 +27,13 @@ vi.mock('electron', () => ({
 
 afterEach(() => { native.trays.length = 0; native.menus.length = 0; vi.clearAllMocks() })
 
-function setup(locale = 'en', about?: () => void) {
+function setup(locale = 'en', about?: () => void, terminal?: () => void) {
   let current = resolveDesktopLocale(locale)
   const open = vi.fn()
   const quit = vi.fn()
   const tray = new DesktopTray({ iconPath: 'C:/app/resources/tray.ico', locale: () => current, open, quit,
-    ...about === undefined ? {} : { about } })
+    ...about === undefined ? {} : { about },
+    ...terminal === undefined ? {} : { terminal } })
   return { tray, open, quit, native: native.trays[0]!, setLocale: (next: string) => { current = resolveDesktopLocale(next) } }
 }
 
@@ -69,6 +70,21 @@ it('offers About only where the caller supplies it, between Open and Quit', () =
   expect(about).toHaveBeenCalledOnce()
   expect(f.open).not.toHaveBeenCalled()
   // A platform keeping its own About entry leaves the same Open / Quit pair as before.
+  setup()
+  expect(labels(native.menus[1]!)).toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
+})
+
+it('places the terminal between the toolchain market and About, where the caller supplies it', () => {
+  const about = vi.fn()
+  const terminal = vi.fn()
+  setup('zh', about, terminal)
+  // A shell window, not a command on the current workspace: it sits with the other
+  // shell-owned windows instead of next to Open/Quit.
+  expect(labels(native.menus[0]!)).toEqual(['打开 DeepSeek Harness', '终端', '关于', 'separator', '退出 DeepSeek Harness'])
+  ;(native.menus[0]![1] as { click: () => void }).click()
+  expect(terminal).toHaveBeenCalledOnce()
+  expect(about).not.toHaveBeenCalled()
+  // Windows keeps its shorter menu because the window is Linux-only.
   setup()
   expect(labels(native.menus[1]!)).toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
 })

@@ -790,6 +790,14 @@ describe('desktop main startup', () => {
         expect(response.headers.get('content-type')).toContain(mime)
         expect(await response.text()).toBe(readFileSync(join(root, 'renderer', name), 'utf8'))
       }
+      // A shell document's `../lib/...` reference arrives as `/lib/...`, which names a build
+      // artifact beside `renderer` rather than a shell document. Without this route an
+      // artifact path resolves under `renderer` and every page asset 404s.
+      for (const name of ['terminal/terminal.js', 'terminal/terminal.css']) {
+        const response = await handler(new Request(`dsh-app://shell/lib/${name}`))
+        expect(response.status).toBe(200)
+      }
+      expect((await handler(new Request('dsh-app://shell/lib/terminal/missing.js'))).status).toBe(404)
       const head = await handler(new Request('dsh-app://shell/update-dialog.html', { method: 'HEAD' }))
       expect(head.status).toBe(200)
       expect(await head.text()).toBe('')
@@ -815,6 +823,9 @@ describe('desktop main startup', () => {
     const tokens = new Request('dsh-app://shell/design-platform.css')
     await handler(tokens)
     expect(serveWebDocument).toHaveBeenLastCalledWith(tokens, join('desktop-test-app', 'lib/welcome'))
+    const artifact = new Request('dsh-app://shell/lib/terminal/terminal.js')
+    await handler(artifact)
+    expect(serveWebDocument).toHaveBeenLastCalledWith(artifact, 'desktop-test-app')
     expect(forwardWebRequest).not.toHaveBeenCalled()
     expect((await handler(new Request('dsh-app://unknown/update-dialog.html'))).status).toBe(404)
   })
