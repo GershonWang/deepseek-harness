@@ -17,7 +17,7 @@
  * @module @deepseek-ai/dsh-desktop/profile-migration
  */
 
-import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 import { loadOverlayPatches, readProfileManifest } from '@deepseek-ai/dsh-app-boot'
@@ -389,6 +389,8 @@ export async function applyMigration(options: {
   const backup = await exists(desktopDir) ? `${desktopDir}.bak-${stamp}` : undefined
   let importedPatches = 0
   let importedPlugins = 0
+  /** Profile-relative paths this import creates or replaces, in write order. */
+  const written: string[] = []
   try {
     if (backup !== undefined) await cp(desktopDir, backup, { recursive: true, force: true })
     await mkdir(desktopDir, { recursive: true, mode: 0o700 })
@@ -400,6 +402,7 @@ export async function applyMigration(options: {
     const yaml = (await import('js-yaml')).default.dump(merged, { lineWidth: -1, noRefs: true })
     await writeFile(patchFile, yaml, { mode: 0o600 })
     importedPatches = merged.length
+    written.push(PROFILE_PATCH_FILENAME)
 
     const manifestFile = join(desktopDir, MANIFEST_FILENAME)
     const manifest = await exists(manifestFile)
@@ -407,18 +410,22 @@ export async function applyMigration(options: {
       : { name: `dsh-profile-${DESKTOP_PROFILE_NAME}`, private: true, dependencies: {}, dsh: { profile: { bundles: [] } } }
     const next = mergeManifest(manifest, source, selection)
     await writeFile(manifestFile, `${JSON.stringify(next, undefined, 2)}\n`, { mode: 0o600 })
+    written.push(MANIFEST_FILENAME)
 
     for (const plugin of source.plugins) {
       if (!selection.plugins.includes(plugin.name)) continue
       const from = join(source.dir, 'node_modules', plugin.name)
       if (!(await exists(from))) continue
-      await copyTree(from, join(desktopDir, 'node_modules', plugin.name))
+      const relative = join('node_modules', plugin.name)
+      await copyTree(from, join(desktopDir, relative))
+      written.push(relative)
       importedPlugins += 1
     }
 
     if (source.hasCompatibility) {
       const compatibility = join(source.dir, COMPATIBILITY_FILENAME)
       await cp(compatibility, join(desktopDir, COMPATIBILITY_FILENAME), { force: true })
+      written.push(COMPATIBILITY_FILENAME)
     }
 
     await writeFile(join(desktopDir, MIGRATION_MARKER),
@@ -426,22 +433,39 @@ export async function applyMigration(options: {
       { mode: 0o600 })
     return { importedPatches, importedPlugins, backup }
   } catch (error) {
-    await restore(desktopDir, backup)
+    await restore(desktopDir, backup, written)
     throw error
   }
 }
 
 /**
- * Restore the destination from a backup, removing the failed state first.
- * @param desktopDir - destination to restore.
- * @param backup - backup directory, or undefined when there was nothing to back up.
+ * Undo a failed import by restoring only the paths it wrote.
+ *
+ * The destination directory itself is never removed: it holds the profile lock the
+ * caller still holds, plus files this import never touched (an installed plugin
+ * tree, caches, the user's own additions). Replacing the whole directory also
+ * discarded the completed-migration marker, which made every later launch offer the
+ * same import again. A path the backup does not carry is removed instead, because it
+ * did not exist before the import.
+ * @param desktopDir - destination directory.
+ * @param backup - backup of the directory, or undefined when there was nothing to back up.
+ * @param written - profile-relative paths this import created or replaced.
  */
-async function restore(desktopDir: string, backup: string | undefined): Promise<void> {
-  try {
-    await rm(desktopDir, { recursive: true, force: true })
-    if (backup !== undefined) await rename(backup, desktopDir)
-  } catch {
-    // A restore failure leaves the backup in place for manual recovery.
+async function restore(desktopDir: string, backup: string | undefined, written: readonly string[]): Promise<void> {
+  for (const relative of written) {
+    const target = join(desktopDir, relative)
+    try {
+      const from = backup === undefined ? undefined : join(backup, relative)
+      if (from !== undefined && (await exists(from))) {
+        await rm(target, { recursive: true, force: true })
+        await mkdir(dirname(target), { recursive: true })
+        await cp(from, target, { recursive: true, force: true })
+      } else {
+        await rm(target, { recursive: true, force: true })
+      }
+    } catch {
+      // A path that cannot be restored leaves the backup in place for manual recovery.
+    }
   }
 }
 

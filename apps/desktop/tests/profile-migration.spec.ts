@@ -259,6 +259,10 @@ describe('migration execution', () => {
     // after the patch and manifest were already written.
     mkdirSync(desktop, { recursive: true })
     writeFileSync(join(desktop, 'node_modules'), 'not a directory\n')
+    // A file this import never writes must survive the rollback: replacing the whole
+    // directory also discarded the caller's profile lock and every unrelated file.
+    const untouched = join(desktop, 'lock')
+    writeFileSync(untouched, '4242\n')
     const source = await readMigrationSource(BIN, legacy)
     await expect(applyMigration({
       binName: BIN, desktopDir: desktop, source: source as MigrationSource,
@@ -266,6 +270,7 @@ describe('migration execution', () => {
     })).rejects.toThrow()
     expect(readFileSync(join(desktop, 'node_modules'), 'utf8')).toBe('not a directory\n')
     expect(existsSync(join(desktop, MIGRATION_MARKER))).toBe(false)
+    expect(readFileSync(untouched, 'utf8')).toBe('4242\n')
     // The pre-migration manifest survives the rollback.
     const manifest = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')) as {
       dsh: { profile: { bundles: string[] } }
