@@ -86,6 +86,25 @@ export default defineConfig([
           },
         },
       })
+      // The terminal page is its own document: it needs xterm, and loading that into the
+      // welcome bundle would pay for it on the sign-in path. It therefore gets a second
+      // build with its own output directory rather than another entry in the one above.
+      await build({
+        configFile: false,
+        root: fileURLToPath(new URL('.', import.meta.url)),
+        define: { 'process.env.NODE_ENV': JSON.stringify('production') },
+        build: {
+          outDir: 'lib/terminal',
+          emptyOutDir: true,
+          lib: {
+            entry: 'src/client/terminal.ts',
+            formats: ['iife'],
+            name: 'DesktopTerminal',
+            fileName: () => 'terminal.js',
+            cssFileName: 'terminal',
+          },
+        },
+      })
     },
     outDir: 'lib',
     format: ['esm'],
@@ -96,7 +115,7 @@ export default defineConfig([
     clean: false,
     deps: { neverBundle: ['electron'] },
   },
-  ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog', 'preload-migration', 'preload-about', 'preload-toolchain'] as const).map(name => ({
+  ...(['preload-app', 'preload-welcome', 'preload-platform-account', 'preload-mandatory', 'preload-update-dialog', 'preload-migration', 'preload-about', 'preload-toolchain', 'preload-terminal'] as const).map(name => ({
     // Sandboxed Electron preloads run as CommonJS even though the application package is ESM.
     entry: { [name]: `lib/types/${name}.js` },
     plugins: [packagedImportsPlugin(preloadImports)],

@@ -51,6 +51,7 @@
     "electron-updater": "^6.8.9",
     "semver": "^7.8.5",
     "ws": "^8.21.3",
+    "node-pty": "1.2.0-beta.15",
     "@deepseek-ai/dsh-api-gateway": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~"
   },
@@ -88,6 +89,8 @@
     "@deepseek-ai/dsh-client-product-analytics": "workspace:*",
     "@deepseek-ai/dsh-plugin-manager": "workspace:*",
     "zod": "4.6.6",
+    "@xterm/xterm": "^6.0.0",
+    "@xterm/addon-fit": "^0.11.0",
     "@deepseek-ai/dsh-util-file-drag": "workspace:*",
     "@deepseek-ai/dsh-client-ui-file-actions": "workspace:*",
     "tencentcloud-sdk-nodejs-teo": "4.1.330"
