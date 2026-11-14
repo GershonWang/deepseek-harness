@@ -34,6 +34,7 @@ import {
 } from './profile-migration.ts'
 import { buildMigrationView, DesktopMigrationDialog, migrationPreloadPath } from './migration-dialog.ts'
 import { declareHostEscape, ensureLinglongWrappers, pruneLegacyLinglongWrappers, withLinglongPath } from './linglong-host.ts'
+import { bridgeDdeTheme } from './dde-appearance.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopFileDrag } from './file-drag.ts'
@@ -518,6 +519,12 @@ async function main(): Promise<void> {
   let mandatoryUI: DesktopMandatoryUpdateWindow | undefined
   let policyAuth: DesktopPolicyTestAuth | undefined
   let tray: DesktopTray | undefined
+  // Chromium reads the freedesktop theme keys, which a Deepin desktop does not keep
+  // in step with its own dark mode. Only Linux participates: on Windows and macOS the
+  // platform answer is already the right one, and reading a Deepin service there
+  // would override a palette the operating system resolved correctly.
+  const ddeTheme = bridgeDdeTheme(nativeTheme, { enabled: process.platform === 'linux' })
+  app.on('will-quit', () => { ddeTheme.dispose() })
   /**
    * The operating system is ending the session: the quit skips its confirmation. Windows sets it
    * on the definitive session-end message. macOS sets it on the power-off notification, which
@@ -958,7 +965,7 @@ async function main(): Promise<void> {
       || event.senderFrame !== mainWindow.webContents.mainFrame
       || !event.senderFrame.url.startsWith(`${SCHEME}://app/`)) return
     if (source !== 'light' && source !== 'dark' && source !== 'system') return
-    nativeTheme.themeSource = source
+    ddeTheme.setPreference(source)
   })
   ipcMain.handle(DESKTOP_IPC.localeBootstrap, async (event) => {
     if (event.sender !== mainWindow?.webContents || event.senderFrame !== mainWindow.webContents.mainFrame
@@ -1539,7 +1546,7 @@ async function main(): Promise<void> {
     if (quitting || recovery.active) return
     const state = await readWelcomeState()
     if (isQuitting() || backend.state.phase !== 'ready') return
-    nativeTheme.themeSource = state.themePreference
+    ddeTheme.setPreference(state.themePreference)
     locale = resolveDesktopStartupLocale(state.localePreference, systemLanguages)
     writeDesktopLocaleCache(app.getPath('userData'), locale.id)
     windowsLanguage = locale.id
