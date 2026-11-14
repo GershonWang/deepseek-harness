@@ -26,6 +26,14 @@ ll-builder export --ref com.deepseek.dsh-desktop
 
 `prepare-offline.sh` builds the repository, packs the dsh and vendor package sets, prepares the Electron runtime and the primary runtime, prepares the dsh tree, and runs `electron-builder --linux --x64 --dir` into `apps/linyaps/desktop-linglong/stage/`. The container build only copies that tree, installs the icons and desktop entry, and writes the launcher wrapper.
 
+### Bundled toolchain
+
+The container ships no `git`, `wget`, or `jq`, yet the harness itself calls `git` (`workspace-changes` diffs the workspace, and the `worktree` plugin's `gitCommand` points at it), and the model needs ordinary shell tools through its bash tool. Those dependencies are declared in [linglong.yaml](linglong.yaml) under `buildext.apt.depends`, which Linglong merges into `${PREFIX}` after the build stage (`$PREFIX/bin` leads the container PATH).
+
+Electron renders its own input methods and clipboard, so the WebKitGTK-only packages the thin wrapper ships (`libwebkitgtk-6.0-4`, `fcitx5-frontend-gtk4`, `bubblewrap`) are not needed here.
+
+[verify-merged-deps.sh](verify-merged-deps.sh) asserts that every declared dependency actually reached the merged tree: `ll-builder` downgrades a failed copy to a warning, and `depends` is merged after the build stage, so the log carries no landing evidence. A new dependency must also be claimed in that script's rule table or the build fails; [test-verify-merged-deps.sh](test-verify-merged-deps.sh) covers its pass and fail paths.
+
 `prepare-offline.sh` downloads the Electron binary through `@electron/get`, which fetches from GitHub and ignores `http_proxy`/`https_proxy` (Node's `fetch` does not read them). On a network that cannot reach GitHub, set `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`, or `NODE_USE_ENV_PROXY=1` when a proxy is already exported.
 
 ## Upstream changes this module depends on

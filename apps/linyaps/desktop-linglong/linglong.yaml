@@ -77,7 +77,11 @@ buildext:
     # （薄壳版在 webkit 上实测过同一现象）。因此下面这些库只保证**构建期**可解析，
     # 运行期依赖基础层 org.deepin.base 提供；实测若缺库，需按薄壳版 webkit 的做法
     # 用 apt-get download + dpkg-deb -x 显式搬进 ${PREFIX}。
+    #
+    # 交付情况由 linglong/verify-merged-deps.sh 在合并产物树上逐个断言；新增依赖
+    # 必须同时在那个脚本的规则表里认领，否则校验直接失败。
     depends:
+      # --- Chromium 运行库（Electron 自带 Chromium，与薄壳版的 WebKit 无关）---
       - libgtk-3-0
       - libnss3
       - libgbm1
@@ -93,3 +97,28 @@ buildext:
       - libpango-1.0-0
       - libcairo2
       - libxshmfence1
+      # --- 通用工具链 ---
+      # 容器内没有 git，而 harness 自己就要用它：workspace-changes 用 git 算工作区
+      # 变更，worktree 插件的 gitCommand 也指向它。随包合并进 ${PREFIX}/bin（容器
+      # PATH 首位），模型与 harness 都能直接调用。
+      - git
+      # 带 LFS 配置的仓库在 checkout/push 时由 post-checkout/pre-push 钩子调用
+      # git-lfs；不随包则钩子报错、推送需 --no-verify 绕过，等于大文件没被正确上传。
+      - git-lfs
+      - python3
+      - curl
+      - wget
+      - unzip
+      - zip
+      - jq
+      - xxd   # 独立二进制包；beige/noble 的 vim-common 已不含 xxd
+      - ca-certificates   # git/https/python 校验
+      # 打开外部链接需要真实的 xdg-open：基础运行时的 /usr/bin/xdg-open 只是个
+      # systemd-run 转发壳（实测递归失败，打不开任何东西）。Electron 的
+      # shell.openExternal 走同一个入口，不替换则外链与登录页都打不开。合并后
+      # ${PREFIX}/bin 在容器 PATH 首位，盖过该壳。
+      - xdg-utils
+      # 粘贴图片：Electron 的 clipboardImageRead 读的是 Wayland 剪贴板，实测
+      # XWayland 不把 Wayland 侧的 image/png 暴露成 X11 selection。缺 wl-paste
+      # 时截图粘贴静默失效。
+      - wl-clipboard

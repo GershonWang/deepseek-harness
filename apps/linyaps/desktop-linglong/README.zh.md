@@ -28,6 +28,14 @@ ll-builder export --ref com.deepseek.dsh-desktop
 
 `prepare-offline.sh` 会构建仓库、打包 dsh 与 vendor 包集、准备 Electron 运行时与主运行时、准备 dsh 树，并用 `electron-builder --linux --x64 --dir` 产出到 `apps/linyaps/desktop-linglong/stage/`。容器构建只复制该目录树、安装图标与桌面入口、写入启动包装脚本。
 
+### 随包工具链
+
+容器内没有 `git`、`wget`、`jq` 这类工具，而 harness 自己要调用 `git`（`workspace-changes` 算工作区变更，`worktree` 插件的 `gitCommand` 也指向它），模型在 bash 工具里也需要通用 shell 工具。这些依赖声明在 [linglong.yaml](linglong.yaml) 的 `buildext.apt.depends`，由玲珑在 build 段之后合并进 `${PREFIX}`（`$PREFIX/bin` 已在容器 PATH 首位）。
+
+Chromium 的输入法与剪贴板由 Electron 自己处理，因此薄壳版随包的 `libwebkitgtk-6.0-4`、`fcitx5-frontend-gtk4`、`bubblewrap` 这些 WebKitGTK 专属依赖在这里不需要。
+
+依赖是否真的进了包由 [verify-merged-deps.sh](verify-merged-deps.sh) 在合并产物树上断言：`ll-builder` 会把「拷不进去」降级成警告，而 `depends` 又在 `build` 段之后合并，日志里看不到落点。新增依赖必须同时在它的规则表里认领，否则构建失败。它自己的通过/失败路径由 [test-verify-merged-deps.sh](test-verify-merged-deps.sh) 覆盖。
+
 `prepare-offline.sh` 会经 `@electron/get` 从 GitHub 下载 Electron 二进制，而它不读 `http_proxy`/`https_proxy`（Node 的 `fetch` 不认这两个变量）。在到不了 GitHub 的网络里，先设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`，或在已导出代理时设 `NODE_USE_ENV_PROXY=1`。
 
 ## 本模块依赖的上游改动

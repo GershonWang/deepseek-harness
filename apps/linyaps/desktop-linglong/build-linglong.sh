@@ -57,6 +57,11 @@ fi
 # 不必再写一份只差豁免清单的实现。
 sh apps/linyaps/desktop-launcher/linglong/verify-builder-log.sh "$BUILD_LOG"
 
+# depends 在 build 段之后才合并，日志里看不到它的落点，只能在合并产物树上断言。
+# 这里只断言、不改产物：导出树是提交层的物化副本，改它不会进包。
+echo "==> 验收依赖落点（buildext.apt 是否真的进了产物树）"
+sh apps/linyaps/desktop-linglong/verify-merged-deps.sh linglong/output/binary/files
+
 ll-builder export --ref "main:$LL_ID/$LL_VERSION/x86_64"
 
 ART="${LL_ID}_${LL_VERSION}_x86_64_main.uab"
