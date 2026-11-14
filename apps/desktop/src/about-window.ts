@@ -21,8 +21,12 @@ import type { DesktopLocale } from './locale.ts'
 /** Shell-owned document this window draws; `main.ts` serves it from the renderer directory. */
 const page = 'dsh-app://shell/about.html'
 
-/** Fixed geometry: the content is a fixed set of rows, so the window neither grows nor shrinks. */
-export const ABOUT_WINDOW_SIZE = { width: 520, height: 460 } as const
+/**
+ * Fixed geometry: the content is a fixed set of rows, so the window neither grows
+ * nor shrinks. The width fits one row of the widest shipped label (Portuguese,
+ * 146 px) and a 339 px monospace repository URL, plus a 40 px margin each side.
+ */
+export const ABOUT_WINDOW_SIZE = { width: 580, height: 460 } as const
 
 /** Inputs the window needs from the running application. */
 export interface DesktopAboutWindowOptions {
