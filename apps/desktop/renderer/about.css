@@ -1,0 +1,104 @@
+/* About window; the page is the card, because the native window already draws its title bar. */
+
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+body[data-ds-dark-theme] { color-scheme: dark; }
+
+#about {
+  width: 100%;
+  max-width: 500px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+[hidden] { display: none !important; }
+
+/* The brand mark is a mask rather than an image: an <img> SVG cannot inherit the
+   page ink, so it would keep one fixed colour in the other theme. */
+#logo {
+  width: 72px;
+  height: 72px;
+  background: var(--dsw-alias-label-primary);
+  mask: url("assets/about-glyph.svg") center / contain no-repeat;
+}
+
+h1 { margin: 0; font-size: 15px; font-weight: 600; line-height: 22px; }
+
+#version { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+
+.mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+/* The form badge states which shell this build is; it is one fact, not a control. */
+.badge {
+  margin: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-markdown-code-block);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.id-row { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 2px; }
+#package-id { font-size: 12px; line-height: 18px; }
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.icon:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.icon:focus-visible { outline: 2px solid var(--dsw-alias-link); outline-offset: 2px; }
+
+/* Facts sit on their own reading axis below a divider: label column, then value. */
+#fields {
+  width: 100%;
+  margin: 4px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.row { display: flex; align-items: baseline; gap: 10px; font-size: 12px; line-height: 18px; }
+
+/* One label column for every row, wide enough for the widest shipped label
+   (Portuguese "Empacotador Linglong", measured at 146 px at this size) so all
+   values start on one axis and no label wraps. The card is wide enough to leave
+   the 304 px repository URLs a single line. */
+dt { flex: 0 0 150px; color: var(--dsw-alias-label-secondary); }
+dd { margin: 0; flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+
+.link { color: var(--dsw-alias-link); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.link:focus-visible { outline: 2px solid var(--dsw-alias-link); outline-offset: 2px; border-radius: 3px; }
+
+.selectable { user-select: text; cursor: text; }

@@ -77,6 +77,7 @@ import { installDesktopShortcuts } from './keyboard.ts'
 import { DesktopUpdateOverlays } from './update-overlay.ts'
 import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { DesktopTray } from './tray.ts'
+import { DesktopAboutWindow } from './about-window.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 
 let focusPrimaryWindow = (): void => {}
@@ -222,6 +223,26 @@ function runtimeResources(): RuntimeResources {
   const dsh = (development ? process.env.DSH_DESKTOP_DSH_DIR : undefined)
     ?? (development ? join(app.getAppPath(), '.desktop-build', 'development', 'project') : join(app.getAppPath(), 'dsh'))
   return { node, nodeBin, pnpm, dsh }
+}
+
+/**
+ * Version of the DSH runtime shipped inside this build.
+ *
+ * A packaged application reports the version its `dsh` tree declares, which is the
+ * tree actually executing; an unpackaged run has no such descriptor to trust and
+ * reports the shell version instead of failing the About window over it.
+ * @param root - materialized `dsh` tree of this build.
+ * @returns the runtime version, or the packaged application version.
+ */
+function bundledDshVersion(root: string): string {
+  if (!app.isPackaged) return app.getVersion()
+  try {
+    return readDesktopRuntime(root).release.version
+  } catch (error) {
+    // An unreadable descriptor already stops project preparation; About must still open.
+    console.warn('desktop about: could not read the bundled DSH version', error)
+    return app.getVersion()
+  }
 }
 
 function developmentPrimaryRuntime(): string {
@@ -1313,6 +1334,17 @@ async function main(): Promise<void> {
     { role: 'toggleDevTools', visible: false },
     devToolsF12Shortcut,
   ]
+  // The About window carries the packaging identity, so only a platform whose own
+  // About entry does not is given this one: macOS uses the system About panel and
+  // Windows its application menu command.
+  const about = process.platform === 'linux'
+    ? new DesktopAboutWindow({
+      preload: fileURLToPath(new URL('./preload-about.cjs', import.meta.url)),
+      locale: () => locale,
+      version: () => app.getVersion(),
+      harnessVersion: () => bundledDshVersion(resources.dsh),
+    })
+    : undefined
   const refreshApplicationMenu = (): void => {
     Menu.setApplicationMenu(Menu.buildFromTemplate(process.platform === 'win32'
       ? windowsDevToolsShortcuts : [{
@@ -1320,6 +1352,7 @@ async function main(): Promise<void> {
         submenu: [...applicationItems(), devToolsF12Shortcut],
       }, ...platformMenus()]))
     tray?.relabel()
+    about?.relabel()
   }
   refreshApplicationMenu()
   // Closing the main window hides it on every desktop platform, so the tray is the
@@ -1332,7 +1365,8 @@ async function main(): Promise<void> {
   if (process.platform === 'win32' || process.platform === 'linux') {
     try {
       tray = new DesktopTray({ iconPath: trayIconName, locale: currentDesktopLocale,
-        open: () => { focusPrimaryWindow() }, quit: () => { app.quit() } })
+        open: () => { focusPrimaryWindow() }, quit: () => { app.quit() },
+        ...about === undefined ? {} : { about: () => { about.show() } } })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
   }
   // A first hide is silent everywhere the tray exists, which leaves the window
@@ -1595,6 +1629,7 @@ async function main(): Promise<void> {
     quitConfirmation.dispose()
     backgroundNotice?.dispose()
     tray?.dispose()
+    about?.dispose()
     stopAccount?.()
     if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) welcomeWindow.hide()
     if (mainWindow !== undefined && !mainWindow.isDestroyed()) mainWindow.hide()
@@ -1618,6 +1653,7 @@ async function main(): Promise<void> {
       backgroundNotice?.dispose()
       updateJournal?.action('quit-requested')
       tray?.dispose()
+      about?.dispose()
       updateDialog.dispose()
       mandatoryUI?.dispose()
       // Installation preparation already awaited Platform storage cleanup.

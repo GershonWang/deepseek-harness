@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; base-uri 'none'; form-action 'none'">
+    <title></title>
+    <link rel="stylesheet" href="design-platform.css">
+    <link rel="stylesheet" href="about.css">
+  </head>
+  <body class="about">
+    <script src="shell-theme.js"></script>
+    <!-- The native window already carries a title bar and a close control, so the page is
+         the card itself: brand mark, product, versions, package ID, and the fact grid.
+         Every string arrives from main; the document composes no copy of its own. -->
+    <main id="about" hidden>
+      <div id="logo" role="img" aria-label=""></div>
+      <h1 id="product"></h1>
+      <p id="version" class="mono selectable"></p>
+      <p id="form" class="badge"></p>
+      <div class="id-row">
+        <span id="package-id" class="mono selectable"></span>
+        <button id="copy" class="icon" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+      </div>
+      <dl id="fields"></dl>
+    </main>
+    <script src="about.js"></script>
+  </body>
+</html>

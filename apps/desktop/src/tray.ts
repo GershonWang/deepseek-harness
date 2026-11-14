@@ -19,13 +19,21 @@ export interface DesktopTrayOptions {
   readonly open: () => void
   /** Request quit through the same confirmation as every other quit entry. */
   readonly quit: () => void
+  /**
+   * Open the About window.
+   *
+   * Omitted where the platform already offers its own About entry: macOS uses
+   * the system About panel and Windows its application menu command, so a second
+   * tray entry there would present different facts under the same name.
+   */
+  readonly about?: () => void
 }
 
 /** Tray icon present for the whole run, not only while the window is hidden. */
 export class DesktopTray {
   private tray: Tray | undefined
 
-  /** @param options - Icon path, locale reader, and the open and quit actions. */
+  /** @param options - Icon path, locale reader, and the open, about, and quit actions. */
   constructor(private readonly options: DesktopTrayOptions) {
     const tray = new Tray(nativeImage.createFromPath(options.iconPath))
     this.tray = tray
@@ -38,9 +46,11 @@ export class DesktopTray {
     const tray = this.tray
     if (tray === undefined) return
     const { messages } = this.options.locale()
+    const about = this.options.about
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
+      ...about === undefined ? [] : [{ label: messages.aboutMenu, click: () => { about() } }],
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },
     ]))

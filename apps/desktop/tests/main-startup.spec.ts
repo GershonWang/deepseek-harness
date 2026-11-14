@@ -1751,6 +1751,33 @@ describe('desktop main startup', () => {
     expect(harness.app.quit).not.toHaveBeenCalled()
   })
 
+  it('offers the About window from the Linux tray and opens it without the workspace', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'linux', arch: 'x64', resourcesPath: 'desktop-test-resources' })
+    harness.app.isPackaged = false
+    await readyWorkspace()
+    // The tray relabels last at startup, so its template is the most recent one built.
+    const template = harness.menu.mock.calls.at(-1)![0]
+    const about = template.find(item => item.role === undefined && item.label === 'About DeepSeek Harness')
+    expect(about).toBeDefined()
+    const before = harness.windows.length
+    ;(about!.click as () => void)()
+    // A separate window, so the About card is reachable while the workspace is hidden.
+    expect(harness.windows).toHaveLength(before + 1)
+    const aboutOptions = harness.windows.at(-1)!.options as { parent?: unknown; resizable?: boolean }
+    expect(aboutOptions.parent).toBeUndefined()
+    expect(aboutOptions.resizable).toBe(false)
+    expect(harness.handlers.has('dsh-about:status')).toBe(true)
+  })
+
+  it('leaves the Windows tray without an About entry, where the menu already owns one', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
+    await readyWorkspace()
+    const template = harness.menu.mock.calls.at(-1)![0]
+    expect(template.map(item => item.type === 'separator' ? 'separator' : item.label))
+      .toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
+    expect(harness.handlers.has('dsh-about:status')).toBe(false)
+  })
+
   it('hides a macOS owner with a mandatory view without quitting or stopping the Host', async () => {
     vi.stubGlobal('process', { ...process, platform: 'darwin' })
     harness.embeddedPolicy = { origin: 'https://policy.example.com', allowedPageOrigins: ['https://downloads.example.com'] }
