@@ -34,7 +34,8 @@ describe('shell document styles', () => {
     expect(defined.size).toBeGreaterThan(100)
     for (const sheet of stylesheets()) {
       const css = readFileSync(`${renderer}${sheet}`, 'utf8')
-      const used = [...css.matchAll(/var\((--dsw-alias-[a-z0-9-]+)/gu)].map(match => match[1])
+      const used = [...css.matchAll(/var\((--dsw-alias-[a-z0-9-]+)/gu)]
+        .flatMap(match => match[1] === undefined ? [] : [match[1]])
       const missing = [...new Set(used)].filter(token => !defined.has(token))
       expect(missing, `${sheet} uses undefined tokens`).toEqual([])
     }
@@ -54,7 +55,8 @@ describe('shell document styles', () => {
       const page = `${sheet.replace(/\.css$/u, '')}.html`
       let html: string
       try { html = readFileSync(`${renderer}${page}`, 'utf8') } catch { continue }
-      const hrefs = [...html.matchAll(/<link[^>]+href="([^"]+\.css)"/gu)].map(match => match[1])
+      const hrefs = [...html.matchAll(/<link[^>]+href="([^"]+\.css)"/gu)]
+        .flatMap(match => match[1] === undefined ? [] : [match[1]])
       const reachesTokens = hrefs.some((href) => {
         // `design-platform.css` is served from `lib/welcome` by the shell protocol, not
         // from this directory, so that one name maps to the built asset.
