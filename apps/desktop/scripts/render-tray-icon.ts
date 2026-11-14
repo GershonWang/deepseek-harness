@@ -1,11 +1,17 @@
 /**
- * Render the Windows tray icon with an enlarged whale from `resources/icon-windows.svg`.
+ * Render the tray icon for every platform that shows one.
  *
- * The tray shows the icon at 16 logical pixels, so Windows picks one of the
- * bundled bitmaps by display scale. Each size is rasterized from the vector
- * source separately instead of downscaling one large bitmap, which keeps edges
- * crisp at every scale. The committed `resources/tray-windows.ico` is the output;
- * rerun `pnpm run render:tray-icon` in `apps/desktop` after changing the vector source.
+ * Windows reads a multi-size ICO and picks a bitmap by display scale, so each
+ * size is rasterized from the vector source separately rather than downscaling
+ * one large bitmap; that keeps edges crisp at every scale. The committed
+ * `resources/tray-windows.ico` is that output.
+ *
+ * Linux panels take a bitmap, not an ICO: `nativeImage` loads PNG directly and
+ * the panel picks a size near its own icon metric. `resources/tray-linux.png`
+ * is rendered at the largest packed size so a HiDPI panel can downscale without
+ * the blur that upscaling a small bitmap would cause.
+ *
+ * Rerun `pnpm run render:tray-icon` in `apps/desktop` after changing the vector source.
  */
 
 import { readFile, writeFile } from 'node:fs/promises'
@@ -16,10 +22,14 @@ import sharp from 'sharp'
 /** Bitmap edge lengths bundled in the tray icon: 16 px at 100 % through 400 % display scale. */
 export const TRAY_ICON_SIZES = [16, 20, 24, 32, 40, 48, 64] as const
 
-/** Vector source and committed output of the tray icon. */
+/** Edge length of the single bitmap Linux panels load; large enough for a scale-2 panel. */
+export const TRAY_LINUX_EDGE = 64
+
+/** Vector source and committed outputs of the tray icon, per platform format. */
 export const TRAY_ICON_PATHS = {
   source: fileURLToPath(new URL('../resources/icon-windows.svg', import.meta.url)),
   output: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)),
+  linuxOutput: fileURLToPath(new URL('../resources/tray-linux.png', import.meta.url)),
 } as const
 
 /** Coordinate space of the vector source; sharp's SVG density is scaled against it. */
@@ -115,9 +125,14 @@ function pngDimensions(png: Buffer): { width: number; height: number } {
 }
 
 async function main(): Promise<void> {
-  const entries = await renderTrayIconEntries(await readFile(TRAY_ICON_PATHS.source))
+  const source = await readFile(TRAY_ICON_PATHS.source)
+  const entries = await renderTrayIconEntries(source)
   await writeFile(TRAY_ICON_PATHS.output, packIco(entries))
   console.info(`tray icon: wrote ${TRAY_ICON_PATHS.output} with ${entries.map(entry => String(entry.size)).join(', ')} px bitmaps`)
+  const [linux] = await renderTrayIconEntries(source, [TRAY_LINUX_EDGE])
+  if (linux === undefined) throw new Error('tray icon: no Linux bitmap rendered')
+  await writeFile(TRAY_ICON_PATHS.linuxOutput, linux.png)
+  console.info(`tray icon: wrote ${TRAY_ICON_PATHS.linuxOutput} at ${String(TRAY_LINUX_EDGE)} px`)
 }
 
 if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) await main()

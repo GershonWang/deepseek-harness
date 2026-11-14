@@ -1,11 +1,18 @@
-/** Windows system tray: the always-present way back to a hidden window and the explicit quit entry. */
+/**
+ * Desktop tray: the always-present way back to a hidden window and the explicit quit entry.
+ *
+ * Closing the main window hides it on every platform, so a hidden run needs a
+ * visible way back and a way to quit. Windows and Linux use different image
+ * formats — the ICO carries per-scale bitmaps, while a Linux panel loads a single
+ * PNG — but the behavior is the same.
+ */
 
 import { Menu, nativeImage, Tray } from 'electron'
 import type { DesktopLocale } from './locale.ts'
 
 /** Main-process actions the tray triggers; both run the same paths as the window and application menu. */
 export interface DesktopTrayOptions {
-  /** Multi-size ICO rendered by `scripts/render-tray-icon.ts`; Windows picks the bitmap for the display scale. */
+  /** Tray image: a multi-size ICO on Windows, a PNG on Linux. */
   readonly iconPath: string
   readonly locale: () => DesktopLocale
   /** Show and focus the primary window. */

@@ -858,8 +858,12 @@ describe('desktop main startup', () => {
     harness.ipcOn.mock.calls.find(([channel]) => channel === DESKTOP_IPC.localeChanged)![1](
       { sender, senderFrame: sender.mainFrame }, nextLocale,
     )
+    // The tray relabels its context menu through the same builder, so the application
+    // menu is the last template whose first entry carries a submenu.
     const refreshed = platform === 'win32' ? applicationMenuItems()
-      : harness.menu.mock.lastCall![0][0]!.submenu as MenuItemConstructorOptions[]
+      : ([...harness.menu.mock.calls].reverse()
+        .map(call => call[0])
+        .find(template => Array.isArray(template[0]?.submenu))![0]!.submenu) as MenuItemConstructorOptions[]
     expect(refreshed.filter(item => item.role === 'toggleDevTools' && item.visible !== false)).toEqual([
       { role: 'toggleDevTools', label: nextLocale === 'en' ? en.toggleDevToolsMenu : zh.toggleDevToolsMenu },
     ])
@@ -1730,6 +1734,21 @@ describe('desktop main startup', () => {
     const relabels = harness.trays[0]!.setContextMenu.mock.calls.length
     harness.ipcOn.mock.calls.find(call => call[0] === DESKTOP_IPC.localeChanged)![1]({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'zh')
     expect(harness.trays[0]!.setContextMenu.mock.calls.length).toBe(relabels + 1)
+  })
+
+  it('creates a tray from the Linux PNG and confirms the first hide', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'linux', arch: 'x64', resourcesPath: 'desktop-test-resources' })
+    await readyWorkspace()
+    // A Linux panel loads a plain bitmap, and the hide is silent without a tray,
+    // so both the tray and its first-hide confirmation apply here.
+    expect(harness.trays).toHaveLength(1)
+    expect(harness.trays[0]!.image).toEqual({ path: join('desktop-test-resources', 'tray-linux.png') })
+    expect(harness.backgroundNotice.markerPath).toBe(join(harness.app.getPath('userData'), 'background-close-confirmed'))
+    const window = harness.windows[0]!
+    window.close()
+    expect(window.isDestroyed()).toBe(false)
+    expect(harness.backgroundNotice.close).toHaveBeenCalledOnce()
+    expect(harness.app.quit).not.toHaveBeenCalled()
   })
 
   it('hides a macOS owner with a mandatory view without quitting or stopping the Host', async () => {

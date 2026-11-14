@@ -1315,15 +1315,23 @@ async function main(): Promise<void> {
     tray?.relabel()
   }
   refreshApplicationMenu()
-  const trayIconPath = development ? join(app.getAppPath(), 'resources', 'tray-windows.ico') : join(process.resourcesPath, 'tray.ico')
-  if (process.platform === 'win32') {
-    // The tray is the way back to a hidden window; without it, relaunching the application still focuses it.
+  // Closing the main window hides it on every desktop platform, so the tray is the
+  // only visible way back and the only explicit quit entry while hidden. Windows
+  // reads the packed ICO, Linux a single PNG.
+  const trayIconFile = process.platform === 'win32' ? 'tray.ico' : 'tray-linux.png'
+  const trayIconName = development
+    ? join(app.getAppPath(), 'resources', process.platform === 'win32' ? 'tray-windows.ico' : 'tray-linux.png')
+    : join(process.resourcesPath, trayIconFile)
+  if (process.platform === 'win32' || process.platform === 'linux') {
     try {
-      tray = new DesktopTray({ iconPath: trayIconPath, locale: currentDesktopLocale,
+      tray = new DesktopTray({ iconPath: trayIconName, locale: currentDesktopLocale,
         open: () => { focusPrimaryWindow() }, quit: () => { app.quit() } })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
   }
-  const backgroundNotice = process.platform === 'win32'
+  // A first hide is silent everywhere the tray exists, which leaves the window
+  // apparently gone. The same one-time acknowledgement covers Windows and Linux;
+  // macOS keeps its Dock icon, so a hide there is still discoverable.
+  const backgroundNotice = process.platform === 'win32' || process.platform === 'linux'
     ? new DesktopBackgroundNotice({ markerPath: join(app.getPath('userData'), 'background-close-confirmed'),
       locale: () => locale, show: ordinaryMessageBox, focus: () => { updateDialog.focus() } })
     : undefined
@@ -1337,7 +1345,7 @@ async function main(): Promise<void> {
     focus: () => { if (process.platform === 'darwin') app.focus({ steal: true }) },
     // The task dialog draws its main icon at the system icon size; the multi-size ICO yields that
     // size directly, where the 1024 px PNG would be scaled down by GDI.
-    ...(process.platform === 'win32' ? { icon: nativeImage.createFromPath(trayIconPath) } : {}),
+    ...(process.platform === 'win32' ? { icon: nativeImage.createFromPath(trayIconName) } : {}),
   })
 
   if (process.platform === 'win32') {
