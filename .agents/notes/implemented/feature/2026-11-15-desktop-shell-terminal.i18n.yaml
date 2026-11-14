@@ -1,0 +1,31 @@
+# Bilingual-pair consistency record for 2026-11-15-desktop-shell-terminal.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-15-desktop-shell-terminal.md
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry:
+  en: 0acee2991fcfdbca
+  zh: a89135ce875442c7
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/problem:
+  en: 2c796c4d3e8d2d4e
+  zh: d1e9853ddb73751f
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/decision:
+  en: 03d384457b9b7d70
+  zh: 4ad917102d7ae613
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/decision/environment:
+  en: 95847ed26926706c
+  zh: be39dc2110f700d0
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/decision/copy-and-keyboard:
+  en: 3c94a3ec5261916f
+  zh: 3f816f584f487997
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/decision/packaging:
+  en: 00881588f20bc9f0
+  zh: 13a5feeb0ecda762
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/alternatives-considered:
+  en: 6d9eb2aeab55222f
+  zh: 14b74f8edca6ce30
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/consequences:
+  en: 6c5739c31ebadfe5
+  zh: 05de14c4facecf51
+/agent-note-the-desktop-shell-s-container-level-terminal-tray-entry/testing:
+  en: cb5d988adeb62043
+  zh: ce762efe6a60bfdc
