@@ -12,73 +12,12 @@
  */
 
 import { BrowserWindow, ipcMain } from 'electron'
-import { fileURLToPath } from 'node:url'
 import { classifyPatches, type MigrationSelection, type MigrationSource, type PatchConflict, type PatchEntry } from './profile-migration.ts'
+import {
+  MIGRATION_IPC,
+  type MigrationView,
+} from './migration-contract.ts'
 import { formatDesktopMessage, type DesktopLocale } from './locale.ts'
-
-/** Channels available only to the isolated migration document. */
-export const MIGRATION_IPC = {
-  ready: 'dsh-migration:ready',
-  changed: 'dsh-migration:changed',
-  respond: 'dsh-migration:respond',
-} as const
-
-/** One plugin offered for import. */
-export interface MigrationPluginView {
-  /** Package name, used as the selection key. */
-  readonly name: string
-  /** Secondary line describing the plugin. */
-  readonly detail: string
-  /** Initial checkbox state. */
-  readonly checked: boolean
-}
-
-/** One differing patch id the user adjudicates. */
-export interface MigrationConflictView {
-  /** Loader id, used as the selection key. */
-  readonly id: string
-  /** Human label for the entry. */
-  readonly label: string
-  /** The legacy copy. */
-  readonly legacy: { readonly side: 'legacy'; readonly label: string; readonly preview: string }
-  /** The desktop copy. */
-  readonly desktop: { readonly side: 'desktop'; readonly label: string; readonly preview: string }
-  /** Side selected initially. */
-  selected: 'legacy' | 'desktop'
-}
-
-/** Everything the document renders; every string is main-owned. */
-export interface MigrationView {
-  readonly locale: string
-  readonly title: string
-  readonly intro: string
-  readonly settings: { readonly label: string; readonly detail: string; readonly checked: boolean }
-  readonly plugins: { readonly heading: string; readonly note: string; readonly items: readonly MigrationPluginView[] }
-  readonly conflicts: {
-    readonly heading: string
-    readonly note: string
-    readonly useDesktopAll: string
-    readonly items: readonly MigrationConflictView[]
-  }
-  readonly retentionNote: string
-  readonly unsupportedNote: string
-  readonly buttons: { readonly skip: string; readonly import: string }
-}
-
-/** The renderer may submit only a selection drawn from the displayed view. */
-export interface MigrationResponse {
-  readonly action: 'import' | 'skip'
-  readonly settings: boolean
-  readonly plugins: readonly string[]
-  readonly conflicts: Readonly<Record<string, 'legacy' | 'desktop'>>
-}
-
-/** Bridge exposed to the isolated document. */
-export interface MigrationApi {
-  ready(): Promise<MigrationView>
-  respond(response: MigrationResponse): Promise<void>
-  subscribe(listener: (view: MigrationView) => void): () => void
-}
 
 const page = 'dsh-app://shell/migration.html'
 
@@ -226,10 +165,14 @@ export class DesktopMigrationDialog {
 
 /**
  * Absolute path of the migration preload shipped beside the main bundle.
+ *
+ * The path is derived without `node:url`, because the migration preload imports
+ * this module for its IPC channel names and a sandboxed preload may load only
+ * Electron and a fixed builtin allowlist.
  * @returns the preload path.
  */
 export function migrationPreloadPath(): string {
-  return fileURLToPath(new URL('./preload-migration.cjs', import.meta.url))
+  return `${import.meta.dirname}/preload-migration.cjs`
 }
 
 /**

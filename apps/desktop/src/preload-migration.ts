@@ -1,6 +1,6 @@
 /** Isolated bridge for the shell-owned profile migration document. */
 import { contextBridge, ipcRenderer } from 'electron'
-import { MIGRATION_IPC, type MigrationApi, type MigrationView } from './migration-dialog.ts'
+import { MIGRATION_IPC, type MigrationApi, type MigrationView } from './migration-contract.ts'
 
 const api: MigrationApi = {
   ready: () => ipcRenderer.invoke(MIGRATION_IPC.ready) as Promise<MigrationView>,
