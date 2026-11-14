@@ -35,6 +35,7 @@ import {
 import { buildMigrationView, DesktopMigrationDialog, migrationPreloadPath } from './migration-dialog.ts'
 import { declareHostEscape, ensureLinglongWrappers, pruneLegacyLinglongWrappers, withLinglongPath } from './linglong-host.ts'
 import { bridgeDdeTheme } from './dde-appearance.ts'
+import { applyGitEnvironment, packagedAppRoot, resolveGitEnvironment } from './git-environment.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopFileDrag } from './file-drag.ts'
@@ -415,6 +416,13 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
  * @param home - user home directory.
  */
 async function prepareHostTools(home: string): Promise<void> {
+  // Packaged git keeps its helpers outside the compile-time exec path, so network
+  // commands fail until GIT_EXEC_PATH is redirected. Set it before the Host starts.
+  try {
+    applyGitEnvironment(process.env, await resolveGitEnvironment(packagedAppRoot(process.execPath)))
+  } catch (error) {
+    console.warn('desktop git environment: helpers unavailable', error)
+  }
   const fact = declareHostEscape(process.env)
   await pruneLegacyLinglongWrappers(home).catch(() => undefined)
   if (fact === undefined) return
@@ -496,7 +504,16 @@ async function main(): Promise<void> {
     return result.environment
   })
   let hostEnvironment: NodeJS.ProcessEnv = process.env
-  const prepareHostEnvironment = async (): Promise<void> => { hostEnvironment = await loginShell }
+  const prepareHostEnvironment = async (): Promise<void> => {
+    hostEnvironment = await loginShell
+    // The login-shell read replaces the whole mapping, so the packaged git entries
+    // applied to process.env earlier are absent here and must be re-applied.
+    try {
+      applyGitEnvironment(hostEnvironment, await resolveGitEnvironment(packagedAppRoot(process.execPath)))
+    } catch (error) {
+      console.warn('desktop git environment: helpers unavailable for the Host', error)
+    }
+  }
   let quitting = false
   let startup: Promise<void> | undefined
   let workspaceRecovery: Promise<void> | undefined
