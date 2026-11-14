@@ -1,0 +1,86 @@
+/* 托盘「终端」窗口的页面外观。
+ *
+ * 终端自带一套深色画布（与右侧栏终端同一约定：终端软件不随宿主明暗翻转配色），
+ * 所以这里不为浅色主题准备第二套色值，窗口底色在 main 里也已对齐画布，避免首帧白闪。
+ */
+
+:root {
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1a1a1a;
+  color: #d4d4d4;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 屏幕占据余下全部空间；xterm 自己负责内部分栏与滚动。
+   四边留白由这里给，xterm 只量内容盒，行列因此与“画布减去留白”一致。 */
+.screen {
+  flex: 1;
+  min-height: 0;
+  padding: 8px 10px 10px;
+  overflow: hidden;
+}
+
+.screen .xterm {
+  height: 100%;
+}
+
+/* 关闭连字：=> != 等编程连字会把多个字符画成一个字形，而 xterm 的行列是按主字体
+   单元格宽度算的，连字一出现列宽就对不上（与薄壳版同一处约定）。 */
+.screen .xterm,
+.screen .xterm-rows {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+
+/* 状态行：退出或失败时出现一条，说明发生了什么并给出重开的入口。 */
+.status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2a2a;
+  background: #202020;
+  font-size: 12px;
+  line-height: 18px;
+  color: #8f8f8f;
+  flex: none;
+}
+
+.status[hidden] { display: none; }
+
+.status span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.btn {
+  flex: none;
+  padding: 2px 10px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: transparent;
+  color: #d4d4d4;
+  font: inherit;
+  cursor: pointer;
+}
+
+.btn:hover { background: #303030; }
+.btn:focus-visible { outline: 2px solid #3b8eea; outline-offset: 2px; }
+.btn[hidden] { display: none; }

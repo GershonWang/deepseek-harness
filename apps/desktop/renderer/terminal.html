@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- xterm 在 open() 时往页面插一个 <style> 元素写滚动区域样式（它无法预知宿主的
+         构建产物名），因此 style-src 必须放行内联样式；脚本仍只允许本地文件。 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+    <title></title>
+    <link rel="stylesheet" href="../lib/terminal/terminal.css">
+    <link rel="stylesheet" href="terminal.css">
+    <script src="../lib/terminal/terminal.js" defer></script>
+  </head>
+  <body>
+    <!-- 状态行只在会话退出或起不来时出现：运行中的终端占满整个窗口，没有可点的东西。
+         文案由主进程下发，页面只负责摆放。 -->
+    <div id="status" class="status" role="status" hidden>
+      <span id="status-text"></span>
+      <button id="restart" class="btn" type="button" hidden></button>
+    </div>
+    <div id="screen" class="screen"></div>
+  </body>
+</html>
