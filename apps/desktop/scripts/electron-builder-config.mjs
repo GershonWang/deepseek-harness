@@ -174,6 +174,10 @@ export function createElectronBuilderConfig(
       // ICO entries, Linux panels load one PNG. macOS keeps the Dock and ships neither.
       ...(packagesWindows ? [{ from: fileURLToPath(new URL('../resources/tray-windows.ico', import.meta.url)), to: 'tray.ico' }] : []),
       ...(packagesLinux ? [{ from: fileURLToPath(new URL('../resources/tray-linux.png', import.meta.url)), to: 'tray-linux.png' }] : []),
+      // The toolchain index ships as a resource rather than being copied into the source
+      // tree: the thin wrapper's copy stays the single source, so the two clients can
+      // never disagree about which tools exist.
+      { from: fileURLToPath(new URL('../../linyaps/desktop-launcher/internal/toolchain/tools/index.json', import.meta.url)), to: 'toolchain/index.json' },
     ],
     mac: {
       icon: fileURLToPath(new URL('../resources/icon-macos.png', import.meta.url)),

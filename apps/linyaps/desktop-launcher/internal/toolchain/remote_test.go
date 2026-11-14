@@ -12,8 +12,12 @@ import (
 	"time"
 )
 
-// indexRefPattern 匹配 git 的不可变引用形式：40 位小写十六进制提交哈希。
-var indexRefPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
+// indexRefPattern 匹配索引发布分支名，只允许这一个取值。
+//
+// 曾经要求 40 位提交哈希，理由是分支可被整体替换。实测该哈希成了死链：索引路径在
+// 模块迁移后变了，那个提交里没有该文件，索引于是永远拉不到。现在改为专用分支，
+// 并在此钉死名字，避免有人把它换回主干分支或别的可变引用。
+var indexRefPattern = regexp.MustCompile(`^toolchain-index$`)
 
 // restoreBuiltin 把有效目录恢复为内置兜底，避免远程测试污染其他用例。
 func restoreBuiltin(t *testing.T) {
@@ -144,13 +148,13 @@ func TestIndexCachePath(t *testing.T) {
 	}
 }
 
-// TestDefaultIndexURL_PinnedToCommit 守卫默认索引地址不退回可变引用。
+// TestDefaultIndexURL_OnDedicatedBranch 守卫默认索引地址落在专用的发布分支上。
 //
 // 索引同时提供每个工具的下载地址与 sha256，两者出自同一份数据，因此 sha256 只证明
-// 归档与清单一致（完整性），不证明清单本身可信（来源认证）。引用若仍是分支名，
-// 控制该分支即可整体替换索引及其哈希。固定到提交哈希后，索引内容由客户端自身的
-// 发布过程锚定；代价是索引更新需要重新发版，这是安全性与更新敏捷性之间的取舍。
-func TestDefaultIndexURL_PinnedToCommit(t *testing.T) {
+// 归档与清单一致，不证明清单本身可信。分支比提交哈希弱，但固定哈希已经因为索引换
+// 路径而失效过一次，死链让工具列表无法更新。收敛暴露面的做法是专用分支加写权限
+// 限制，测试在这里钉住分支名，防止退回主干这类改动混杂的可变引用。
+func TestDefaultIndexURL_OnDedicatedBranch(t *testing.T) {
 	const rawPrefix = "https://raw.githubusercontent.com/GershonWang/deepseek-harness/"
 	rest, ok := strings.CutPrefix(defaultIndexURL, rawPrefix)
 	if !ok {
@@ -161,7 +165,7 @@ func TestDefaultIndexURL_PinnedToCommit(t *testing.T) {
 		t.Fatalf("默认索引地址缺少文件路径：%s", defaultIndexURL)
 	}
 	if !indexRefPattern.MatchString(ref) {
-		t.Fatalf("默认索引引用 %q 不是 40 位提交哈希；可变引用会让索引内容被整体替换", ref)
+		t.Fatalf("默认索引引用 %q 不是专用的发布分支 toolchain-index", ref)
 	}
 	if path != "apps/linyaps/desktop-launcher/internal/toolchain/tools/index.json" {
 		t.Fatalf("默认索引地址指向意外路径：%s", path)
