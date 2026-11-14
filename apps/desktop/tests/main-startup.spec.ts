@@ -1757,7 +1757,7 @@ describe('desktop main startup', () => {
     await readyWorkspace()
     // The tray relabels last at startup, so its template is the most recent one built.
     const template = harness.menu.mock.calls.at(-1)![0]
-    const about = template.find(item => item.role === undefined && item.label === 'About DeepSeek Harness')
+    const about = template.find(item => item.role === undefined && item.label === 'About')
     expect(about).toBeDefined()
     const before = harness.windows.length
     ;(about!.click as () => void)()

@@ -63,7 +63,8 @@ it('opens the window on a single click and routes menu entries to the open and q
 it('offers About only where the caller supplies it, between Open and Quit', () => {
   const about = vi.fn()
   const f = setup('zh', about)
-  expect(labels(native.menus[0]!)).toEqual(['打开 DeepSeek Harness', '关于 DeepSeek Harness', 'separator', '退出 DeepSeek Harness'])
+  // The tray entry says only what it opens: its neighbours are one-word actions.
+  expect(labels(native.menus[0]!)).toEqual(['打开 DeepSeek Harness', '关于', 'separator', '退出 DeepSeek Harness'])
   ;(native.menus[0]![1] as { click: () => void }).click()
   expect(about).toHaveBeenCalledOnce()
   expect(f.open).not.toHaveBeenCalled()

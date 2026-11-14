@@ -37,7 +37,12 @@ export interface AboutFieldView {
 export interface DesktopAboutView {
   /** Document language, so the page can set its own `lang`. */
   readonly locale: string
-  /** Window title and the tray entry that opens it. */
+  /**
+   * Window title.
+   *
+   * The tray entry that opens this window uses its own, shorter label: a tray
+   * menu sits beside one-word peers, while a window title may name its product.
+   */
   readonly title: string
   /** Product name. */
   readonly product: string

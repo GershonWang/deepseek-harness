@@ -50,7 +50,7 @@ export class DesktopTray {
     tray.setToolTip(messages.aboutProduct)
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: messages.openApplication, click: () => { this.options.open() } },
-      ...about === undefined ? [] : [{ label: messages.aboutMenu, click: () => { about() } }],
+      ...about === undefined ? [] : [{ label: messages.aboutTray, click: () => { about() } }],
       { type: 'separator' },
       { label: messages.quitApplication, click: () => { this.options.quit() } },
     ]))
