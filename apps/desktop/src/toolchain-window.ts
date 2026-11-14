@@ -23,11 +23,12 @@ const page = 'dsh-app://shell/toolchain.html'
 /**
  * Window geometry.
  *
- * Wide enough for three cards per row at the card's minimum width, tall enough that a
- * dozen cards are visible without scrolling — the catalog has 43, and a window that
- * shows four makes browsing tedious.
+ * Sized for four cards per row and enough rows to see a category at a glance: the
+ * catalog holds about fifty cards, and a window showing a dozen makes scrolling the
+ * dominant interaction. The minimum is much smaller so the window still works on a
+ * laptop screen.
  */
-export const TOOLCHAIN_WINDOW_SIZE = { width: 880, height: 640 } as const
+export const TOOLCHAIN_WINDOW_SIZE = { width: 1180, height: 820 } as const
 
 /** Inputs the window needs from the running application. */
 export interface DesktopToolchainWindowOptions {
@@ -75,8 +76,8 @@ export class DesktopToolchainWindow {
     const window = new BrowserWindow({
       ...TOOLCHAIN_WINDOW_SIZE,
       useContentSize: true,
-      minWidth: 620,
-      minHeight: 420,
+      minWidth: 680,
+      minHeight: 480,
       show: false,
       title: this.options.locale().messages.toolchainMenu,
       autoHideMenuBar: true,

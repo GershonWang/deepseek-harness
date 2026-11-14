@@ -71,7 +71,7 @@ body {
 .btn-primary {
   border-color: transparent;
   background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-on-brand, #fff);
+  color: var(--dsw-alias-label-on-color);
 }
 
 .btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
@@ -223,7 +223,7 @@ body {
 }
 
 .card-error {
-  color: var(--dsw-alias-label-error, #c0392b);
+  color: var(--dsw-alias-state-error-primary);
   font-size: 12px;
   line-height: 18px;
 }

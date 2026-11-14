@@ -2,8 +2,13 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
 <title>工具链市场</title>
+<!-- 设计令牌来自 design-platform.css：页面自己的样式表只引用 --dsw-alias-*，
+     不定义它们。少了这一行，所有颜色与边框都会因为变量未定义而失效，
+     而布局（硬编码尺寸）仍然正常，看起来就像「界面只丢了一半样式」。 -->
+<link rel="stylesheet" href="design-platform.css">
 <link rel="stylesheet" href="toolchain.css">
 </head>
 <body>
@@ -19,6 +24,7 @@
 <!-- 空状态与网格互斥：列表为空时显示引导，而不是一片空白。 -->
 <main id="empty" hidden></main>
 <footer id="summary" role="status"></footer>
+<script src="shell-theme.js"></script>
 <script src="toolchain.js"></script>
 </body>
 </html>

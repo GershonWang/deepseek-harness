@@ -207,7 +207,6 @@ function render() {
     h('span', { class: 'spacer' }),
     h('span', { text: view.sourceLabel }),
   )
-  document.body.toggleAttribute('data-ds-dark-theme', window.matchMedia('(prefers-color-scheme: dark)').matches)
   renderCategories()
   const tools = visibleTools()
   el('grid').replaceChildren(...tools.map(renderCard))
@@ -268,8 +267,5 @@ window.dshToolchain.onProgress(report => {
   else installing = report.id
   render()
 })
-
-// 跟随系统深浅色：窗口不自己选主题，和主窗口一样跟随即可。
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { render() })
 
 void reload()
