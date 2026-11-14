@@ -71,7 +71,10 @@ body {
 .btn-primary {
   border-color: transparent;
   background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-label-on-color);
+  /* The brand fill inverts with the theme — near-black in light, near-white in dark —
+     so the label must invert too. `label-on-color` stays white in both themes, which
+     painted white text on the near-white dark-theme fill: a blank-looking button. */
+  color: var(--dsw-alias-label-primary-inverted);
 }
 
 .btn-primary:hover:not(:disabled) { filter: brightness(1.06); }

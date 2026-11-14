@@ -73,6 +73,24 @@ describe('shell document styles', () => {
     }
   })
 
+  it('pairs a themed fill with a label that inverts with it', () => {
+    // `brand-primary` is near-black in light and near-white in dark. A label pinned to
+    // white would be invisible on the dark-theme fill, which reads as an empty button
+    // rather than a contrast bug — there is nothing on screen to suggest text is there.
+    for (const sheet of stylesheets()) {
+      const css = readFileSync(`${renderer}${sheet}`, 'utf8')
+      const rules = [...css.matchAll(/\.([a-z-]*(?:primary|brand)[a-z-]*)\s*\{([^}]*)\}/giu)]
+      for (const rule of rules) {
+        const body = rule[2] ?? ''
+        if (!body.includes('background: var(--dsw-alias-brand-primary)')) continue
+        const colorLine = /color:\s*var\((--dsw-alias-[a-z0-9-]+)\)/u.exec(body)?.[1]
+        // `brand-primary` itself inverts, so the label must be the inverted one.
+        expect(colorLine, `${sheet}: ${rule[1] ?? ''} pairs brand-primary with an inverting label`)
+          .toBe('--dsw-alias-label-primary-inverted')
+      }
+    }
+  })
+
   it('links the shared palette script wherever a page follows the app theme', () => {
     // shell-theme.js owns the dark attribute; a page that sets it itself duplicates the
     // media query and drifts when the app palette changes.
