@@ -9,6 +9,7 @@ import {
   reconcileBinLinks,
   setActiveVersion,
   uninstallVersion,
+  withToolsPath,
 } from '../src/toolchain/project.ts'
 
 const roots: string[] = []
@@ -143,6 +144,23 @@ describe('uninstall', () => {
     await uninstallVersion(layout, 'demo', '1.0.0', undefined)
     expect(await activeVersion(layout, 'demo')).toBe('')
     expect(readdirSync(join(root, 'bin'))).toEqual([])
+  })
+})
+
+describe('PATH entry', () => {
+  it('puts the tools directory first so an installed command wins', () => {
+    // A distribution copy already on PATH would otherwise shadow the installed one.
+    expect(withToolsPath('/usr/bin:/bin', '/tools/bin')).toBe('/tools/bin:/usr/bin:/bin')
+  })
+
+  it('is idempotent so a repeated prepare does not stack entries', () => {
+    const once = withToolsPath('/usr/bin', '/tools/bin')
+    expect(withToolsPath(once, '/tools/bin')).toBe(once)
+  })
+
+  it('handles an absent PATH', () => {
+    expect(withToolsPath(undefined, '/tools/bin')).toBe('/tools/bin')
+    expect(withToolsPath('', '/tools/bin')).toBe('/tools/bin')
   })
 })
 

@@ -84,7 +84,7 @@ import { composeProgress, composeToolchainView, type ToolchainMessages } from '.
 import type { ToolchainView } from './toolchain-contract.ts'
 import { loadIndex, readBundledIndex, refreshIndex, type IndexLoad } from './toolchain/remote.ts'
 import { installVersion } from './toolchain/install.ts'
-import { setActiveVersion, uninstallVersion, prepareToolsRoot } from './toolchain/project.ts'
+import { reconcileBinLinks, setActiveVersion, uninstallVersion, prepareToolsRoot, withToolsPath } from './toolchain/project.ts'
 import { toolsLayout } from './toolchain/catalog.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 
@@ -415,11 +415,12 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
 }
 
 /**
- * Declare the host-escape channel and refresh the Linglong command wrappers.
+ * Declare the host-escape channel, rebuild the toolchain entry points, and refresh the
+ * Linglong command wrappers.
  *
- * The wrappers must exist before the Host child process starts, because the Host
- * inherits this process's PATH. A failure here only costs the pass-through
- * commands; it must never prevent the application from starting.
+ * Everything here must run before the Host child process starts, because the Host
+ * inherits this process's PATH. A failure in any step only costs the commands it
+ * provides; none may prevent the application from starting.
  * @param home - user home directory.
  */
 async function prepareHostTools(home: string): Promise<void> {
@@ -427,8 +428,15 @@ async function prepareHostTools(home: string): Promise<void> {
   // commands fail until GIT_EXEC_PATH is redirected. Set it before the Host starts.
   try {
     applyGitEnvironment(process.env, await resolveGitEnvironment(packagedAppRoot(process.execPath)))
+    // Rebuild the toolchain entry points at startup: a reinstall, an upgrade, or a home
+    // directory that moved leaves stale links behind, and PATH must describe what is
+    // installed now. The index is not read here — the links are derived from the
+    // `current/` symlinks, so an offline start still repairs them.
+    const layout = toolsLayout(join(home, '.dsh-tools'))
+    const { commands } = await reconcileBinLinks(layout)
+    if (commands.length > 0) process.env.PATH = withToolsPath(process.env.PATH, join(layout.root, 'bin'))
   } catch (error) {
-    console.warn('desktop git environment: helpers unavailable', error)
+    console.warn('desktop toolchain: entry points unavailable', error)
   }
   const fact = declareHostEscape(process.env)
   await pruneLegacyLinglongWrappers(home).catch(() => undefined)
@@ -517,8 +525,12 @@ async function main(): Promise<void> {
     // applied to process.env earlier are absent here and must be re-applied.
     try {
       applyGitEnvironment(hostEnvironment, await resolveGitEnvironment(packagedAppRoot(process.execPath)))
+      // The login-shell read replaced PATH, so the tools entry point applied to
+      // process.env earlier is absent here and must be re-applied.
+      const toolsBin = join(app.getPath('home'), '.dsh-tools', 'bin')
+      hostEnvironment.PATH = withToolsPath(hostEnvironment.PATH, toolsBin)
     } catch (error) {
-      console.warn('desktop git environment: helpers unavailable for the Host', error)
+      console.warn('desktop host environment: helpers unavailable for the Host', error)
     }
   }
   let quitting = false

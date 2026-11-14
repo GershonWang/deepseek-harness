@@ -387,3 +387,19 @@ export async function prepareToolsRoot(
   await chmod(layout.root, 0o755).catch(() => undefined)
   return { layout, result: await reconcileBinLinks(layout, tools) }
 }
+
+/**
+ * Place the tools `bin/` first on a PATH value.
+ *
+ * First rather than last: the point of installing a tool is that the command resolves to
+ * it, and a copy already on PATH (a distribution package, a leftover shim) would
+ * otherwise win. The call is idempotent so a repeated prepare does not stack entries.
+ * @param path - current PATH value.
+ * @param binDir - tools entry point directory.
+ * @returns the PATH value with that directory first.
+ */
+export function withToolsPath(path: string | undefined, binDir: string): string {
+  const existing = path === undefined || path === '' ? '' : path
+  const parts = existing === '' ? [] : existing.split(':').filter(part => part !== '' && part !== binDir)
+  return [binDir, ...parts].join(':')
+}
