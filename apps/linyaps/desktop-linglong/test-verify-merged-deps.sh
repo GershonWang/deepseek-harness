@@ -125,6 +125,34 @@ else
   expect_fail "断链符号链接被判定为损坏" "$dir/out" "断链符号链接"
 fi
 
+# --- 6b. git 模板缺失时报 FAIL（有 share/git-core 但缺 description）---
+dir=$(mkcase templates-broken)
+prefix="$dir/prefix"
+seed_complete "$prefix"
+mkdir -p "$prefix/share/git-core/templates"
+if sh "$dir/verify-merged-deps.sh" "$prefix" > "$dir/out" 2>&1; then
+  bad "模板目录缺 description 时应失败"
+else
+  expect_fail "模板目录缺 description 时点名" "$dir/out" "FAIL git templates"
+fi
+
+# --- 6c. git 模板齐备时 OK ---
+dir=$(mkcase templates-ok)
+prefix="$dir/prefix"
+seed_complete "$prefix"
+mkdir -p "$prefix/share/git-core/templates"
+: > "$prefix/share/git-core/templates/description"
+if sh "$dir/verify-merged-deps.sh" "$prefix" > "$dir/out" 2>&1; then
+  if grep -qF "OK   git templates" "$dir/out"; then
+    ok "模板齐备时报告 OK"
+  else
+    bad "模板齐备时应报告 OK"
+  fi
+else
+  bad "模板齐备时应通过"
+  sed 's/^/       /' "$dir/out" >&2
+fi
+
 # --- 7. 清单解析不出依赖时失败（段结构被改坏）---
 dir=$(mkcase nodeps)
 prefix="$dir/prefix"

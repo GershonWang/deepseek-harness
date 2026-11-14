@@ -5,7 +5,7 @@ package:
   # 版本必须高于此前 Go + Wails 薄壳版发布的 0.1.7.2：玲珑按版本号判定升级，
   # 低于已安装版本的包会被当作版本倒退拒绝。本版取代薄壳版，沿用同一个应用 ID，
   # 用户的桌面图标、启动器登记与数据目录因此保持不变。
-  version: 0.2.0.4
+  version: 0.2.0.5
   kind: app
   description: |
     DeepSeek Harness 桌面客户端（Electron）。
@@ -69,6 +69,26 @@ build: |
 
   install -Dm644 /project/apps/linyaps/desktop-linglong/com.deepseek.dsh-desktop.desktop \
     ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
+
+  # git 的 init 模板（hooks/*.sample、description、info/exclude）：随包的 git 按
+  # 编译期路径 /usr/share/git-core/templates 去找，容器里没有，于是每次 init 都打
+  # 「templates not found」告警，新仓库也没有示例钩子。
+  #
+  # 从 .deb 里自行解出而不是复制构建容器的 /usr：apt 装进来的实体在 /usr 下，而
+  # /usr 不随 layer 导出，复制过去要么拿不到、要么拿到字符设备（薄壳版 AUDIT N19
+  # 记录过同一现象）。apt-get download + dpkg-deb -x 得到的是普通文件，两条路都绕开。
+  # git 已在 buildext.apt.depends 里，此处只取它的数据文件。
+  GIT_TMP=$(mktemp -d)
+  ( cd "$GIT_TMP" && apt-get download git ) \
+    || { echo "git templates: apt-get download git 失败" >&2; exit 1; }
+  set -- "$GIT_TMP"/git_*.deb
+  [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "git templates: .deb 未唯一命中（$# 个：$*）" >&2; exit 1; }
+  dpkg-deb -x "$1" "$GIT_TMP/x"
+  GIT_TEMPLATES="$GIT_TMP/x/usr/share/git-core/templates"
+  [ -d "$GIT_TEMPLATES" ] || { echo "git templates: 解包后没有 $GIT_TEMPLATES（包布局变化？）" >&2; exit 1; }
+  mkdir -p ${PREFIX}/share/git-core
+  cp -a "$GIT_TEMPLATES" ${PREFIX}/share/git-core/
+  echo "git templates: 交付 $(find ${PREFIX}/share/git-core/templates -type f | wc -l) 个文件"
 
 buildext:
   apt:

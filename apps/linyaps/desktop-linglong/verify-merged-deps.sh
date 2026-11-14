@@ -108,6 +108,20 @@ if [ -n "$dangling" ]; then
   fail=1
 fi
 
+# --- 2b. git 的 init 模板必须进了产物树 ---
+# build 段从 .deb 解出并复制；模板缺失不会让任何命令失败，只会让每次 init 打一条
+# 告警、并给新仓库少一套示例钩子——正是那种「装得上但静默降级」的缺陷。
+if [ -d "$PREFIX/share/git-core" ]; then
+  if [ ! -f "$PREFIX/share/git-core/templates/description" ]; then
+    echo "FAIL git templates: $PREFIX/share/git-core/templates 缺少 description" >&2
+    fail=1
+  else
+    echo "OK   git templates (share/git-core/templates)"
+  fi
+else
+  echo "WARN git templates: 产物内没有 share/git-core（非玲珑打包场景？）"
+fi
+
 # --- 3. 逐个 depends 包套用认领规则 ---
 while IFS= read -r pkg; do
   rule=$(awk -F'|' -v p="$pkg" '$1 == p { print $2; exit }' "$RULES")
