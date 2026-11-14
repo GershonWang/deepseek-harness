@@ -21,9 +21,10 @@ cd "$LL_DIR/../../.." # 仓库根
 
 # 目标平台固定 linux-x64。应用 ID 是 electron-builder 的 appId：Linux 没有 .env 平台
 # 文件（.env.macos/.env.windows 那套是为签名与公证凭据设计的），该值只能从环境传入。
+# 沿用薄壳版的 ID，本包因此是它的升级而不是并列安装。
 export DSH_DESKTOP_TARGET_PLATFORM=linux
 export DSH_DESKTOP_TARGET_ARCH=x64
-export DSH_DESKTOP_APP_ID=com.deepseek.dsh-desktop-official
+export DSH_DESKTOP_APP_ID=com.deepseek.dsh-desktop
 
 # 构建路径由 desktop-build-paths.mjs 解析，不在本脚本里重复上游的目录结构，
 # 否则上游调整 .desktop-build 布局时这里会静默取到空目录。

@@ -6,7 +6,7 @@ English | [中文](README.zh.md)
 
 ## What this module produces
 
-One `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop-official/files/bin/dsh-desktop-official`, a wrapper that starts the Electron application with `--no-sandbox`.
+One `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop`, a wrapper that starts the Electron application with `--no-sandbox`.
 
 Electron Desktop is self-contained: it ships its own Electron runtime and its own `resources/app.asar/dsh` tree, so the bundle adds no second Node runtime and no second harness tree. The unpacked Linux x64 application measures about 1.1 GB (Electron 227 MB, primary runtime 496 MB, dsh tree 331 MB), the same order as the thin-shell bundle: bundling an Electron application does not shrink the payload.
 
@@ -21,7 +21,7 @@ Run the host-side preparation first, then assemble in the Linglong container.
 ```sh
 sh apps/linyaps/desktop-linglong/prepare-offline.sh
 ll-builder build -f apps/linyaps/desktop-linglong/linglong.yaml
-ll-builder export --ref com.deepseek.dsh-desktop-official
+ll-builder export --ref com.deepseek.dsh-desktop
 ```
 
 `prepare-offline.sh` builds the repository, packs the dsh and vendor package sets, prepares the Electron runtime and the primary runtime, prepares the dsh tree, and runs `electron-builder --linux --x64 --dir` into `apps/linyaps/desktop-linglong/stage/`. The container build only copies that tree, installs the icons and desktop entry, and writes the launcher wrapper.

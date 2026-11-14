@@ -1,16 +1,18 @@
 version: "1"
 package:
-  id: com.deepseek.dsh-desktop-official
-  name: deepseek-harness-desktop-official
-  version: 0.1.0.2
+  id: com.deepseek.dsh-desktop
+  name: deepseek-harness-desktop
+  # 版本必须高于此前 Go + Wails 薄壳版发布的 0.1.7.2：玲珑按版本号判定升级，
+  # 低于已安装版本的包会被当作版本倒退拒绝。本版取代薄壳版，沿用同一个应用 ID，
+  # 用户的桌面图标、启动器登记与数据目录因此保持不变。
+  version: 0.2.0.1
   kind: app
   description: |
-    DeepSeek Harness 官方桌面客户端（Electron）。
-    以玲珑包分发上游 Electron Desktop 客户端，与 Go + Wails 薄壳版
-    （com.deepseek.dsh-desktop）并列，两者互不依赖。
+    DeepSeek Harness 桌面客户端（Electron）。
+    以玲珑包分发 Electron Desktop 客户端；自本版起取代 Go + Wails 薄壳版。
 
 command:
-  - /opt/apps/com.deepseek.dsh-desktop-official/files/bin/dsh-desktop-official
+  - /opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop
 
 base: org.deepin.base/25.2.2
 
@@ -57,16 +59,16 @@ build: |
     'SELF=$(readlink -f "$0" 2>/dev/null || echo "$0")' \
     'DIR=$(dirname "$SELF")' \
     "exec \"\$DIR/../electron/$MAIN_EXE\" --no-sandbox \"\$@\"" \
-    > ${PREFIX}/bin/dsh-desktop-official
-  chmod +x ${PREFIX}/bin/dsh-desktop-official
+    > ${PREFIX}/bin/dsh-desktop
+  chmod +x ${PREFIX}/bin/dsh-desktop
 
   for s in 16 22 24 32 48 64 128 256 512; do
-    install -Dm644 /project/apps/linyaps/desktop-linglong/icons/hicolor/${s}x${s}/apps/dsh-desktop-official.png \
-      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop-official.png
+    install -Dm644 /project/apps/linyaps/desktop-linglong/icons/hicolor/${s}x${s}/apps/dsh-desktop.png \
+      ${PREFIX}/share/icons/hicolor/${s}x${s}/apps/dsh-desktop.png
   done
 
-  install -Dm644 /project/apps/linyaps/desktop-linglong/com.deepseek.dsh-desktop-official.desktop \
-    ${PREFIX}/share/applications/com.deepseek.dsh-desktop-official.desktop
+  install -Dm644 /project/apps/linyaps/desktop-linglong/com.deepseek.dsh-desktop.desktop \
+    ${PREFIX}/share/applications/com.deepseek.dsh-desktop.desktop
 
 buildext:
   apt:

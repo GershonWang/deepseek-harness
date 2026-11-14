@@ -1,12 +1,14 @@
-# 以玲珑包分发的 DeepSeek Harness 官方桌面客户端
+# 以玲珑包分发的 DeepSeek Harness 桌面客户端（Electron）
 
 [English](README.md) | 中文
 
-`apps/linyaps/desktop-linglong` 把上游 Electron Desktop 客户端（[`apps/desktop`](../../desktop)）打包成面向 Deepin 25 的玲珑包。它是官方客户端一侧的实现，与 [`apps/linyaps/desktop-launcher`](../desktop-launcher)（把内嵌 `dsh web` 的 Go + Wails 薄壳打包）并列。两个包相互独立，以不同的应用 ID 并存安装。
+`apps/linyaps/desktop-linglong` 把上游 Electron Desktop 客户端（[`apps/desktop`](../../desktop)）打包成面向 Deepin 25 的玲珑包。它沿用 [`apps/linyaps/desktop-launcher`](../desktop-launcher)（内嵌 `dsh web` 的 Go + Wails 薄壳）的应用 ID `com.deepseek.dsh-desktop`，因此是它的**升级**而不是并列安装：用户的桌面图标、启动器登记与数据目录都保持不变。
+
+版本号必须高于薄壳版最后发布的 `0.1.7.2`，玲珑按版本号判定升级，低于已安装版本会被当作版本倒退拒绝。当前为 `0.2.0.1`。
 
 ## 本模块产出什么
 
-一个 `.uab`，唯一入口是 `/opt/apps/com.deepseek.dsh-desktop-official/files/bin/dsh-desktop-official`——一个带 `--no-sandbox` 启动 Electron 应用的包装脚本。
+一个 `.uab`，唯一入口是 `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop`——一个带 `--no-sandbox` 启动 Electron 应用的包装脚本。
 
 Electron Desktop 是自包含的：它自带 Electron 运行时，也自带 `resources/app.asar/dsh` 树，因此本包不再随包第二份 Node 运行时或 harness 树。Linux x64 上解包后的应用实测约 1.1 GB（Electron 227 MB、主运行时 496 MB、dsh 树 331 MB），与薄壳包同一量级：打包 Electron 应用并不会让负载变小。
 
@@ -21,7 +23,7 @@ Electron Desktop 是自包含的：它自带 Electron 运行时，也自带 `res
 ```sh
 sh apps/linyaps/desktop-linglong/prepare-offline.sh
 ll-builder build -f apps/linyaps/desktop-linglong/linglong.yaml
-ll-builder export --ref com.deepseek.dsh-desktop-official
+ll-builder export --ref com.deepseek.dsh-desktop
 ```
 
 `prepare-offline.sh` 会构建仓库、打包 dsh 与 vendor 包集、准备 Electron 运行时与主运行时、准备 dsh 树，并用 `electron-builder --linux --x64 --dir` 产出到 `apps/linyaps/desktop-linglong/stage/`。容器构建只复制该目录树、安装图标与桌面入口、写入启动包装脚本。
