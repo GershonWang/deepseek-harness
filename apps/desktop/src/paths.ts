@@ -5,6 +5,8 @@ import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 
 /** Stable desktop installation paths under the shared Harness home. */
 export interface DesktopPaths {
+  /** Directory holding every profile, shared with other dsh surfaces. */
+  readonly profiles: string
   readonly profile: string
   readonly lock: string
 }
@@ -16,6 +18,7 @@ export interface DesktopPaths {
  */
 export function resolveDesktopPaths(dshHome: string = resolveDshHome()): DesktopPaths {
   return {
+    profiles: join(dshHome, 'profiles'),
     profile: join(dshHome, 'profiles', 'desktop'),
     lock: join(dshHome, 'profiles', 'desktop', 'lock'),
   }

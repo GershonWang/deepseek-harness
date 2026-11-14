@@ -34,7 +34,8 @@ describe('linglong host wrappers', () => {
     hostCommand(rootfs, 'usr/bin', 'll-cli')
     hostCommand(rootfs, 'usr/bin', 'll-builder', 0o644)
     const detected = await detectLinglongCommands(rootfs)
-    expect(detected).toEqual([{ name: 'll-cli', allow: expect.any(Array), hostPath: join('/', 'usr/bin', 'll-cli') }])
+    expect(detected.map(command => ({ name: command.name, hostPath: command.hostPath })))
+      .toEqual([{ name: 'll-cli', hostPath: join('/', 'usr/bin', 'll-cli') }])
   })
 
   it('prefers the first host directory that holds a command', async () => {

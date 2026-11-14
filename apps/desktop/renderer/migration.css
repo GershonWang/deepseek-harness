@@ -1,0 +1,160 @@
+/* Profile migration window; reuses the shell's design tokens so it matches native prompts. */
+
+.migration {
+  margin: 0;
+  padding: 0;
+  background: var(--ds-color-bg, #ffffff);
+  color: var(--ds-color-text, #0f1115);
+  font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', 'Noto Sans', sans-serif;
+  overflow-y: auto;
+}
+
+#migration {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 26px 18px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+#migration[hidden] {
+  display: none;
+}
+
+header h1 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+header p {
+  margin: 0;
+  color: var(--ds-color-text-secondary, #5c6370);
+}
+
+section h2 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--ds-color-text-secondary, #5c6370);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.row.selectable:hover,
+li.row:hover {
+  background: var(--ds-color-surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.row span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row small {
+  font-size: 12px;
+  color: var(--ds-color-text-secondary, #5c6370);
+}
+
+#plugin-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  border: 1px solid var(--ds-color-border, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+}
+
+#plugin-list:empty {
+  display: none;
+}
+
+#conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.conflict {
+  border: 1px solid var(--ds-color-border, rgba(0, 0, 0, 0.1));
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.conflict > strong {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.conflict label {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.conflict pre {
+  margin: 2px 0 0;
+  font: 12px/1.4 ui-monospace, 'Noto Sans Mono', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ds-color-text-secondary, #5c6370);
+}
+
+button.link {
+  align-self: flex-start;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ds-color-accent, #2b6cb0);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+#actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+#actions button {
+  padding: 7px 18px;
+  border-radius: 6px;
+  border: 1px solid var(--ds-color-border, rgba(0, 0, 0, 0.15));
+  background: var(--ds-color-surface, #ffffff);
+  color: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#actions button.primary {
+  border-color: transparent;
+  background: var(--ds-color-accent, #2b6cb0);
+  color: #ffffff;
+}
+
+#actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

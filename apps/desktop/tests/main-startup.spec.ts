@@ -354,7 +354,18 @@ vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   readDesktopLoginShellEnvironment: harness.loginShell,
 }))
 vi.mock('../src/runtime-tree.ts', () => ({ readDesktopRuntime: () => ({ release: { version: '1.0.0' } }) }))
-vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profile: 'desktop-test-profile' }) }))
+vi.mock('../src/paths.ts', () => ({ resolveDesktopPaths: () => ({ profiles: '/profiles', profile: 'desktop-test-profile' }) }))
+// Host tooling writes wrappers under the real home; startup tests own no legacy profile.
+vi.mock('../src/linglong-host.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/linglong-host.ts')>(),
+  pruneLegacyLinglongWrappers: async () => undefined,
+  ensureLinglongWrappers: async () => 0,
+}))
+// Migration detection reads the real filesystem; startup tests own no legacy profile.
+vi.mock('../src/profile-migration.ts', async importOriginal => ({
+  ...await importOriginal<typeof import('../src/profile-migration.ts')>(),
+  detectMigration: async () => ({ blocker: { reason: 'no-legacy' } }),
+}))
 vi.mock('../src/project-manager.ts', () => ({
   DesktopProjectManager: class {
     readonly applyRelease = harness.applyRelease

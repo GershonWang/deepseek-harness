@@ -24,6 +24,12 @@ import type { DesktopRelease } from './release.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
 import { initProfile, removeLinkProjections, sanitizeProfile } from '@deepseek-ai/dsh-app-boot'
 import { PROFILE_TEMPLATES, type ProfileTemplate } from '@deepseek-ai/dsh-official-bundles'
+import {
+  applyMigration,
+  type MigrationOutcome,
+  type MigrationSelection,
+  type MigrationSource,
+} from './profile-migration.ts'
 
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const DSH_PACKAGE = '@deepseek-ai/dsh'
@@ -87,6 +93,22 @@ export class DesktopProjectManager {
       createPluginProfile(this.paths.profile)
       removeLinkProjections(this.paths.profile)
     })
+  }
+
+  /**
+   * Import a legacy Web profile into the Desktop profile under the profile lock.
+   *
+   * The lock is what makes the backup-then-write sequence atomic with respect to
+   * another Desktop instance preparing the same profile. The import itself is
+   * owned by {@link applyMigration}; this method only supplies exclusion.
+   * @param source - the legacy profile content to import.
+   * @param selection - the user's choices.
+   * @returns what was imported and where the backup lives.
+   */
+  async importLegacyProfile(source: MigrationSource, selection: MigrationSelection): Promise<MigrationOutcome> {
+    return this.withLock(() => applyMigration({
+      binName: 'dsh', desktopDir: this.paths.profile, source, selection,
+    }))
   }
 
   private async withLock<T>(operation: () => T | Promise<T>): Promise<T> {

@@ -28,6 +28,12 @@ import {
 } from 'electron'
 import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
+import {
+  detectMigration,
+  type PatchEntry,
+} from './profile-migration.ts'
+import { buildMigrationView, DesktopMigrationDialog, migrationPreloadPath } from './migration-dialog.ts'
+import { declareHostEscape, ensureLinglongWrappers, pruneLegacyLinglongWrappers, withLinglongPath } from './linglong-host.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
 import { DesktopPlatformView, PLATFORM_IPC, platformBounds } from './platform-view.ts'
 import { installDesktopFileDrag } from './file-drag.ts'
@@ -378,6 +384,66 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
   return window
 }
 
+/**
+ * Declare the host-escape channel and refresh the Linglong command wrappers.
+ *
+ * The wrappers must exist before the Host child process starts, because the Host
+ * inherits this process's PATH. A failure here only costs the pass-through
+ * commands; it must never prevent the application from starting.
+ * @param home - user home directory.
+ */
+async function prepareHostTools(home: string): Promise<void> {
+  const fact = declareHostEscape(process.env)
+  await pruneLegacyLinglongWrappers(home).catch(() => undefined)
+  if (fact === undefined) return
+  try {
+    const count = await ensureLinglongWrappers(home, fact.rootfs)
+    if (count > 0) process.env.PATH = withLinglongPath(process.env.PATH, home)
+  } catch (error) {
+    console.warn('desktop linglong wrappers: pass-through unavailable', error)
+  }
+}
+
+/**
+ * Offer to import a legacy Web-client profile, then hand the choice to the manager.
+ *
+ * The prompt runs before `applyRelease()` so the import composes into a profile the
+ * Host has not opened yet. Declining, or having no legacy profile, is the ordinary
+ * path and changes nothing.
+ * @param manager - Desktop project manager owning the profile lock.
+ * @param paths - resolved desktop paths.
+ * @param parent - window the prompt is modal to, when one already exists.
+ */
+async function offerProfileMigration(
+  manager: DesktopProjectManager,
+  paths: ReturnType<typeof resolveDesktopPaths>,
+  parent: BrowserWindow | undefined,
+): Promise<void> {
+  const detected = await detectMigration('dsh', paths.profiles)
+  if ('blocker' in detected) return
+  const locale = currentDesktopLocale()
+  const desktopPatches: readonly PatchEntry[] = []
+  const view = buildMigrationView(detected.source, desktopPatches, locale)
+  // A pristine profile is replaced wholesale; a configured one is merged, and the
+  // prompt says so because the same import then touches data the user already set.
+  const dialog = new DesktopMigrationDialog(migrationPreloadPath(), parent)
+  try {
+    const selection = await dialog.prompt(view, locale.messages.migrationSkip)
+    if (selection === undefined) return
+    const outcome = await manager.importLegacyProfile(detected.source, selection)
+    console.info('Desktop profile migration imported:', {
+      patches: outcome.importedPatches,
+      plugins: outcome.importedPlugins,
+      backup: outcome.backup ?? null,
+      pristine: detected.pristine,
+    })
+  } catch (error) {
+    console.error('Desktop profile migration failed; the Desktop profile was restored', error)
+  } finally {
+    dialog.dispose()
+  }
+}
+
 async function main(): Promise<void> {
   const desktopSettings = await readDesktopSettings(app.getPath('userData'))
   void pruneCrashReports(app.getPath('logs'))
@@ -391,6 +457,10 @@ async function main(): Promise<void> {
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
   const activeProject = paths.profile
   const manager = new DesktopProjectManager(paths, resources)
+  // The wrappers must exist before any Host child inherits PATH; failure only costs the pass-through commands.
+  await prepareHostTools(app.getPath('home')).catch((error: unknown) => {
+    console.warn('desktop host tools: unavailable', error)
+  })
   // Dock and Finder launches inherit only launchd's environment; every Host shares one login-shell read.
   const loginShellRead = new AbortController()
   // The probe runs in its own process group, which outlives Desktop unless the read is aborted.
@@ -681,6 +751,9 @@ async function main(): Promise<void> {
     startup ??= (async () => {
       await navigateMain(applicationUrl)
       await backend.start(async () => {
+        // The import composes into the profile before the Host opens it, so a
+        // legacy Web profile is offered exactly once, ahead of release preparation.
+        await offerProfileMigration(manager, paths, currentMainWindow())
         await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
       })
       if (backend.host !== undefined) await openInitialWindow()

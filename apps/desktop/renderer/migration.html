@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'">
+    <title></title>
+    <link rel="stylesheet" href="design-platform.css">
+    <link rel="stylesheet" href="migration.css">
+  </head>
+  <body class="migration">
+    <script src="shell-theme.js"></script>
+    <main id="migration" role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="title" aria-describedby="intro" hidden>
+      <header>
+        <h1 id="title"></h1>
+        <p id="intro"></p>
+      </header>
+
+      <section id="settings-section">
+        <label class="row selectable">
+          <input id="settings-toggle" type="checkbox">
+          <span>
+            <strong id="settings-label"></strong>
+            <small id="settings-detail"></small>
+          </span>
+        </label>
+      </section>
+
+      <section id="plugin-section">
+        <h2 id="plugin-heading"></h2>
+        <p id="plugin-note" class="note"></p>
+        <ul id="plugin-list"></ul>
+      </section>
+
+      <section id="conflict-section" hidden>
+        <h2 id="conflict-heading"></h2>
+        <p id="conflict-note" class="note"></p>
+        <div id="conflict-list"></div>
+        <button id="conflict-all-desktop" class="link" type="button"></button>
+      </section>
+
+      <p id="retention-note" class="note"></p>
+      <p id="unsupported-note" class="note"></p>
+
+      <div id="actions">
+        <button id="skip" type="button"></button>
+        <button id="import" type="button" class="primary"></button>
+      </div>
+    </main>
+    <script src="migration.js"></script>
+  </body>
+</html>
