@@ -16,6 +16,7 @@ import {
   MIGRATION_MARKER,
   profileLocations,
   readMigrationSource,
+  readProfilePatchEntries,
   type MigrationSource,
   type PatchEntry,
 } from '../src/profile-migration.ts'
@@ -205,6 +206,35 @@ describe('migration execution', () => {
     })
     const patches = loadOverlayPatches(BIN, join(desktop, 'cordis.patch.yml'))
     expect(patches.find(patch => patch.id === 'agent-default-model')?.config).toMatchObject({ provider: 'desktop-provider' })
+  })
+
+  it('imports the legacy value of an undecided conflict instead of discarding it', async () => {
+    const root = temporaryRoot()
+    const legacy = seedLegacy(root)
+    const desktop = seedDesktop(root)
+    const source = await readMigrationSource(BIN, legacy)
+    // No conflict choice was recorded: the import must still bring the source value,
+    // because an unresolved conflict silently reverting to the destination dropped
+    // the user's edited configuration.
+    await applyMigration({
+      binName: BIN, desktopDir: desktop, source: source as MigrationSource,
+      selection: { settings: true, plugins: [], conflicts: {} },
+    })
+    const patches = loadOverlayPatches(BIN, join(desktop, 'cordis.patch.yml'))
+    expect(patches.find(patch => patch.id === 'agent-default-model')?.config).toMatchObject({ provider: 'legacy-provider' })
+  })
+
+  it('reports a differing entry against the destination patch that is actually on disk', async () => {
+    const root = temporaryRoot()
+    const legacy = seedLegacy(root)
+    const desktop = seedDesktop(root)
+    const destination = await readProfilePatchEntries(BIN, desktop)
+    const conflicts = classifyPatches(
+      (await readMigrationSource(BIN, legacy) as MigrationSource).patches,
+      destination,
+    )
+    // An empty destination list would hide the conflict and make it unresolvable.
+    expect(conflicts.find(item => item.id === 'agent-default-model')?.kind).toBe('differing')
   })
 
   it('imports no settings when the user declines them', async () => {

@@ -237,7 +237,8 @@ export function buildMigrationView(
         label: labels[conflict.id] ?? conflict.id,
         legacy: { side: 'legacy', label: messages.migrationLegacyLabel, preview: preview(conflict.legacy.serialized) },
         desktop: { side: 'desktop', label: messages.migrationDesktopLabel, preview: preview(conflict.desktop.serialized) },
-        selected: 'desktop',
+        // The import defaults to the source value, matching {@link composeMergedPatches}.
+        selected: 'legacy',
       })),
     },
     retentionNote: messages.migrationRetentionNote,

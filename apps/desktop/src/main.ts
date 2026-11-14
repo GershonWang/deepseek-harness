@@ -30,7 +30,7 @@ import { resolveDesktopPaths } from './paths.ts'
 import { DesktopProjectManager } from './project-manager.ts'
 import {
   detectMigration,
-  type PatchEntry,
+  readProfilePatchEntries,
 } from './profile-migration.ts'
 import { buildMigrationView, DesktopMigrationDialog, migrationPreloadPath } from './migration-dialog.ts'
 import { declareHostEscape, ensureLinglongWrappers, pruneLegacyLinglongWrappers, withLinglongPath } from './linglong-host.ts'
@@ -422,7 +422,9 @@ async function offerProfileMigration(
   const detected = await detectMigration('dsh', paths.profiles)
   if ('blocker' in detected) return
   const locale = currentDesktopLocale()
-  const desktopPatches: readonly PatchEntry[] = []
+  // Compare against what the destination actually holds; an empty list would leave
+  // the conflict section blank and let every conflicting entry take a silent default.
+  const desktopPatches = await readProfilePatchEntries('dsh', paths.profile)
   const view = buildMigrationView(detected.source, desktopPatches, locale)
   // A pristine profile is replaced wholesale; a configured one is merged, and the
   // prompt says so because the same import then touches data the user already set.

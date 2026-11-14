@@ -151,6 +151,21 @@ async function readPatchEntries(binName: string, dir: string): Promise<PatchEntr
 }
 
 /**
+ * Read a profile's patch entries for conflict presentation.
+ *
+ * The prompt must compare against what the destination actually holds; without
+ * this the conflict list stays empty and every conflicting entry falls back to a
+ * silent default. Exported so the caller can build the view from real content
+ * rather than re-implementing patch parsing.
+ * @param binName - diagnostic prefix for malformed patches.
+ * @param dir - profile directory to read.
+ * @returns patch entries in file order, or an empty list when the profile has no patch.
+ */
+export async function readProfilePatchEntries(binName: string, dir: string): Promise<PatchEntry[]> {
+  return readPatchEntries(binName, dir)
+}
+
+/**
  * Classify how each loader id differs between the legacy and desktop profiles.
  *
  * An id present on both sides with identical serialized meaning is reported as
@@ -273,6 +288,11 @@ export async function detectMigration(
  * The result preserves the desktop profile's own entries and applies the user's
  * choices: single-source entries are appended, identical entries keep the desktop
  * copy, and differing entries take whichever side the user selected.
+ *
+ * A differing entry with no explicit choice takes the legacy copy. The user asked
+ * to import, so the source value is what carries their intent; defaulting to the
+ * destination silently discarded edited configuration when the conflict list failed
+ * to reach the user.
  * @param legacy - legacy patch entries.
  * @param desktop - desktop patch entries.
  * @param selection - the user's choices.
@@ -301,7 +321,7 @@ export function composeMergedPatches(
       ordered.push(JSON.parse(conflict.source.serialized))
       continue
     }
-    const winner = selection.conflicts[conflict.id] ?? 'desktop'
+    const winner = selection.conflicts[conflict.id] ?? 'legacy'
     ordered.push(JSON.parse((winner === 'legacy' ? conflict.legacy : conflict.desktop).serialized))
   }
   for (const entry of desktop) {
