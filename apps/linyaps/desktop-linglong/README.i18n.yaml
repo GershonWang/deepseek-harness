@@ -4,7 +4,7 @@
 #   pnpm run verify-translation-pairing --write apps/linyaps/desktop-linglong/README.md
 /deepseek-harness-official-desktop-client-as-a-linglong-bundle:
   en: 503f2221d592e1b1
-  zh: 6ae1766889584bde
+  zh: 56bea583f960b18f
 /deepseek-harness-official-desktop-client-as-a-linglong-bundle/what-this-module-produces:
   en: 5badfc25a7ae1eef
   zh: 3e16437c882cbc9d
