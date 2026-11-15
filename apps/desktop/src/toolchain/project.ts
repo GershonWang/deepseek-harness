@@ -117,6 +117,31 @@ export function fallbackVersion(catalogTool: Tool | undefined, remaining: readon
 }
 
 /**
+ * Stand a tool down so whatever the container provides takes over again.
+ *
+ * Removing the `current` link is what makes this work: the tools `bin/` entry is rebuilt
+ * from those links, so with the link gone the command resolves to the copy the image
+ * ships. The installed directories are kept — this is "stop using the market copy", not
+ * "uninstall it", and discarding a 300 MB toolchain because the user wanted to compare
+ * against the bundled build would be a destructive answer to a reversible wish.
+ * @param layout - tools layout.
+ * @param id - tool id.
+ * @param tools - the catalog, so the rebuilt entry points keep their declarations.
+ * @throws when the id is unusable.
+ */
+export async function deactivateVersion(
+  layout: ToolsLayout,
+  id: string,
+  tools: readonly Tool[] = [],
+): Promise<void> {
+  if (!isValidToolId(id)) throw new Error(`toolchain: refusing unusable tool id ${JSON.stringify(id)}`)
+  // Idempotent: a tool that is already inactive has nothing to remove, and the entry
+  // points are still rebuilt so a stale link left by an interrupted run gets cleaned.
+  await rm(layout.currentLink(id), { force: true })
+  await reconcileBinLinks(layout, tools)
+}
+
+/**
  * Uninstall one version, promoting a successor when the removed one was active.
  * @param layout - tools layout.
  * @param id - tool id.

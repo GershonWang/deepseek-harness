@@ -28,6 +28,8 @@ export const TOOLCHAIN_IPC = {
   uninstall: 'dsh-toolchain:uninstall',
   /** Switch the active version. */
   activate: 'dsh-toolchain:activate',
+  /** Stand a tool down so the bundled copy takes over. */
+  deactivate: 'dsh-toolchain:deactivate',
   /** Refetch the remote index. */
   refresh: 'dsh-toolchain:refresh',
 } as const
@@ -92,6 +94,26 @@ export interface ToolchainToolView {
   readonly updateAvailable: boolean
   /** Version the update control installs, empty when there is none. */
   readonly updateVersion: string
+  /**
+   * Bundled copy the user can fall back to, absent when the package ships none.
+   *
+   * Present for a tool the market replaced: selecting it stands the market copy down so
+   * the commands resolve to the shipped one again. The installed directories stay.
+   */
+  readonly bundledFallback?: {
+    /** Display name of the bundled copy. */
+    readonly name: string
+    /** Version label when it could be probed, empty when unknown. */
+    readonly version: string
+  }
+  /**
+   * Whether every installed version is currently stood down.
+   *
+   * Distinct from "not installed": the files are still on disk, so the card keeps its
+   * uninstall control and the version stays listed. It is what tells the user the
+   * commands currently resolve to the bundled copy rather than to anything in the market.
+   */
+  readonly inactive: boolean
 }
 
 /** One tool the application already ships. */
@@ -191,6 +213,8 @@ export interface ToolchainView {
   readonly bundledActiveLabel: string
   /** Label of the command list on a bundled entry. */
   readonly commandsLabel: string
+  /** Label shown when a tool's market versions are all stood down. */
+  readonly inactiveLabel: string
 }
 
 /** The document can only ask for main-owned data and actions. */
@@ -205,6 +229,8 @@ export interface ToolchainApi {
   uninstall(id: string, version: string): Promise<void>
   /** Activate one installed version. */
   activate(id: string, version: string): Promise<void>
+  /** Stand one tool down so the bundled copy takes over. */
+  deactivate(id: string): Promise<void>
   /** Refetch the remote index. */
   refresh(): Promise<void>
   /** Follow state changes. */

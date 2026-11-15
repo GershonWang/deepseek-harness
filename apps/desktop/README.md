@@ -139,6 +139,18 @@ To manage Desktop's plugins, launch Desktop once to initialize its profile, full
 
 Finish CLI commands before updating or uninstalling Desktop; the installer does not coordinate with running commands. The CLI does not supply Office authoring-skill resource paths. Desktop's existing Office setup and Web attachment conversion retain their own resource configuration. `prepare:runtime` copies the launch scripts without compiling a native CLI launcher.
 
+<a id="toolchain-market"></a>
+
+## Toolchain market
+
+Linux alone exposes the market, as a tray window: every archive the index lists is a Linux x86_64 build, so an entry on Windows would offer tools that cannot run there. Installing a tool downloads its archive, verifies the declared SHA-256, extracts it under `~/.dsh-tools/<id>-<version>/`, points `current/<id>` at it, and rebuilds the shared `bin/` from those links. That directory goes first on the Host's PATH, so an installed command resolves to the market copy rather than to a distribution package or a leftover shim. Only one install runs at a time; a second request is refused instead of queued, because two archives would interleave their progress on one cancel control and compete for the same cache directory.
+
+Each card names the commands the tool puts on PATH — installing Maven is worth doing because it provides `mvn` — and a version selector appears only when the catalog offers more than one feature line, or when the tool can fall back to a shipped copy. Actions align to the right and to the bottom of every card so a row reads as one band rather than a scatter.
+
+Commands the package itself ships are not market entries: they come from the container image and sit outside `~/.dsh-tools`, so they can be neither installed nor removed here. They are listed behind the footer's **View bundled toolkit** panel instead, each with the version its own `--version` reports and the commands it provides. Listing them as cards would offer controls that cannot work and put `python3` beside the installable `python` that provides the same command.
+
+A market copy that shadows a shipped command offers that shipped copy as a selectable version. Choosing it stands the market version down — the `current` link is removed, so the command resolves to the shipped one again — while every downloaded version stays on disk and can be activated later. The card reports that state as inactive rather than uninstalled, because the files are still there and the uninstall control still applies.
+
 <a id="installation-ownership"></a>
 
 ## Installation ownership

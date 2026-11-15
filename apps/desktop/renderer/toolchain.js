@@ -21,6 +21,8 @@ const errors = new Map()
 let refreshPending = false
 /** 内置清单面板是否展开；纯界面状态，主进程不需要知道。 */
 let bundledOpen = false
+/** 版本下拉里代表「随包副本」的取值；用不可能撞上真实版本号的字符串。 */
+const BUNDLED_OPTION = '\u0000bundled'
 
 const el = id => document.getElementById(id)
 
@@ -118,21 +120,38 @@ function renderActions(tool) {
   // 版本选择只在有多条大版本线时出现；单线工具的版本在 meta 行里直接显示，
   // 没有可选的东西就不该给下拉。
   let chosen = selectedVersion(tool)
+  const bundledValue = BUNDLED_OPTION
   if (tool.installed) {
     const installedVersions = tool.lines.flatMap(line => line.versions.filter(entry => entry.installed))
-    if (installedVersions.length > 1) {
-      selector = h('select', {
-        class: 'card-select',
-        'aria-label': view.labels.switchVersion,
-        onchange: event => { chosen = event.target.value },
-      }, ...installedVersions.map(entry => h('option', {
+    // 有随包副本可以切回去时，下拉里多一个选项：选中它表示停用市场版本、改用随包
+    // 那份。它不是一个可安装的版本，因此只在这里出现，不进 lines。
+    const fallback = tool.bundledFallback
+    if (installedVersions.length > 1 || fallback !== undefined) {
+      const options = [...installedVersions.map(entry => h('option', {
         value: entry.version,
         selected: entry.active,
         text: `${view.labels.version} ${entry.version}`,
-      })))
+      }))]
+      if (fallback !== undefined) {
+        const label = fallback.version === ''
+          ? `${view.labels.bundledActiveLabel} ${fallback.name}`
+          : `${view.labels.bundledActiveLabel} ${fallback.name} ${fallback.version}`
+        options.push(h('option', { value: bundledValue, selected: tool.inactive, text: label }))
+      }
+      selector = h('select', {
+        class: 'card-select',
+        'aria-label': view.labels.switchVersion,
+      }, ...options)
       buttons.push(h('button', {
         class: 'btn', type: 'button', text: view.labels.switchVersion,
-        onclick: () => { void run(() => window.dshToolchain.activate(tool.id, selector.value), tool.id) },
+        onclick: () => {
+          // 选中的是随包那份就走停用，其余走激活：两条路径改的都是 current 链接，
+          // 但停用不碰已下载的版本目录。
+          const target = selector.value
+          void run(() => target === bundledValue
+            ? window.dshToolchain.deactivate(tool.id)
+            : window.dshToolchain.activate(tool.id, target), tool.id)
+        },
       }))
     }
     if (tool.updateAvailable) {
@@ -170,9 +189,15 @@ function renderActions(tool) {
     h('div', { class: 'card-buttons' }, ...buttons))
 }
 
-/** 版本说明行：未装显示将要装的版本与体积，已装显示当前版本。 */
+/** 版本说明行：未装显示将要装的版本与体积，已装显示当前版本或「已停用」。 */
 function metaText(tool) {
   const active = tool.active
+  // 已停用：版本还在磁盘上，但命令当前解析到随包那份。不能落到下面的"未装"分支，
+  // 否则卡片会显示"版本 X"像是还没装，与磁盘上的状态不符。
+  if (active === '' && tool.inactive) {
+    const fallback = tool.bundledFallback
+    return fallback === undefined ? view.labels.inactiveLabel : `${view.labels.inactiveLabel} · ${fallback.name}`
+  }
   if (active !== '') {
     const entry = tool.lines.flatMap(line => line.versions).find(item => item.version === active)
     const size = entry?.size === '' ? '' : ` · ${entry?.size ?? ''}`
@@ -199,11 +224,15 @@ function commandText(tool) {
 
 /** 渲染一张卡片。 */
 function renderCard(tool) {
+  // 停用时标签跟着改：版本目录还在，但当前生效的是随包副本，写着「已安装」会和
+  // 下一行的「已停用」自相矛盾。
   const tag = tool.bundled
     ? h('span', { class: 'card-tag', text: view.labels.bundledTag })
-    : tool.installed
-      ? h('span', { class: 'card-tag is-installed', text: view.labels.installedTag })
-      : null
+    : tool.inactive
+      ? h('span', { class: 'card-tag', text: view.labels.inactiveLabel })
+      : tool.installed
+        ? h('span', { class: 'card-tag is-installed', text: view.labels.installedTag })
+        : null
   const meta = metaText(tool)
   const commands = commandText(tool)
   const error = errors.get(tool.id)

@@ -22,7 +22,7 @@ const messages: ToolchainMessages = {
   uninstall: '卸载', switchVersion: '切换版本', update: '更新', installedTag: '已安装',
   bundledTag: '随包', version: '版本', category: '分类', commands: '命令',
   bundled: '内置工具链', bundledShow: '查看内置清单', bundledHint: '随应用交付。',
-  deactivate: '切回随包版本', bundledActive: '随包', phaseDownloading: '下载中',
+  deactivate: '切回随包版本', bundledActive: '随包', inactive: '已停用', phaseDownloading: '下载中',
   phaseVerifying: '校验中', phaseExtracting: '解压中', sourceRemote: '索引已更新',
   sourceCache: '使用缓存的索引', sourceBuiltin: '使用内置索引（离线）', noticeOffline: '无法刷新索引。',
 }
@@ -89,6 +89,30 @@ describe('toolchain view', () => {
       expect(typeof entry.version).toBe('string')
       expect(entry.commands.length).toBeGreaterThan(0)
     }
+  })
+
+  it('offers the shipped copy a tool would shadow as a fallback', async () => {
+    // 索引里叫 python，随包条目叫 python3，两者都提供 python3：按 id 匹配永远命不中，
+    // 这正是重复卡片长期没被发现的原因，所以按命令匹配。
+    const view = await compose([tool('python', [{ version: '3.14.7' }], ['python3', 'python', 'pip'])])
+    // 版本号取决于执行测试的机器上装了什么，因此只断言名称与"版本要么是空串要么是
+    // 形如 N.N.N 的真实值"，不把某个数字写死。
+    expect(view.tools[0]?.bundledFallback?.name).toBe('Python 3')
+    expect(view.tools[0]?.bundledFallback?.version).toMatch(/^(?:\d+\.\d+(?:\.\d+)?)?$/u)
+    // 没有任何命令重合的工具不该被塞一个回退项。
+    const maven = await compose([tool('maven', [{ version: '3.9.16' }], ['mvn'])])
+    expect(maven.tools[0]?.bundledFallback).toBeUndefined()
+  })
+
+  it('tells an installed-but-stood-down tool apart from one that was never installed', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    const index = parseToolIndex({ version: 1, tools: [tool('python', [{ version: '3.14.7' }], ['python3'])] })
+    mkdirSync(layout.versionDir('python', '3.14.7'), { recursive: true })
+    // 目录在、current 链接不在 = 用户切回了随包那份；卡片仍要能卸载这个版本。
+    const view = await composeToolchainView({ index, layout, messages, locale: 'zh', source: 'remote', offline: false })
+    expect(view.tools[0]?.inactive).toBe(true)
+    expect(view.tools[0]?.installed).toBe(true)
   })
 
   it('carries the commands a tool puts on PATH so the card can name them', async () => {

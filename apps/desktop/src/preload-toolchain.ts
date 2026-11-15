@@ -13,6 +13,7 @@ const api: ToolchainApi = {
   cancel: () => ipcRenderer.invoke(TOOLCHAIN_IPC.cancel) as Promise<void>,
   uninstall: (id, version) => ipcRenderer.invoke(TOOLCHAIN_IPC.uninstall, id, version) as Promise<void>,
   activate: (id, version) => ipcRenderer.invoke(TOOLCHAIN_IPC.activate, id, version) as Promise<void>,
+  deactivate: id => ipcRenderer.invoke(TOOLCHAIN_IPC.deactivate, id) as Promise<void>,
   refresh: () => ipcRenderer.invoke(TOOLCHAIN_IPC.refresh) as Promise<void>,
   subscribe: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, view: ToolchainView): void => { listener(view) }

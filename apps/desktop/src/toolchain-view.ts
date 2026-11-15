@@ -83,6 +83,7 @@ export interface ToolchainMessages {
   readonly bundledHint: string
   readonly deactivate: string
   readonly bundledActive: string
+  readonly inactive: string
   readonly phaseDownloading: string
   readonly phaseVerifying: string
   readonly phaseExtracting: string
@@ -129,9 +130,16 @@ function effectiveVersion(installed: readonly string[], active: string): string 
  * @param installed - its installed versions.
  * @param active - its active version, empty when none.
  * @param bundled - whether the application already ships it.
+ * @param bundledFallback - the shipped copy this tool can fall back to, when any.
  * @returns the card.
  */
-function composeTool(tool: Tool, installed: readonly string[], active: string, bundled: boolean): ToolchainToolView {
+function composeTool(
+  tool: Tool,
+  installed: readonly string[],
+  active: string,
+  bundled: boolean,
+  bundledFallback: { readonly name: string; readonly version: string } | undefined,
+): ToolchainToolView {
   const groups = buildVersionGroups(tool, installed, active)
   const lines = groups.map(group => ({
     major: group.major,
@@ -166,6 +174,10 @@ function composeTool(tool: Tool, installed: readonly string[], active: string, b
     offersLines: lines.length > 1,
     updateAvailable: pending,
     updateVersion,
+    ...(bundledFallback === undefined ? {} : { bundledFallback }),
+    // 有版本目录却没有 current 链接 = 用户主动切回了随包那份。这和"没装"必须分开：
+    // 文件还在磁盘上，卸载入口仍要留着。
+    inactive: installed.length > 0 && active === '',
   }
 }
 
@@ -188,6 +200,30 @@ async function composeBundledTools(): Promise<ToolchainBundledView[]> {
 }
 
 /**
+ * Find the shipped copy an installable tool would shadow.
+ *
+ * The match is by command, not by id: the index names the tool `python` while the shipped
+ * entry is `python3`, and both put `python3` on PATH. An id-based match — the shape an
+ * earlier implementation used — therefore never fired, which is why the duplication this
+ * replaces went unnoticed.
+ * @param tool - the installable tool.
+ * @param bundled - the shipped entries, already composed.
+ * @returns the shipped copy whose commands overlap, or undefined when none does.
+ */
+function shadowedBundledCopy(
+  tool: Tool,
+  bundled: readonly ToolchainBundledView[],
+): { readonly name: string; readonly version: string } | undefined {
+  if (tool.provides.length === 0) return undefined
+  for (const entry of bundled) {
+    if (entry.commands.some(command => tool.provides.includes(command))) {
+      return { name: entry.name, version: entry.version }
+    }
+  }
+  return undefined
+}
+
+/**
  * Compose the whole view.
  *
  * Categories come from the index so a new one appears without a client release; a tool
@@ -198,19 +234,21 @@ async function composeBundledTools(): Promise<ToolchainBundledView[]> {
  */
 export async function composeToolchainView(input: ComposeInput): Promise<ToolchainView> {
   const installedIds = new Set(await listInstalled(input.layout))
-  const tools: ToolchainToolView[] = []
-  for (const tool of input.index.tools) {
-    const installed = await listVersions(input.layout, tool.id)
-    const active = installed.length === 0 ? '' : await activeVersion(input.layout, tool.id)
-    // The index never lists a bundled tool, so an index card is always installable.
-    const card = composeTool(tool, installed, active, false)
-    tools.push({ ...card, category: input.index.category_labels?.[tool.category] ?? tool.category })
-    if (installed.length > 0) installedIds.add(tool.id)
-  }
   // Shipped tools stay out of the grid and out of the category tabs: they cannot be
   // installed or removed, so a card would only sketch controls that cannot work, and
   // `python3` would sit beside the installable `python` that provides the same command.
   const bundled = await composeBundledTools()
+  const tools: ToolchainToolView[] = []
+  for (const tool of input.index.tools) {
+    const installed = await listVersions(input.layout, tool.id)
+    const active = installed.length === 0 ? '' : await activeVersion(input.layout, tool.id)
+    // The index never lists a bundled tool, so an index card is always installable. It
+    // may still shadow a shipped command (`python` provides `python3`), and then the
+    // card offers that shipped copy as the fallback it can stand down to.
+    const card = composeTool(tool, installed, active, false, shadowedBundledCopy(tool, bundled))
+    tools.push({ ...card, category: input.index.category_labels?.[tool.category] ?? tool.category })
+    if (installed.length > 0) installedIds.add(tool.id)
+  }
   const counts = new Map<string, number>()
   for (const tool of tools) counts.set(tool.categoryId, (counts.get(tool.categoryId) ?? 0) + 1)
   const categories = [...counts].map(([id, count]) => ({
@@ -259,6 +297,7 @@ export async function composeToolchainView(input: ComposeInput): Promise<Toolcha
     deactivateLabel: input.messages.deactivate,
     bundledActiveLabel: input.messages.bundledActive,
     commandsLabel: input.messages.commands,
+    inactiveLabel: input.messages.inactive,
   }
 }
 

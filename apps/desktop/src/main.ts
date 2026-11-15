@@ -86,7 +86,7 @@ import { composeProgress, composeToolchainView, type ToolchainMessages } from '.
 import type { ToolchainView } from './toolchain-contract.ts'
 import { loadIndex, readBundledIndex, refreshIndex, type IndexLoad } from './toolchain/remote.ts'
 import { installVersion } from './toolchain/install.ts'
-import { reconcileBinLinks, setActiveVersion, uninstallVersion, prepareToolsRoot, withToolsPath } from './toolchain/project.ts'
+import { deactivateVersion, reconcileBinLinks, setActiveVersion, uninstallVersion, prepareToolsRoot, withToolsPath } from './toolchain/project.ts'
 import { toolsLayout } from './toolchain/catalog.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 
@@ -1430,6 +1430,7 @@ async function main(): Promise<void> {
       bundledHint: messages.toolchainBundledHint,
       deactivate: messages.toolchainDeactivate,
       bundledActive: messages.toolchainBundledActive,
+      inactive: messages.toolchainInactive,
       phaseDownloading: messages.toolchainPhaseDownloading,
       phaseVerifying: messages.toolchainPhaseVerifying,
       phaseExtracting: messages.toolchainPhaseExtracting,
@@ -1484,6 +1485,12 @@ async function main(): Promise<void> {
       activate: async (id, version) => {
         const load = toolchainIndex ?? await loadToolchainIndex(false)
         await setActiveVersion(toolchainLayout, id, version, load.index.tools)
+      },
+      deactivate: async (id) => {
+        const load = toolchainIndex ?? await loadToolchainIndex(false)
+        // 停用只摘掉 current 链接，已下载的版本目录留在磁盘上：这是"暂时用随包那份"，
+        // 不是卸载，用户随时可以再切回来。
+        await deactivateVersion(toolchainLayout, id, load.index.tools)
       },
       refresh: async () => { await loadToolchainIndex(true) },
     })

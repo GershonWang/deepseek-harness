@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { activeVersion, listVersions, toolsLayout, type Tool } from '../src/toolchain/catalog.ts'
 import {
+  deactivateVersion,
   fallbackVersion,
   prepareToolsRoot,
   reconcileBinLinks,
@@ -120,6 +121,54 @@ describe('activation', () => {
   it('refuses a tool id that could escape the tools root', async () => {
     const layout = toolsLayout(temporaryRoot())
     await expect(setActiveVersion(layout, '../evil', '1.0.0')).rejects.toThrow(/unusable/u)
+  })
+})
+
+describe('deactivation', () => {
+  it('stands a tool down and keeps every downloaded version on disk', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    seedVersion(root, 'python', '3.14.7', { 'bin/python3': 0o755 })
+    const catalog = [tool('python', [{ version: '3.14.7' }])]
+    await setActiveVersion(layout, 'python', '3.14.7', catalog)
+    expect(await activeVersion(layout, 'python')).toBe('3.14.7')
+
+    await deactivateVersion(layout, 'python', catalog)
+
+    // 链接没了，命令回到随包那份；但版本目录必须在——这是"切回随包"而不是卸载。
+    expect(await activeVersion(layout, 'python')).toBe('')
+    expect(await listVersions(layout, 'python')).toEqual(['3.14.7'])
+    // 共享 bin 里的链接也要撤掉，否则 PATH 上仍指向市场版本。
+    expect(readdirSync(join(root, 'bin'))).not.toContain('python3')
+  })
+
+  it('can be activated again afterwards', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    seedVersion(root, 'python', '3.14.7', { 'bin/python3': 0o755 })
+    const catalog = [tool('python', [{ version: '3.14.7' }])]
+    await setActiveVersion(layout, 'python', '3.14.7', catalog)
+    await deactivateVersion(layout, 'python', catalog)
+    await setActiveVersion(layout, 'python', '3.14.7', catalog)
+    expect(await activeVersion(layout, 'python')).toBe('3.14.7')
+    expect(readdirSync(join(root, 'bin'))).toContain('python3')
+  })
+
+  it('is idempotent for a tool that is already inactive', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    await prepareToolsRoot(root)
+    // 重复点击不该报错，也不该顺手删掉别的东西。
+    await deactivateVersion(layout, 'python', [])
+    await deactivateVersion(layout, 'python', [])
+    expect(await activeVersion(layout, 'python')).toBe('')
+  })
+
+  it('refuses an id that is not a usable directory name', async () => {
+    const root = temporaryRoot()
+    const layout = toolsLayout(root)
+    // id 会进 rm 路径，越界名必须挡在入口。
+    await expect(deactivateVersion(layout, '../../etc', [])).rejects.toThrow('refusing unusable tool id')
   })
 })
 

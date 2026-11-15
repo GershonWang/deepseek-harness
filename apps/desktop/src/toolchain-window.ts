@@ -45,6 +45,8 @@ export interface DesktopToolchainWindowOptions {
   readonly uninstall: (id: string, version: string) => Promise<void>
   /** Activate one installed version. */
   readonly activate: (id: string, version: string) => Promise<void>
+  /** Stand a tool down so the bundled copy takes over again. */
+  readonly deactivate: (id: string) => Promise<void>
   /** Refetch the index. */
   readonly refresh: () => Promise<void>
 }
@@ -175,6 +177,14 @@ export class DesktopToolchainWindow {
       if (typeof id !== 'string' || typeof version !== 'string') throw new Error('desktop toolchain: invalid activate request')
       if (this.running !== undefined) throw new Error('desktop toolchain: an install is running')
       await this.options.activate(id, version)
+      await this.publish()
+    })
+    ipcMain.handle(TOOLCHAIN_IPC.deactivate, async (event, id: unknown) => {
+      this.owned(event, window)
+      if (typeof id !== 'string') throw new Error('desktop toolchain: invalid deactivate request')
+      // Removing the active link under a running install would race the same directory.
+      if (this.running !== undefined) throw new Error('desktop toolchain: an install is running')
+      await this.options.deactivate(id)
       await this.publish()
     })
     ipcMain.handle(TOOLCHAIN_IPC.refresh, async (event) => {
