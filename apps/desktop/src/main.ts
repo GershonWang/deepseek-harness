@@ -43,12 +43,13 @@ import { installDesktopFileDrag } from './file-drag.ts'
 import { installDesktopDirectoryPicker } from './directory-picker.ts'
 import { installMicrophonePermissions } from './microphone-permissions.ts'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DESKTOP_IPC, SCHEME, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
+import { DESKTOP_IPC, SCHEME, UPDATE_AVAILABILITY_ARGUMENT, assertDesktopSender, type DesktopUpdateState } from './ipc.ts'
 import { readDeviceInfo } from './device-info.ts'
 import { desktopUpdateReadyConfirmation, formatDesktopMessage, resolveDesktopLocale, resolveDesktopStartupLocale } from './locale.ts'
 import type { DesktopMessages } from './locale.ts'
 import { claimDesktopSingleInstance } from './single-instance.ts'
 import { desktopUpdateChannel } from './update-channel.ts'
+import { hasPackagedUpdateSource } from './update-availability.ts'
 import { DesktopUpdateCoordinator } from './update-coordinator.ts'
 import { prepareDesktopUpdateWindow } from './update-window.ts'
 import { DesktopCommandManager } from './command-management.ts'
@@ -299,7 +300,7 @@ function platformLoginUrl(authorizeUrl: string): string {
   return url.href
 }
 
-function createWindow(preload: string, show = false, primary = false): BrowserWindow {
+function createWindow(preload: string, show = false, primary = false, updatesAvailable = false): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -325,6 +326,9 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
     } : {}),
     webPreferences: {
       preload,
+      // The preload cannot read the application resources, so the window states
+      // whether this build carries an update feed; absence keeps the bridge off.
+      ...(updatesAvailable ? { additionalArguments: [UPDATE_AVAILABILITY_ARGUMENT] } : {}),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -506,6 +510,9 @@ async function main(): Promise<void> {
   const resources = runtimeResources()
   const paths = resolveDesktopPaths()
   const development = !app.isPackaged
+  // One answer reused by the coordinator, both menus, polling, and the renderer
+  // bridge: this build either carries an update feed or it does not.
+  const updatesAvailable = hasPackagedUpdateSource()
   const primaryRuntime = development
     ? developmentPrimaryRuntime()
     : join(process.resourcesPath, 'runtime', 'primary-runtime')
@@ -903,7 +910,7 @@ async function main(): Promise<void> {
       }
       return true
     },
-    undefined, undefined, undefined,
+    undefined, () => updatesAvailable, undefined,
     (success, reason) => { void track('desktop_upgrade_download_result', { is_success: success, ...reason === undefined ? {} : { error_reason: reason } }) },
     updateChannel,
   )
@@ -1158,6 +1165,10 @@ async function main(): Promise<void> {
   let policyAuthenticationQueued = false
   /** Present check results only while their captured channel revision remains current. */
   const openUpdatePrompt = (manual = false): Promise<void> => {
+    // A build without an update feed has nothing to report here: every entry point that
+    // could reach this function is already absent, and a late IPC caller must not open an
+    // error the distribution channel owns.
+    if (!updatesAvailable) return Promise.resolve()
     if (channelState?.error !== undefined) {
       return showConfigurationError()
     }
@@ -1298,7 +1309,9 @@ async function main(): Promise<void> {
 
   const automaticCheck = (): void => {
     if (!quitting) void mandatoryPolicy?.check('foreground-or-resume').catch((error: unknown) => { console.error(error) })
-    if (!quitting) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
+    // Polling a feed this build does not carry would fail on every focus, resume, and
+    // timer, each failure backoff included, and publish an error the user cannot act on.
+    if (updatesAvailable && !quitting) void updateSchedule.check().catch((error: unknown) => { console.error(error) })
   }
   powerMonitor.on('resume', automaticCheck)
   app.on('will-quit', () => {
@@ -1352,32 +1365,41 @@ async function main(): Promise<void> {
       { role: 'hideOthers', label: currentDesktopLocale().messages.hideOtherApplications },
       { role: 'unhide', label: currentDesktopLocale().messages.showAllApplications }, { type: 'separator' }]
     : []
-  const applicationItems = (): MenuItemConstructorOptions[] => [
-    // Windows has no system About panel; Electron's fallback is a plain
-    // message box, so the shell shows its own dimmed dialog instead.
-    process.platform === 'win32'
-      ? { label: currentDesktopLocale().messages.aboutMenu,
-        click: () => { void showAbout().catch((error: unknown) => { console.error(error) }) } }
-      : { label: currentDesktopLocale().messages.aboutMenu, role: 'about' },
-    { type: 'separator' },
-    { label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } },
-    ...process.platform === 'darwin' || process.platform === 'win32'
-      ? [{ label: currentDesktopLocale().messages.cliCommandMenu, click: () => { void commandManager.show() } }] : [],
-    { type: 'separator' },
-    ...development ? [
-      { label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const },
-      { label: currentDesktopLocale().messages.restartAppHostMenu, click: () => {
-        if (quitting) return
-        app.relaunch()
-        quitWithoutConfirmation()
-      } },
-    ] : [],
-    { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
-    { type: 'separator' },
-    ...hideCommands,
-    { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
-      : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
-  ]
+  const applicationItems = (): MenuItemConstructorOptions[] => {
+    // Commands that act on the installed application rather than opening a window.
+    // A build without an update feed drops the check so the menu never offers an action
+    // that must fail; its separator leaves with it rather than doubling the About one.
+    const commands: MenuItemConstructorOptions[] = [
+      ...updatesAvailable
+        ? [{ label: currentDesktopLocale().messages.checkUpdatesMenu, click: () => { void openUpdatePrompt(true) } }] : [],
+      ...process.platform === 'darwin' || process.platform === 'win32'
+        ? [{ label: currentDesktopLocale().messages.cliCommandMenu, click: () => { void commandManager.show() } }] : [],
+    ]
+    return [
+      // Windows has no system About panel; Electron's fallback is a plain
+      // message box, so the shell shows its own dimmed dialog instead.
+      process.platform === 'win32'
+        ? { label: currentDesktopLocale().messages.aboutMenu,
+          click: () => { void showAbout().catch((error: unknown) => { console.error(error) }) } }
+        : { label: currentDesktopLocale().messages.aboutMenu, role: 'about' },
+      { type: 'separator' },
+      ...commands,
+      ...commands.length > 0 ? [{ type: 'separator' as const }] : [],
+      ...development ? [
+        { label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const },
+        { label: currentDesktopLocale().messages.restartAppHostMenu, click: () => {
+          if (quitting) return
+          app.relaunch()
+          quitWithoutConfirmation()
+        } },
+      ] : [],
+      { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
+      { type: 'separator' },
+      ...hideCommands,
+      { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
+        : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
+    ]
+  }
   const devToolsF12Shortcut: MenuItemConstructorOptions = { role: 'toggleDevTools', visible: false, accelerator: 'F12' }
   const windowsDevToolsShortcuts: MenuItemConstructorOptions[] = [
     { role: 'toggleDevTools', visible: false },
@@ -1545,8 +1567,10 @@ async function main(): Promise<void> {
         ...toolchain === undefined ? {} : { toolchain: () => { toolchain.show() } },
         ...terminal === undefined ? {} : { terminal: () => { terminal.show() } },
         // Linux hides the window menu bar, which was its only Check for Updates entry.
-        // Windows keeps the caption popup and macOS the system menu bar.
-        ...process.platform === 'linux'
+        // Windows keeps the caption popup and macOS the system menu bar. A build without
+        // an update feed omits the entry rather than presenting an action that must fail;
+        // the distribution channel owns those updates.
+        ...process.platform === 'linux' && updatesAvailable
           ? { checkUpdates: () => { void openUpdatePrompt(true).catch((error: unknown) => { console.error(error) }) } }
           : {} })
     } catch (error) { console.warn('desktop tray: unavailable', error) }
@@ -1626,7 +1650,7 @@ async function main(): Promise<void> {
     }
   }
   const createMainWindow = (): BrowserWindow => {
-    const window = createWindow(appPreload, false, true)
+    const window = createWindow(appPreload, false, true, updatesAvailable)
     mainWindow = window
     browserGuests.bind(window, (guest, name) => shortcuts.attachGuest(window, guest, name))
     shortcuts.attach(window)

@@ -20,6 +20,14 @@ type InvokeEvent = { sender?: unknown; senderFrame: { url: string } }
 type InvokeHandler = (event: InvokeEvent, ...args: unknown[]) => unknown
 
 const fileDrag = vi.hoisted(() => ({ dispose: vi.fn<() => Promise<void>>(), install: vi.fn() }))
+/** Whether the application under test carries an update feed; menu, tray, and polling read it. */
+const availability = vi.hoisted(() => ({ updates: true }))
+// The feed's existence is decided by the packaging step and covered by its own spec, so
+// these tests state it directly instead of creating an `app-update.yml` on disk.
+vi.mock('../src/update-availability.ts', () => ({
+  UPDATE_FEED_FILENAME: 'app-update.yml',
+  hasPackagedUpdateSource: () => availability.updates,
+}))
 vi.mock('../src/file-drag.ts', () => ({ installDesktopFileDrag: () => { fileDrag.install(); return fileDrag.dispose } }))
 
 vi.mock('../src/web-document.ts', () => ({
@@ -497,6 +505,9 @@ beforeEach(() => {
   vi.stubEnv('DSH_DESKTOP_UPDATE_JOURNAL_DIR', undefined)
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3')
   harness.analyticsEnabled = true
+  // An updatable build is the common case: macOS and Windows always ship the feed.
+  // Tests describing a package that owns its own distribution clear this flag.
+  availability.updates = true
 })
 
 afterEach(async () => {
@@ -1807,6 +1818,40 @@ describe('desktop main startup', () => {
     await vi.advanceTimersByTimeAsync(0)
     // The same ordinary manual check the application menu command runs.
     expect(harness.updateCheck).toHaveBeenCalledWith(true)
+  })
+
+  it('omits every update entry and never polls when the build carries no feed', async () => {
+    // The Linux bundle's shape: distribution moves outside the application, so no
+    // `app-update.yml` reaches the installed tree and nothing can be checked.
+    availability.updates = false
+    vi.stubGlobal('process', { ...process, platform: 'linux', arch: 'x64', resourcesPath: 'desktop-test-resources' })
+    await readyWorkspace()
+    // The tray keeps its other entries; only the check is gone.
+    expect(harness.menu.mock.calls.at(-1)![0].map(item => item.type === 'separator' ? 'separator' : item.label))
+      .not.toContain(en.checkUpdatesMenu)
+    // The application menu drops the command together with its separator, leaving one
+    // separator between About and the next remaining group.
+    const native = applicationMenuItems().filter(item => item.visible !== false)
+    expect(native.map(item => item.role === 'quit' ? 'quit' : item.label ?? item.type)).toEqual([
+      en.aboutMenu, 'separator', en.toggleDevToolsMenu, 'separator', 'quit',
+    ])
+    // Focus and resume still ask the mandatory policy, but the ordinary feed is not polled.
+    harness.windows[0]!.emit('focus')
+    harness.powerMonitor.emit('resume')
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000)
+    expect(harness.updateCheck).not.toHaveBeenCalled()
+    // A late renderer request resolves without opening a dialog the user cannot act on.
+    await invoke(DESKTOP_IPC.updatesOpen, 'app')
+    expect(harness.dialog.showMessageBox).not.toHaveBeenCalled()
+    expect(harness.updateCheck).not.toHaveBeenCalled()
+  })
+
+  it('keeps the update command when the build carries a feed', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'linux', arch: 'x64', resourcesPath: 'desktop-test-resources' })
+    await readyWorkspace()
+    expect(applicationMenuItems().filter(item => item.visible !== false)
+      .map(item => item.role === 'quit' ? 'quit' : item.label ?? item.type))
+      .toEqual([en.aboutMenu, 'separator', en.checkUpdatesMenu, 'separator', en.toggleDevToolsMenu, 'separator', 'quit'])
   })
 
   it('hides a macOS owner with a mandatory view without quitting or stopping the Host', async () => {
