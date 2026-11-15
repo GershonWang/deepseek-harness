@@ -8,7 +8,7 @@
 
 ## 本模块产出什么
 
-一个 `.uab`，唯一入口是 `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop`——一个带 `--no-sandbox` 启动 Electron 应用的包装脚本。
+一个 `.uab`，提供两个命令：`/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop` 用 `--no-sandbox` 启动 Electron 应用；`/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh` 是应用自带的 CLI，托盘「终端」和容器里的其它终端都能直接执行它——`$PREFIX/bin` 在容器 PATH 首位。
 
 Electron Desktop 是自包含的：它自带 Electron 运行时，也自带 `resources/app.asar/dsh` 树，因此本包不再随包第二份 Node 运行时或 harness 树。Linux x64 上解包后的应用实测约 1.1 GB（Electron 227 MB、主运行时 496 MB、dsh 树 331 MB），与薄壳包同一量级：打包 Electron 应用并不会让负载变小。
 
@@ -48,7 +48,7 @@ Chromium 的输入法与剪贴板由 Electron 自己处理，因此薄壳版随�
 | [`desktop-build-paths.d.mts`](../../desktop/scripts/desktop-build-paths.d.mts) | `DesktopBuildTarget` = 发布目标 + `linux-x64` |
 | [`prepare-runtime.ts`](../../desktop/scripts/prepare-runtime.ts) | 平台推导与 Electron 可执行路径认识 `linux` |
 | [`prepare-dsh.ts`](../../desktop/scripts/prepare-dsh.ts) | Electron 可执行路径按打包目标解析，不再用构建宿主平台 |
-| [`prepare-cli.ts`](../../desktop/scripts/prepare-cli.ts) | POSIX 的 `dsh` 启动脚本在 Linux 上被赋予可执行权限 |
+| [`prepare-cli.ts`](../../desktop/scripts/prepare-cli.ts) | POSIX 的 `dsh` 启动脚本在 Linux 上被赋予可执行权限；它的启动路径针对 macOS 应用包，Linux 容器用的是 `linglong.yaml` 生成的 `$PREFIX/bin/dsh` |
 | [`electron-builder-config.mjs`](../../desktop/scripts/electron-builder-config.mjs) | Linux 目标不生成更新源 |
 
 ## 已知边界

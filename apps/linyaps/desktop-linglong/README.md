@@ -6,7 +6,7 @@ English | [中文](README.zh.md)
 
 ## What this module produces
 
-One `.uab` whose command entry is `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop`, a wrapper that starts the Electron application with `--no-sandbox`.
+One `.uab` that provides two commands: `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh-desktop` starts the Electron application with `--no-sandbox`, and `/opt/apps/com.deepseek.dsh-desktop/files/bin/dsh` is the CLI the application carries; the tray Terminal and any other container terminal run it directly because `$PREFIX/bin` leads the container PATH.
 
 Electron Desktop is self-contained: it ships its own Electron runtime and its own `resources/app.asar/dsh` tree, so the bundle adds no second Node runtime and no second harness tree. The unpacked Linux x64 application measures about 1.1 GB (Electron 227 MB, primary runtime 496 MB, dsh tree 331 MB), the same order as the thin-shell bundle: bundling an Electron application does not shrink the payload.
 
@@ -46,7 +46,7 @@ Electron renders its own input methods and clipboard, so the WebKitGTK-only pack
 | [`desktop-build-paths.d.mts`](../../desktop/scripts/desktop-build-paths.d.mts) | `DesktopBuildTarget` is the release targets plus `linux-x64` |
 | [`prepare-runtime.ts`](../../desktop/scripts/prepare-runtime.ts) | platform derivation and the Electron executable path know `linux` |
 | [`prepare-dsh.ts`](../../desktop/scripts/prepare-dsh.ts) | the Electron executable resolves from the packaging target, not the build host |
-| [`prepare-cli.ts`](../../desktop/scripts/prepare-cli.ts) | the POSIX `dsh` launcher is made executable on Linux |
+| [`prepare-cli.ts`](../../desktop/scripts/prepare-cli.ts) | the POSIX `dsh` launcher is made executable on Linux; its launch path targets the macOS app bundle, so the Linux container uses the `$PREFIX/bin/dsh` written by `linglong.yaml` |
 | [`electron-builder-config.mjs`](../../desktop/scripts/electron-builder-config.mjs) | the Linux target generates no updater feed |
 
 ## Known limits
