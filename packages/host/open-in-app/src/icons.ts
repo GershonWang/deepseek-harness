@@ -135,7 +135,7 @@ async function extractExecutableIconPng(
 async function extractLinuxIcon(
   desktopId: string, dataDirs: readonly string[], internals: ResolvedInternals,
 ): Promise<OpenInAppIcon | null> {
-  const entry = await findDesktopEntry(desktopId, dataDirs)
+  const entry = await findDesktopEntry(desktopId, dataDirs, internals.hostEscape?.hostRootfs)
   const icon = entry?.icon
   if (icon === undefined || icon === '') return null
   if (!isAbsolute(icon)) return await desktopApplicationIcon(icon, dataDirs)
