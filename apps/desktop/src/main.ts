@@ -443,7 +443,9 @@ async function prepareHostTools(home: string): Promise<void> {
   } catch (error) {
     console.warn('desktop toolchain: entry points unavailable', error)
   }
-  const fact = declareHostEscape(process.env)
+  // Probing the host is what makes the channel exist at all: the variables are
+  // this shell's own declaration, never inherited from the Linglong container.
+  const fact = await declareHostEscape(process.env)
   await pruneLegacyLinglongWrappers(home).catch(() => undefined)
   if (fact === undefined) return
   try {

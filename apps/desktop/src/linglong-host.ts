@@ -388,20 +388,37 @@ async function launcherOnPath(environment: NodeJS.ProcessEnv): Promise<boolean> 
 }
 
 /**
- * Declare the host-escape channel in the process environment.
+ * Probe this run for a host-escape channel and declare it in the process environment.
  *
  * Both variables appear together, because the harness side treats the pair as one
- * fact. An existing value is never overwritten: these variables are also the
- * user's manual switch for debugging and for turning the channel off (setting
- * `DSH_HOST_ROOTFS` empty disables it), so overwriting would take the control away.
- * @param environment - environment to write; defaults to `process.env`.
+ * fact. An existing variable is never overwritten or second-guessed: these
+ * variables are also the user's manual switch, so a value already present —
+ * including an empty one, which disables the channel — means the decision was
+ * made elsewhere and probing would take it away. That is why the environment is
+ * consulted before {@link hostEscapeOf} runs, and why a half-declared pair
+ * declares nothing rather than completing itself.
+ *
+ * This is the only declaration entry point `main.ts` calls, and its result gates
+ * both the Linglong wrappers and the open-in-app host entries. Calling
+ * {@link currentHostEscape} directly instead would read back a channel nobody
+ * ever wrote, leaving every sandbox feature silently unavailable.
+ * @param environment - environment to inspect and write; defaults to `process.env`.
+ * @param probe - channel detection, replaceable by tests that cannot mount a host root.
  * @returns the declared channel, or undefined when this run has none.
  */
-export function declareHostEscape(environment: NodeJS.ProcessEnv = process.env): HostEscapeFact | undefined {
-  const fact = currentHostEscape(environment)
+export async function declareHostEscape(
+  environment: NodeJS.ProcessEnv = process.env,
+  probe: typeof hostEscapeOf = hostEscapeOf,
+): Promise<HostEscapeFact | undefined> {
+  // A complete declaration wins untouched, and any partial one means "no channel"
+  // rather than an invitation to fill in the missing half.
+  const declared = currentHostEscape(environment)
+  if (declared !== undefined) return declared
+  if (Object.hasOwn(environment, HOST_ROOTFS_ENV) || Object.hasOwn(environment, HOST_LAUNCH_ENV)) return undefined
+  const fact = await probe(environment)
   if (fact === undefined) return undefined
-  if (!Object.hasOwn(environment, HOST_ROOTFS_ENV)) environment[HOST_ROOTFS_ENV] = fact.rootfs
-  if (!Object.hasOwn(environment, HOST_LAUNCH_ENV)) environment[HOST_LAUNCH_ENV] = fact.launcher
+  environment[HOST_ROOTFS_ENV] = fact.rootfs
+  environment[HOST_LAUNCH_ENV] = fact.launcher
   return fact
 }
 

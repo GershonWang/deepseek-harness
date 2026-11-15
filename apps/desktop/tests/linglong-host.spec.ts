@@ -124,13 +124,58 @@ describe('host escape declaration', () => {
     expect(currentHostEscape({})).toBeUndefined()
   })
 
-  it('never overwrites a user-supplied declaration', () => {
+  it('never overwrites a user-supplied declaration', async () => {
     const environment: NodeJS.ProcessEnv = { DSH_HOST_ROOTFS: '/custom', DSH_HOST_LAUNCH: 'systemd-run' }
-    declareHostEscape(environment)
+    let probed = false
+    const fact = await declareHostEscape(environment, async () => {
+      probed = true
+      return { rootfs: '/probed', launcher: 'systemd-run' }
+    })
+    expect(fact).toEqual({ rootfs: '/custom', launcher: 'systemd-run' })
+    expect(probed).toBe(false)
     expect(currentHostEscape(environment)).toEqual({ rootfs: '/custom', launcher: 'systemd-run' })
   })
 
   it('treats an explicitly empty declaration as disabled', () => {
     expect(currentHostEscape({ DSH_HOST_ROOTFS: '', DSH_HOST_LAUNCH: 'systemd-run' })).toBeUndefined()
+  })
+
+  it('declares the probed channel when the environment holds neither variable', async () => {
+    const environment: NodeJS.ProcessEnv = {}
+    const fact = await declareHostEscape(environment, async () => ({ rootfs: '/run/host/rootfs', launcher: 'systemd-run' }))
+    expect(fact).toEqual({ rootfs: '/run/host/rootfs', launcher: 'systemd-run' })
+    expect(currentHostEscape(environment)).toEqual({ rootfs: '/run/host/rootfs', launcher: 'systemd-run' })
+  })
+
+  it('declares nothing when the probe finds no channel', async () => {
+    const environment: NodeJS.ProcessEnv = {}
+    expect(await declareHostEscape(environment, async () => undefined)).toBeUndefined()
+    expect(currentHostEscape(environment)).toBeUndefined()
+    expect(environment).not.toHaveProperty('DSH_HOST_ROOTFS')
+    expect(environment).not.toHaveProperty('DSH_HOST_LAUNCH')
+  })
+
+  it('keeps a disabled channel disabled instead of probing around the empty value', async () => {
+    const environment: NodeJS.ProcessEnv = { DSH_HOST_ROOTFS: '', DSH_HOST_LAUNCH: 'systemd-run' }
+    let probed = false
+    const fact = await declareHostEscape(environment, async () => {
+      probed = true
+      return { rootfs: '/run/host/rootfs', launcher: 'systemd-run' }
+    })
+    expect(fact).toBeUndefined()
+    expect(probed).toBe(false)
+    expect(environment.DSH_HOST_ROOTFS).toBe('')
+  })
+
+  it('declares nothing for a half-declared pair', async () => {
+    const environment: NodeJS.ProcessEnv = { DSH_HOST_ROOTFS: '/run/host/rootfs' }
+    let probed = false
+    const fact = await declareHostEscape(environment, async () => {
+      probed = true
+      return { rootfs: '/run/host/rootfs', launcher: 'systemd-run' }
+    })
+    expect(fact).toBeUndefined()
+    expect(probed).toBe(false)
+    expect(environment).not.toHaveProperty('DSH_HOST_LAUNCH')
   })
 })
