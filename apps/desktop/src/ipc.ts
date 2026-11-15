@@ -102,7 +102,14 @@ export interface DshDesktopProductApi {
    * @returns `name=value` fields separated by `; `, with no hostname, user name, or serial number.
    */
   deviceInfo(): Promise<string>
-  readonly updates: {
+  /**
+   * Shell-owned update status and channel control.
+   *
+   * Absent when this build carries no update feed: a package whose distribution
+   * happens outside the application has nothing to check or install, so the
+   * renderer receives no control instead of one that always fails.
+   */
+  readonly updates?: {
     readonly channels: DesktopChannelBridge
     status(): Promise<DesktopUpdatePresentation>
     open(): Promise<void>
@@ -112,6 +119,15 @@ export interface DshDesktopProductApi {
 
 /** Scheme of Desktop-owned application documents. */
 export const SCHEME = 'dsh-app'
+
+/**
+ * Window argument that tells the preload this build carries an update feed.
+ *
+ * The renderer cannot inspect the application resources, so the owning window
+ * states the answer the main process already resolved. An absent argument means
+ * unavailable, which keeps a missing value and a missing feed the same case.
+ */
+export const UPDATE_AVAILABILITY_ARGUMENT = '--dsh-updates=available'
 
 /**
  * Reject IPC outside the allowed Desktop document origins.

@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { installMandatoryUpdateOverlay } from '../src/preload-mandatory-overlay.ts'
 import { syncWindowsAppearance } from '../src/preload-windows.ts'
-import { DESKTOP_IPC, type DshDesktopProductApi } from '../src/ipc.ts'
+import { DESKTOP_IPC, UPDATE_AVAILABILITY_ARGUMENT, type DshDesktopProductApi } from '../src/ipc.ts'
 
 const electron = vi.hoisted(() => ({
   contextBridge: { exposeInMainWorld: vi.fn() },
@@ -17,7 +17,8 @@ vi.mock('../src/preload-theme.ts', () => ({ syncNativeTheme: vi.fn() }))
 vi.mock('../src/preload-windows.ts', () => ({ syncWindowsAppearance: vi.fn() }))
 vi.mock('../src/preload-mandatory-overlay.ts', () => ({ installMandatoryUpdateOverlay: vi.fn() }))
 
-beforeEach(() => { vi.stubGlobal('process', { ...process, isMainFrame: true }) })
+// An updatable build is the default here; the no-feed case states its own argv.
+beforeEach(() => { vi.stubGlobal('process', { ...process, isMainFrame: true, argv: ['electron', UPDATE_AVAILABILITY_ARGUMENT] }) })
 afterEach(() => { document.body.replaceChildren(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); vi.resetModules() })
 
 it('reads only native login API-key presence through the onboarding bridge', async () => {
@@ -49,6 +50,18 @@ it('routes original-file requests through the trusted application bridge', async
     [DESKTOP_IPC.fileSave, request],
     [DESKTOP_IPC.clipboardImageRead, 'https://images.example/original.gif'],
   ])
+})
+
+it('exposes no update bridge to a build without an update feed', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+  vi.stubGlobal('process', { ...process, isMainFrame: true, argv: ['electron', 'dsh-app://app/index.html'] })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  // The renderer offers no update control and no channel row when the bridge is absent.
+  expect(api).not.toHaveProperty('updates')
+  // The rest of the product bridge survives: only the update surface is withheld.
+  expect(api.protocolVersion).toBe(1)
+  expect(electron.ipcRenderer.on.mock.calls.some(([channel]) => channel === DESKTOP_IPC.updatesPresentation)).toBe(false)
 })
 
 it('limits product documents to update status and a native confirmation action', async () => {
