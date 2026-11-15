@@ -5,7 +5,7 @@ package:
   # 版本必须高于此前 Go + Wails 薄壳版发布的 0.1.7.2：玲珑按版本号判定升级，
   # 低于已安装版本的包会被当作版本倒退拒绝。本版取代薄壳版，沿用同一个应用 ID，
   # 用户的桌面图标、启动器登记与数据目录因此保持不变。
-  version: 0.2.0.7
+  version: 0.2.0.8
   kind: app
   description: |
     DeepSeek Harness 桌面客户端（Electron）。
