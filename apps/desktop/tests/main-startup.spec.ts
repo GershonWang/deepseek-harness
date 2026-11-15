@@ -1783,15 +1783,17 @@ describe('desktop main startup', () => {
     expect(harness.handlers.has('dsh-about:status')).toBe(true)
   })
 
-  it('leaves the Windows tray without an About entry, where the menu already owns one', async () => {
+  it('leaves the Windows tray without About or the market, which the platform does not ship', async () => {
     vi.stubGlobal('process', { ...process, platform: 'win32', resourcesPath: 'desktop-test-resources' })
     await readyWorkspace()
     const template = harness.menu.mock.calls.at(-1)![0]
-    // The market sits beside About rather than in the application menu: it is a
-    // shell-owned window, not a command on the current workspace.
+    // About belongs to the application menu on Windows. The market is Linux-only: every
+    // archive the index lists is a Linux x86_64 build, so an entry here would offer tools
+    // that cannot run.
     expect(template.map(item => item.type === 'separator' ? 'separator' : item.label))
-      .toEqual(['Open DeepSeek Harness', 'Toolchain market', 'separator', 'Quit DeepSeek Harness'])
+      .toEqual(['Open DeepSeek Harness', 'separator', 'Quit DeepSeek Harness'])
     expect(harness.handlers.has('dsh-about:status')).toBe(false)
+    expect(harness.handlers.has('dsh-toolchain:status')).toBe(false)
   })
 
   it('runs the Linux tray Check for Updates, whose window menu bar no longer shows the command', async () => {

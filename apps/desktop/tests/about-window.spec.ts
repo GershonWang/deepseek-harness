@@ -25,6 +25,7 @@ const fixture = await vi.hoisted(async () => {
     readonly show = vi.fn()
     readonly focus = vi.fn()
     readonly setTitle = vi.fn()
+    readonly setMenuBarVisibility = vi.fn<(visible: boolean) => void>()
     constructor(readonly options: Record<string, unknown>) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
@@ -89,6 +90,9 @@ it('opens an independent window with the composed facts', () => {
   // window is owned by the application rather than parented to it.
   expect(view.options.parent).toBeUndefined()
   expect(view.options.webPreferences).toMatchObject({ preload: 'preload-about.cjs', sandbox: true, contextIsolation: true })
+  // 菜单栏是移除而不是"自动隐藏"：后者按 Alt 会把它重新拉回来，而系统截图快捷键带 Alt。
+  expect(view.options.autoHideMenuBar).toBeUndefined()
+  expect(view.setMenuBarVisibility.mock.calls).toEqual([[false]])
   expect(view.loadURL).toHaveBeenCalledWith(PAGE)
 
   const status = invoke(ABOUT_IPC.status) as ReturnType<typeof composeAboutView>
