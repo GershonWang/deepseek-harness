@@ -56,7 +56,7 @@ kind: "package-reference"
 - **macOS** 在已知应用目录（`/Applications`、`~/Applications`）中查找条目的 bundle 拼写，启动 `open -a <解析出的 bundle>`；Xcode 跟随 `xcode-select -p`，因此能找到 Beta 或改名的安装。不做 Launch Services 查询，也不扫描磁盘。
 - **Windows** 依次读取 `App Paths` 注册表键、Uninstall 记录（仅当它们能证明磁盘上存在可执行文件时才采用）、已知安装路径，以及采用版本化安装目录的应用中最新的目录。GitHub Desktop 会同时解析版本化可执行文件与随包提供的 `cli.js`，不经命令 shell 调用受支持的 `github open <path>` 行为。注册表读取按批进行，每次解析每个根只跑一条 `reg.exe query`。
 - **Linux 与 Windows 的 CLI（命令行界面）名称**经组合的 subprocess 能力在进程内解析（PATH/PATHEXT stat，无 shell、无 `which`）；CLI 不在 PATH 上的 Linux GUI 条目回退到其 XDG desktop 条目验证过的 `TryExec`/`Exec` 可执行文件，且只有主机声明了 display server 时才提供 `xdg-open` 文件管理器条目。
-- **处于沙箱内**且沙箱声明了宿主逃逸通道（[launch-environment](../../util/launch-environment/README.zh.md)）时，Linux 条目还会读取宿主自己的 desktop 条目：只读各条目记录的 id，来源是宿主的 `/usr/local/share`、`/usr/share`、玲珑应用商店导出的条目目录，以及与宿主共享的 home。条目的 `Exec` 程序必须在宿主机上存在，启动时经沙箱的转发启动器在宿主用户管理器上运行该宿主路径。宿主条目常以指向安装包自身前缀的符号链接导出（`/usr/share/applications/<id>.desktop` → `/opt/apps/<id>/entries/...`），其目标在宿主命名空间内是绝对路径，在沙箱里因此指向不存在的文件：读取失败后会按链接目标重读一次，绝对目标重新锚定到宿主根挂载。只有读失败的条目才走这条路，能正常读取的条目（含共享 home 下的条目，两侧同 inode）解析方式不变。一次探测决定是否提供该通道，因此转发启动器起不了宿主进程的沙箱不会列出任何宿主应用，而不是列出点击即失败的条目；菜单读取会重解析这些宿主条目——在宿主上安装或卸载的程序无需重启即可反映到下一次菜单；沙箱之外的主机解析行为与从前完全一致。
+- **处于沙箱内**且沙箱声明了宿主逃逸通道（[launch-environment](../../util/launch-environment/README.zh.md)）时，Linux 条目还会读取宿主自己的 desktop 条目：只读各条目记录的 id，来源是宿主的 `/usr/local/share`、`/usr/share`、玲珑应用商店导出的条目目录，以及与宿主共享的 home。条目的 `Exec` 程序必须在宿主机上存在，启动时经沙箱的转发启动器在宿主用户管理器上运行该宿主路径。一次探测决定是否提供该通道，因此转发启动器起不了宿主进程的沙箱不会列出任何宿主应用，而不是列出点击即失败的条目；菜单读取会重解析这些宿主条目——在宿主上安装或卸载的程序无需重启即可反映到下一次菜单；沙箱之外的主机解析行为与从前完全一致。
 
 ### 预期行为
 
