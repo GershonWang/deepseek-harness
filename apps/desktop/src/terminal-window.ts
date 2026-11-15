@@ -18,6 +18,7 @@ import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { accountLoginShell, DesktopTerminalSession, loadNodePty, resolveTerminalEnvironment, resolveTerminalShell,
   type DesktopTerminalSpawn } from './terminal-session.ts'
 import { TERMINAL_IPC, type DesktopTerminalView } from './terminal-contract.ts'
+import { hideMenuBar } from './menu-bar.ts'
 import type { DesktopLocale } from './locale.ts'
 
 /** 壳拥有的终端文档；`main.ts` 的 `dsh-app://shell` 路由负责送出它。 */
@@ -85,7 +86,6 @@ export class DesktopTerminalWindow {
       minHeight: 260,
       show: false,
       title: this.options.locale().messages.terminalWindow,
-      autoHideMenuBar: true,
       // 终端始终自带深色画布（与右侧栏终端一致的约定），窗口底色对齐画布，
       // 避免首帧白闪与缩放时露出的白边。
       backgroundColor: '#1a1a1a',
@@ -99,6 +99,9 @@ export class DesktopTerminalWindow {
       },
     })
     this.window = window
+    // 终端窗口没有任何原生菜单项是自己需要的；只把菜单栏设为自动隐藏会让 Alt
+    // 键（以及带 Alt 的截图快捷键）把它重新拉出来，因此直接移除整条菜单栏。
+    hideMenuBar(window)
     this.installHandlers(window)
     window.once('ready-to-show', () => { window.show() })
     window.on('closed', () => {

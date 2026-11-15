@@ -16,6 +16,7 @@
 import { BrowserWindow, clipboard, ipcMain, shell, type IpcMainInvokeEvent } from 'electron'
 import { ABOUT_IPC, type DesktopAboutView } from './about-contract.ts'
 import { ABOUT_REPOSITORIES, composeAboutView } from './about-info.ts'
+import { hideMenuBar } from './menu-bar.ts'
 import type { DesktopLocale } from './locale.ts'
 
 /** Shell-owned document this window draws; `main.ts` serves it from the renderer directory. */
@@ -75,7 +76,6 @@ export class DesktopAboutWindow {
       fullscreenable: false,
       show: false,
       title: this.options.locale().messages.aboutMenu,
-      autoHideMenuBar: true,
       webPreferences: {
         preload: this.options.preload,
         nodeIntegration: false,
@@ -86,6 +86,9 @@ export class DesktopAboutWindow {
       },
     })
     this.window = window
+    // The document composes every string it shows; a native Application/Edit row would add
+    // English chrome, and leaving the bar merely auto-hidden lets Alt bring it back.
+    hideMenuBar(window)
     this.installHandlers(window)
     window.once('ready-to-show', () => { window.show() })
     window.on('closed', () => {

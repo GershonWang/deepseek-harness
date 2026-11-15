@@ -15,6 +15,7 @@
 
 import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
 import { TOOLCHAIN_IPC, type ToolchainProgressView, type ToolchainView } from './toolchain-contract.ts'
+import { hideMenuBar } from './menu-bar.ts'
 import type { DesktopLocale } from './locale.ts'
 
 /** Shell-owned document this window draws; `main.ts` serves it from the renderer directory. */
@@ -80,7 +81,6 @@ export class DesktopToolchainWindow {
       minHeight: 480,
       show: false,
       title: this.options.locale().messages.toolchainMenu,
-      autoHideMenuBar: true,
       webPreferences: {
         preload: this.options.preload,
         nodeIntegration: false,
@@ -91,6 +91,11 @@ export class DesktopToolchainWindow {
       },
     })
     this.window = window
+    // The market draws its own controls, so a native Application/Edit row would only add
+    // English chrome to a localized document — and it would reappear on every Alt press,
+    // which is exactly what a system screenshot shortcut sends. `hideMenuBar` removes the
+    // row outright instead of letting Alt restore it.
+    hideMenuBar(window)
     this.installHandlers(window)
     window.once('ready-to-show', () => { window.show() })
     window.on('closed', () => {

@@ -17,6 +17,7 @@ import {
   MIGRATION_IPC,
   type MigrationView,
 } from './migration-contract.ts'
+import { hideMenuBar } from './menu-bar.ts'
 import { formatDesktopMessage, type DesktopLocale } from './locale.ts'
 
 const page = 'dsh-app://shell/migration.html'
@@ -93,7 +94,6 @@ export class DesktopMigrationDialog {
       ...(this.parent === undefined ? {} : { parent: this.parent }),
       show: false,
       title: view.title,
-      autoHideMenuBar: true,
       webPreferences: {
         preload: this.preload,
         nodeIntegration: false,
@@ -102,6 +102,9 @@ export class DesktopMigrationDialog {
       },
     })
     this.window = window
+    // 迁移弹窗是一问一答的本地化文档，原生 Application/Edit 行在这场对话里没有任何
+    // 用处；自动隐藏又会让 Alt 把它拉回来，所以直接移除整条菜单栏。
+    hideMenuBar(window)
     window.once('ready-to-show', () => { window.show() })
     const settled = new Promise<MigrationSelection | undefined>((resolve) => { this.resolve = resolve })
     window.on('closed', () => { this.finish(undefined) })

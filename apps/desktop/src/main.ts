@@ -1445,7 +1445,9 @@ async function main(): Promise<void> {
       offline: load.error !== undefined,
     })
   }
-  const toolchain = process.platform === 'win32' || process.platform === 'linux'
+  // Every archive the index lists is a Linux x86_64 build, so the market is a Linux
+  // entry like the terminal: on Windows it would offer tools that cannot run there.
+  const toolchain = process.platform === 'linux'
     ? new DesktopToolchainWindow({
       preload: fileURLToPath(new URL('./preload-toolchain.cjs', import.meta.url)),
       locale: () => locale,
