@@ -24,7 +24,7 @@
 
 import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { readdir, readFile, readlink, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir, platform as osPlatform } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import {
@@ -521,66 +521,22 @@ export function hostDataDirectories(hostRootfs: string, internals: ResolvedInter
 
 /**
  * Read one desktop entry by id from the XDG application directories.
- *
- * A host entry is frequently a symbolic link into the installing package's own
- * prefix (`/opt/apps/<id>/entries/applications/<id>.desktop`). Its target is an
- * absolute path in the host's namespace, so inside the sandbox the link dangles:
- * the target simply does not exist under the sandbox's own root. Passing the
- * host-root mount lets such a link be re-anchored onto the host root instead of
- * being reported as an absent entry, which would silently hide an installed
- * application. Only a read that actually failed is retried this way, so a link
- * that resolves normally — including one into the shared home, which is the same
- * file on both sides — is read exactly as before.
  * @param desktopId - entry id without the `.desktop` suffix.
  * @param dataDirs - data directories to search, in precedence order.
- * @param hostRootfs - read-only host-root mount to re-anchor dangling host links
- * onto; omitted for entries read inside the sandbox's own filesystem.
  * @returns the parsed entry, or null when no directory holds it.
  */
 export async function findDesktopEntry(
-  desktopId: string, dataDirs: readonly string[], hostRootfs?: string,
+  desktopId: string, dataDirs: readonly string[],
 ): Promise<DesktopEntry | null> {
   for (const dataDir of dataDirs) {
     const path = join(dataDir, 'applications', `${desktopId}.desktop`)
     try {
       return parseDesktopEntry(await readFile(path, 'utf8'))
     } catch {
-      // Swallows ENOENT/EACCES: the link may dangle inside the sandbox, or the
-      // directory may simply not hold this entry.
+      // Swallows ENOENT/EACCES: try the next data directory.
     }
-    if (hostRootfs === undefined) continue
-    const reanchored = await readHostLinkedEntry(path, hostRootfs)
-    if (reanchored !== null) return reanchored
   }
   return null
-}
-
-/**
- * Read a host desktop entry whose symbolic link dangles inside the sandbox.
- *
- * The link's target is absolute in the host's namespace, so it is re-anchored
- * onto the host-root mount. A relative target resolves against the link's own
- * directory, as the kernel would. Anything unreadable stays absent: an entry
- * this process cannot read proves nothing about what the host installed.
- * @param path - entry path that could not be read directly.
- * @param hostRootfs - read-only host-root mount.
- * @returns the parsed entry, or null when the path is not a re-readable link.
- */
-async function readHostLinkedEntry(path: string, hostRootfs: string): Promise<DesktopEntry | null> {
-  let target: string
-  try {
-    target = await readlink(path)
-  } catch {
-    // Not a link, or unreadable: the direct read already reported the truth.
-    return null
-  }
-  const anchored = isAbsolute(target) ? join(hostRootfs, target) : join(dirname(path), target)
-  try {
-    return parseDesktopEntry(await readFile(anchored, 'utf8'))
-  } catch {
-    // A link pointing outside the host root is not readable here.
-    return null
-  }
 }
 
 /**
@@ -768,7 +724,7 @@ async function locate(
       const dataDirs = await hostEscape.reachable()
       if (dataDirs === null) return null
       for (const desktopId of locator.desktopIds) {
-        const entry = await findDesktopEntry(desktopId, dataDirs, internals.hostEscape?.hostRootfs)
+        const entry = await findDesktopEntry(desktopId, dataDirs)
         if (entry === null) continue
         // The program the entry itself launches is what runs on the host:
         // `TryExec` only marks installation, and a bare name cannot be

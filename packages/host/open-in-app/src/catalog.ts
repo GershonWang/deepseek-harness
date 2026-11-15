@@ -310,11 +310,7 @@ export const OPEN_IN_APP_CATALOG: readonly OpenInAppApp[] = [
         installRecord('Sublime Text'),
         file(['${ProgramFiles}/Sublime Text/sublime_text.exe']),
       ),
-      // The Linglong-packaged build exports its entry as the reverse-DNS id;
-      // a distro package uses the command name. Both spellings are tried.
-      linux: desktopSpec('sublime_text', cli('subl'), hostDesktop(
-        ['sublime_text', 'com.sublimetext.sublime-text-4'], PATH_TOKEN,
-      )),
+      linux: desktopSpec('sublime_text', cli('subl'), hostDesktop(['sublime_text'], PATH_TOKEN)),
     },
   },
   { id: 'xcode', platforms: { darwin: spec({ kind: 'xcode' }) } },

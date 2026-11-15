@@ -5,14 +5,14 @@
  * classification. Filesystem-facing locators use real temp directories; no
  * host application is touched.
  */
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeCommandRunner } from '@deepseek-ai/dsh-native-command'
 import { OPEN_IN_APP_CATALOG, PATH_TOKEN, type OpenInAppApp } from '../src/catalog.ts'
 import {
-  execCommand, findDesktopEntry, hostDataDirectories, launchDetachedApp, launchResolved, parseDesktopEntry, parseRegistryDump,
+  execCommand, hostDataDirectories, launchDetachedApp, launchResolved, parseDesktopEntry, parseRegistryDump,
   refreshHostEntries, resolveInternals, resolveLaunch, resolveOpenInAppApps, xdgDataDirectories,
   type OpenInAppInternals, type OpenInAppLauncher, type OpenInAppResolvedLaunch,
 } from '../src/resolver.ts'
@@ -755,51 +755,6 @@ describe('host-desktop locators', () => {
     }))).resolves.toEqual({
       launch: { kind: 'host-argv', command: '/usr/share/code/code', args: [PATH_TOKEN] },
       hostDesktopId: 'code',
-    })
-  })
-
-  it('reads a host entry exported as a dangling link by re-anchoring it onto the host root', async () => {
-    const home = await tempRoot()
-    const hostRootfs = await tempRoot()
-    // A packaged application exports a reverse-DNS link into its own prefix. The
-    // target is absolute in the host namespace, so inside the sandbox the link
-    // dangles and only the host-root mount can resolve it.
-    const applications = join(hostRootfs, 'usr', 'share', 'applications')
-    const real = join(hostRootfs, 'opt', 'apps', 'com.dsh.spec', 'entries', 'com.dsh.spec.desktop')
-    await mkdir(dirname(real), { recursive: true })
-    await writeFile(real, '[Desktop Entry]\nExec=/opt/dsh-spec/spec/spec %F\n')
-    await mkdir(applications, { recursive: true })
-    const link = join(applications, 'com.dsh.spec.desktop')
-    await symlink(real.slice(hostRootfs.length), link)
-    await writeProgram(join(hostRootfs, 'opt', 'dsh-spec', 'spec', 'spec'))
-
-    // Read through the host root: the re-anchored target is what proves the entry.
-    expect(await findDesktopEntry('com.dsh.spec', hostDataDirectories(hostRootfs, resolveInternals(bare({
-      platform: 'linux', home, env: linuxEnv(home),
-    }))), hostRootfs)).toEqual({ exec: '/opt/dsh-spec/spec/spec %F' })
-    // Without the host root the same link stays dangling, as it must inside the sandbox.
-    expect(await findDesktopEntry('com.dsh.spec', [join(hostRootfs, 'usr', 'share')])).toBeNull()
-  })
-
-  it('resolves Sublime Text from the packager spelling exported as a host link', async () => {
-    const home = await tempRoot()
-    const hostRootfs = await tempRoot()
-    const applications = join(hostRootfs, 'usr', 'share', 'applications')
-    const real = join(hostRootfs, 'opt', 'apps', 'com.sublimetext.sublime-text-4', 'entries',
-      'com.sublimetext.sublime-text-4.desktop')
-    await mkdir(dirname(real), { recursive: true })
-    await writeFile(real, '[Desktop Entry]\nExec=/opt/apps/com.sublimetext.sublime-text-4/files/com.sublimetext.sublime-text-4 %F\nIcon=sublime-text\n')
-    await mkdir(applications, { recursive: true })
-    await symlink(real.slice(hostRootfs.length), join(applications, 'com.sublimetext.sublime-text-4.desktop'))
-    const program = '/opt/apps/com.sublimetext.sublime-text-4/files/com.sublimetext.sublime-text-4'
-    await writeProgram(join(hostRootfs, program))
-
-    await expect(resolveLaunch(byId('sublimetext'), TIMEOUT_MS, bare({
-      platform: 'linux', home, env: linuxEnv(home), run: probeRunner(),
-      hostEscape: { hostRootfs, launcher: 'systemd-run' },
-    }))).resolves.toEqual({
-      launch: { kind: 'host-argv', command: program, args: [PATH_TOKEN] },
-      hostDesktopId: 'com.sublimetext.sublime-text-4',
     })
   })
 
