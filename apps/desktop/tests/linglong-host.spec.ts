@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  applyHostEscapeEnvironment,
   currentHostEscape,
   declareHostEscape,
   detectLinglongCommands,
@@ -177,5 +178,37 @@ describe('host escape declaration', () => {
     expect(fact).toBeUndefined()
     expect(probed).toBe(false)
     expect(environment).not.toHaveProperty('DSH_HOST_LAUNCH')
+  })
+
+  // 桌面端读完登录 shell 环境后会整体替换映射，先前写在 process.env 上的注入
+  // 因此丢失；这条用例固定"替换后重新应用"仍然声明通道并前置包装目录。
+  it('reapplies the channel to a replacement environment mapping', async () => {
+    const rootfs = temporaryRoot()
+    hostCommand(rootfs, 'usr/bin', 'll-cli')
+    const home = temporaryRoot()
+    const environment: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin' }
+    await applyHostEscapeEnvironment(environment, home, async () => ({ rootfs, launcher: 'systemd-run' }))
+    expect(currentHostEscape(environment)).toEqual({ rootfs, launcher: 'systemd-run' })
+    expect(environment.PATH).toBe(`${linglongWrapperDir(home)}:/usr/bin:/bin`)
+  })
+
+  // 没有通道映射时（非玲珑沙箱、或宿主无命令）不得改动替换后的 PATH，
+  // 否则子进程会对着一个空目录里的命令反复失败。
+  it('leaves a replacement mapping untouched without a channel', async () => {
+    const home = temporaryRoot()
+    const environment: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin' }
+    await applyHostEscapeEnvironment(environment, home, async () => undefined)
+    expect(environment.PATH).toBe('/usr/bin:/bin')
+    expect(currentHostEscape(environment)).toBeUndefined()
+  })
+
+  // 宿主根挂载点存在但没有任何玲珑命令时，包装目录为空，PATH 不应被前置。
+  it('skips the PATH prefix when the host root holds no wrappable command', async () => {
+    const rootfs = temporaryRoot()
+    const home = temporaryRoot()
+    const environment: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin' }
+    await applyHostEscapeEnvironment(environment, home, async () => ({ rootfs, launcher: 'systemd-run' }))
+    expect(currentHostEscape(environment)).toEqual({ rootfs, launcher: 'systemd-run' })
+    expect(environment.PATH).toBe('/usr/bin:/bin')
   })
 })

@@ -34,7 +34,7 @@ import {
   readProfilePatchEntries,
 } from './profile-migration.ts'
 import { buildMigrationView, DesktopMigrationDialog, migrationPreloadPath } from './migration-dialog.ts'
-import { declareHostEscape, ensureLinglongWrappers, pruneLegacyLinglongWrappers, withLinglongPath } from './linglong-host.ts'
+import { applyHostEscapeEnvironment, pruneLegacyLinglongWrappers } from './linglong-host.ts'
 import { bridgeDdeTheme } from './dde-appearance.ts'
 import { applyGitEnvironment, packagedAppRoot, resolveGitEnvironment } from './git-environment.ts'
 import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
@@ -447,17 +447,9 @@ async function prepareHostTools(home: string): Promise<void> {
   } catch (error) {
     console.warn('desktop toolchain: entry points unavailable', error)
   }
-  // Probing the host is what makes the channel exist at all: the variables are
-  // this shell's own declaration, never inherited from the Linglong container.
-  const fact = await declareHostEscape(process.env)
   await pruneLegacyLinglongWrappers(home).catch(() => undefined)
-  if (fact === undefined) return
-  try {
-    const count = await ensureLinglongWrappers(home, fact.rootfs)
-    if (count > 0) process.env.PATH = withLinglongPath(process.env.PATH, home)
-  } catch (error) {
-    console.warn('desktop linglong wrappers: pass-through unavailable', error)
-  }
+  // 探测宿主才会让通道存在：变量由本进程声明，绝不从玲珑容器继承。
+  await applyHostEscapeEnvironment(process.env, home)
 }
 
 /**
@@ -546,6 +538,9 @@ async function main(): Promise<void> {
     } catch (error) {
       console.warn('desktop host environment: helpers unavailable for the Host', error)
     }
+    // 同一次整体替换也丢掉了玲珑通道：DSH_HOST_* 声明与包装目录的 PATH 前缀都要
+    // 在这份映射上重新应用，否则 Host 及其子进程看不到 ll-cli/ll-builder。
+    await applyHostEscapeEnvironment(hostEnvironment, app.getPath('home'))
   }
   let quitting = false
   let startup: Promise<void> | undefined

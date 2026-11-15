@@ -433,3 +433,31 @@ export function currentHostEscape(environment: NodeJS.ProcessEnv = process.env):
   if (rootfs === undefined || launcher === undefined || rootfs === '' || launcher === '') return undefined
   return { rootfs, launcher }
 }
+
+/**
+ * 把宿主逃逸通道应用到一份环境映射：声明通道变量，并在包装目录确实存在生成物时
+ * 把该目录前置到 PATH。
+ *
+ * 声明是通道存在的唯一来源，变量绝不从玲珑容器继承；PATH 前缀只在前置目录真有
+ * 包装时才追加，否则会向子进程宣传一个必然失败的命令名。
+ *
+ * 桌面端读完登录 shell 环境后会整体替换环境映射，原先写在 process.env 上的效果
+ * 随之丢失。两处调用共用本函数，第二处不必重新实现一遍探测与注入。
+ * @param environment - 要写入声明并前置 PATH 的环境映射。
+ * @param home - 用户家目录。
+ * @param probe - 通道探测；测试可替换它以临时目录冒充宿主根挂载点。
+ */
+export async function applyHostEscapeEnvironment(
+  environment: NodeJS.ProcessEnv,
+  home: string,
+  probe: typeof hostEscapeOf = hostEscapeOf,
+): Promise<void> {
+  const fact = await declareHostEscape(environment, probe)
+  if (fact === undefined) return
+  try {
+    const count = await ensureLinglongWrappers(home, fact.rootfs)
+    if (count > 0) environment.PATH = withLinglongPath(environment.PATH, home)
+  } catch (error) {
+    console.warn('desktop linglong wrappers: pass-through unavailable', error)
+  }
+}
