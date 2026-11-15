@@ -26,7 +26,7 @@ ll-builder build -f apps/linyaps/desktop-linglong/linglong.yaml
 ll-builder export --ref com.deepseek.dsh-desktop
 ```
 
-`prepare-offline.sh` 会构建仓库、打包 dsh 与 vendor 包集、准备 Electron 运行时与主运行时、准备 dsh 树，并用 `electron-builder --linux --x64 --dir` 产出到 `apps/linyaps/desktop-linglong/stage/`。容器构建只复制该目录树、安装图标与桌面入口、写入启动包装脚本。
+`prepare-offline.sh` 会构建仓库、打包 dsh 与 vendor 包集、准备 Electron 运行时与主运行时、准备 dsh 树，并用 `electron-builder --linux --x64 --dir` 产出到 `apps/linyaps/desktop-linglong/stage/`。容器构建只复制该目录树、安装图标与桌面入口、写入启动包装脚本。暂存完成后，[write-package-version.sh](write-package-version.sh) 把 `linglong.yaml` 的 `package.version` 写进 `stage/resources/linglong-version.json`，应用启动后读回该文件，「关于」窗口据此显示玲珑包版本；复用旧暂存目录时 `build-linglong.sh --no-prepare` 会重写该文件。
 
 ### 随包工具链
 

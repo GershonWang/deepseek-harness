@@ -24,7 +24,7 @@ ll-builder build -f apps/linyaps/desktop-linglong/linglong.yaml
 ll-builder export --ref com.deepseek.dsh-desktop
 ```
 
-`prepare-offline.sh` builds the repository, packs the dsh and vendor package sets, prepares the Electron runtime and the primary runtime, prepares the dsh tree, and runs `electron-builder --linux --x64 --dir` into `apps/linyaps/desktop-linglong/stage/`. The container build only copies that tree, installs the icons and desktop entry, and writes the launcher wrapper.
+`prepare-offline.sh` builds the repository, packs the dsh and vendor package sets, prepares the Electron runtime and the primary runtime, prepares the dsh tree, and runs `electron-builder --linux --x64 --dir` into `apps/linyaps/desktop-linglong/stage/`. The container build only copies that tree, installs the icons and desktop entry, and writes the launcher wrapper. After staging, [write-package-version.sh](write-package-version.sh) copies `package.version` from `linglong.yaml` into `stage/resources/linglong-version.json`, which the running application reads back so its About window reports the Linglong package version; reusing an old staging directory with `build-linglong.sh --no-prepare` rewrites that file.
 
 ### Bundled toolchain
 

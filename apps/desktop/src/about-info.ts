@@ -36,6 +36,8 @@ export interface AboutViewInput {
   readonly locale: DesktopLocale
   /** Desktop client version, including any prerelease suffix. */
   readonly version: string
+  /** Distribution package version this build carries; absent in upstream and development builds. */
+  readonly packageVersion?: string
   /** DSH runtime version bundled with this build. */
   readonly harnessVersion: string
 }
@@ -45,7 +47,11 @@ export interface AboutViewInput {
  *
  * Each row states one fact; the two repositories carry a `url` so the document
  * renders them as links while main still decides which destinations may open.
- * @param input - locale and the two versions to report.
+ * The version under the product name reports the distribution package version
+ * when the build carries one, because that is the number a Linglong install's
+ * bug report must quote; upstream and development builds fall back to the
+ * desktop client version.
+ * @param input - locale and the versions to report.
  * @returns the view the document draws.
  */
 export function composeAboutView(input: AboutViewInput): DesktopAboutView {
@@ -60,7 +66,7 @@ export function composeAboutView(input: AboutViewInput): DesktopAboutView {
     locale: input.locale.id,
     title: messages.aboutMenu,
     product: ABOUT_IDENTITY.product,
-    version: input.version,
+    version: input.packageVersion ?? input.version,
     form: formatDesktopMessage(messages.aboutForm, { form: messages.aboutFormElectron }),
     packageId: ABOUT_IDENTITY.packageId,
     logoAlt: messages.aboutLogoAlt,

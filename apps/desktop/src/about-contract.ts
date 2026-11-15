@@ -46,7 +46,10 @@ export interface DesktopAboutView {
   readonly title: string
   /** Product name. */
   readonly product: string
-  /** Desktop client version, including any prerelease suffix. */
+  /**
+   * Version under the product name: the Linglong package version when this build carries one,
+   * otherwise the desktop client version. Both keep any prerelease suffix.
+   */
   readonly version: string
   /** The shell generation this build is, as a localized badge. */
   readonly form: string

@@ -17,6 +17,8 @@ echo "==> 目标玲珑包: $LL_ID $LL_VERSION"
 
 if [ "${1:-}" = "--no-prepare" ]; then
   echo "==> 跳过 prepare-offline(复用现有 stage/)"
+  # 复用旧 stage 时也要刷新分发包版本，否则包版本涨了而「关于」窗口仍报旧号。
+  sh apps/linyaps/desktop-linglong/write-package-version.sh
 else
   sh apps/linyaps/desktop-linglong/prepare-offline.sh
 fi

@@ -37,6 +37,8 @@ export interface DesktopAboutWindowOptions {
   readonly locale: () => DesktopLocale
   /** Desktop client version for this build. */
   readonly version: () => string
+  /** Distribution package version this build carries, when the packaging step wrote one. */
+  readonly packageVersion?: () => string | undefined
   /** DSH runtime version bundled with this build. */
   readonly harnessVersion: () => string
 }
@@ -121,10 +123,12 @@ export class DesktopAboutWindow {
   /** @returns the view for the current locale and versions, or undefined once disposed. */
   private view(): DesktopAboutView | undefined {
     if (this.disposed) return undefined
+    const packageVersion = this.options.packageVersion?.()
     return composeAboutView({
       locale: this.options.locale(),
       version: this.options.version(),
       harnessVersion: this.options.harnessVersion(),
+      ...(packageVersion === undefined ? {} : { packageVersion }),
     })
   }
 

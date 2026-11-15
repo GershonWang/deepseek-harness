@@ -90,4 +90,7 @@ mkdir -p "$STAGE"
 cp -a "$UNPACKED/." "$STAGE/"
 
 echo "==> 暂存完成: $STAGE"
+
+# 「关于」窗口显示的分发包版本由构建写进产物：应用运行时读不到 linglong.yaml。
+sh apps/linyaps/desktop-linglong/write-package-version.sh
 du -sh "$STAGE"

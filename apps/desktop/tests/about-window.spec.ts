@@ -58,12 +58,14 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-function setup(options: { locale?: string; version?: string; harnessVersion?: string } = {}) {
+function setup(options: { locale?: string; version?: string; packageVersion?: string; harnessVersion?: string } = {}) {
   const window = new DesktopAboutWindow({
     preload: 'preload-about.cjs',
     locale: () => resolveDesktopLocale(options.locale ?? 'en'),
     version: () => options.version ?? '1.0.0',
     harnessVersion: () => options.harnessVersion ?? '0.2.2',
+    // exactOptionalPropertyTypes: only a build that carries a distribution version passes one.
+    ...(options.packageVersion === undefined ? {} : { packageVersion: () => options.packageVersion }),
   })
   windows.push(window)
   return { window }
@@ -104,6 +106,23 @@ it('opens an independent window with the composed facts', () => {
     { label: '玲珑封装作者', value: 'Jokul' },
     { label: '玲珑封装仓库', value: ABOUT_IDENTITY.forkRepo, url: ABOUT_IDENTITY.forkRepo },
   ])
+})
+
+it('reports the distribution package version the build carries', () => {
+  const f = setup({ locale: 'zh-CN', version: '0.2.2-rc.3', packageVersion: '0.2.0.9', harnessVersion: '0.2.2-rc.3' })
+  f.window.show()
+  const status = invoke(ABOUT_IPC.status) as ReturnType<typeof composeAboutView>
+  // 产品名下方是玲珑包版本：报缺陷时用户要引用的是它，而不是上游的 dsh 版本。
+  expect(status.version).toBe('0.2.0.9')
+  expect(status.fields[0]).toEqual({ label: 'DSH 版本', value: '0.2.2-rc.3' })
+})
+
+it('falls back to the desktop client version when the build carries no package version', () => {
+  const f = setup({ version: '0.2.2-rc.3' })
+  f.window.show()
+  const status = invoke(ABOUT_IPC.status) as ReturnType<typeof composeAboutView>
+  // 上游与开发态构建没有分发包版本文件，此时保持原有显示，不留下空行。
+  expect(status.version).toBe('0.2.2-rc.3')
 })
 
 it('refocuses the window it already owns instead of stacking a second one', () => {

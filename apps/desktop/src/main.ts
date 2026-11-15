@@ -8,6 +8,7 @@ import { isDesktopUpdateChannel } from './settings-file.ts'
 import type { ProductEventMap, ProductEvent } from '@deepseek-ai/dsh-client-product-analytics/types'
 import { WINDOWS_TITLEBAR_HEIGHT } from './windows-layout.ts'
 import { hideMenuBar } from './menu-bar.ts'
+import { readPackageVersion } from './package-version.ts'
 import { access, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1520,6 +1521,7 @@ async function main(): Promise<void> {
       preload: fileURLToPath(new URL('./preload-about.cjs', import.meta.url)),
       locale: () => locale,
       version: () => app.getVersion(),
+      packageVersion: () => readPackageVersion(process.resourcesPath),
       harnessVersion: () => bundledDshVersion(resources.dsh),
     })
     : undefined
