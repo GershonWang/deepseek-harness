@@ -238,10 +238,20 @@ body {
  */
 .card-actions {
   display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-items: center;
   margin-top: auto;
   padding-top: 2px;
+}
+
+/* 版本选择器独占一行并撑满宽度：与三个按钮挤在一行时，它会被压到只剩「版本」
+   两字，用户看不到当前版本号。 */
+.card-select-row { display: flex; }
+
+.card-buttons {
+  display: flex;
+  gap: 6px;
+  align-items: center;
   justify-content: flex-end;
 }
 
@@ -250,12 +260,7 @@ body {
 .card-select {
   height: 28px;
   min-width: 0;
-  /* 版本选择器留在左侧、按钮贴右：它描述的是"装哪个"，与右侧的执行动作分开。
-     早先的 `flex: 1` 会让它吞掉整行宽度，把按钮推到最右却又让选择器宽窄随卡片
-     变化，同一排看起来参差不齐。 */
-  flex: 0 1 auto;
-  max-width: 60%;
-  margin-right: auto;
+  width: 100%;
   padding: 0 8px;
   border-radius: 8px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -326,8 +331,111 @@ body {
   font-size: 12px;
   line-height: 18px;
   display: flex;
+  align-items: center;
   gap: 12px;
   font-variant-numeric: tabular-nums;
 }
 
 #summary .spacer { margin-left: auto; }
+
+/* 底部状态栏里的文字按钮：外观是链接，行为是按钮，保留键盘可达性。 */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--dsw-alias-brand-primary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-button:hover { text-decoration-thickness: 2px; }
+
+.link-button:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
+
+/* ---- 内置清单面板 ---- */
+
+/*
+ * 贴在状态栏上方、右对齐展开。
+ *
+ * 定宽并限高：清单最多十几行，不限高在窄窗口里会把卡片网格挤没；贴右而不是居中个
+ * 是为了不挡住刚看过的那几列卡片。`z-index` 保证它压在网格之上，但仍在窗口内，
+ * 不会越出边界。
+ */
+#bundled-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 42px;
+  z-index: 10;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 120px));
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.bundled-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#bundled-heading { flex: 1; min-width: 0; }
+
+#bundled-close {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+#bundled-hint {
+  margin: 0 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+#bundled-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bundled-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.bundled-name { flex: none; color: var(--dsw-alias-label-primary); }
+
+.bundled-version {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.bundled-commands {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-tertiary);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+}

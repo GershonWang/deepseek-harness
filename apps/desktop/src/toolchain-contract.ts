@@ -94,6 +94,18 @@ export interface ToolchainToolView {
   readonly updateVersion: string
 }
 
+/** One tool the application already ships. */
+export interface ToolchainBundledView {
+  /** Stable id. */
+  readonly id: string
+  /** Display name. */
+  readonly name: string
+  /** Commands it puts on PATH, always non-empty. */
+  readonly commands: readonly string[]
+  /** Installed version when it could be read, empty when unknown. */
+  readonly version: string
+}
+
 /** One progress report rendered on a card. */
 export interface ToolchainProgressView {
   /** Tool being installed. */
@@ -155,6 +167,30 @@ export interface ToolchainView {
   readonly categories: readonly { readonly id: string; readonly label: string; readonly count: number }[]
   /** Tool cards. */
   readonly tools: readonly ToolchainToolView[]
+  /**
+   * Tools the package already ships.
+   *
+   * Kept out of {@link tools} on purpose: they cannot be installed, switched, or
+   * removed, so a card in the grid would offer controls for actions that do not exist
+   * and duplicate the installable tool that provides the same command. The window lists
+   * them behind one footer entry instead.
+   */
+  readonly bundled: {
+    /** Label of the footer control that reveals the list. */
+    readonly label: string
+    /** Heading shown inside the panel. */
+    readonly heading: string
+    /** One line explaining why these entries carry no controls. */
+    readonly hint: string
+    /** Entries in display order. */
+    readonly tools: readonly ToolchainBundledView[]
+  }
+  /** Route back to the bundled copy of a tool, present only when the market replaced it. */
+  readonly deactivateLabel: string
+  /** Tag marking the bundled copy as the one currently in effect. */
+  readonly bundledActiveLabel: string
+  /** Label of the command list on a bundled entry. */
+  readonly commandsLabel: string
 }
 
 /** The document can only ask for main-owned data and actions. */

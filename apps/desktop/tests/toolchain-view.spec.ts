@@ -20,7 +20,9 @@ const messages: ToolchainMessages = {
   categoriesLabel: '分类', allCategories: '全部', noMatches: '没有匹配的工具。', empty: '当前没有可用的工具。',
   summary: '已安装 {installed} / {total}', install: '安装', installing: '正在安装…', cancel: '取消',
   uninstall: '卸载', switchVersion: '切换版本', update: '更新', installedTag: '已安装',
-  bundledTag: '随包', version: '版本', category: '分类', commands: '命令', phaseDownloading: '下载中',
+  bundledTag: '随包', version: '版本', category: '分类', commands: '命令',
+  bundled: '内置工具链', bundledShow: '查看内置清单', bundledHint: '随应用交付。',
+  deactivate: '切回随包版本', bundledActive: '随包', phaseDownloading: '下载中',
   phaseVerifying: '校验中', phaseExtracting: '解压中', sourceRemote: '索引已更新',
   sourceCache: '使用缓存的索引', sourceBuiltin: '使用内置索引（离线）', noticeOffline: '无法刷新索引。',
 }
@@ -68,14 +70,25 @@ describe('toolchain view', () => {
     expect(multi.tools[0]?.offersLines).toBe(true)
   })
 
-  it('lists shipped tools so the user sees what the package already provides', async () => {
+  it('keeps shipped tools out of the grid and out of the category tabs', async () => {
+    const view = await compose([tool('maven', [{ version: '3.9.16' }], ['mvn'])])
+    // 随包工具不能出现在网格里：它们既装不了也卸不了，一张卡片只会画出不存在的控件，
+    // 而 python3 与提供同一命令的可安装 python 并排更像装了两份。
+    expect(view.tools.map(card => card.id)).toEqual(['maven'])
+    expect(view.tools.every(card => !card.bundled)).toBe(true)
+    expect(view.categories.map(category => category.id)).toEqual(['modern-cli'])
+    // 清单本身仍在视图里，只是换到底部面板。
+    expect(view.bundled.tools.map(entry => entry.id)).toEqual(BUNDLED_TOOLS.map(entry => entry.id))
+    expect(view.bundled.heading).toBe('内置工具链')
+  })
+
+  it('carries a version for a shipped tool only when its command answers', async () => {
     const view = await compose([])
-    // Bundled tools are not in the index: they ship with the package, so an index entry
-    // would offer a duplicate install that shadows the delivered copy.
-    const bundled = view.tools.filter(card => card.bundled)
-    expect(bundled.map(card => card.id)).toEqual(BUNDLED_TOOLS.map(entry => entry.id))
-    expect(bundled.every(card => card.installed && card.lines.length === 0)).toBe(true)
-    expect(view.categories.some(category => category.id === 'bundled')).toBe(true)
+    for (const entry of view.bundled.tools) {
+      // 探测失败只是少一个版本号，条目本身照常列出。
+      expect(typeof entry.version).toBe('string')
+      expect(entry.commands.length).toBeGreaterThan(0)
+    }
   })
 
   it('carries the commands a tool puts on PATH so the card can name them', async () => {
@@ -112,10 +125,10 @@ describe('toolchain view', () => {
     expect(unlabelled.categories[0]?.label).toBe('modern-cli')
   })
 
-  it('fills the summary counters across index and bundled tools', async () => {
+  it('counts only market tools in the summary', async () => {
     const view = await compose([tool('a', [{ version: '1' }]), tool('b', [{ version: '1' }])])
-    // Bundled tools count as installed because the package delivers them.
-    expect(view.summaryLabel).toBe(`已安装 ${String(BUNDLED_TOOLS.length)} / ${String(BUNDLED_TOOLS.length + 2)}`)
+    // 随包工具不参与市场计数：它们不在网格里，也不占用「已安装 N / M」这两个数。
+    expect(view.summaryLabel).toBe('已安装 0 / 2')
   })
 
   it('reports the index source and surfaces an offline notice', async () => {

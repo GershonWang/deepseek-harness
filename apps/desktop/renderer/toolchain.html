@@ -24,6 +24,15 @@
 <!-- 空状态与网格互斥：列表为空时显示引导，而不是一片空白。 -->
 <main id="empty" hidden></main>
 <footer id="summary" role="status"></footer>
+<!-- 内置清单：随包工具不参与市场，因此不占卡片网格，从这里按需展开。 -->
+<div id="bundled-panel" role="dialog" aria-modal="false" hidden>
+  <div class="bundled-head">
+    <span id="bundled-heading"></span>
+    <button id="bundled-close" class="btn btn-quiet" type="button" aria-label=""></button>
+  </div>
+  <p id="bundled-hint"></p>
+  <ul id="bundled-list"></ul>
+</div>
 <script src="shell-theme.js"></script>
 <script src="toolchain.js"></script>
 </body>

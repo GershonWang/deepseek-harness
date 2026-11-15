@@ -19,6 +19,8 @@ const progress = new Map()
 const errors = new Map()
 /** 主进程最后一次广播的视图版本，用于丢弃乱序到达的旧视图。 */
 let refreshPending = false
+/** 内置清单面板是否展开；纯界面状态，主进程不需要知道。 */
+let bundledOpen = false
 
 const el = id => document.getElementById(id)
 
@@ -100,19 +102,26 @@ function renderProgress(tool) {
       : null)
 }
 
-/** 渲染一张卡片的主要操作。 */
+/**
+ * 渲染一张卡片的主要操作。
+ *
+ * 版本选择器单独占一行，按钮行统一右对齐。挤在同一行时，像 JDK 这种「下拉 + 切换
+ * 版本 + 更新 + 卸载」四控件的卡片会把下拉压到只剩「版本」两个字，用户看不到当前
+ * 版本号；分行之后每个控件都有自己的宽度，按钮也仍落在同一条底线上。
+ */
 function renderActions(tool) {
   if (installing === tool.id) return renderProgress(tool)
   if (tool.bundled) return null
 
-  const actions = []
+  const buttons = []
+  let selector = null
   // 版本选择只在有多条大版本线时出现；单线工具的版本在 meta 行里直接显示，
   // 没有可选的东西就不该给下拉。
   let chosen = selectedVersion(tool)
   if (tool.installed) {
     const installedVersions = tool.lines.flatMap(line => line.versions.filter(entry => entry.installed))
     if (installedVersions.length > 1) {
-      const select = h('select', {
+      selector = h('select', {
         class: 'card-select',
         'aria-label': view.labels.switchVersion,
         onchange: event => { chosen = event.target.value },
@@ -121,40 +130,44 @@ function renderActions(tool) {
         selected: entry.active,
         text: `${view.labels.version} ${entry.version}`,
       })))
-      actions.push(select, h('button', {
+      buttons.push(h('button', {
         class: 'btn', type: 'button', text: view.labels.switchVersion,
-        onclick: () => { void run(() => window.dshToolchain.activate(tool.id, select.value), tool.id) },
+        onclick: () => { void run(() => window.dshToolchain.activate(tool.id, selector.value), tool.id) },
       }))
     }
     if (tool.updateAvailable) {
-      actions.push(h('button', {
+      buttons.push(h('button', {
         class: 'btn btn-primary', type: 'button', text: view.labels.update,
         onclick: () => { void run(() => window.dshToolchain.install(tool.id, tool.updateVersion), tool.id) },
       }))
     }
-    actions.push(h('button', {
+    buttons.push(h('button', {
       class: 'btn btn-quiet', type: 'button', text: view.labels.uninstall,
       onclick: () => {
         const target = tool.active === '' ? installedVersions[0]?.version : tool.active
         if (target !== undefined) void run(() => window.dshToolchain.uninstall(tool.id, target), tool.id)
       },
     }))
-    return h('div', { class: 'card-actions' }, ...actions)
+    return h('div', { class: 'card-actions' },
+      selector === null ? null : h('div', { class: 'card-select-row' }, selector),
+      h('div', { class: 'card-buttons' }, ...buttons))
   }
 
   // 未安装：多线工具给线选择器，单线工具直接把版本写在 meta 行。
   if (tool.offersLines) {
-    actions.push(h('select', {
+    selector = h('select', {
       class: 'card-select',
       'aria-label': view.labels.version,
       onchange: event => { chosen = event.target.value },
-    }, ...tool.lines.map(line => h('option', { value: line.latest, text: `${view.labels.version} ${line.latest}` }))))
+    }, ...tool.lines.map(line => h('option', { value: line.latest, text: `${view.labels.version} ${line.latest}` })))
   }
-  actions.push(h('button', {
+  buttons.push(h('button', {
     class: 'btn btn-primary', type: 'button', text: view.labels.install,
     onclick: () => { void run(() => window.dshToolchain.install(tool.id, chosen), tool.id) },
   }))
-  return h('div', { class: 'card-actions' }, ...actions)
+  return h('div', { class: 'card-actions' },
+    selector === null ? null : h('div', { class: 'card-select-row' }, selector),
+    h('div', { class: 'card-buttons' }, ...buttons))
 }
 
 /** 版本说明行：未装显示将要装的版本与体积，已装显示当前版本。 */
@@ -205,6 +218,23 @@ function renderCard(tool) {
   )
 }
 
+/** 渲染底部的内置清单面板。 */
+function renderBundled() {
+  const panel = el('bundled-panel')
+  panel.hidden = !bundledOpen
+  if (!bundledOpen) return
+  el('bundled-heading').textContent = view.bundled.heading
+  el('bundled-hint').textContent = view.bundled.hint
+  el('bundled-close').setAttribute('aria-label', view.bundled.heading)
+  el('bundled-close').textContent = '×'
+  el('bundled-list').replaceChildren(...view.bundled.tools.map(entry => h('li', { class: 'bundled-row' },
+    h('span', { class: 'bundled-name', text: entry.name }),
+    // 版本读不到时留空而不是显示占位符：空着说明"版本未知"，也能让命令行独占宽度。
+    entry.version === '' ? null : h('span', { class: 'bundled-version', text: entry.version }),
+    h('span', { class: 'bundled-commands', text: entry.commands.join(' · '), title: entry.commands.join(' · ') }),
+  )))
+}
+
 /** 渲染整个窗口。 */
 function render() {
   if (view === undefined) return
@@ -218,6 +248,15 @@ function render() {
   el('summary').replaceChildren(
     h('span', { text: view.summaryLabel }),
     h('span', { class: 'spacer' }),
+    // 随包清单不占卡片网格，否则用户会以为它也能装、也能卸；入口放在底部状态栏。
+    h('button', {
+      id: 'bundled-toggle',
+      class: 'link-button',
+      type: 'button',
+      'aria-expanded': bundledOpen ? 'true' : 'false',
+      text: view.bundled.label,
+      onclick: () => { bundledOpen = !bundledOpen; render() },
+    }),
     h('span', { text: view.sourceLabel }),
   )
   renderCategories()
@@ -226,6 +265,7 @@ function render() {
   el('grid').hidden = tools.length === 0
   el('empty').hidden = tools.length !== 0
   el('empty').textContent = view.tools.length === 0 ? view.emptyLabel : view.noMatchesLabel
+  renderBundled()
 }
 
 /**
@@ -278,6 +318,24 @@ window.dshToolchain.onProgress(report => {
   // 安装结束时安装态由状态广播收尾，这里只驱动进度区。
   if (report.percent >= 100) installing = ''
   else installing = report.id
+  render()
+})
+
+// 面板按浮层惯例收起：点外部或按 Esc。两者都只改界面状态，不触发任何安装动作。
+el('bundled-close').addEventListener('click', () => { bundledOpen = false; render() })
+document.addEventListener('click', (event) => {
+  if (!bundledOpen) return
+  const target = event.target
+  if (!(target instanceof Element)) return
+  // 用 closest 而不是身份比较：点开面板时 render() 会重建底部按钮，事件冒泡到这里
+  // 时 `event.target` 已经是脱离文档的旧节点，与重新取出的按钮不是同一个对象。
+  if (target.closest('#bundled-toggle') !== null || target.closest('#bundled-panel') !== null) return
+  bundledOpen = false
+  render()
+})
+document.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !bundledOpen) return
+  bundledOpen = false
   render()
 })
 

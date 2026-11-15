@@ -20,23 +20,39 @@ import {
   type ToolsLayout,
 } from './toolchain/catalog.ts'
 import { compareVersions } from './toolchain/version.ts'
-import type { ToolchainToolView, ToolchainView } from './toolchain-contract.ts'
+import { bundledCommandVersion } from './toolchain/bundled-versions.ts'
+import type { ToolchainBundledView, ToolchainToolView, ToolchainView } from './toolchain-contract.ts'
 
 /**
  * Tools the application already ships, with the commands each provides.
  *
  * The index lists only tools the market can install; a bundled tool must not appear
  * there, because installing a second copy under the tools root would shadow the one the
- * package delivers. They are still listed in the window so the user sees the whole
- * picture instead of wondering why `git` is missing, and the card carries no actions.
+ * package delivers.
+ *
+ * These entries are deliberately *not* grid cards: they carry no install, switch, or
+ * uninstall control — the copy lives in the container image and out of reach of the tools
+ * root — so a card would only sketch controls that cannot work, and `python3` would sit
+ * in the same grid as the installable `python` that provides the very same command. The
+ * window lists them behind one footer panel instead, which answers "what does the package
+ * already give me" without pretending they participate in the market.
+ *
+ * `readVersion` names the command whose `--version` output labels the entry. It is read
+ * lazily and its failure is not an error: a missing command means the entry is simply
+ * listed without a version.
  */
-export const BUNDLED_TOOLS: readonly { readonly id: string; readonly name: string; readonly commands: readonly string[] }[] = [
-  { id: 'git', name: 'Git', commands: ['git', 'git-lfs'] },
-  { id: 'python3', name: 'Python 3', commands: ['python3'] },
-  { id: 'curl', name: 'curl', commands: ['curl'] },
-  { id: 'wget', name: 'Wget', commands: ['wget'] },
+export const BUNDLED_TOOLS: readonly {
+  readonly id: string
+  readonly name: string
+  readonly commands: readonly string[]
+  readonly readVersion?: string
+}[] = [
+  { id: 'git', name: 'Git', commands: ['git', 'git-lfs'], readVersion: 'git' },
+  { id: 'python3', name: 'Python 3', commands: ['python3'], readVersion: 'python3' },
+  { id: 'curl', name: 'curl', commands: ['curl'], readVersion: 'curl' },
+  { id: 'wget', name: 'Wget', commands: ['wget'], readVersion: 'wget' },
   { id: 'archive-tools', name: 'unzip / zip', commands: ['unzip', 'zip'] },
-  { id: 'jq', name: 'jq', commands: ['jq'] },
+  { id: 'jq', name: 'jq', commands: ['jq'], readVersion: 'jq' },
   { id: 'xxd', name: 'xxd', commands: ['xxd'] },
 ]
 
@@ -62,6 +78,11 @@ export interface ToolchainMessages {
   readonly version: string
   readonly category: string
   readonly commands: string
+  readonly bundled: string
+  readonly bundledShow: string
+  readonly bundledHint: string
+  readonly deactivate: string
+  readonly bundledActive: string
   readonly phaseDownloading: string
   readonly phaseVerifying: string
   readonly phaseExtracting: string
@@ -149,39 +170,21 @@ function composeTool(tool: Tool, installed: readonly string[], active: string, b
 }
 
 /**
- * Build a card for a tool the application already ships.
+ * Build the shipped-tool list shown behind the footer panel.
  *
- * There is nothing to select or install, so it carries no versions and no lines; the
- * commands it provides are the useful fact.
- * @param id - stable id, prefixed so it cannot collide with an index tool.
- * @param name - display name.
- * @param commands - command names the package delivers.
- * @param categoryLabel - localized category label for the bundled group.
- * @param categoryId - category id the bundled cards share.
- * @returns the card.
+ * Versions are probed only for entries that name a command: a probe spawns a child
+ * process, and the list is composed again on every window repaint, so probing an entry
+ * with no interpretable `--version` would cost a process per repaint for a fact that
+ * cannot be shown. {@link bundledCommandVersion} caches each result for the process.
+ * @returns one entry per shipped tool, in declaration order.
  */
-function composeBundled(
-  id: string,
-  name: string,
-  commands: readonly string[],
-  categoryLabel: string,
-  categoryId: string,
-): ToolchainToolView {
-  return {
-    id,
-    name,
-    category: categoryLabel,
-    categoryId,
-    description: commands.join(' · '),
-    commands,
-    bundled: true,
-    installed: true,
-    active: '',
-    lines: [],
-    offersLines: false,
-    updateAvailable: false,
-    updateVersion: '',
+async function composeBundledTools(): Promise<ToolchainBundledView[]> {
+  const entries: ToolchainBundledView[] = []
+  for (const entry of BUNDLED_TOOLS) {
+    const version = entry.readVersion === undefined ? '' : await bundledCommandVersion(entry.readVersion)
+    entries.push({ id: entry.id, name: entry.name, commands: entry.commands, version })
   }
+  return entries
 }
 
 /**
@@ -204,19 +207,16 @@ export async function composeToolchainView(input: ComposeInput): Promise<Toolcha
     tools.push({ ...card, category: input.index.category_labels?.[tool.category] ?? tool.category })
     if (installed.length > 0) installedIds.add(tool.id)
   }
-  // Bundled tools are appended rather than expected from the index: they are shipped,
-  // not installable, so an index entry for one would offer a duplicate install.
-  const bundledCategory = 'bundled'
-  for (const entry of BUNDLED_TOOLS) {
-    tools.push(composeBundled(entry.id, entry.name, entry.commands,
-      input.messages.bundledTag, bundledCategory))
-  }
+  // Shipped tools stay out of the grid and out of the category tabs: they cannot be
+  // installed or removed, so a card would only sketch controls that cannot work, and
+  // `python3` would sit beside the installable `python` that provides the same command.
+  const bundled = await composeBundledTools()
   const counts = new Map<string, number>()
   for (const tool of tools) counts.set(tool.categoryId, (counts.get(tool.categoryId) ?? 0) + 1)
   const categories = [...counts].map(([id, count]) => ({
     id,
     count,
-    label: id === bundledCategory ? input.messages.bundledTag : input.index.category_labels?.[id] ?? id,
+    label: input.index.category_labels?.[id] ?? id,
   }))
   const installedCount = tools.filter(tool => tool.installed).length
   const sourceLabel = input.source === 'remote'
@@ -250,6 +250,15 @@ export async function composeToolchainView(input: ComposeInput): Promise<Toolcha
     },
     categories,
     tools,
+    bundled: {
+      label: input.messages.bundledShow,
+      heading: input.messages.bundled,
+      hint: input.messages.bundledHint,
+      tools: bundled,
+    },
+    deactivateLabel: input.messages.deactivate,
+    bundledActiveLabel: input.messages.bundledActive,
+    commandsLabel: input.messages.commands,
   }
 }
 
