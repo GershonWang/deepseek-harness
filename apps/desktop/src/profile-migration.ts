@@ -369,14 +369,12 @@ async function copyTree(from: string, to: string): Promise<void> {
 }
 
 /**
- * Import the selected content from the legacy profile into the desktop profile.
+ * 将用户选择的旧版 profile 内容导入 Desktop profile。
  *
- * Every write follows a full backup of the destination, and any failure restores
- * it, so a failed import leaves the Desktop profile exactly as it was. The legacy
- * profile is only read.
- * @param options - bin name, profile locations, source, and the user's choices.
- * @returns what was imported and where the backup lives.
- * @throws when any step fails; the destination is restored first.
+ * 目标清单不存在时，以随包 Web 模板的 bundles 为基础，再合并用户选择的插件；已有清单保持原有内容。目标存在时，写入前会完整备份；导入失败时先尝试恢复本次写入的路径。旧版 profile 始终只读。
+ * @param options - 工具名称、profile 路径、旧版内容与用户选择。
+ * @returns 本次导入结果及目标备份路径。
+ * @throws 任一步骤失败时，先尝试恢复目标，再重新抛出原始错误。
  */
 export async function applyMigration(options: {
   readonly binName: string
@@ -407,7 +405,12 @@ export async function applyMigration(options: {
     const manifestFile = join(desktopDir, MANIFEST_FILENAME)
     const manifest = await exists(manifestFile)
       ? JSON.parse(await readFile(manifestFile, 'utf8')) as Record<string, unknown>
-      : { name: `dsh-profile-${DESKTOP_PROFILE_NAME}`, private: true, dependencies: {}, dsh: { profile: { bundles: [] } } }
+      : {
+        name: `dsh-profile-${DESKTOP_PROFILE_NAME}`,
+        private: true,
+        dependencies: {},
+        dsh: { profile: { bundles: [...desktopTemplateBundles()] } },
+      }
     const next = mergeManifest(manifest, source, selection)
     await writeFile(manifestFile, `${JSON.stringify(next, undefined, 2)}\n`, { mode: 0o600 })
     written.push(MANIFEST_FILENAME)

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { dump } from 'js-yaml'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import {
   applyMigration,
   classifyPatches,
@@ -156,6 +156,25 @@ describe('migration detection', () => {
 })
 
 describe('migration execution', () => {
+  it('preserves the shipped bundles when importing into an absent Desktop profile', async () => {
+    const root = temporaryRoot()
+    const legacy = seedLegacy(root)
+    const desktop = profileLocations(root).desktop
+    const source = await readMigrationSource(BIN, legacy)
+    expect(source).toBeDefined()
+    await applyMigration({
+      binName: BIN, desktopDir: desktop, source: source as MigrationSource,
+      selection: { settings: true, plugins: ['plugin-a'], conflicts: {} },
+    })
+    initProfile(desktop, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    const manifest = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8')) as {
+      dsh: { profile: { bundles: string[] } }
+    }
+    expect(manifest.dsh.profile.bundles).toEqual([
+      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'plugin-a',
+    ])
+  })
+
   it('never modifies the legacy profile', async () => {
     const root = temporaryRoot()
     const legacy = seedLegacy(root)
