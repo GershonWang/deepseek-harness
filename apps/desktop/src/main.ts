@@ -1424,6 +1424,7 @@ async function main(): Promise<void> {
       bundledTag: messages.toolchainBundledTag,
       version: messages.toolchainVersion,
       category: messages.toolchainCategory,
+      commands: messages.toolchainCommands,
       phaseDownloading: messages.toolchainPhaseDownloading,
       phaseVerifying: messages.toolchainPhaseVerifying,
       phaseExtracting: messages.toolchainPhaseExtracting,

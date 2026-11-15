@@ -173,6 +173,17 @@ function metaText(tool) {
   return tool.offersLines ? `${size.replace(' · ', '')}` : `${view.labels.version} ${line.latest}${size}`
 }
 
+/**
+ * 命令行的完整文本。
+ *
+ * 卡片上一行放不下 rust、sqlite 这类多命令工具，因此单行省略、悬停看全：数量、
+ * 命令名与名称一致时都直接给出，不让用户为了知道装完能得到什么命令去翻文档。
+ */
+function commandText(tool) {
+  if (tool.commands.length === 0) return ''
+  return `${view.labels.commands}: ${tool.commands.join(' · ')}`
+}
+
 /** 渲染一张卡片。 */
 function renderCard(tool) {
   const tag = tool.bundled
@@ -181,11 +192,13 @@ function renderCard(tool) {
       ? h('span', { class: 'card-tag is-installed', text: view.labels.installedTag })
       : null
   const meta = metaText(tool)
+  const commands = commandText(tool)
   const error = errors.get(tool.id)
   return h('article', { class: 'card' },
     h('div', { class: 'card-head' },
       h('span', { class: 'card-name', text: tool.name, title: tool.name }), tag),
     h('p', { class: 'card-desc', text: tool.description }),
+    commands === '' ? null : h('div', { class: 'card-commands', text: commands, title: commands }),
     meta === '' ? null : h('div', { class: 'card-meta', text: meta }),
     error === undefined ? null : h('div', { class: 'card-error', text: error }),
     renderActions(tool),

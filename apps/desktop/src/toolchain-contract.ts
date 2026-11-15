@@ -67,6 +67,13 @@ export interface ToolchainToolView {
   /** Short description. */
   readonly description: string
   /**
+   * Commands this tool puts on PATH once installed.
+   *
+   * Empty for shipped tools, whose commands the bundled manifest lists instead. The
+   * card shows them because the point of installing `maven` is getting `mvn`.
+   */
+  readonly commands: readonly string[]
+  /**
    * Whether this tool ships with the application.
    *
    * A bundled tool is listed so the user can see the whole picture, but it cannot be
@@ -141,6 +148,8 @@ export interface ToolchainView {
     readonly bundledTag: string
     readonly version: string
     readonly category: string
+    /** Label introducing the command list on a card. */
+    readonly commands: string
   }
   /** Category tabs, in display order. */
   readonly categories: readonly { readonly id: string; readonly label: string; readonly count: number }[]

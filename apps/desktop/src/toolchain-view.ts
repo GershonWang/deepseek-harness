@@ -61,6 +61,7 @@ export interface ToolchainMessages {
   readonly bundledTag: string
   readonly version: string
   readonly category: string
+  readonly commands: string
   readonly phaseDownloading: string
   readonly phaseVerifying: string
   readonly phaseExtracting: string
@@ -136,6 +137,7 @@ function composeTool(tool: Tool, installed: readonly string[], active: string, b
     category: '',
     categoryId: tool.category,
     description: tool.description,
+    commands: tool.provides,
     bundled,
     installed: installed.length > 0,
     active,
@@ -171,6 +173,7 @@ function composeBundled(
     category: categoryLabel,
     categoryId,
     description: commands.join(' · '),
+    commands,
     bundled: true,
     installed: true,
     active: '',
@@ -243,6 +246,7 @@ export async function composeToolchainView(input: ComposeInput): Promise<Toolcha
       bundledTag: input.messages.bundledTag,
       version: input.messages.version,
       category: input.messages.category,
+      commands: input.messages.commands,
     },
     categories,
     tools,

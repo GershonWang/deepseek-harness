@@ -20,15 +20,15 @@ const messages: ToolchainMessages = {
   categoriesLabel: '分类', allCategories: '全部', noMatches: '没有匹配的工具。', empty: '当前没有可用的工具。',
   summary: '已安装 {installed} / {total}', install: '安装', installing: '正在安装…', cancel: '取消',
   uninstall: '卸载', switchVersion: '切换版本', update: '更新', installedTag: '已安装',
-  bundledTag: '随包', version: '版本', category: '分类', phaseDownloading: '下载中',
+  bundledTag: '随包', version: '版本', category: '分类', commands: '命令', phaseDownloading: '下载中',
   phaseVerifying: '校验中', phaseExtracting: '解压中', sourceRemote: '索引已更新',
   sourceCache: '使用缓存的索引', sourceBuiltin: '使用内置索引（离线）', noticeOffline: '无法刷新索引。',
 }
 
 /** Build one catalog tool with the given versions. */
-function tool(id: string, versions: Array<{ version: string; major?: string; size?: number }>): Tool {
+function tool(id: string, versions: Array<{ version: string; major?: string; size?: number }>, provides: string[] = []): Tool {
   return {
-    id, name: id, category: 'modern-cli', description: `${id} description`, provides: [], dependencies: [],
+    id, name: id, category: 'modern-cli', description: `${id} description`, provides, dependencies: [],
     versions: versions.map(entry => ({
       version: entry.version,
       url: `https://e.test/${id}.tar.gz`,
@@ -76,6 +76,14 @@ describe('toolchain view', () => {
     expect(bundled.map(card => card.id)).toEqual(BUNDLED_TOOLS.map(entry => entry.id))
     expect(bundled.every(card => card.installed && card.lines.length === 0)).toBe(true)
     expect(view.categories.some(category => category.id === 'bundled')).toBe(true)
+  })
+
+  it('carries the commands a tool puts on PATH so the card can name them', async () => {
+    const view = await compose([tool('maven', [{ version: '3.9.16' }], ['mvn'])])
+    // 装 maven 的用处就是得到 mvn；卡片要把这件事直接写出来。
+    expect(view.tools[0]?.commands).toEqual(['mvn'])
+    const rust = await compose([tool('rust', [{ version: '1.98.1' }], ['rustc', 'cargo', 'rustfmt'])])
+    expect(rust.tools[0]?.commands).toEqual(['rustc', 'cargo', 'rustfmt'])
   })
 
   it('reports an update only when the catalog is newer than the installed version', async () => {
