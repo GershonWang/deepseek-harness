@@ -79,6 +79,7 @@ describe('壳窗口的菜单栏', () => {
       install: async () => undefined,
       uninstall: async () => undefined,
       activate: async () => undefined,
+      deactivate: async () => undefined,
       refresh: async () => undefined,
     })
     window.show()
