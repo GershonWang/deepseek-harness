@@ -51,6 +51,6 @@ Electron renders its own input methods and clipboard, so the WebKitGTK-only pack
 
 ## Known limits
 
-- The bundle has no code signing, notarization, or in-app updater, because the Linglong container forbids privilege escalation. The Electron sandbox is therefore disabled with `--no-sandbox`.
+- The bundle has no code signing, notarization, or in-app updater, because the Linglong container forbids privilege escalation. The Electron sandbox is therefore disabled with `--no-sandbox`. Because no `app-update.yml` reaches the installed tree, the application also presents no update command, tray entry, channel row, or sidebar status, and never polls a feed: those controls appear only in builds that carry one.
 - Office conversion selects the WASM engine on Linux, because the pinned `libreoffice-kit` declares native packages for macOS and Windows only.
 - The runtime libraries come from the base runtime; the `depends` list in [`linglong.yaml`](linglong.yaml) only guarantees build-time resolution. Verified on Deepin 25 with version 0.1.0.2: the bundle installs and starts.

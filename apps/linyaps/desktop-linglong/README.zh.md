@@ -53,6 +53,6 @@ Chromium 的输入法与剪贴板由 Electron 自己处理，因此薄壳版随�
 
 ## 已知边界
 
-- 本包没有代码签名、公证与应用内更新，因为玲珑容器禁止提权。Electron 沙箱因此用 `--no-sandbox` 关闭。
+- 本包没有代码签名、公证与应用内更新，因为玲珑容器禁止提权。Electron 沙箱因此用 `--no-sandbox` 关闭。也因为没有 `app-update.yml` 进入安装树，应用不再显示检查更新命令、托盘入口、更新渠道行与左下角状态，也不再轮询更新源：这些控件只在带更新源的构建里出现。
 - Linux 上 Office 转换选用 WASM 引擎，因为锁定的 `libreoffice-kit` 只为 macOS 与 Windows 声明了原生包。
 - 运行期库由基础层提供：[`linglong.yaml`](linglong.yaml) 的 `depends` 只保证构建期可解析。已在 Deepin 25 上用 0.1.0.2 验证：包可安装并启动。
