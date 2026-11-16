@@ -160,7 +160,10 @@ body {
   gap: 6px;
   padding: 12px;
   border-radius: 10px;
-  border: 1px solid var(--dsw-alias-border-l1);
+  /* 边框用 l2 而不是 l1：浅色下 l1 只有 4% 黑，与卡片底色对页面底色的那点差异叠在
+     一起，网格看起来是一片没有边界的色块。l2 也与本页其他控件（搜索框、按钮、
+     页签选中态、状态标签）取同一档，卡片不再自己更淡。 */
+  border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-2);
   /* 撑满所在网格行：同行卡片等高，配合操作行的 margin-top: auto，按钮落在同一条
      水平线上。 */
@@ -169,10 +172,12 @@ body {
 
 .card-head { display: flex; align-items: baseline; gap: 8px; }
 
+/* 名称是卡片的主标识，字号要压过下面的描述（12px）与命令行（11px）一档；行高同步
+   留出 22px，否则放大后的字形会贴到右侧状态标签上。 */
 .card-name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
-  line-height: 20px;
+  line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
