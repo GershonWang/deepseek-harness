@@ -81,6 +81,10 @@ export function createElectronBuilderConfig(
   let dshDestination
   let windowsCode = []
   const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
+    // The Linux Landlock launcher is an extensionless ELF that dsh spawns as the sandbox's second rung:
+    // the extension globs above miss it, and spawning it from inside app.asar fails with ENOTDIR, which
+    // probes the backend 'unusable' and fails every confined command closed. No other platform ships it.
+    '**/node_modules/@deepseek-ai/node-addon-system-*/bin/landlock-run',
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
     // LaunchServices opens the Computer Use helper as an application, so every file of its bundles stays on disk.
     // Both architectures ship: they form one notarized payload whose manifest staging verifies as a whole.

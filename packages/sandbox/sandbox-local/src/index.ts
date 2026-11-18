@@ -39,6 +39,7 @@ import type { ConfinedArgv, ConfinedSandboxMode, RunnerFailureRule, SandboxEnfor
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { AclWriteGrant, isTempRootInsideWorkspace, registerAclDiagnosisSkill, tempWriteSid, workspaceWriteSid } from '@deepseek-ai/dsh-sandbox-windows-acl'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
+import { spawnableLauncherPath } from './launcher-path.ts'
 import { bwrapProfileArgs, landlockProfileArgs, seatbeltProfileArgs } from './profiles.ts'
 
 /**
@@ -595,7 +596,7 @@ export class LocalSandboxProvider extends SandboxProvider {
 
   /** The Landlock launcher to probe and exec (test hook over the resolved one). */
   private landlockLauncher(): string {
-    return this.internals.landlockLauncher ?? landlockLauncherPath()
+    return this.internals.landlockLauncher ?? spawnableLauncherPath(landlockLauncherPath())
   }
 
   /** The `sandbox-exec` executable to probe and exec (test hook over the system one). */

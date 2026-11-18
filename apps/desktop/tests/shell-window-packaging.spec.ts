@@ -46,6 +46,13 @@ it('unpacks native modules so node-pty loads from app.asar.unpacked', () => {
   expect(linuxConfig().asarUnpack).toContain('**/*.{node,dylib,dll,so,exe}')
 })
 
+it('unpacks the Linux Landlock launcher the sandbox spawns', () => {
+  // dsh spawns this extensionless ELF as the sandbox's second rung. An executable inside app.asar
+  // is not spawnable (ENOTDIR), which probes the backend 'unusable' and fails every confined command
+  // closed — the failure the extension globs cannot cover.
+  expect(linuxConfig().asarUnpack).toContain('**/node_modules/@deepseek-ai/node-addon-system-*/bin/landlock-run')
+})
+
 it('declares the terminal page among the renderer documents', () => {
   // The page HTML lives in `renderer/`, which the package already copies wholesale; this check
   // records that the document exists where the window loads it from.
