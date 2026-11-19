@@ -19,15 +19,21 @@ const ScreenshotDiagnostic = z.object({
 })
 const WireReply = z.union([Reply, ScreenshotDiagnostic.extend({ type: z.literal('diagnostic') })])
 
-/** Native refusal or transport failure with a stable machine-readable code. */
+/**
+ * Native refusal, transport failure, or host-side CUA refusal with a stable machine-readable code.
+ * The helper supplies its own codes, such as `APP_ACCESS_DENIED` or `STALE_SNAPSHOT`, so consumers
+ * tolerate unknown codes; the host adds `NATIVE_*` transport codes, application-access codes,
+ * and `MODEL_DOES_NOT_SUPPORT_IMAGES` for a screenshot requested by a model without image input.
+ */
 export class NativeError extends HarnessError {
   /**
-   * @param code - Native error code or a transport-owned NATIVE_* code.
+   * @param code - Native error code or a host-owned code.
    * @param message - Actionable diagnostic, without its code prefix.
    * @param options - Original failure when available.
    */
   constructor(code: string, message: string, options?: ErrorOptions) {
     super(`${code}: ${message}`, code, options)
+    this.name = 'NativeError'
   }
 }
 
@@ -122,7 +128,8 @@ export class NativeClient {
   }
 
   /**
-   * Send one operation. Native refusals preserve this connection; transport failures invalidate its handles.
+   * Send one operation after any active native cleanup acknowledges completion.
+   * Native refusals preserve this connection; transport failures invalidate its handles.
    * @param method - Helper operation name.
    * @param params - JSON operation parameters.
    * @param signal - Cancellation stops this request; the connection survives when native cleanup acknowledges it.
@@ -130,6 +137,7 @@ export class NativeClient {
    * @returns The validated helper result, after failure cleanup when needed.
    */
   async request(method: string, params: Record<string, JsonValue>, signal: AbortSignal, callId?: ToolExecution['callId']): Promise<JsonValue> {
+    while (!signal.aborted && this.active?.kind === 'cleanup') await this.active.outcome
     if (signal.aborted) throw new NativeError('NATIVE_CANCELLED', 'Operation was cancelled before dispatch')
     if (this.disposed) {
       await this.dispose()

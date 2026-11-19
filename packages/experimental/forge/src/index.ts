@@ -6,10 +6,13 @@ import { deadline, MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { changeRequestKey } from './keys.ts'
 import { nextPollDelay } from './schedule.ts'
 import type {
-  BranchUpdateRequest, ChangeRequestKey, ChangeRequestListener, ChangeRequestRef, ChangeRequestSnapshot, ChangeRequestUpdate, Config,
-  ForgeCommitList, ForgeActionFailure, ForgeFailure, ForgeProvider, ForgeReadiness, ForgeRepository, ForgeRerunRequest, ForgeReviewData,
-  ForgeReviewerCandidate, ForgeReviewersRequest, ForgeReviewRequest, ForgeReviewResult, ForgeReviewWrite, ForgeReviewWriteResult,
-  ForgeViewedFiles, ForgeViewedRequest, MergeRequest,
+  BranchUpdateRequest, ChangeRequestDescription, ChangeRequestKey, ChangeRequestListener, ChangeRequestRef, ChangeRequestSnapshot,
+  ChangeRequestUpdate, Config,
+  ForgeCommitList, ForgeActionFailure, ForgeDescription, ForgeFailure, ForgeProvider, ForgeReadiness, ForgeRepository, ForgeRerunRequest,
+  ForgeReviewData,
+  ForgeReviewChange, ForgeReviewerCandidate, ForgeReviewersRequest, ForgeReviewRequest, ForgeReviewResult, ForgeReviewWrite,
+  ForgeReviewWriteResult,
+  ForgeViewedFiles, ForgeViewedRequest, ForgeViewerFilter, ForgeViewerList, ForgeViewerQuery, ForgeViewerSource, MergeRequest,
 } from './types.ts'
 
 export { changeRequestKey } from './keys.ts'
@@ -27,6 +30,15 @@ declare module '@deepseek-ai/cordis' {
      * @mode parallel
      */
     'forge/providers-changed'(forge: string): void | Promise<void>
+    /**
+     * Announces a review change the host accepted through this service: a thread or pending-review write, a submitted
+     * review, or a viewed mark. Changes whose outcome is unknown, refused, stale, or unsupported are not announced.
+     * Listener failures are logged without preventing other listeners from running.
+     * @param ref - change request the change went to.
+     * @param change - what changed and the head commit it was made against.
+     * @mode parallel
+     */
+    'forge/review-changed'(ref: ChangeRequestRef, change: ForgeReviewChange): void | Promise<void>
   }
 }
 
@@ -106,13 +118,18 @@ export class ForgeService extends Service {
    * fiber. Watches of that forge receive an `unavailable` failure when the
    * registration ends. Unregistering cancels and awaits its in-flight calls;
    * results from the withdrawn registration are discarded.
-   * @param provider - provider to serve `provider.forge`.
+   * @param provider - provider to serve `provider.forge` on `provider.hosts`.
    * @returns the disposer that unregisters the provider and waits for its calls to finish.
-   * @throws when another provider already serves the same forge.
+   * @throws when another provider already serves the same forge or one of the same hosts, compared without case.
    */
   register(provider: ForgeProvider): () => Promise<void> {
     const dispose = this.ctx.effect(() => {
       if (this.providers.has(provider.forge)) throw new Error(`forge: a provider for "${provider.forge}" is already registered`)
+      for (const { provider: other } of this.providers.values()) {
+        const taken = new Set(other.hosts.map(host => host.toLowerCase()))
+        const host = provider.hosts.find(candidate => taken.has(candidate.toLowerCase()))
+        if (host !== undefined) throw new Error(`forge: host "${host}" is already served by the "${other.forge}" provider`)
+      }
       const registration: Registration = { provider, lifetime: new AbortController(), pending: new Set() }
       this.providers.set(provider.forge, registration)
       for (const watch of this.watches.values()) {
@@ -135,7 +152,17 @@ export class ForgeService extends Service {
   }
 
   /**
-   * Map a Git remote URL to a repository through the first provider that serves it.
+   * Name a forge family and its change requests for readers.
+   * @param forge - forge family name, such as `github`.
+   * @returns the registered provider's description, or undefined when no provider serves the family.
+   */
+  describe(forge: string): ForgeDescription | undefined {
+    const provider = this.providers.get(forge)?.provider
+    return provider === undefined ? undefined : { forge, label: provider.label, changeRequestNoun: provider.changeRequestNoun }
+  }
+
+  /**
+   * Map a Git remote URL to a repository through the provider that serves its host.
    * @param url - fetch or push URL as Git reports it.
    * @returns the repository, or undefined when no provider serves the URL.
    */
@@ -148,7 +175,7 @@ export class ForgeService extends Service {
   }
 
   /**
-   * Map a change request web URL through the first provider that serves it.
+   * Map a change request web URL through the provider that serves its host.
    * @param url - web URL of a pull or merge request.
    * @returns the change request, or undefined when no provider serves the URL.
    */
@@ -343,7 +370,7 @@ export class ForgeService extends Service {
   /**
    * Write to the review threads or the pending review of a change request while its head is still `write.headSha`, then
    * poll the change request at once when it is watched, unless the provider cannot write reviews. A `stale` result polls
-   * it as a stale read does.
+   * it as a stale read does; a write the host took is announced with `forge/review-changed`.
    * @param ref - change request served by a registered provider.
    * @param write - the write and the head commit the user saw.
    * @param signal - cancellation of the write.
@@ -357,6 +384,7 @@ export class ForgeService extends Service {
         ?? Promise.resolve({ ok: false, code: 'unsupported', message: 'This provider does not support review writes' } as const))
     if (!result.ok && result.code === 'stale') this.staleRead(ref, write.headSha, result.code)
     else if (result.ok || result.code !== 'unsupported') this.refresh(ref)
+    if (result.ok) this.reviewChanged(ref, { kind: 'write', write: write.kind, headSha: write.headSha })
     return result
   }
 
@@ -380,7 +408,8 @@ export class ForgeService extends Service {
 
   /**
    * Set or clear the signed-in user's viewed mark on one file of a change request while its head is still
-   * `request.headSha`. A `stale` failure polls a watched change request again as {@link ForgeService.diff} does.
+   * `request.headSha`. A `stale` failure polls a watched change request again as {@link ForgeService.diff} does; a saved
+   * mark is announced with `forge/review-changed`.
    * @param ref - change request served by a registered provider.
    * @param request - the file, its mark, and the head commit the user saw.
    * @param signal - cancellation of the request.
@@ -393,6 +422,7 @@ export class ForgeService extends Service {
         ? Promise.resolve({ code: 'failed', message: 'This provider keeps no viewed marks' } as const)
         : provider.setViewed(ref, request, operation))
     if (failure?.code === 'stale') this.staleRead(ref, request.headSha, failure.code)
+    if (failure === undefined) this.reviewChanged(ref, { kind: 'viewed', path: request.path, viewed: request.viewed, headSha: request.headSha })
     return failure
   }
 
@@ -427,7 +457,83 @@ export class ForgeService extends Service {
   }
 
   /**
-   * Publish one comment or a completed review, then refresh the watched status.
+   * Find the merge base of two commits of a change request's repository: the commit whose files the old side of the
+   * change request's diff shows when `base` is the snapshot's `baseSha` and `head` its `headSha`.
+   * @param ref - change request served by a registered provider.
+   * @param base - full object name of the base commit.
+   * @param head - full object name of the head commit.
+   * @param signal - cancellation of the read.
+   * @returns the merge base's full object name, or why the host did not provide it; `unsupported` when the provider
+   * cannot name merge bases.
+   * @throws when no provider serves the change request's forge, or with `signal.reason` when it aborts.
+   */
+  async mergeBase(ref: ChangeRequestRef, base: string, head: string, signal: AbortSignal): Promise<string | ForgeFailure> {
+    return await this.invoke(this.registration(ref.repository.forge), signal,
+      (provider, operation) => provider.mergeBase?.(ref, base, head, operation)
+        ?? Promise.resolve({ code: 'unsupported', message: 'This provider does not name merge bases' } as const))
+  }
+
+  /**
+   * List the viewer lists every registered provider offers; `forge/providers-changed` announces a change.
+   * @returns one source per provider that declares viewer lists and reads them, in registration order.
+   */
+  viewerSources(): ForgeViewerSource[] {
+    const sources: ForgeViewerSource[] = []
+    for (const { provider } of this.providers.values()) {
+      const { viewer } = provider
+      if (viewer !== undefined && provider.listForViewer !== undefined && provider.countForViewer !== undefined) {
+        sources.push({ forge: provider.forge, hosts: viewer.hosts, filters: viewer.filters, maxItems: viewer.maxItems })
+      }
+    }
+    return sources
+  }
+
+  /**
+   * Read one list of open change requests that involve the signed-in user.
+   * @param forge - forge family of a registered provider.
+   * @param query - host, list, repository, and limit of the read.
+   * @param signal - cancellation of the read.
+   * @returns the list, or why the host did not provide it; `unsupported` when the provider does not offer the host or list.
+   * @throws when no provider serves `forge`, or with `signal.reason` when it aborts.
+   */
+  async listForViewer(forge: string, query: ForgeViewerQuery, signal: AbortSignal): Promise<ForgeViewerList | ForgeFailure> {
+    return await this.invoke(this.registration(forge), signal, (provider, operation) => {
+      const reads = viewerReads(provider, query.host, query.filter)
+      return 'code' in reads ? Promise.resolve(reads) : reads.list(query, operation)
+    })
+  }
+
+  /**
+   * Count the change requests in each viewer list a provider offers on one host.
+   * @param forge - forge family of a registered provider.
+   * @param host - lowercase host name the provider lists on.
+   * @param signal - cancellation of the read.
+   * @returns the count of each list, or why the host did not provide them; `unsupported` when the provider does not list on `host`.
+   * @throws when no provider serves `forge`, or with `signal.reason` when it aborts.
+   */
+  async countForViewer(forge: string, host: string, signal: AbortSignal): Promise<ReadonlyMap<ForgeViewerFilter, number> | ForgeFailure> {
+    return await this.invoke(this.registration(forge), signal, (provider, operation) => {
+      const reads = viewerReads(provider, host, undefined)
+      return 'code' in reads ? Promise.resolve(reads) : reads.count(host, operation)
+    })
+  }
+
+  /**
+   * Read the description and labels of a change request.
+   * @param ref - change request served by a registered provider.
+   * @param signal - cancellation of the read.
+   * @returns the description, or why the host did not provide it; `unsupported` when the provider reads no descriptions.
+   * @throws when no provider serves the change request's forge, or with `signal.reason` when it aborts.
+   */
+  async readDescription(ref: ChangeRequestRef, signal: AbortSignal): Promise<ChangeRequestDescription | ForgeFailure> {
+    return await this.invoke(this.registration(ref.repository.forge), signal,
+      (provider, operation) => provider.readDescription?.(ref, operation)
+        ?? Promise.resolve({ code: 'unsupported', message: 'This provider does not read descriptions' } as const))
+  }
+
+  /**
+   * Publish one comment or a completed review, then refresh the watched status; a publication the host took is announced
+   * with `forge/review-changed`.
    * @param ref - change request served by a registered provider.
    * @param request - explicitly selected commit, comments, and review decision.
    * @param signal - request cancellation.
@@ -438,6 +544,7 @@ export class ForgeService extends Service {
       (provider, operation) => provider.submitReview?.(ref, request, operation)
         ?? Promise.resolve({ ok: false, code: 'unsupported', message: 'This provider does not support review submission' } as const))
     this.refresh(ref)
+    if (result.ok) this.reviewChanged(ref, { kind: 'submit', headSha: request.headSha })
     return result
   }
 
@@ -560,9 +667,21 @@ export class ForgeService extends Service {
   }
 
   private providersChanged(forge: string): void {
+    this.announce('provider change', () => this.ctx.parallel('forge/providers-changed', forge))
+  }
+
+  private reviewChanged(ref: ChangeRequestRef, change: ForgeReviewChange): void {
+    this.announce('review change', () => this.ctx.parallel('forge/review-changed', ref, change))
+  }
+
+  /**
+   * Start one parallel dispatch unless the service stopped, keeping it among the work disposal waits for and logging
+   * listener failures.
+   */
+  private announce(what: string, dispatch: () => Promise<void>): void {
     if (this.lifetime.signal.aborted) return
-    const task = this.ctx.parallel('forge/providers-changed', forge).catch((error: unknown) => {
-      this.ctx.logger.warn(`forge: provider change listener failed: ${String(error)}`)
+    const task = dispatch().catch((error: unknown) => {
+      this.ctx.logger.warn(`forge: ${what} listener failed: ${String(error)}`)
     })
     this.pending.add(task)
     void task.then(() => this.pending.delete(task))
@@ -685,6 +804,31 @@ export class ForgeService extends Service {
       }
     }
   }
+}
+
+const UNSUPPORTED_VIEWER: ForgeFailure = { code: 'unsupported', message: 'This provider does not read viewer lists' }
+
+/** The viewer reads of one provider, bound to it. */
+interface ViewerReads {
+  readonly list: NonNullable<ForgeProvider['listForViewer']>
+  readonly count: NonNullable<ForgeProvider['countForViewer']>
+}
+
+/**
+ * The viewer reads a provider offers on a host.
+ * @param provider - registered provider.
+ * @param host - host the read names.
+ * @param filter - list the read names, or undefined for the counts of every list.
+ * @returns the bound reads, or an `unsupported` failure naming the missing host or list.
+ */
+function viewerReads(provider: ForgeProvider, host: string, filter: ForgeViewerFilter | undefined): ViewerReads | ForgeFailure {
+  const { viewer } = provider
+  const list = provider.listForViewer?.bind(provider)
+  const count = provider.countForViewer?.bind(provider)
+  if (viewer === undefined || list === undefined || count === undefined) return UNSUPPORTED_VIEWER
+  if (!viewer.hosts.includes(host)) return { code: 'unsupported', message: `This provider does not list change requests on ${host}` }
+  if (filter !== undefined && !viewer.filters.has(filter)) return { code: 'unsupported', message: `This provider does not read the ${filter} list` }
+  return { list, count }
 }
 
 export default ForgeService

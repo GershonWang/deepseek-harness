@@ -112,6 +112,29 @@ async function retainedChild(config: Config = {}) {
 }
 
 describe.each(['timeout', 'abort'] as const)('retained %s', (action) => {
+  it('continues after output overflow until the original stop condition occurs', async () => {
+    const h = await retainedChild({ maxOutputBytes: 128 })
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const pending = h.start()
+    try {
+      await h.booted.promise
+      h.emit({ t: 'q', m: 'log', a: ['x'.repeat(1024)] })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.messages).toContainEqual({ t: 'q', m: 'discardOutput', a: [] })
+      expect(h.messages).not.toContainEqual({ t: 'q', m: 'revoke', a: [] })
+      expect(h.terminate).not.toHaveBeenCalled()
+      if (action === 'timeout') await vi.advanceTimersByTimeAsync(100)
+      else { h.controller.abort(); await vi.advanceTimersByTimeAsync(0) }
+      expect(h.messages).toContainEqual({ t: 'q', m: 'revoke', a: [] })
+      h.complete({})
+      const result = await pending
+      expect(result.error?.kind).toBe(action)
+      expect(result.error?.message).toContain('retained variables were preserved')
+      expect(result.outputTruncated).toBe(true)
+      expect(h.terminate).not.toHaveBeenCalled()
+    } finally { h.controller.abort(); h.complete({}); await pending; vi.useRealTimers() }
+  })
+
   it.each(['missing completion', 'rejection', 'malformed completion'] as const)('terminates after %s and recreates the environment', async (failure) => {
     const h = await retainedChild()
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
@@ -203,6 +226,7 @@ it('blocks reuse after fallback cleanup fails until release succeeds', async () 
     await vi.advanceTimersByTimeAsync(150)
     expect((await pending).error?.message).toContain('managed process cleanup failed: exit not confirmed')
     await expect(h.runtime.run(h.runtime.resolve(h.request))).rejects.toThrow('cleanup is incomplete')
+    await expect(h.runtime.run(h.runtime.resolve(h.request))).rejects.toMatchObject({ name: 'PtcRuntimeError', code: 'PTC_RUNTIME_UNAVAILABLE' })
     await h.runtime.release(h.request.stateOwner)
     const replacement = fakeChild(h.ctx, h.runtime, h.request)
     replacement.onBoot(() => { replacement.complete({}) })
@@ -236,7 +260,7 @@ it('terminates when cancellation follows control-channel closure', async () => {
   } finally { await h.runtime.release(h.request.stateOwner) }
 })
 
-it('terminates when the final stop diagnostic exceeds the output budget', async () => {
+it('preserves the timeout kind and retained state when its diagnostic is truncated', async () => {
   const h = await retainedChild({ maxOutputBytes: 70 })
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   try {
@@ -244,8 +268,10 @@ it('terminates when the final stop diagnostic exceeds the output budget', async 
     await h.booted.promise
     await vi.advanceTimersByTimeAsync(100)
     h.complete({})
-    expect((await pending).error?.kind).toBe('output-limit')
-    expect(h.terminate).toHaveBeenCalledOnce()
+    const result = await pending
+    expect(result.error?.kind).toBe('timeout')
+    expect(result.outputTruncated).toBe(true)
+    expect(h.terminate).not.toHaveBeenCalled()
   } finally { await h.runtime.release(h.request.stateOwner); vi.useRealTimers() }
 })
 

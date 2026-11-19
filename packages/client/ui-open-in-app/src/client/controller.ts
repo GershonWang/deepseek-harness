@@ -126,20 +126,22 @@ export class OpenInAppController {
   private async run(): Promise<void> {
     let apps: readonly string[] = []
     let iconless: readonly string[] = []
+    let payload: OpenInAppAppsPayload | undefined
     try {
-      const response = await this.fetcher(OPEN_IN_APP_APPS_ROUTE, {
-        headers: { accept: 'application/json' },
-      })
-      if (response.ok) {
-        const payload = await response.json() as OpenInAppAppsPayload
-        if (Array.isArray(payload.apps)) apps = payload.apps.filter(id => typeof id === 'string')
-        // 字段缺失（旧宿主或缓存的旧 bundle）时按"可能有图标"处理，退回改动前的行为。
-        if (Array.isArray(payload.iconless)) iconless = payload.iconless.filter(id => typeof id === 'string')
-      }
-    } catch (_error) {
-      // An unreachable Host supplies no directory openers in menus or controls.
+      payload = await this.readAppsPayload()
+    } catch (_appsUnavailable) {
+      // An unreachable Host or an unreadable reply supplies no directory openers in menus or controls.
     }
+    if (Array.isArray(payload?.apps)) apps = payload.apps.filter(id => typeof id === 'string')
+    // 字段缺失（旧宿主或缓存的旧 bundle）时按"可能有图标"处理，退回改动前的行为。
+    if (Array.isArray(payload?.iconless)) iconless = payload.iconless.filter(id => typeof id === 'string')
     this.iconless = iconless
     this.apps.set(apps)
+  }
+
+  /** The Host's opener payload, or `undefined` for a non-OK reply; rejects when the Host or its reply is unreadable. */
+  private async readAppsPayload(): Promise<OpenInAppAppsPayload | undefined> {
+    const response = await this.fetcher(OPEN_IN_APP_APPS_ROUTE, { headers: { accept: 'application/json' } })
+    return response.ok ? await response.json() as OpenInAppAppsPayload : undefined
   }
 }

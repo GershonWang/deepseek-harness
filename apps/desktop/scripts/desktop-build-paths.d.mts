@@ -1,4 +1,4 @@
-import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
+import type { DesktopAutoUpdateTarget } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
 
 /** Build targets the packaging scripts prepare; the Linux target ships as a Linglong bundle. */
 export type DesktopBuildTarget = DesktopAutoUpdateTarget | 'linux-x64'
