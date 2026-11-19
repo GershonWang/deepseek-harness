@@ -232,6 +232,12 @@ body {
 }
 
 .card-meta {
+  /* 版本说明与按钮同排后可能比按钮行还长：允许它省略，按钮不收缩。 */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--dsw-alias-label-tertiary);
   font-size: 12px;
   line-height: 18px;
@@ -239,12 +245,11 @@ body {
 }
 
 /*
- * 操作行统一贴卡片底部并右对齐。
+ * 操作区。
  *
- * 卡片高度由网格行决定（同行等高），但内容长短不一：只有把操作行用
- * `margin-top: auto` 压到底、并让它始终存在，同一排卡片的按钮才会落在同一条
- * 水平线上。右对齐是因为一行的读顺序是"名称 → 操作"，按钮靠右不会和左侧的
- * 版本选择器抢注意力。
+ * 底排把版本说明与按钮放在同一行：说明只是一行文字，单独占行会在按钮上方空出一条
+ * 与内容无关的高度，把整排卡片撑高。`margin-top: auto` 把整块压到卡片底部，同一排
+ * 卡片的按钮才会落在同一条水平线上。
  */
 .card-actions {
   display: flex;
@@ -258,11 +263,21 @@ body {
    两字，用户看不到当前版本号。 */
 .card-select-row { display: flex; }
 
+/* 底排：说明靠左可省略，按钮靠右不收缩。放不下时版本说明整行上移、按钮留在下一行：
+   把说明压成「已…」等于没写，而多按钮（切换版本/更新/卸载）只占少数卡片。 */
+.card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .card-buttons {
   display: flex;
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .card-actions .btn { height: 28px; padding: 0 12px; font-size: 12px; }

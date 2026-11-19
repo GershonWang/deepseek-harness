@@ -85,7 +85,7 @@ function selectedVersion(tool) {
   return tool.lines[0]?.latest ?? ''
 }
 
-/** 渲染一张卡片上的进度区。 */
+/** 渲染一张卡片上的进度块；取消按钮由操作行的底排承载，与版本说明同排。 */
 function renderProgress(tool) {
   const report = progress.get(tool.id)
   if (report === undefined) return null
@@ -94,26 +94,40 @@ function renderProgress(tool) {
       h('span', { text: report.phase }, report.transferred === '' ? null : h('span', { text: report.transferred })),
       h('span', { text: `${report.percent}%` })),
     h('div', { class: `progress-track${report.determinate ? '' : ' is-indeterminate'}` },
-      h('div', { class: 'progress-fill', style: `width: ${report.percent}%` })),
-    report.cancellable
-      ? h('div', { class: 'card-actions' },
-          h('button', {
-            class: 'btn btn-quiet', type: 'button', text: view.labels.cancel,
-            onclick: () => { void window.dshToolchain.cancel() },
-          }))
-      : null)
+      h('div', { class: 'progress-fill', style: `width: ${report.percent}%` })))
 }
 
 /**
  * 渲染一张卡片的主要操作。
  *
- * 版本选择器单独占一行，按钮行统一右对齐。挤在同一行时，像 JDK 这种「下拉 + 切换
- * 版本 + 更新 + 卸载」四控件的卡片会把下拉压到只剩「版本」两个字，用户看不到当前
- * 版本号；分行之后每个控件都有自己的宽度，按钮也仍落在同一条底线上。
+ * 版本说明与按钮同处操作行的底排：说明只是一行文字，单独占行会在按钮上方空出一条
+ * 与内容无关的高度，把整排卡片撑高。版本选择器仍独占一行——和按钮挤在一起时，像
+ * JDK 这种「下拉 + 切换版本 + 更新 + 卸载」的卡片会把下拉压到只剩「版本」两个字，
+ * 用户看不到当前版本号。
+ *
+ * @param tool - 卡片对应的工具视图。
+ * @param meta - 版本说明，空串表示这行没有可说明的内容。
  */
-function renderActions(tool) {
-  if (installing === tool.id) return renderProgress(tool)
-  if (tool.bundled) return null
+function renderActions(tool, meta) {
+  /** 操作行底排：版本说明靠左可省略，按钮靠右且不收缩。 */
+  const footer = buttons => h('div', { class: 'card-footer' },
+    meta === '' ? null : h('span', { class: 'card-meta', text: meta, title: meta }),
+    buttons)
+
+  if (installing === tool.id) {
+    const report = progress.get(tool.id)
+    const cancel = report?.cancellable === true
+      ? h('div', { class: 'card-buttons' },
+          h('button', {
+            class: 'btn btn-quiet', type: 'button', text: view.labels.cancel,
+            onclick: () => { void window.dshToolchain.cancel() },
+          }))
+      : null
+    return h('div', { class: 'card-actions' }, renderProgress(tool), footer(cancel))
+  }
+  // 随包工具没有可用的操作，但版本说明仍要留在底排：它和按钮同处一行，抽掉整行
+  // 会让这张卡片比同排其他卡片少一截。
+  if (tool.bundled) return h('div', { class: 'card-actions' }, footer(null))
 
   const buttons = []
   let selector = null
@@ -126,7 +140,7 @@ function renderActions(tool) {
     // 有随包副本可以切回去时，下拉里多一个选项：选中它表示停用市场版本、改用随包
     // 那份。它不是一个可安装的版本，因此只在这里出现，不进 lines。
     const fallback = tool.bundledFallback
-    if (installedVersions.length > 1 || fallback !== undefined) {
+    if (offersSelector(tool)) {
       const options = [...installedVersions.map(entry => h('option', {
         value: entry.version,
         selected: entry.active,
@@ -169,7 +183,7 @@ function renderActions(tool) {
     }))
     return h('div', { class: 'card-actions' },
       selector === null ? null : h('div', { class: 'card-select-row' }, selector),
-      h('div', { class: 'card-buttons' }, ...buttons))
+      footer(h('div', { class: 'card-buttons' }, ...buttons)))
   }
 
   // 未安装：多线工具给线选择器，单线工具直接把版本写在 meta 行。
@@ -186,7 +200,23 @@ function renderActions(tool) {
   }))
   return h('div', { class: 'card-actions' },
     selector === null ? null : h('div', { class: 'card-select-row' }, selector),
-    h('div', { class: 'card-buttons' }, ...buttons))
+    footer(h('div', { class: 'card-buttons' }, ...buttons)))
+}
+
+/**
+ * 卡片是否给出激活版本的下拉。
+ *
+ * 同时决定两件事：卡片给不给下拉控件，以及版本行要不要再报一次版本号——下拉里已经
+ * 写着当前版本，底排再写一遍既重复又占宽度，多按钮卡片会把版本行挤到只剩省略号。
+ *
+ * @param tool - 卡片对应的工具视图。
+ * @returns 需要下拉时为 true。
+ */
+function offersSelector(tool) {
+  if (!tool.installed) return tool.offersLines
+  const installedVersions = tool.lines.flatMap(line => line.versions.filter(entry => entry.installed))
+  // 有随包副本可以切回去时也会出现下拉，那一项同样表示当前生效的版本。
+  return installedVersions.length > 1 || tool.bundledFallback !== undefined
 }
 
 /** 版本说明行：未装显示将要装的版本与体积，已装显示当前版本或「已停用」。 */
@@ -201,7 +231,8 @@ function metaText(tool) {
   if (active !== '') {
     const entry = tool.lines.flatMap(line => line.versions).find(item => item.version === active)
     const size = entry?.size === '' ? '' : ` · ${entry?.size ?? ''}`
-    return `${view.labels.installedTag} ${active}${size}`
+    // 下拉已经显示当前版本，这里只报体积，避免同一信息出现两次。
+    return offersSelector(tool) ? size.replace(' · ', '') : `${view.labels.installedTag} ${active}${size}`
   }
   const line = tool.lines[0]
   const entry = line?.versions.find(item => item.version === line.latest)
@@ -241,9 +272,8 @@ function renderCard(tool) {
       h('span', { class: 'card-name', text: tool.name, title: tool.name }), tag),
     h('p', { class: 'card-desc', text: tool.description }),
     commands === '' ? null : h('div', { class: 'card-commands', text: commands, title: commands }),
-    meta === '' ? null : h('div', { class: 'card-meta', text: meta }),
     error === undefined ? null : h('div', { class: 'card-error', text: error }),
-    renderActions(tool),
+    renderActions(tool, meta),
   )
 }
 
