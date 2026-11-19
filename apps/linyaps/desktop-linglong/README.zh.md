@@ -4,7 +4,7 @@
 
 `apps/linyaps/desktop-linglong` 把上游 Electron Desktop 客户端（[`apps/desktop`](../../desktop)）打包成面向 Deepin 25 的玲珑包。它沿用 [`apps/linyaps/desktop-launcher`](../desktop-launcher)（内嵌 `dsh web` 的 Go + Wails 薄壳）的应用 ID `com.deepseek.dsh-desktop`，因此是它的**升级**而不是并列安装：用户的桌面图标、启动器登记与数据目录都保持不变。
 
-版本号必须高于薄壳版最后发布的 `0.1.7.2`，玲珑按版本号判定升级，低于已安装版本会被当作版本倒退拒绝。当前为 `0.2.0.10`。
+版本号必须高于薄壳版最后发布的 `0.1.7.2`，玲珑按版本号判定升级，低于已安装版本会被当作版本倒退拒绝。当前为 `0.2.0.11`。
 
 ## 本模块产出什么
 
