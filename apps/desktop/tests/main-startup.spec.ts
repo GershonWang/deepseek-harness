@@ -107,8 +107,8 @@ const harness = await vi.hoisted(async () => {
       }),
     })
     readonly shown = deferred()
-    readonly show = vi.fn(() => { this.shown.resolve() })
-    readonly hide = vi.fn()
+    readonly show = vi.fn(() => { this.visible = true; this.shown.resolve() })
+    readonly hide = vi.fn(() => { this.visible = false })
     readonly focus = vi.fn()
     readonly moveTop = vi.fn()
     readonly setAlwaysOnTop = vi.fn()
@@ -121,7 +121,8 @@ const harness = await vi.hoisted(async () => {
     readonly setBackgroundColor = vi.fn()
     readonly setMenuBarVisibility = vi.fn()
     constructor(readonly options: { show: boolean; modal?: boolean }) {
-      super(); if (windowFailure !== undefined) throw windowFailure; windows.push(this)
+      super(); this.visible = options.show
+      if (windowFailure !== undefined) throw windowFailure; windows.push(this)
     }
     isDestroyed() { return this.destroyed }
     fullscreen = false
@@ -129,7 +130,8 @@ const harness = await vi.hoisted(async () => {
     readonly setFullScreen = vi.fn((flag: boolean) => { this.fullscreen = flag; this.emit(flag ? 'enter-full-screen' : 'leave-full-screen') })
     minimized = false
     isMinimized() { return this.minimized }
-    visible = true
+    /** 与 Electron 一致：只有 show()/showInactive() 之后的窗口才可见。 */
+    visible: boolean
     isVisible() { return this.visible }
     isFocused() { return true }
     async loadURL(url: string) {
@@ -214,7 +216,7 @@ const harness = await vi.hoisted(async () => {
   let analyticsEnabledListener: ((enabled: boolean) => void) | undefined
   const analytics = vi.fn(async (_event: unknown) => {})
   const nativeTheme = new class extends EventEmitter {
-    themeSource = 'system'
+    themeSource: 'system' | 'light' | 'dark' = 'system'
     systemDark = false
     get shouldUseDarkColors() { return this.themeSource === 'system' ? this.systemDark : this.themeSource === 'dark' }
     set shouldUseDarkColors(value: boolean) { this.systemDark = value }
@@ -278,6 +280,9 @@ const harness = await vi.hoisted(async () => {
     set pluginsEnabled(value: boolean) { pluginsEnabled = value },
     set closeWindowsOnQuit(value: boolean) { closeWindowsOnQuit = value },
     reset() {
+      // 上一个用例拉起的后台流程（DDE 主题读取、登录 shell 探测）可能在本用例里才落地；
+      // 先按应用退出清理它们，否则会改写本用例共享的 nativeTheme 等状态。
+      app.emit('will-quit')
       accountListener = undefined
       windows.length = 0
       views.length = 0; hosts.length = 0; handlers.clear(); app.removeAllListeners()
@@ -1229,7 +1234,9 @@ describe('desktop main startup', () => {
       await import('../src/main.ts')
       await harness.preparing.promise
       const window = harness.windows[0]!
-      expect(window.show).not.toHaveBeenCalled()
+      // 加载页不等待 Host 主题：文档一加载完就放出。
+      await vi.waitFor(() => { expect(window.show).toHaveBeenCalledOnce() })
+      window.show.mockClear()
       harness.prepared.resolve()
       await harness.hostStarted.promise
       const host = harness.hosts[0]!
@@ -1679,8 +1686,7 @@ describe('desktop main startup', () => {
     harness.prepared.resolve()
     await harness.hostStarted.promise
     harness.hosts[0]!.ready.resolve()
-    await window.shown.promise
-    expect(window.show).toHaveBeenCalledOnce()
+    await vi.waitFor(() => { expect(window.show).toHaveBeenCalledTimes(2) })
     expect(window.moveTop).toHaveBeenCalledTimes(raises ? 1 : 0)
     expect(window.focus).toHaveBeenCalledTimes(raises ? 1 : 0)
     expect(window.setAlwaysOnTop).not.toHaveBeenCalled()
@@ -3111,13 +3117,14 @@ describe('desktop main startup', () => {
     expect(signal?.aborted).toBe(true)
   })
 
-  it('prepares recovery offscreen and starts one Host before choosing the first visible window', async () => {
+  it('reveals the loading document and starts one Host before choosing the first visible window', async () => {
     await import('../src/main.ts')
     await harness.preparing.promise
     expect(harness.windows).toHaveLength(1)
     const window = harness.windows[0]!
+    // 窗口仍以隐藏方式创建，但文档一加载完就放出：Host 启动期间不再是"只有托盘"。
     expect(window.options.show).toBe(false)
-    expect(window.show).not.toHaveBeenCalled()
+    await vi.waitFor(() => { expect(window.show).toHaveBeenCalledOnce() })
     expect(window.urls).toEqual(['dsh-app://app/'])
     expect(harness.hosts).toHaveLength(0)
     const retry = invoke(DESKTOP_IPC.boot)
@@ -3205,7 +3212,8 @@ describe('desktop main startup', () => {
     expect(harness.windows[0]!.urls).not.toContain('http://127.0.0.1:3080/?token=test')
     const failureDialog = harness.dialog.showMessageBox.mock.calls[0]![0] as { detail: string }
     expect(failureDialog.detail).toContain('backend exited during startup preferences')
-    expect(harness.windows[0]!.show).not.toHaveBeenCalled()
+    // 加载页提前露出后，恢复文档本身就是用户已经看到的那个窗口。
+    expect(harness.windows[0]!.show).toHaveBeenCalledOnce()
   })
 
   it('waits for a pending child to exit on quit without late window navigation', async () => {

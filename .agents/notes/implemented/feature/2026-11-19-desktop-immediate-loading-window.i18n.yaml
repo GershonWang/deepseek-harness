@@ -1,0 +1,19 @@
+# Bilingual-pair consistency record for 2026-11-19-desktop-immediate-loading-window.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-11-19-desktop-immediate-loading-window.md
+/agent-note-immediate-loading-window-on-desktop-startup:
+  en: 3bfff5a170065233
+  zh: 1e2855f397c71d4d
+/agent-note-immediate-loading-window-on-desktop-startup/problem:
+  en: bbe39aa0962043cd
+  zh: f391fe8e5d3bec62
+/agent-note-immediate-loading-window-on-desktop-startup/decision:
+  en: f8139e19d9ed5d84
+  zh: 9cd482f8cc680c0f
+/agent-note-immediate-loading-window-on-desktop-startup/alternatives-considered:
+  en: 0e1d7c9fea0375ff
+  zh: f06e692e6759104d
+/agent-note-immediate-loading-window-on-desktop-startup/consequences:
+  en: d1a6d658881f78d4
+  zh: d1041608a32fb77e

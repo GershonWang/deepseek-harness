@@ -27,6 +27,7 @@ const state = vi.hoisted(() => ({
   loadWorkspace: vi.fn<(url: string) => Promise<void>>().mockResolvedValue(undefined),
   showWorkspace: vi.fn(),
   showInactiveWorkspace: vi.fn(),
+  hideWorkspace: vi.fn(),
   focusWorkspace: vi.fn(),
   moveTopWorkspace: vi.fn(),
   openDevTools: vi.fn(),
@@ -82,11 +83,13 @@ vi.mock('electron', () => ({
     restore = vi.fn()
     focus = state.focusWorkspace
     moveTop = state.moveTopWorkspace
-    hide = vi.fn()
+    visible = false
+    isVisible() { return this.visible }
+    hide = vi.fn(() => { this.visible = false; state.hideWorkspace() })
     setMenuBarVisibility = vi.fn()
     setBackgroundColor = vi.fn()
-    show = state.showWorkspace
-    showInactive = state.showInactiveWorkspace
+    show = vi.fn(() => { this.visible = true; state.showWorkspace() })
+    showInactive = vi.fn(() => { this.visible = true; state.showInactiveWorkspace() })
     async loadURL(url: string) { state.contents = this.webContents; await state.loadWorkspace(url); this.ready?.() }
   },
   nativeTheme: state.nativeTheme,
@@ -212,13 +215,21 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   }
   await import('../src/main.ts')
   await vi.waitFor(() => { expect(state.beforeRead).toHaveBeenCalledOnce() })
+  // 加载页在 Host 选择窗口之前就已放出：启动期间不再是"只有托盘"。
+  expect(state.showWorkspace).toHaveBeenCalledOnce()
+  expect(state.focusWorkspace).not.toHaveBeenCalled()
+  const showsAfterLoad = state.showWorkspace.mock.calls.length
   try {
     activate()
-    expect(state.showWorkspace).not.toHaveBeenCalled()
+    // 启动期间的激活不再空转：可见的加载页会被聚焦（每次激活同时走单实例与 dsh://open 两个入口）。
+    expect(state.showWorkspace).toHaveBeenCalledTimes(showsAfterLoad + 2)
+    expect(state.focusWorkspace).toHaveBeenCalledTimes(2)
     reading.resolve(undefined)
     await vi.waitFor(() => { expect(state.beforeWelcome).toHaveBeenCalledOnce() })
+    // 欢迎页尚未出现时主窗口仍可见，激活继续聚焦加载页。
     activate()
-    expect(state.showWorkspace).not.toHaveBeenCalled()
+    expect(state.showWorkspace).toHaveBeenCalledTimes(showsAfterLoad + 4)
+    expect(state.focusWorkspace).toHaveBeenCalledTimes(4)
   } finally {
     reading.resolve(undefined)
     loading.resolve(undefined)
@@ -226,7 +237,11 @@ it.each([false, true])('starts welcome onboarding without carrying update focus 
   await vi.waitFor(() => { expect(state.operations).toBeDefined() })
   expect(state.startHost).toHaveBeenCalledOnce()
   expect(state.loadWorkspace).toHaveBeenCalledExactlyOnceWith('dsh-app://app/')
-  expect(state.showWorkspace).not.toHaveBeenCalled()
+  // 欢迎页出现时收起加载页：工作区没有被提前展示。
+  await vi.waitFor(() => { expect(state.hideWorkspace).toHaveBeenCalledOnce() })
+  expect(state.showWorkspace).toHaveBeenCalledTimes(showsAfterLoad + 4)
+  state.showWorkspace.mockClear()
+  state.focusWorkspace.mockClear()
   state.loadWorkspace.mockClear()
   expect(state.welcomeLocale).toMatchObject({ id: 'zh-CN' })
   expect(await state.operations!.takeNotice()).toBeUndefined()

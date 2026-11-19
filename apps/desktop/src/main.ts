@@ -823,15 +823,30 @@ async function main(): Promise<void> {
     finally { await Promise.all([operationJournal?.drain(500), reports]) }
   }
 
+  /**
+   * 在文档加载完成后先放出主窗口，让启动期间有可见反馈。
+   *
+   * 主窗口创建时保持隐藏，是因为登录态决定最终显示欢迎页还是工作区；但把窗口一直藏到
+   * Host 就绪，会让整段启动（模块加载、插件激活）只剩一个托盘。这里只放出已经加载完的
+   * 加载页：需要欢迎页时 {@link showWelcome} 会把主窗口重新隐藏，用户不会看到工作区。
+   */
+  const revealStartupWindow = (): void => {
+    const window = mainWindow
+    if (isQuitting() || recovery.active || enteredWorkspace || window === undefined || window.isDestroyed()) return
+    if (welcomeWindow !== undefined && !welcomeWindow.isDestroyed()) return
+    if (window.isVisible()) return
+    window.show()
+  }
   const reconcileBackend = (): Promise<void> => {
     startup ??= (async () => {
-      await navigateMain(applicationUrl)
-      await backend.start(async () => {
+      // 加载页与 Host 启动互不依赖：并行后页面加载不再串在 Host 之前，失败仍由下方统一上报。
+      const loading = navigateMain(applicationUrl).then(() => { revealStartupWindow() })
+      await Promise.all([loading, backend.start(async () => {
         // The import composes into the profile before the Host opens it, so a
         // legacy Web profile is offered exactly once, ahead of release preparation.
         await offerProfileMigration(manager, paths, currentMainWindow())
         await Promise.all([manager.applyRelease(), prepareHostEnvironment()])
-      })
+      })])
       if (backend.host !== undefined) await openInitialWindow()
       if (backend.host !== undefined) updateJournal?.action('workspace-ready')
       // The existing Web document resumes through the boot IPC response.
@@ -1805,8 +1820,8 @@ async function main(): Promise<void> {
       void (backend.state.phase === 'ready' ? openInitialWindow() : navigateMain(applicationUrl)).catch((error: unknown) => { reportFatal(error, 'main') })
       return
     }
-    // Startup and sign-out select the visible window before activation may reveal the workspace.
-    if (window === mainWindow && !enteredWorkspace) return
+    // 启动与登出会先选好该出现的窗口：隐藏的启动窗口不因托盘点击提前露出，已放出的加载页可以正常聚焦。
+    if (window === mainWindow && !enteredWorkspace && !window.isVisible()) return
     if (window.isMinimized()) window.restore()
     window.show()
     window.focus()
