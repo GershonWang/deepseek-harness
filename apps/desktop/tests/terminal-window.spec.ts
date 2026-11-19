@@ -24,6 +24,7 @@ const fixture = await vi.hoisted(async () => {
     readonly show = vi.fn()
     readonly focus = vi.fn()
     readonly setTitle = vi.fn()
+    readonly setMenuBarVisibility = vi.fn()
     constructor(readonly options: Record<string, unknown>) { super(); windows.push(this) }
     isDestroyed() { return this.destroyed }
     isMinimized() { return false }
