@@ -65,7 +65,9 @@ body {
   white-space: nowrap;
 }
 
-.btn:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-3); }
+/* 悬停底色用叠色令牌而不是 `bg-layer-3`：浅色主题下三个 bg-layer 令牌都是纯白，
+   换成 layer-3 等于没有反馈。 */
+.btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 
 .btn-primary {
@@ -77,7 +79,10 @@ body {
   color: var(--dsw-alias-label-primary-inverted);
 }
 
-.btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+/* 主按钮必须显式给出悬停底色：只写 filter 时，上面那条 `.btn:hover` 会把品牌底色
+   换成浅色底，而文字仍是 `label-primary-inverted`，两者同色到看不见按钮文字。
+   这里换成主题自带的主按钮悬停色，文字与底色的反差关系保持不变。 */
+.btn-primary:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); }
 
 .btn-quiet { background: transparent; }
 
