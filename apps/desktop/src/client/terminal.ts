@@ -13,6 +13,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { DesktopTerminalApi, DesktopTerminalView } from '../terminal-contract.ts'
 import { isClipboardPasteShortcut } from './terminal-keys.ts'
+import { TerminalContextMenu } from './terminal-menu.ts'
 
 declare global {
   interface Window {
@@ -105,6 +106,16 @@ terminal.attachCustomKeyEventHandler(event => !isClipboardPasteShortcut(event))
 /** 会话是否已拉起：未拉起时不转发 resize，拉起之后每次都同步（SIGWINCH）。 */
 let started = false
 
+/** 当前会话状态：会话结束后不再允许把剪贴板内容送进去。 */
+let phase: DesktopTerminalView['phase'] = 'running'
+
+/** 菜单文案，随主进程下发的视图更新；打开时才有值。 */
+let menuCopy = ''
+let menuPaste = ''
+
+/** 深色右键菜单；关闭时把焦点还给终端，外部点击除外。 */
+const menu = new TerminalContextMenu(document.body, (restore) => { if (restore) terminal.focus() })
+
 /**
  * 渲染主进程下发的视图。
  *
@@ -116,6 +127,9 @@ function render(next: DesktopTerminalView): void {
   document.documentElement.lang = next.locale
   document.title = next.title
   terminal.textarea?.setAttribute('aria-label', next.screenLabel)
+  phase = next.phase
+  menuCopy = next.menuCopy
+  menuPaste = next.menuPaste
   const ended = next.phase !== 'running'
   status.hidden = !ended
   statusText.textContent = next.status ?? ''
@@ -137,6 +151,38 @@ function reportSize(): void {
     .then(render)
     .catch((error: unknown) => { console.error('desktop terminal: could not start the session', error) })
 }
+
+/**
+ * 右键菜单：复制当前选区，或把系统剪贴板粘贴进终端。
+ *
+ * 菜单只决定「做什么」：剪贴板读写由主进程完成，终端数据由 xterm 自己送入 PTY。
+ * 粘贴在会话结束后禁用，因为那时写入不再有接收方；复制没有选区时禁用。
+ */
+screen.addEventListener('contextmenu', (event) => {
+  event.preventDefault()
+  menu.openAt({ x: event.clientX, y: event.clientY }, [
+    {
+      id: 'copy',
+      label: menuCopy,
+      disabled: terminal.getSelection() === '',
+      run: () => {
+        void api.writeClipboard(terminal.getSelection())
+          .catch((error: unknown) => { console.error('desktop terminal: could not copy the selection', error) })
+      },
+    },
+    {
+      id: 'paste',
+      label: menuPaste,
+      hint: 'Ctrl+V',
+      disabled: phase !== 'running',
+      run: () => {
+        void api.readClipboard()
+          .then((text) => { if (text !== '') terminal.paste(text) })
+          .catch((error: unknown) => { console.error('desktop terminal: could not read the clipboard', error) })
+      },
+    },
+  ])
+})
 
 terminal.onData((data) => {
   void api.write(data).catch((_gone: unknown) => {
@@ -171,6 +217,7 @@ restart.addEventListener('click', () => {
 const unsubscribeView = api.subscribe(render)
 const unsubscribeOutput = api.output((data) => { terminal.write(data) })
 window.addEventListener('pagehide', () => {
+  menu.dispose()
   unsubscribeView()
   unsubscribeOutput()
   terminal.dispose()

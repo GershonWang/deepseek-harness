@@ -1,4 +1,4 @@
-/** 托盘「终端」窗口的隔离桥：只暴露终端的四个调用与两个事件流。 */
+/** 托盘「终端」窗口的隔离桥：只暴露终端的调用与两个事件流。 */
 import { contextBridge, ipcRenderer } from 'electron'
 import { TERMINAL_IPC, type DesktopTerminalApi, type DesktopTerminalView } from './terminal-contract.ts'
 
@@ -7,6 +7,8 @@ const api: DesktopTerminalApi = {
   start: (cols, rows) => ipcRenderer.invoke(TERMINAL_IPC.start, cols, rows) as Promise<DesktopTerminalView>,
   write: data => ipcRenderer.invoke(TERMINAL_IPC.write, data) as Promise<void>,
   resize: (cols, rows) => ipcRenderer.invoke(TERMINAL_IPC.resize, cols, rows) as Promise<void>,
+  readClipboard: () => ipcRenderer.invoke(TERMINAL_IPC.clipboardRead) as Promise<string>,
+  writeClipboard: text => ipcRenderer.invoke(TERMINAL_IPC.clipboardWrite, text) as Promise<void>,
   subscribe: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, view: DesktopTerminalView): void => { listener(view) }
     ipcRenderer.on(TERMINAL_IPC.state, receive)

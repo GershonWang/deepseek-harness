@@ -14,6 +14,8 @@ export const TERMINAL_IPC = {
   start: 'dsh-terminal:start',
   write: 'dsh-terminal:write',
   resize: 'dsh-terminal:resize',
+  clipboardRead: 'dsh-terminal:clipboard-read',
+  clipboardWrite: 'dsh-terminal:clipboard-write',
   state: 'dsh-terminal:state',
   output: 'dsh-terminal:output',
 } as const
@@ -38,6 +40,10 @@ export interface DesktopTerminalView {
   readonly phase: DesktopTerminalPhase
   /** 退出或失败时显示的状态行；运行中省略。 */
   readonly status?: string
+  /** 右键菜单「复制」的文案。 */
+  readonly menuCopy: string
+  /** 右键菜单「粘贴」的文案。 */
+  readonly menuPaste: string
 }
 
 /** 终端文档可以请求的全部操作。 */
@@ -60,6 +66,13 @@ export interface DesktopTerminalApi {
    * @param cols - 列数。@param rows - 行数。
    */
   resize(cols: number, rows: number): Promise<void>
+  /** 读取系统剪贴板文本；剪贴板里没有文本时为空串。 */
+  readClipboard(): Promise<string>
+  /**
+   * 用文本替换系统剪贴板内容。
+   * @param text - 要写入的文本。
+   */
+  writeClipboard(text: string): Promise<void>
   /** @param listener - 视图变化订阅。@returns 取消订阅。 */
   subscribe(listener: (view: DesktopTerminalView) => void): () => void
   /** @param listener - PTY 输出订阅。@returns 取消订阅。 */

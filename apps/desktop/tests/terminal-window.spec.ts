@@ -11,7 +11,7 @@ const fixture = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const windows: FakeWindow[] = []
-  const menus: Array<{ template: unknown[]; popup: ReturnType<typeof vi.fn> }> = []
+  const clipboard = { text: '', writeText: vi.fn<(value: string) => Promise<void>>(), readText: vi.fn<() => Promise<string>>() }
   class FakeWindow extends EventEmitter {
     destroyed = false
     readonly webContents = Object.assign(new EventEmitter(), {
@@ -32,21 +32,19 @@ const fixture = await vi.hoisted(async () => {
     restore() { this.restored() }
     destroy() { this.destroyed = true; this.emit('closed') }
   }
-  return { handlers, windows, menus, FakeWindow }
+  return { handlers, windows, clipboard, FakeWindow }
 })
 
 vi.mock('electron', () => ({
   BrowserWindow: fixture.FakeWindow,
+  // Electron 44 的剪贴板是异步的，桩也必须异步，才能覆盖 await 之后的顺序。
+  clipboard: {
+    writeText: async (value: string) => { fixture.clipboard.text = value; await fixture.clipboard.writeText(value) },
+    readText: async () => { await fixture.clipboard.readText(); return fixture.clipboard.text },
+  },
   ipcMain: {
     handle: (name: string, fn: (...args: unknown[]) => unknown) => { fixture.handlers.set(name, fn) },
     removeHandler: (name: string) => { fixture.handlers.delete(name) },
-  },
-  Menu: {
-    buildFromTemplate: (template: unknown[]) => {
-      const menu = { template, popup: vi.fn() }
-      fixture.menus.push(menu)
-      return menu
-    },
   },
 }))
 
@@ -87,7 +85,7 @@ afterEach(() => {
   for (const window of windows.splice(0)) window.dispose()
   fixture.windows.length = 0
   fixture.handlers.clear()
-  fixture.menus.length = 0
+  fixture.clipboard.text = ''
   ptys.length = 0
   vi.clearAllMocks()
 })
@@ -237,28 +235,37 @@ it('ends the shell when the window closes, with SIGHUP before the kill fallback'
   f.window.dispose()
 })
 
-it('offers copy and paste in the shell language when the terminal is right-clicked', () => {
+it('publishes the right-click menu labels in the shell language', () => {
   const f = setup('zh-CN')
   f.window.show()
-  const window = fixture.windows[0]!
-  window.webContents.emit('context-menu', {}, {
-    isEditable: true, selectionText: 'ls -la', editFlags: { canCopy: true, canPaste: true },
-  })
-  expect(fixture.menus).toHaveLength(1)
-  // Ctrl+C is SIGINT in a terminal, so copy never advertises a shortcut; paste keeps the
-  // Ctrl+V label the page hands to Chromium.
-  expect(fixture.menus[0]!.template).toEqual([
-    { role: 'copy', label: '复制', enabled: true, accelerator: '' },
-    { role: 'paste', label: '粘贴', enabled: true },
-  ])
-  expect(fixture.menus[0]!.popup).toHaveBeenCalledWith({ window })
+  invoke(TERMINAL_IPC.start, 80, 24)
+  expect(pushed()).toMatchObject({ menuCopy: '复制', menuPaste: '粘贴' })
+  f.setLocale('en')
+  f.window.relabel()
+  expect(pushed()).toMatchObject({ menuCopy: 'Copy', menuPaste: 'Paste' })
 })
 
-it('leaves out copy without a selection and follows disabled edit commands', () => {
+it('reads and writes the system clipboard for the page', async () => {
   const f = setup()
   f.window.show()
-  fixture.windows[0]!.webContents.emit('context-menu', {}, {
-    isEditable: true, selectionText: '', editFlags: { canCopy: false, canPaste: false },
-  })
-  expect(fixture.menus[0]!.template).toEqual([{ role: 'paste', label: 'Paste', enabled: false }])
+  fixture.clipboard.text = 'from-clipboard'
+  await expect(invoke(TERMINAL_IPC.clipboardRead)).resolves.toBe('from-clipboard')
+  await invoke(TERMINAL_IPC.clipboardWrite, 'selected text')
+  expect(fixture.clipboard.text).toBe('selected text')
+})
+
+it('rejects clipboard writes that are not bounded strings', async () => {
+  const f = setup()
+  f.window.show()
+  await expect(invoke(TERMINAL_IPC.clipboardWrite, 42)).rejects.toThrow(/invalid clipboard text/u)
+  await expect(invoke(TERMINAL_IPC.clipboardWrite, 'x'.repeat(1_000_001))).rejects.toThrow(/invalid clipboard text/u)
+  expect(fixture.clipboard.text).toBe('')
+})
+
+it('rejects clipboard calls from any other document', async () => {
+  const f = setup()
+  f.window.show()
+  const handler = fixture.handlers.get(TERMINAL_IPC.clipboardRead)!
+  // 剪贴板通道是异步处理器，拒绝以 rejected promise 的形式到达调用方。
+  await expect(handler({ sender: {}, senderFrame: { url: PAGE } })).rejects.toThrow(/unowned/u)
 })
