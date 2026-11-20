@@ -4,15 +4,15 @@
  * 页面不持有会话状态：尺寸上报、输入转发、退出与否全由主进程决定，这里只做
  * 「把 PTY 输出画出来、把按键原样送回去」，以及安全地显示一行本地化状态。
  *
- * 键盘归属照搬薄壳版（`2026-09-12-desktop-launcher-terminal-presentation`）的结论：
- * 复制、粘贴、字号这些壳自己的组合键不在这里拦截，其余一切——**包括 Esc**——
- * 都属于 PTY。Esc 是 vim 退出插入模式、readline 转义序列的前缀，抢走它等于让
- * 交互程序不可用。
+ * 键盘归属：只有三组粘贴组合（Ctrl+V、Ctrl+Shift+V、Shift+Insert）放行给系统的
+ * 默认粘贴，其余一切——**包括 Esc**——都属于 PTY。Esc 是 vim 退出插入模式、
+ * readline 转义序列的前缀，抢走它等于让交互程序不可用。
  */
 import '@xterm/xterm/css/xterm.css'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { DesktopTerminalApi, DesktopTerminalView } from '../terminal-contract.ts'
+import { isClipboardPasteShortcut } from './terminal-keys.ts'
 
 declare global {
   interface Window {
@@ -97,6 +97,10 @@ const terminal = new Terminal({
 const fit = new FitAddon()
 terminal.loadAddon(fit)
 terminal.open(screen)
+// 粘贴组合放行给 Chromium：返回 false 让 xterm 不再把 Ctrl+V 编成 0x16，默认粘贴
+// 随后派发 paste 事件，由 xterm 按 bracketed-paste 规则写进 PTY。这里刻意不调用
+// preventDefault，否则默认粘贴也会被拦掉。其余按键（含 Esc）继续交给 PTY。
+terminal.attachCustomKeyEventHandler(event => !isClipboardPasteShortcut(event))
 
 /** 会话是否已拉起：未拉起时不转发 resize，拉起之后每次都同步（SIGWINCH）。 */
 let started = false

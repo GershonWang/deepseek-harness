@@ -32,6 +32,7 @@ class FakeTerminal {
   readonly reset = vi.fn()
   readonly focus = vi.fn()
   readonly dispose = vi.fn()
+  readonly attachCustomKeyEventHandler = vi.fn()
   readonly write = vi.fn((_data: string, callback: () => void) => { callback() })
   readonly loadAddon = vi.fn()
   constructor(options: object) { this.options = options; fake.terminals.push(this) }
@@ -161,6 +162,18 @@ it('keeps one emulator across rename and locale updates, applies snapshots and o
   expect(terminal.dispose).toHaveBeenCalledOnce()
   expect(terminal.disposeInput).toHaveBeenCalledOnce()
   expect(disconnect).toHaveBeenCalledOnce()
+})
+
+it('lets Chromium paste on the system shortcuts and keeps every other key for the PTY', () => {
+  mount({ ...idle, info, phase: 'connected', writable: true })
+  const handler = fake.terminals[0]!.attachCustomKeyEventHandler.mock.calls[0]![0] as (event: object) => boolean
+  const key = (over: object) => ({ type: 'keydown', key: 'v', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...over })
+  // false means xterm does not consume the key: Chromium's default paste then reaches xterm's paste handler.
+  expect(handler(key({ ctrlKey: true }))).toBe(false)
+  expect(handler(key({ ctrlKey: true, shiftKey: true, key: 'V' }))).toBe(false)
+  expect(handler(key({ shiftKey: true, key: 'Insert' }))).toBe(false)
+  expect(handler(key({ ctrlKey: true, key: 'c' }))).toBe(true)
+  expect(handler(key({ key: 'Escape' }))).toBe(true)
 })
 
 it('marks emulator input as typed only shortly after a person gesture, never for focus reports or scrolling', () => {

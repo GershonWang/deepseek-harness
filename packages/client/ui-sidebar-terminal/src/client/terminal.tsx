@@ -12,6 +12,7 @@ import '@xterm/xterm/css/xterm.css'
 import css from './terminal.module.css'
 import { TerminalTheme } from './terminal-theme.ts'
 import { observeTerminalCursor } from './terminal-cursor.ts'
+import { isClipboardPasteShortcut } from './paste-keys.ts'
 
 /** Standard sidebar owner share plus terminal model and localized copy. */
 export type TerminalBodyProps = PropsRuntime<'sidebar.right.pane.tab'> & PropsLocale<'sidebarTerminal'> & InjectFace<TerminalBodyInjected>
@@ -106,6 +107,9 @@ function TerminalScreen({ state, model, visible, label, theme }: {
     const addon = new FitAddon()
     xterm.loadAddon(addon)
     xterm.open(node)
+    // 粘贴组合放行给 Chromium：在桌面壳里这些按键会到达渲染进程，不放行的话
+    // xterm 会把它们编成控制字符发进 shell。浏览器里这些按键本就不进页面。
+    xterm.attachCustomKeyEventHandler(event => !isClipboardPasteShortcut(event))
     const palette = new TerminalTheme(xterm)
     colors.current = palette
     const cursor = observeTerminalCursor(xterm, node, () => palette.cursor)

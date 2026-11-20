@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-desktop/terminal-window
  */
 
-import { BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { BrowserWindow, ipcMain, Menu, type IpcMainInvokeEvent, type MenuItemConstructorOptions } from 'electron'
 import { accountLoginShell, DesktopTerminalSession, loadNodePty, resolveTerminalEnvironment, resolveTerminalShell,
   type DesktopTerminalSpawn } from './terminal-session.ts'
 import { TERMINAL_IPC, type DesktopTerminalView } from './terminal-contract.ts'
@@ -103,6 +103,7 @@ export class DesktopTerminalWindow {
     // 键（以及带 Alt 的截图快捷键）把它重新拉出来，因此直接移除整条菜单栏。
     hideMenuBar(window)
     this.installHandlers(window)
+    this.installContextMenu(window)
     window.once('ready-to-show', () => { window.show() })
     window.on('closed', () => {
       this.endSession()
@@ -186,6 +187,32 @@ export class DesktopTerminalWindow {
     for (const channel of [TERMINAL_IPC.status, TERMINAL_IPC.start, TERMINAL_IPC.write, TERMINAL_IPC.resize]) {
       ipcMain.removeHandler(channel)
     }
+  }
+
+  /**
+   * 给终端窗口装一份复制/粘贴右键菜单。
+   *
+   * Electron 不会替任何窗口提供默认右键菜单，而 xterm 自带的右键处理只做选区与
+   * 聚焦；缺了这一段，终端里就没有任何鼠标可达的复制粘贴入口。
+   *
+   * 两个菜单项都走 Chromium 的编辑命令：xterm 监听自身的 copy/paste 事件，把选区
+   * 写进剪贴板、把剪贴板文本按 bracketed-paste 模式送进 PTY，因此主进程不需要
+   * 读取终端缓冲。复制不显示加速键，因为 Ctrl+C 在终端里是 SIGINT；粘贴保留默认
+   * 的 Ctrl+V 标签，它由页面放行给 Chromium。
+   * @param window - 拥有该终端的窗口。
+   */
+  private installContextMenu(window: BrowserWindow): void {
+    window.webContents.on('context-menu', (_event, params) => {
+      const { messages } = this.options.locale()
+      const items: MenuItemConstructorOptions[] = []
+      // 没有选区就不提供复制：终端选区只存在于 xterm 的画布上，右键时由 xterm
+      // 同步进隐藏的输入框，主进程在这里读到的 selectionText 正是那份选区文本。
+      if (params.selectionText.length > 0) {
+        items.push({ role: 'copy', label: messages.copy, enabled: params.editFlags.canCopy, accelerator: '' })
+      }
+      items.push({ role: 'paste', label: messages.paste, enabled: params.editFlags.canPaste })
+      Menu.buildFromTemplate(items).popup({ window })
+    })
   }
 
   /**

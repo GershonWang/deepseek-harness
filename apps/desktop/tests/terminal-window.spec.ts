@@ -11,6 +11,7 @@ const fixture = await vi.hoisted(async () => {
   const { EventEmitter } = await import('node:events')
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const windows: FakeWindow[] = []
+  const menus: Array<{ template: unknown[]; popup: ReturnType<typeof vi.fn> }> = []
   class FakeWindow extends EventEmitter {
     destroyed = false
     readonly webContents = Object.assign(new EventEmitter(), {
@@ -31,7 +32,7 @@ const fixture = await vi.hoisted(async () => {
     restore() { this.restored() }
     destroy() { this.destroyed = true; this.emit('closed') }
   }
-  return { handlers, windows, FakeWindow }
+  return { handlers, windows, menus, FakeWindow }
 })
 
 vi.mock('electron', () => ({
@@ -39,6 +40,13 @@ vi.mock('electron', () => ({
   ipcMain: {
     handle: (name: string, fn: (...args: unknown[]) => unknown) => { fixture.handlers.set(name, fn) },
     removeHandler: (name: string) => { fixture.handlers.delete(name) },
+  },
+  Menu: {
+    buildFromTemplate: (template: unknown[]) => {
+      const menu = { template, popup: vi.fn() }
+      fixture.menus.push(menu)
+      return menu
+    },
   },
 }))
 
@@ -79,6 +87,7 @@ afterEach(() => {
   for (const window of windows.splice(0)) window.dispose()
   fixture.windows.length = 0
   fixture.handlers.clear()
+  fixture.menus.length = 0
   ptys.length = 0
   vi.clearAllMocks()
 })
@@ -226,4 +235,30 @@ it('ends the shell when the window closes, with SIGHUP before the kill fallback'
   expect(ptys[0]!.kills).toEqual(['SIGHUP'])
   // Closing the window is not a reason to wait on the grace period in the test.
   f.window.dispose()
+})
+
+it('offers copy and paste in the shell language when the terminal is right-clicked', () => {
+  const f = setup('zh-CN')
+  f.window.show()
+  const window = fixture.windows[0]!
+  window.webContents.emit('context-menu', {}, {
+    isEditable: true, selectionText: 'ls -la', editFlags: { canCopy: true, canPaste: true },
+  })
+  expect(fixture.menus).toHaveLength(1)
+  // Ctrl+C is SIGINT in a terminal, so copy never advertises a shortcut; paste keeps the
+  // Ctrl+V label the page hands to Chromium.
+  expect(fixture.menus[0]!.template).toEqual([
+    { role: 'copy', label: '复制', enabled: true, accelerator: '' },
+    { role: 'paste', label: '粘贴', enabled: true },
+  ])
+  expect(fixture.menus[0]!.popup).toHaveBeenCalledWith({ window })
+})
+
+it('leaves out copy without a selection and follows disabled edit commands', () => {
+  const f = setup()
+  f.window.show()
+  fixture.windows[0]!.webContents.emit('context-menu', {}, {
+    isEditable: true, selectionText: '', editFlags: { canCopy: false, canPaste: false },
+  })
+  expect(fixture.menus[0]!.template).toEqual([{ role: 'paste', label: 'Paste', enabled: false }])
 })
