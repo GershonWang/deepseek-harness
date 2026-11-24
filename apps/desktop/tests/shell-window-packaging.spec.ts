@@ -18,7 +18,7 @@ function linuxConfig(): {
   return createElectronBuilderConfig({
     DSH_DESKTOP_APP_ID: 'com.example.shell-window-test',
     DSH_DESKTOP_UNSIGNED: '1',
-  }, 'linux', 'x64') as never
+  }, 'linux', 'x64')
 }
 
 it.each(['lib/preload-terminal.cjs', 'lib/preload-toolchain.cjs', 'lib/preload-about.cjs', 'lib/terminal/**/*'])(
