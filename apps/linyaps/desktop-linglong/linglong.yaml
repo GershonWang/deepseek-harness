@@ -91,6 +91,9 @@ build: |
   # /usr 不随 layer 导出，复制过去要么拿不到、要么拿到字符设备（薄壳版 AUDIT N19
   # 记录过同一现象）。apt-get download + dpkg-deb -x 得到的是普通文件，两条路都绕开。
   # git 已在 buildext.apt.depends 里，此处只取它的数据文件。
+  # 基础镜像自带的 apt 索引为空，直接 download 会报「Unable to locate package」，
+  # 先刷新索引再取 .deb。
+  apt-get update
   GIT_TMP=$(mktemp -d)
   ( cd "$GIT_TMP" && apt-get download git ) \
     || { echo "git templates: apt-get download git 失败" >&2; exit 1; }
